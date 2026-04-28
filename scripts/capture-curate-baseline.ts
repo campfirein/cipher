@@ -35,11 +35,13 @@ const FIXTURES_DIR = join(__dirname, '..', 'test', 'fixtures', 'curation')
 
 const SMALL_PATH = join(FIXTURES_DIR, 'small.txt')
 const LARGE_PATH = join(FIXTURES_DIR, 'large.txt')
+const XLARGE_PATH = join(FIXTURES_DIR, 'xlarge.txt')
 
 const SMALL_BASELINE_PATH = join(FIXTURES_DIR, 'baseline-small.json')
 const LARGE_BASELINE_PATH = join(FIXTURES_DIR, 'baseline-large.json')
 
 const LARGE_REPEAT_TIMES = 25 // ~62 KB — clearly chunked
+const LARGE_REPEAT_TIMES_XL = 60 // ~150 KB — Phase 2 bench target (15+ chunks)
 
 // ---------------------------------------------------------------------------
 // Generate large fixture from small (idempotent — overwrite each run)
@@ -52,6 +54,15 @@ const large = Array.from({length: LARGE_REPEAT_TIMES}, (_, i) =>
 writeFileSync(LARGE_PATH, large)
 
 console.log(`Wrote ${LARGE_PATH} (${large.length} bytes)`)
+
+// xlarge: only used by `BENCH=1 npm test`; not committed as a baseline
+// JSON because it's tracked by the bench harness, not the snapshot test.
+const xlarge = Array.from({length: LARGE_REPEAT_TIMES_XL}, (_, i) =>
+  small.replaceAll('[USER]:', `[USER session-${i + 1}]:`).replaceAll('[ASSISTANT]:', `[ASSISTANT session-${i + 1}]:`),
+).join('\n\n---\n\n')
+writeFileSync(XLARGE_PATH, xlarge)
+
+console.log(`Wrote ${XLARGE_PATH} (${xlarge.length} bytes)`)
 
 // ---------------------------------------------------------------------------
 // Deterministic stub services — same per run, so baselines are stable.
@@ -112,7 +123,7 @@ function makeStubServices(): NodeServices {
 async function captureBaseline(label: string, fixturePath: string, outPath: string): Promise<void> {
   const context = readFileSync(fixturePath, 'utf8')
   const ctx: NodeContext = {
-    initialInput: {context, existing: [], history: {}, meta: {}},
+    initialInput: {context, history: {}, meta: {}},
     services: makeStubServices(),
     taskId: `baseline-${label}`,
   }

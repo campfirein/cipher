@@ -18,19 +18,25 @@ function makeContext(overrides: Partial<ContextData> = {}): ContextData {
 const noLoss: StructuralLoss = {
   hasLoss: false,
   lostArrayItems: 0,
+  lostFacts: 0,
+  lostKeywords: 0,
   lostNarrativeFields: 0,
   lostRawConceptFields: 0,
   lostRelations: 0,
   lostSnippets: 0,
+  lostTags: 0,
 }
 
 const hasLoss: StructuralLoss = {
   hasLoss: true,
   lostArrayItems: 0,
+  lostFacts: 0,
+  lostKeywords: 0,
   lostNarrativeFields: 0,
   lostRawConceptFields: 0,
   lostRelations: 0,
   lostSnippets: 1,
+  lostTags: 0,
 }
 
 describe('conflict-resolver', () => {
@@ -158,15 +164,99 @@ describe('conflict-resolver', () => {
     })
 
     describe('non-conflict fields pass through unchanged', () => {
-      it('should keep proposed name, keywords, tags', () => {
+      // Post-R-1 hotfix (PHASE-2-UAT.md §5.3): when hasLoss is true,
+      // keywords and tags are now union-merged (existing first, then
+      // new-only items appended). `name` still passes through from
+      // proposed since it's a scalar identity field, not array content.
+      it('should keep proposed name and union-merge keywords + tags', () => {
         const existing = makeContext({keywords: ['old-kw'], name: 'old name', tags: ['old-tag']})
         const proposed = makeContext({keywords: ['new-kw'], name: 'new name', tags: ['new-tag']})
 
         const result = resolveStructuralLoss(existing, proposed, hasLoss)
 
         expect(result.name).to.equal('new name')
-        expect(result.keywords).to.deep.equal(['new-kw'])
-        expect(result.tags).to.deep.equal(['new-tag'])
+        expect(result.keywords).to.include('old-kw')
+        expect(result.keywords).to.include('new-kw')
+        expect(result.tags).to.include('old-tag')
+        expect(result.tags).to.include('new-tag')
+      })
+    })
+
+    // R-1 hotfix (PHASE-2-UAT.md §5.3): facts/keywords/tags must be merged
+    // back when loss is detected, otherwise UPDATE silently overwrites
+    // existing facts (Scenario 4 fact-loss bug).
+
+    describe('facts', () => {
+      it('should merge lost facts back into proposed', () => {
+        const existing = makeContext({
+          facts: [
+            {statement: 'JWT tokens expire after 24 hours', subject: 'jwt_expiry'},
+          ],
+        })
+        const proposed = makeContext({
+          facts: [
+            {statement: 'JWT tokens use SameSite=Strict', subject: 'jwt_samesite'},
+          ],
+        })
+
+        const result = resolveStructuralLoss(existing, proposed, hasLoss)
+
+        const statements = result.facts?.map((f) => f.statement) ?? []
+        expect(statements).to.include('JWT tokens expire after 24 hours')
+        expect(statements).to.include('JWT tokens use SameSite=Strict')
+      })
+
+      it('should deduplicate facts by statement (existing wins for richer fields)', () => {
+        const existing = makeContext({
+          facts: [{category: 'project', statement: 'Auth uses JWT', subject: 'auth'}],
+        })
+        const proposed = makeContext({
+          facts: [{statement: 'auth uses jwt'}], // same statement, less metadata
+        })
+
+        const result = resolveStructuralLoss(existing, proposed, hasLoss)
+
+        expect(result.facts).to.have.length(1)
+        expect(result.facts?.[0].category).to.equal('project') // existing wins
+        expect(result.facts?.[0].subject).to.equal('auth')
+      })
+
+      it('should preserve existing fact order first then append new facts', () => {
+        const existing = makeContext({
+          facts: [{statement: 'first'}, {statement: 'second'}],
+        })
+        const proposed = makeContext({
+          facts: [{statement: 'third'}],
+        })
+
+        const result = resolveStructuralLoss(existing, proposed, hasLoss)
+
+        expect(result.facts?.[0].statement).to.equal('first')
+        expect(result.facts?.[1].statement).to.equal('second')
+        expect(result.facts?.[2].statement).to.equal('third')
+      })
+    })
+
+    describe('keywords and tags merge', () => {
+      it('should union-merge keywords', () => {
+        const existing = makeContext({keywords: ['jwt', 'auth']})
+        const proposed = makeContext({keywords: ['auth', 'security']})
+
+        const result = resolveStructuralLoss(existing, proposed, hasLoss)
+
+        expect(result.keywords).to.include('jwt')
+        expect(result.keywords).to.include('auth')
+        expect(result.keywords).to.include('security')
+      })
+
+      it('should union-merge tags', () => {
+        const existing = makeContext({tags: ['security']})
+        const proposed = makeContext({tags: ['authentication']})
+
+        const result = resolveStructuralLoss(existing, proposed, hasLoss)
+
+        expect(result.tags).to.include('security')
+        expect(result.tags).to.include('authentication')
       })
     })
   })

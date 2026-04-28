@@ -110,10 +110,11 @@ export const chunkOutputSchema = z.object({
 })
 
 // ---------------------------------------------------------------------------
-// extract — input is chunk's output. Node loops over `input.chunks` and
-// invokes the extract service per chunk; `taskId` comes from `ctx.taskId`.
-// Phase 1 is sequential (concurrency = 1); Phase 2 fans out N parallel
-// extract-node instances via the runner.
+// extract — input is chunk's output. Node maps `input.chunks` through the
+// extract service; `taskId` comes from `ctx.taskId`. Phase 1 was sequential;
+// Phase 2 (Task 2.4) parallelizes via `pMap` INSIDE the node at
+// `ctx.extractConcurrency ?? 4` — the DAG still has a single extract-node
+// instance so the runner stays slot-agnostic.
 // ---------------------------------------------------------------------------
 
 export const extractInputSchema = chunkOutputSchema

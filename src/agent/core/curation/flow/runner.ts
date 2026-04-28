@@ -8,6 +8,13 @@
  * continue. Cycle detection: if Kahn's leaves any node with non-zero
  * in-degree, throws `CycleDetectedError`.
  *
+ * Phase 2 — every node executes inside a per-slot sandbox (timeout +
+ * tool allowlist + parent-signal propagation) and through a soft-mode
+ * schema gate (records validation issues without stranding downstream).
+ * The sandbox is the substrate Phase 3 plugs into when agent-supplied
+ * JS code starts running inside the slot. `ctx.sandboxed = false` is a
+ * test escape hatch for tests using synthetic input shapes.
+ *
  * Algorithm port reference:
  *   - GPTSwarm/swarm/graph/graph.py:111 (Kahn's)
  *   - byterover-cli/src/agent/infra/swarm/engine/swarm-graph.ts (cycle detection)
@@ -34,6 +41,10 @@ import type {
 import type {NodeSlot} from './types.js'
 
 import {type MetricsCollector} from './metrics.js'
+import {SchemaValidationError} from './sandbox/errors.js'
+import {validateAndRun} from './sandbox/schema-gate.js'
+import {buildSlotSandbox} from './sandbox/slot-sandbox-builder.js'
+import {slotContracts} from './slots/contracts.js'
 
 /**
  * Per-slot service functions injected by Task 1.8 (cutover) and stubbed
@@ -80,11 +91,40 @@ export interface CurationDAG {
 }
 
 export interface NodeContext {
+  /**
+   * Concurrency for ExtractNode's per-chunk fan-out (Phase 2 Task 2.4).
+   * Defaults to 4 inside `extract-node.ts`. Tunable via curate-executor.
+   */
+  readonly extractConcurrency?: number
   readonly initialInput?: unknown
   readonly metricsCollector?: MetricsCollector
+  /**
+   * When true (default), every node runs through the per-slot sandbox
+   * (timeout + tool allowlist + parent-signal propagation) and a
+   * soft-mode schema gate. Set false ONLY in tests using synthetic
+   * input shapes that don't match the real slot schemas.
+   */
+  readonly sandboxed?: boolean
   readonly services?: NodeServices
+  /**
+   * Externally-provided abort signal. Propagated to every node's slot
+   * sandbox so cancelling the parent (e.g., daemon shutdown) cascades
+   * into per-slot AbortControllers.
+   */
   readonly signal?: AbortSignal
+  /**
+   * Per-test override of `slotContracts[slot].timeoutMs`. Lets timeout
+   * tests run in tens of milliseconds without changing real defaults.
+   */
+  readonly slotTimeoutOverrideMs?: number
   readonly taskId: string
+  /**
+   * Tools surface exposed inside the sandbox. Phase 2 default nodes
+   * don't touch `tools.*` (they call `ctx.services.*` via closure), so
+   * an empty `{}` is the production default. Phase 3 wires the real
+   * `ToolsSDK` here when agent-supplied JS starts running in-slot.
+   */
+  readonly tools?: Record<string, unknown>
 }
 
 export interface CurationRunResult {
@@ -161,9 +201,15 @@ export class TopologicalCurationRunner {
           const node = graph.nodes[nodeId]
           ctx.metricsCollector?.startNode(node.slot)
           try {
-            const output = await node.execute(input, ctx)
-            outputs.set(nodeId, output)
+            const output = await this.executeNode(node, input, ctx)
+            outputs.set(nodeId, output.value)
             completed.add(nodeId)
+            // Soft-mode schema warnings: record but treat output as valid
+            // for downstream so a too-strict schema doesn't strand the rest
+            // of the graph (Phase 2 plan §11 finding F5).
+            if (output.warning) {
+              failures.push({error: output.warning, nodeId})
+            }
           } catch (error) {
             failed.add(nodeId)
             const message = error instanceof Error ? error.message : String(error)
@@ -197,5 +243,76 @@ export class TopologicalCurationRunner {
     }
 
     return {failures, outputs}
+  }
+
+  /**
+   * Wraps a node execution with the per-slot sandbox + soft-mode schema
+   * gate. Returns the node's output value and an optional warning string
+   * (set when the schema gate flags input/output as invalid but we elect
+   * to keep the data flowing — Phase 2 plan §11 finding F5).
+   *
+   * `ToolAccessViolation` and `NodeTimeoutError` propagate as thrown
+   * errors so the caller can mark the node failed and strand downstream.
+   */
+  private async executeNode(
+    node: CurationNode<unknown, unknown>,
+    input: unknown,
+    ctx: NodeContext,
+  ): Promise<{value: unknown; warning?: string}> {
+    const sandboxed = ctx.sandboxed ?? true
+
+    if (!sandboxed) {
+      const value = await node.execute(input, ctx)
+      return {value}
+    }
+
+    const contract = slotContracts[node.slot]
+    const sandbox = buildSlotSandbox(node.slot, ctx.tools ?? {}, {
+      parentSignal: ctx.signal,
+      timeoutMsOverride: ctx.slotTimeoutOverrideMs,
+    })
+
+    const gateResult = await sandbox.runInSlot(async ({signal, tools}) => {
+      // Thread the proxied tools (allowlist-enforced) into slotCtx along
+      // with the per-slot signal. CRITICAL: spreading `...ctx` first then
+      // overriding tools/signal — if we kept `ctx.tools`, nodes could
+      // bypass the allowlist by reaching into the unfiltered surface.
+      // (PHASE-2-CODE-REVIEW E1.)
+      const slotCtx: NodeContext = {...ctx, signal, tools}
+      return validateAndRun({
+        fn: async (validatedInput) => node.execute(validatedInput, slotCtx),
+        input,
+        inputSchema: contract.inputSchema,
+        mode: 'soft',
+        outputSchema: contract.outputSchema,
+        slot: node.slot,
+      })
+    })
+
+    if (gateResult.ok) {
+      return {value: gateResult.value}
+    }
+
+    // Output soft-fail (PHASE-2-CODE-REVIEW W4 + plan §11 finding F5):
+    // when the OUTPUT shape drifts, forward `rawOutput` so downstream
+    // can still consume the data; record a non-fatal warning. The raw
+    // output has the right schema family — only some field is off.
+    //
+    // INPUT-fail strands (W4 fix): when the INPUT shape is wrong, we
+    // have NO output to forward — passing raw `input` (which has a
+    // different schema family entirely) cascades confusing warnings
+    // across every downstream node. Throwing here strands downstream
+    // with a single clear failure, which is what the user expects.
+    if (gateResult.phase === 'input') {
+      throw new SchemaValidationError(node.slot, 'input', gateResult.issues)
+    }
+
+    const issueSummary = gateResult.issues
+      .slice(0, 3)
+      .map((i) => `${i.path.join('.') || '<root>'}: ${i.message}`)
+      .join('; ')
+    const warning = `slot '${node.slot}' output schema warning: ${issueSummary}`
+
+    return {value: gateResult.rawOutput, warning}
   }
 }

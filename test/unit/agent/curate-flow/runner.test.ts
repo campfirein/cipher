@@ -1,8 +1,15 @@
 /**
- * Phase 1 Task 1.5 — TopologicalCurationRunner.
+ * Phase 1 Task 1.5 — TopologicalCurationRunner (extended in Phase 2 Task 2.3).
  *
  * Asserts Kahn's-algorithm topological execution + pMap concurrency
  * + per-node fail-open + cycle detection.
+ *
+ * Phase 2 additions: sandboxed-by-default execution with per-slot
+ * timeout, parent-signal propagation, and schema-gate (soft mode)
+ * enforcement. Existing Phase 1 tests use synthetic input shapes that
+ * do NOT match the real slot schemas, so they explicitly opt out via
+ * `sandboxed: false` to keep the runner-level concern separate from
+ * what each test is asserting.
  */
 
 import {expect} from 'chai'
@@ -16,12 +23,7 @@ import {
   type NodeContext,
   TopologicalCurationRunner,
 } from '../../../../src/agent/core/curation/flow/runner.js'
-
-function delay(ms: number): Promise<void> {
-  return new Promise((resolve) => {
-    setTimeout(resolve, ms)
-  })
-}
+import {delay} from '../../../helpers/delay.js'
 
 function makeNode<In, Out>(
   id: string,
@@ -31,8 +33,35 @@ function makeNode<In, Out>(
   return {execute, id, slot}
 }
 
+// Synthetic-shape tests bypass sandbox so the runner doesn't try to
+// schema-validate `{value: number}` against `reconInputSchema`.
 function emptyCtx(initialInput?: unknown): NodeContext {
-  return {initialInput, taskId: 'test-task'}
+  return {initialInput, sandboxed: false, taskId: 'test-task'}
+}
+
+// Helpers shared by Phase 2 sandboxed-execution tests. Module-scoped to
+// satisfy `unicorn/consistent-function-scoping`.
+function reconLikeInput(): {context: string; history: Record<string, unknown>; meta: Record<string, unknown>} {
+  // Matches reconInputSchema: {context, history, meta}
+  return {context: 'hello', history: {}, meta: {}}
+}
+
+function reconLikeOutput(): {
+  headPreview: string
+  history: {domains: Record<string, string[]>; totalProcessed: number}
+  meta: {charCount: number; lineCount: number; messageCount: number}
+  suggestedChunkCount: number
+  suggestedMode: 'chunked' | 'single-pass'
+  tailPreview: string
+} {
+  return {
+    headPreview: '',
+    history: {domains: {}, totalProcessed: 0},
+    meta: {charCount: 5, lineCount: 1, messageCount: 0},
+    suggestedChunkCount: 1,
+    suggestedMode: 'single-pass',
+    tailPreview: '',
+  }
 }
 
 describe('TopologicalCurationRunner', () => {
@@ -307,6 +336,217 @@ describe('TopologicalCurationRunner', () => {
       await runner.run(graph, emptyCtx())
 
       expect(received).to.deep.equal({a: {x: 1}, b: {y: 2}})
+    })
+  })
+
+  // -------------------------------------------------------------------------
+  // Phase 2 Task 2.3 — sandbox + schema-gate wired into the runner.
+  // Default: ctx.sandboxed = true. Tests below construct DAGs whose nodes use
+  // real slot shapes (recon's input/output schemas) so the gate runs cleanly.
+  // -------------------------------------------------------------------------
+
+  describe('sandboxed execution (Phase 2)', () => {
+    it('defaults sandboxed to true when omitted from NodeContext', async () => {
+      // Recon node returning valid recon output → passes schema gate cleanly.
+      const recon = makeNode<unknown, unknown>('recon', 'recon', async () => reconLikeOutput())
+
+      const graph: CurationDAG = {
+        edges: [],
+        entryNodeIds: ['recon'],
+        exitNodeIds: ['recon'],
+        maxConcurrency: 1,
+        nodes: {recon},
+      }
+
+      const runner = new TopologicalCurationRunner()
+      // No `sandboxed` key — default behavior should be ON and still pass.
+      const result = await runner.run(graph, {
+        initialInput: reconLikeInput(),
+        taskId: 't',
+      })
+
+      expect(result.failures, 'no failures expected on schema-clean run').to.be.empty
+      expect(result.outputs.get('recon')).to.deep.equal(reconLikeOutput())
+    })
+
+    it('strands downstream when INPUT schema fails (W4: avoids cascade of confusing warnings)', async () => {
+      // recon expects {context, history, meta}. We pass garbage, which
+      // fails inputSchema. Downstream chunk should be stranded with a
+      // single clear failure — NOT cascaded through the whole DAG.
+      let chunkRan = false
+      const recon = makeNode<unknown, unknown>('recon', 'recon', async () => reconLikeOutput())
+      const chunk = makeNode<unknown, unknown>('chunk', 'chunk', async () => {
+        chunkRan = true
+        return {boundaries: [], chunks: [], totalChunks: 0}
+      })
+
+      const graph: CurationDAG = {
+        edges: [{from: 'recon', to: 'chunk'}],
+        entryNodeIds: ['recon'],
+        exitNodeIds: ['chunk'],
+        maxConcurrency: 1,
+        nodes: {chunk, recon},
+      }
+
+      const runner = new TopologicalCurationRunner()
+      const result = await runner.run(graph, {
+        // Garbage shape — recon's inputSchema requires {context, history, meta}.
+        initialInput: {garbage: true},
+        sandboxed: true,
+        taskId: 't',
+      })
+
+      const reconFailure = result.failures.find((f) => f.nodeId === 'recon')
+      expect(reconFailure?.error).to.match(/recon|input|schema/i)
+      expect(chunkRan, 'downstream must NOT run after upstream input-fail').to.be.false
+    })
+
+    it('records (does NOT throw) a schema warning when output is malformed (soft-fail)', async () => {
+      // Recon node returning a broken shape → soft-fail records into failures.
+      const recon = makeNode<unknown, unknown>('recon', 'recon', async () => ({
+        // Missing required fields like history.domains, meta.charCount, etc.
+        suggestedMode: 'single-pass',
+      }))
+
+      const graph: CurationDAG = {
+        edges: [],
+        entryNodeIds: ['recon'],
+        exitNodeIds: ['recon'],
+        maxConcurrency: 1,
+        nodes: {recon},
+      }
+
+      const runner = new TopologicalCurationRunner()
+      const result = await runner.run(graph, {
+        initialInput: reconLikeInput(),
+        sandboxed: true,
+        taskId: 't',
+      })
+
+      const reconFailure = result.failures.find((f) => f.nodeId === 'recon')
+      expect(reconFailure, 'schema warning should be recorded').to.exist
+      expect(reconFailure?.error).to.match(/schema|recon|suggestedMode/i)
+    })
+
+    it('aborts a node that exceeds its slot timeout (NodeTimeoutError recorded)', async () => {
+      // recon timeoutMs = 10_000; we override via ctx for fast test execution.
+      const recon = makeNode<unknown, unknown>('recon', 'recon', async (_input, ctx) => {
+        await delay(500, ctx.signal)
+        return reconLikeOutput()
+      })
+
+      const graph: CurationDAG = {
+        edges: [],
+        entryNodeIds: ['recon'],
+        exitNodeIds: ['recon'],
+        maxConcurrency: 1,
+        nodes: {recon},
+      }
+
+      const runner = new TopologicalCurationRunner()
+      const result = await runner.run(graph, {
+        initialInput: reconLikeInput(),
+        sandboxed: true,
+        slotTimeoutOverrideMs: 30,
+        taskId: 't',
+      })
+
+      const reconFailure = result.failures.find((f) => f.nodeId === 'recon')
+      expect(reconFailure).to.exist
+      expect(reconFailure?.error).to.match(/timeout|aborted|recon/i)
+    })
+
+    it('strands downstream nodes when an upstream node times out', async () => {
+      const recon = makeNode<unknown, unknown>('recon', 'recon', async (_input, ctx) => {
+        await delay(500, ctx.signal)
+        return reconLikeOutput()
+      })
+      let downstreamRan = false
+      const chunk = makeNode<unknown, unknown>('chunk', 'chunk', async () => {
+        downstreamRan = true
+        return {boundaries: [], chunks: [], totalChunks: 0}
+      })
+
+      const graph: CurationDAG = {
+        edges: [{from: 'recon', to: 'chunk'}],
+        entryNodeIds: ['recon'],
+        exitNodeIds: ['chunk'],
+        maxConcurrency: 1,
+        nodes: {chunk, recon},
+      }
+
+      const runner = new TopologicalCurationRunner()
+      const result = await runner.run(graph, {
+        initialInput: reconLikeInput(),
+        sandboxed: true,
+        slotTimeoutOverrideMs: 30,
+        taskId: 't',
+      })
+
+      expect(downstreamRan, 'downstream must NOT run after upstream timeout').to.be.false
+      expect(result.failures.find((f) => f.nodeId === 'chunk')?.error).to.match(/skipped|predecessor/i)
+    })
+
+    it('opts out cleanly with sandboxed=false (escape hatch for tests)', async () => {
+      // The synthetic shape would fail recon schema, but sandboxed=false
+      // bypasses the gate entirely — proves the escape hatch works.
+      const recon = makeNode<unknown, unknown>('recon', 'recon', async () => ({arbitrary: 'shape'}))
+
+      const graph: CurationDAG = {
+        edges: [],
+        entryNodeIds: ['recon'],
+        exitNodeIds: ['recon'],
+        maxConcurrency: 1,
+        nodes: {recon},
+      }
+
+      const runner = new TopologicalCurationRunner()
+      const result = await runner.run(graph, {
+        initialInput: {anything: 'goes'},
+        sandboxed: false,
+        taskId: 't',
+      })
+
+      expect(result.failures).to.be.empty
+      expect(result.outputs.get('recon')).to.deep.equal({arbitrary: 'shape'})
+    })
+
+    it('exposes the allowlist-proxied tools (NOT raw ctx.tools) inside the node — E1 regression', async () => {
+      // The runner must thread the proxied tools from the sandbox into
+      // slotCtx, otherwise nodes can call ctx.tools.* directly and bypass
+      // the per-slot allowlist. This was a latent bug pre-fix because no
+      // default node touches ctx.tools, but Phase 3 agent code will.
+      let toolError: Error | undefined
+      const recon = makeNode<unknown, unknown>('recon', 'recon', async (_input, ctx) => {
+        try {
+          // recon's allowlist is ['tools.curation.recon'] — calling
+          // tools.curate (in write's allowlist, NOT recon's) must throw.
+          ;(ctx.tools as {curate: () => string}).curate()
+        } catch (error) {
+          toolError = error as Error
+        }
+
+        return reconLikeOutput()
+      })
+
+      const graph: CurationDAG = {
+        edges: [],
+        entryNodeIds: ['recon'],
+        exitNodeIds: ['recon'],
+        maxConcurrency: 1,
+        nodes: {recon},
+      }
+
+      await new TopologicalCurationRunner().run(graph, {
+        initialInput: reconLikeInput(),
+        sandboxed: true,
+        taskId: 't',
+        // Raw tools that include `curate` — proxy must filter it out for recon slot.
+        tools: {curate: () => 'should-not-reach', curation: {recon: () => 'ok'}},
+      })
+
+      expect(toolError, 'node should see allowlist-proxied tools, not raw ctx.tools').to.exist
+      expect(toolError?.name).to.equal('ToolAccessViolation')
     })
   })
 })

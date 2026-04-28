@@ -5,6 +5,7 @@ import type {NodeContext} from '../../../../../src/agent/core/curation/flow/runn
 
 import {slotContracts} from '../../../../../src/agent/core/curation/flow/slots/contracts.js'
 import {createExtractNode} from '../../../../../src/agent/infra/curation/flow/nodes/extract-node.js'
+import {delay} from '../../../../helpers/delay.js'
 
 // Build a chunk-output-shaped fixture.
 function chunkOutput(chunks: string[]): {
@@ -108,5 +109,102 @@ describe('extractNode', () => {
   it('declares the extract slot type', () => {
     const node = createExtractNode()
     expect(node.slot).to.equal('extract')
+  })
+
+  // ---------------------------------------------------------------------------
+  // Phase 2 Task 2.4 — parallel fan-out via pMap
+  // ---------------------------------------------------------------------------
+
+  describe('parallel chunk fan-out (Phase 2)', () => {
+    it('runs 8 chunks under concurrency 4 in ~250ms (4× speedup vs sequential)', async () => {
+      const chunkLatencyMs = 100
+      const extractStub = stub().callsFake(async () => {
+        await delay(chunkLatencyMs)
+        return {facts: [{statement: 's', subject: 'topic'}], failed: 0, succeeded: 1, total: 1}
+      })
+
+      const ctx: NodeContext = {
+        extractConcurrency: 4,
+        services: {extract: extractStub},
+        taskId: 't',
+      }
+      const node = createExtractNode()
+      const eight = ['c1', 'c2', 'c3', 'c4', 'c5', 'c6', 'c7', 'c8']
+
+      const start = Date.now()
+      const result = await node.execute(chunkOutput(eight), ctx)
+      const elapsed = Date.now() - start
+
+      expect(extractStub.callCount).to.equal(8)
+      expect(result.facts).to.have.length(8)
+      // 8 chunks × 100ms / concurrency 4 = ~200ms ideal; allow CI headroom.
+      expect(elapsed, `parallel fan-out should be < 350ms (got ${elapsed})`).to.be.lessThan(350)
+    })
+
+    it('serializes when extractConcurrency is 1 (regression — proves pMap honours config)', async () => {
+      const chunkLatencyMs = 50
+      const extractStub = stub().callsFake(async () => {
+        await delay(chunkLatencyMs)
+        return {facts: [], failed: 0, succeeded: 1, total: 1}
+      })
+
+      const ctx: NodeContext = {
+        extractConcurrency: 1,
+        services: {extract: extractStub},
+        taskId: 't',
+      }
+      const node = createExtractNode()
+      const four = ['c1', 'c2', 'c3', 'c4']
+
+      const start = Date.now()
+      await node.execute(chunkOutput(four), ctx)
+      const elapsed = Date.now() - start
+
+      // 4 × 50ms serialized = ≥ 200ms (allow some scheduler slop).
+      expect(elapsed, `serialized wall-clock at least 180ms (got ${elapsed})`).to.be.gte(180)
+    })
+
+    it('defaults extractConcurrency to 4 when omitted from NodeContext', async () => {
+      // Default is 4 — 4 chunks × 100ms / 4 ≈ 100ms; sequential would be ≥ 400ms.
+      const chunkLatencyMs = 100
+      const extractStub = stub().callsFake(async () => {
+        await delay(chunkLatencyMs)
+        return {facts: [], failed: 0, succeeded: 1, total: 1}
+      })
+
+      const ctx: NodeContext = {services: {extract: extractStub}, taskId: 't'}
+      const node = createExtractNode()
+      const four = ['c1', 'c2', 'c3', 'c4']
+
+      const start = Date.now()
+      await node.execute(chunkOutput(four), ctx)
+      const elapsed = Date.now() - start
+
+      expect(elapsed, `default-4 fan-out should be < 250ms (got ${elapsed})`).to.be.lessThan(250)
+    })
+
+    it('aggregates per-chunk facts and counts (parallel order does not change content)', async () => {
+      // Each chunk returns a fact whose statement reflects its own input.
+      const extractStub = stub().callsFake(async (chunk: string) => ({
+        facts: [{statement: `fact-from-${chunk}`, subject: 'topic'}],
+        failed: 0,
+        succeeded: 1,
+        total: 1,
+      }))
+
+      const ctx: NodeContext = {
+        extractConcurrency: 4,
+        services: {extract: extractStub},
+        taskId: 't',
+      }
+      const node = createExtractNode()
+      const result = await node.execute(chunkOutput(['c1', 'c2', 'c3']), ctx)
+
+      const statements = result.facts.map((f) => f.statement).sort()
+      expect(statements).to.deep.equal(['fact-from-c1', 'fact-from-c2', 'fact-from-c3'])
+      expect(result.total).to.equal(3)
+      expect(result.succeeded).to.equal(3)
+      expect(result.failed).to.equal(0)
+    })
   })
 })

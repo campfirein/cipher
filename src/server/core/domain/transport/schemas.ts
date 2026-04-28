@@ -392,6 +392,14 @@ export const TaskExecuteSchema = z.object({
   folderPath: z.string().optional(),
   /** Force flag for dream tasks (skip time/activity/queue gates) */
   force: z.boolean().optional(),
+  /**
+   * Curate-log identifier (cur-<timestamp>) assigned by `CurateLogHandler.onTaskCreate`
+   * via `runCreateHooks` in the task-router. Threaded through to the executor so
+   * services-adapter.write can include it in the per-leaf `Reason` field for
+   * audit-trail provenance (Phase 2.5 R-3). Optional and backward-compatible:
+   * non-curate tasks (query/dream/etc.) leave it undefined.
+   */
+  logId: z.string().optional(),
   /** Project path this task belongs to (for multi-project routing) */
   projectPath: z.string().optional(),
   /** Unique task identifier */

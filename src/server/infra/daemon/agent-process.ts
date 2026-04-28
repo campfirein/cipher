@@ -435,7 +435,11 @@ async function executeTask(
   storagePath: string,
   runtimeSignalStore: IRuntimeSignalStore,
 ): Promise<void> {
-  const {clientCwd, clientId, content, files, folderPath, force, taskId, trigger, type, worktreeRoot} = task
+  const {
+    clientCwd, clientId, content, files, folderPath, force,
+    logId: routerLogId,
+    taskId, trigger, type, worktreeRoot,
+  } = task
   if (!transport || !agent) return
 
   // Search tasks are pure BM25 retrieval — no LLM, no provider needed.
@@ -520,6 +524,9 @@ async function executeTask(
             clientCwd,
             content,
             files,
+            // R-3 (PHASE-2.5-PLAN.md §3.4): forward the cur-<id> from the
+            // task-router so services-adapter can use it in `Reason`.
+            logId: routerLogId,
             projectRoot: projectPath,
             taskId,
             worktreeRoot,

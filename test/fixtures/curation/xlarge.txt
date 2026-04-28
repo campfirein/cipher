@@ -1,0 +1,4256 @@
+[USER session-1]: Document the auth middleware in src/auth/middleware.ts.
+
+[ASSISTANT session-1]: Looking at the file. The auth module uses JWT tokens stored
+in httpOnly cookies. Tokens expire after 24 hours and refresh tokens rotate
+on every use. The middleware validates the JWT signature against the
+project's secret key (loaded from env var AUTH_SECRET).
+
+```typescript
+export function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  const token = req.cookies.session
+  if (!token) return res.status(401).send('Unauthorized')
+
+  try {
+    const payload = jwt.verify(token, process.env.AUTH_SECRET!)
+    req.user = payload as User
+    next()
+  } catch {
+    return res.status(401).send('Invalid token')
+  }
+}
+```
+
+The handler attaches the decoded payload to `req.user` so downstream
+handlers can access user identity without re-parsing.
+
+[USER session-1]: Are there any rate limits?
+
+[ASSISTANT session-1]: Yes, the project uses express-rate-limit. The default config
+is 100 requests per minute per IP, with a stricter 10/min window for the
+/auth/login endpoint specifically. Rate limit headers (X-RateLimit-Remaining,
+X-RateLimit-Reset) are included in every response.
+
+The configuration lives in src/middleware/rate-limit.ts. There's a
+dedicated bypass for internal service tokens — these are identified by
+the X-Service-Token header containing one of the keys listed in
+SERVICE_TOKEN_ALLOWLIST.
+
+[USER session-1]: Where are session tokens stored on the client?
+
+[ASSISTANT session-1]: httpOnly cookies, with the SameSite=Strict and Secure flags
+set in production. The cookie name is "session" and it's set by the login
+handler at /auth/login on a successful authentication. Logout clears the
+cookie by setting Max-Age=0.
+
+For mobile clients (where cookies aren't ideal), the auth module also
+supports Bearer tokens via the Authorization header. The middleware checks
+for the cookie first, then falls back to parsing the Authorization header.
+
+[USER session-1]: Database for user records?
+
+[ASSISTANT session-1]: PostgreSQL 15. The users table has the following schema:
+
+```sql
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(72) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_login_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_users_email ON users (email);
+```
+
+Passwords are hashed with bcrypt (cost factor 12). The application uses
+the `pg` Node driver with a connection pool of 10 connections by default,
+configurable via DB_POOL_SIZE env var.
+
+
+---
+
+[USER session-2]: Document the auth middleware in src/auth/middleware.ts.
+
+[ASSISTANT session-2]: Looking at the file. The auth module uses JWT tokens stored
+in httpOnly cookies. Tokens expire after 24 hours and refresh tokens rotate
+on every use. The middleware validates the JWT signature against the
+project's secret key (loaded from env var AUTH_SECRET).
+
+```typescript
+export function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  const token = req.cookies.session
+  if (!token) return res.status(401).send('Unauthorized')
+
+  try {
+    const payload = jwt.verify(token, process.env.AUTH_SECRET!)
+    req.user = payload as User
+    next()
+  } catch {
+    return res.status(401).send('Invalid token')
+  }
+}
+```
+
+The handler attaches the decoded payload to `req.user` so downstream
+handlers can access user identity without re-parsing.
+
+[USER session-2]: Are there any rate limits?
+
+[ASSISTANT session-2]: Yes, the project uses express-rate-limit. The default config
+is 100 requests per minute per IP, with a stricter 10/min window for the
+/auth/login endpoint specifically. Rate limit headers (X-RateLimit-Remaining,
+X-RateLimit-Reset) are included in every response.
+
+The configuration lives in src/middleware/rate-limit.ts. There's a
+dedicated bypass for internal service tokens — these are identified by
+the X-Service-Token header containing one of the keys listed in
+SERVICE_TOKEN_ALLOWLIST.
+
+[USER session-2]: Where are session tokens stored on the client?
+
+[ASSISTANT session-2]: httpOnly cookies, with the SameSite=Strict and Secure flags
+set in production. The cookie name is "session" and it's set by the login
+handler at /auth/login on a successful authentication. Logout clears the
+cookie by setting Max-Age=0.
+
+For mobile clients (where cookies aren't ideal), the auth module also
+supports Bearer tokens via the Authorization header. The middleware checks
+for the cookie first, then falls back to parsing the Authorization header.
+
+[USER session-2]: Database for user records?
+
+[ASSISTANT session-2]: PostgreSQL 15. The users table has the following schema:
+
+```sql
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(72) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_login_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_users_email ON users (email);
+```
+
+Passwords are hashed with bcrypt (cost factor 12). The application uses
+the `pg` Node driver with a connection pool of 10 connections by default,
+configurable via DB_POOL_SIZE env var.
+
+
+---
+
+[USER session-3]: Document the auth middleware in src/auth/middleware.ts.
+
+[ASSISTANT session-3]: Looking at the file. The auth module uses JWT tokens stored
+in httpOnly cookies. Tokens expire after 24 hours and refresh tokens rotate
+on every use. The middleware validates the JWT signature against the
+project's secret key (loaded from env var AUTH_SECRET).
+
+```typescript
+export function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  const token = req.cookies.session
+  if (!token) return res.status(401).send('Unauthorized')
+
+  try {
+    const payload = jwt.verify(token, process.env.AUTH_SECRET!)
+    req.user = payload as User
+    next()
+  } catch {
+    return res.status(401).send('Invalid token')
+  }
+}
+```
+
+The handler attaches the decoded payload to `req.user` so downstream
+handlers can access user identity without re-parsing.
+
+[USER session-3]: Are there any rate limits?
+
+[ASSISTANT session-3]: Yes, the project uses express-rate-limit. The default config
+is 100 requests per minute per IP, with a stricter 10/min window for the
+/auth/login endpoint specifically. Rate limit headers (X-RateLimit-Remaining,
+X-RateLimit-Reset) are included in every response.
+
+The configuration lives in src/middleware/rate-limit.ts. There's a
+dedicated bypass for internal service tokens — these are identified by
+the X-Service-Token header containing one of the keys listed in
+SERVICE_TOKEN_ALLOWLIST.
+
+[USER session-3]: Where are session tokens stored on the client?
+
+[ASSISTANT session-3]: httpOnly cookies, with the SameSite=Strict and Secure flags
+set in production. The cookie name is "session" and it's set by the login
+handler at /auth/login on a successful authentication. Logout clears the
+cookie by setting Max-Age=0.
+
+For mobile clients (where cookies aren't ideal), the auth module also
+supports Bearer tokens via the Authorization header. The middleware checks
+for the cookie first, then falls back to parsing the Authorization header.
+
+[USER session-3]: Database for user records?
+
+[ASSISTANT session-3]: PostgreSQL 15. The users table has the following schema:
+
+```sql
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(72) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_login_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_users_email ON users (email);
+```
+
+Passwords are hashed with bcrypt (cost factor 12). The application uses
+the `pg` Node driver with a connection pool of 10 connections by default,
+configurable via DB_POOL_SIZE env var.
+
+
+---
+
+[USER session-4]: Document the auth middleware in src/auth/middleware.ts.
+
+[ASSISTANT session-4]: Looking at the file. The auth module uses JWT tokens stored
+in httpOnly cookies. Tokens expire after 24 hours and refresh tokens rotate
+on every use. The middleware validates the JWT signature against the
+project's secret key (loaded from env var AUTH_SECRET).
+
+```typescript
+export function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  const token = req.cookies.session
+  if (!token) return res.status(401).send('Unauthorized')
+
+  try {
+    const payload = jwt.verify(token, process.env.AUTH_SECRET!)
+    req.user = payload as User
+    next()
+  } catch {
+    return res.status(401).send('Invalid token')
+  }
+}
+```
+
+The handler attaches the decoded payload to `req.user` so downstream
+handlers can access user identity without re-parsing.
+
+[USER session-4]: Are there any rate limits?
+
+[ASSISTANT session-4]: Yes, the project uses express-rate-limit. The default config
+is 100 requests per minute per IP, with a stricter 10/min window for the
+/auth/login endpoint specifically. Rate limit headers (X-RateLimit-Remaining,
+X-RateLimit-Reset) are included in every response.
+
+The configuration lives in src/middleware/rate-limit.ts. There's a
+dedicated bypass for internal service tokens — these are identified by
+the X-Service-Token header containing one of the keys listed in
+SERVICE_TOKEN_ALLOWLIST.
+
+[USER session-4]: Where are session tokens stored on the client?
+
+[ASSISTANT session-4]: httpOnly cookies, with the SameSite=Strict and Secure flags
+set in production. The cookie name is "session" and it's set by the login
+handler at /auth/login on a successful authentication. Logout clears the
+cookie by setting Max-Age=0.
+
+For mobile clients (where cookies aren't ideal), the auth module also
+supports Bearer tokens via the Authorization header. The middleware checks
+for the cookie first, then falls back to parsing the Authorization header.
+
+[USER session-4]: Database for user records?
+
+[ASSISTANT session-4]: PostgreSQL 15. The users table has the following schema:
+
+```sql
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(72) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_login_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_users_email ON users (email);
+```
+
+Passwords are hashed with bcrypt (cost factor 12). The application uses
+the `pg` Node driver with a connection pool of 10 connections by default,
+configurable via DB_POOL_SIZE env var.
+
+
+---
+
+[USER session-5]: Document the auth middleware in src/auth/middleware.ts.
+
+[ASSISTANT session-5]: Looking at the file. The auth module uses JWT tokens stored
+in httpOnly cookies. Tokens expire after 24 hours and refresh tokens rotate
+on every use. The middleware validates the JWT signature against the
+project's secret key (loaded from env var AUTH_SECRET).
+
+```typescript
+export function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  const token = req.cookies.session
+  if (!token) return res.status(401).send('Unauthorized')
+
+  try {
+    const payload = jwt.verify(token, process.env.AUTH_SECRET!)
+    req.user = payload as User
+    next()
+  } catch {
+    return res.status(401).send('Invalid token')
+  }
+}
+```
+
+The handler attaches the decoded payload to `req.user` so downstream
+handlers can access user identity without re-parsing.
+
+[USER session-5]: Are there any rate limits?
+
+[ASSISTANT session-5]: Yes, the project uses express-rate-limit. The default config
+is 100 requests per minute per IP, with a stricter 10/min window for the
+/auth/login endpoint specifically. Rate limit headers (X-RateLimit-Remaining,
+X-RateLimit-Reset) are included in every response.
+
+The configuration lives in src/middleware/rate-limit.ts. There's a
+dedicated bypass for internal service tokens — these are identified by
+the X-Service-Token header containing one of the keys listed in
+SERVICE_TOKEN_ALLOWLIST.
+
+[USER session-5]: Where are session tokens stored on the client?
+
+[ASSISTANT session-5]: httpOnly cookies, with the SameSite=Strict and Secure flags
+set in production. The cookie name is "session" and it's set by the login
+handler at /auth/login on a successful authentication. Logout clears the
+cookie by setting Max-Age=0.
+
+For mobile clients (where cookies aren't ideal), the auth module also
+supports Bearer tokens via the Authorization header. The middleware checks
+for the cookie first, then falls back to parsing the Authorization header.
+
+[USER session-5]: Database for user records?
+
+[ASSISTANT session-5]: PostgreSQL 15. The users table has the following schema:
+
+```sql
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(72) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_login_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_users_email ON users (email);
+```
+
+Passwords are hashed with bcrypt (cost factor 12). The application uses
+the `pg` Node driver with a connection pool of 10 connections by default,
+configurable via DB_POOL_SIZE env var.
+
+
+---
+
+[USER session-6]: Document the auth middleware in src/auth/middleware.ts.
+
+[ASSISTANT session-6]: Looking at the file. The auth module uses JWT tokens stored
+in httpOnly cookies. Tokens expire after 24 hours and refresh tokens rotate
+on every use. The middleware validates the JWT signature against the
+project's secret key (loaded from env var AUTH_SECRET).
+
+```typescript
+export function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  const token = req.cookies.session
+  if (!token) return res.status(401).send('Unauthorized')
+
+  try {
+    const payload = jwt.verify(token, process.env.AUTH_SECRET!)
+    req.user = payload as User
+    next()
+  } catch {
+    return res.status(401).send('Invalid token')
+  }
+}
+```
+
+The handler attaches the decoded payload to `req.user` so downstream
+handlers can access user identity without re-parsing.
+
+[USER session-6]: Are there any rate limits?
+
+[ASSISTANT session-6]: Yes, the project uses express-rate-limit. The default config
+is 100 requests per minute per IP, with a stricter 10/min window for the
+/auth/login endpoint specifically. Rate limit headers (X-RateLimit-Remaining,
+X-RateLimit-Reset) are included in every response.
+
+The configuration lives in src/middleware/rate-limit.ts. There's a
+dedicated bypass for internal service tokens — these are identified by
+the X-Service-Token header containing one of the keys listed in
+SERVICE_TOKEN_ALLOWLIST.
+
+[USER session-6]: Where are session tokens stored on the client?
+
+[ASSISTANT session-6]: httpOnly cookies, with the SameSite=Strict and Secure flags
+set in production. The cookie name is "session" and it's set by the login
+handler at /auth/login on a successful authentication. Logout clears the
+cookie by setting Max-Age=0.
+
+For mobile clients (where cookies aren't ideal), the auth module also
+supports Bearer tokens via the Authorization header. The middleware checks
+for the cookie first, then falls back to parsing the Authorization header.
+
+[USER session-6]: Database for user records?
+
+[ASSISTANT session-6]: PostgreSQL 15. The users table has the following schema:
+
+```sql
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(72) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_login_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_users_email ON users (email);
+```
+
+Passwords are hashed with bcrypt (cost factor 12). The application uses
+the `pg` Node driver with a connection pool of 10 connections by default,
+configurable via DB_POOL_SIZE env var.
+
+
+---
+
+[USER session-7]: Document the auth middleware in src/auth/middleware.ts.
+
+[ASSISTANT session-7]: Looking at the file. The auth module uses JWT tokens stored
+in httpOnly cookies. Tokens expire after 24 hours and refresh tokens rotate
+on every use. The middleware validates the JWT signature against the
+project's secret key (loaded from env var AUTH_SECRET).
+
+```typescript
+export function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  const token = req.cookies.session
+  if (!token) return res.status(401).send('Unauthorized')
+
+  try {
+    const payload = jwt.verify(token, process.env.AUTH_SECRET!)
+    req.user = payload as User
+    next()
+  } catch {
+    return res.status(401).send('Invalid token')
+  }
+}
+```
+
+The handler attaches the decoded payload to `req.user` so downstream
+handlers can access user identity without re-parsing.
+
+[USER session-7]: Are there any rate limits?
+
+[ASSISTANT session-7]: Yes, the project uses express-rate-limit. The default config
+is 100 requests per minute per IP, with a stricter 10/min window for the
+/auth/login endpoint specifically. Rate limit headers (X-RateLimit-Remaining,
+X-RateLimit-Reset) are included in every response.
+
+The configuration lives in src/middleware/rate-limit.ts. There's a
+dedicated bypass for internal service tokens — these are identified by
+the X-Service-Token header containing one of the keys listed in
+SERVICE_TOKEN_ALLOWLIST.
+
+[USER session-7]: Where are session tokens stored on the client?
+
+[ASSISTANT session-7]: httpOnly cookies, with the SameSite=Strict and Secure flags
+set in production. The cookie name is "session" and it's set by the login
+handler at /auth/login on a successful authentication. Logout clears the
+cookie by setting Max-Age=0.
+
+For mobile clients (where cookies aren't ideal), the auth module also
+supports Bearer tokens via the Authorization header. The middleware checks
+for the cookie first, then falls back to parsing the Authorization header.
+
+[USER session-7]: Database for user records?
+
+[ASSISTANT session-7]: PostgreSQL 15. The users table has the following schema:
+
+```sql
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(72) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_login_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_users_email ON users (email);
+```
+
+Passwords are hashed with bcrypt (cost factor 12). The application uses
+the `pg` Node driver with a connection pool of 10 connections by default,
+configurable via DB_POOL_SIZE env var.
+
+
+---
+
+[USER session-8]: Document the auth middleware in src/auth/middleware.ts.
+
+[ASSISTANT session-8]: Looking at the file. The auth module uses JWT tokens stored
+in httpOnly cookies. Tokens expire after 24 hours and refresh tokens rotate
+on every use. The middleware validates the JWT signature against the
+project's secret key (loaded from env var AUTH_SECRET).
+
+```typescript
+export function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  const token = req.cookies.session
+  if (!token) return res.status(401).send('Unauthorized')
+
+  try {
+    const payload = jwt.verify(token, process.env.AUTH_SECRET!)
+    req.user = payload as User
+    next()
+  } catch {
+    return res.status(401).send('Invalid token')
+  }
+}
+```
+
+The handler attaches the decoded payload to `req.user` so downstream
+handlers can access user identity without re-parsing.
+
+[USER session-8]: Are there any rate limits?
+
+[ASSISTANT session-8]: Yes, the project uses express-rate-limit. The default config
+is 100 requests per minute per IP, with a stricter 10/min window for the
+/auth/login endpoint specifically. Rate limit headers (X-RateLimit-Remaining,
+X-RateLimit-Reset) are included in every response.
+
+The configuration lives in src/middleware/rate-limit.ts. There's a
+dedicated bypass for internal service tokens — these are identified by
+the X-Service-Token header containing one of the keys listed in
+SERVICE_TOKEN_ALLOWLIST.
+
+[USER session-8]: Where are session tokens stored on the client?
+
+[ASSISTANT session-8]: httpOnly cookies, with the SameSite=Strict and Secure flags
+set in production. The cookie name is "session" and it's set by the login
+handler at /auth/login on a successful authentication. Logout clears the
+cookie by setting Max-Age=0.
+
+For mobile clients (where cookies aren't ideal), the auth module also
+supports Bearer tokens via the Authorization header. The middleware checks
+for the cookie first, then falls back to parsing the Authorization header.
+
+[USER session-8]: Database for user records?
+
+[ASSISTANT session-8]: PostgreSQL 15. The users table has the following schema:
+
+```sql
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(72) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_login_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_users_email ON users (email);
+```
+
+Passwords are hashed with bcrypt (cost factor 12). The application uses
+the `pg` Node driver with a connection pool of 10 connections by default,
+configurable via DB_POOL_SIZE env var.
+
+
+---
+
+[USER session-9]: Document the auth middleware in src/auth/middleware.ts.
+
+[ASSISTANT session-9]: Looking at the file. The auth module uses JWT tokens stored
+in httpOnly cookies. Tokens expire after 24 hours and refresh tokens rotate
+on every use. The middleware validates the JWT signature against the
+project's secret key (loaded from env var AUTH_SECRET).
+
+```typescript
+export function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  const token = req.cookies.session
+  if (!token) return res.status(401).send('Unauthorized')
+
+  try {
+    const payload = jwt.verify(token, process.env.AUTH_SECRET!)
+    req.user = payload as User
+    next()
+  } catch {
+    return res.status(401).send('Invalid token')
+  }
+}
+```
+
+The handler attaches the decoded payload to `req.user` so downstream
+handlers can access user identity without re-parsing.
+
+[USER session-9]: Are there any rate limits?
+
+[ASSISTANT session-9]: Yes, the project uses express-rate-limit. The default config
+is 100 requests per minute per IP, with a stricter 10/min window for the
+/auth/login endpoint specifically. Rate limit headers (X-RateLimit-Remaining,
+X-RateLimit-Reset) are included in every response.
+
+The configuration lives in src/middleware/rate-limit.ts. There's a
+dedicated bypass for internal service tokens — these are identified by
+the X-Service-Token header containing one of the keys listed in
+SERVICE_TOKEN_ALLOWLIST.
+
+[USER session-9]: Where are session tokens stored on the client?
+
+[ASSISTANT session-9]: httpOnly cookies, with the SameSite=Strict and Secure flags
+set in production. The cookie name is "session" and it's set by the login
+handler at /auth/login on a successful authentication. Logout clears the
+cookie by setting Max-Age=0.
+
+For mobile clients (where cookies aren't ideal), the auth module also
+supports Bearer tokens via the Authorization header. The middleware checks
+for the cookie first, then falls back to parsing the Authorization header.
+
+[USER session-9]: Database for user records?
+
+[ASSISTANT session-9]: PostgreSQL 15. The users table has the following schema:
+
+```sql
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(72) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_login_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_users_email ON users (email);
+```
+
+Passwords are hashed with bcrypt (cost factor 12). The application uses
+the `pg` Node driver with a connection pool of 10 connections by default,
+configurable via DB_POOL_SIZE env var.
+
+
+---
+
+[USER session-10]: Document the auth middleware in src/auth/middleware.ts.
+
+[ASSISTANT session-10]: Looking at the file. The auth module uses JWT tokens stored
+in httpOnly cookies. Tokens expire after 24 hours and refresh tokens rotate
+on every use. The middleware validates the JWT signature against the
+project's secret key (loaded from env var AUTH_SECRET).
+
+```typescript
+export function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  const token = req.cookies.session
+  if (!token) return res.status(401).send('Unauthorized')
+
+  try {
+    const payload = jwt.verify(token, process.env.AUTH_SECRET!)
+    req.user = payload as User
+    next()
+  } catch {
+    return res.status(401).send('Invalid token')
+  }
+}
+```
+
+The handler attaches the decoded payload to `req.user` so downstream
+handlers can access user identity without re-parsing.
+
+[USER session-10]: Are there any rate limits?
+
+[ASSISTANT session-10]: Yes, the project uses express-rate-limit. The default config
+is 100 requests per minute per IP, with a stricter 10/min window for the
+/auth/login endpoint specifically. Rate limit headers (X-RateLimit-Remaining,
+X-RateLimit-Reset) are included in every response.
+
+The configuration lives in src/middleware/rate-limit.ts. There's a
+dedicated bypass for internal service tokens — these are identified by
+the X-Service-Token header containing one of the keys listed in
+SERVICE_TOKEN_ALLOWLIST.
+
+[USER session-10]: Where are session tokens stored on the client?
+
+[ASSISTANT session-10]: httpOnly cookies, with the SameSite=Strict and Secure flags
+set in production. The cookie name is "session" and it's set by the login
+handler at /auth/login on a successful authentication. Logout clears the
+cookie by setting Max-Age=0.
+
+For mobile clients (where cookies aren't ideal), the auth module also
+supports Bearer tokens via the Authorization header. The middleware checks
+for the cookie first, then falls back to parsing the Authorization header.
+
+[USER session-10]: Database for user records?
+
+[ASSISTANT session-10]: PostgreSQL 15. The users table has the following schema:
+
+```sql
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(72) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_login_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_users_email ON users (email);
+```
+
+Passwords are hashed with bcrypt (cost factor 12). The application uses
+the `pg` Node driver with a connection pool of 10 connections by default,
+configurable via DB_POOL_SIZE env var.
+
+
+---
+
+[USER session-11]: Document the auth middleware in src/auth/middleware.ts.
+
+[ASSISTANT session-11]: Looking at the file. The auth module uses JWT tokens stored
+in httpOnly cookies. Tokens expire after 24 hours and refresh tokens rotate
+on every use. The middleware validates the JWT signature against the
+project's secret key (loaded from env var AUTH_SECRET).
+
+```typescript
+export function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  const token = req.cookies.session
+  if (!token) return res.status(401).send('Unauthorized')
+
+  try {
+    const payload = jwt.verify(token, process.env.AUTH_SECRET!)
+    req.user = payload as User
+    next()
+  } catch {
+    return res.status(401).send('Invalid token')
+  }
+}
+```
+
+The handler attaches the decoded payload to `req.user` so downstream
+handlers can access user identity without re-parsing.
+
+[USER session-11]: Are there any rate limits?
+
+[ASSISTANT session-11]: Yes, the project uses express-rate-limit. The default config
+is 100 requests per minute per IP, with a stricter 10/min window for the
+/auth/login endpoint specifically. Rate limit headers (X-RateLimit-Remaining,
+X-RateLimit-Reset) are included in every response.
+
+The configuration lives in src/middleware/rate-limit.ts. There's a
+dedicated bypass for internal service tokens — these are identified by
+the X-Service-Token header containing one of the keys listed in
+SERVICE_TOKEN_ALLOWLIST.
+
+[USER session-11]: Where are session tokens stored on the client?
+
+[ASSISTANT session-11]: httpOnly cookies, with the SameSite=Strict and Secure flags
+set in production. The cookie name is "session" and it's set by the login
+handler at /auth/login on a successful authentication. Logout clears the
+cookie by setting Max-Age=0.
+
+For mobile clients (where cookies aren't ideal), the auth module also
+supports Bearer tokens via the Authorization header. The middleware checks
+for the cookie first, then falls back to parsing the Authorization header.
+
+[USER session-11]: Database for user records?
+
+[ASSISTANT session-11]: PostgreSQL 15. The users table has the following schema:
+
+```sql
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(72) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_login_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_users_email ON users (email);
+```
+
+Passwords are hashed with bcrypt (cost factor 12). The application uses
+the `pg` Node driver with a connection pool of 10 connections by default,
+configurable via DB_POOL_SIZE env var.
+
+
+---
+
+[USER session-12]: Document the auth middleware in src/auth/middleware.ts.
+
+[ASSISTANT session-12]: Looking at the file. The auth module uses JWT tokens stored
+in httpOnly cookies. Tokens expire after 24 hours and refresh tokens rotate
+on every use. The middleware validates the JWT signature against the
+project's secret key (loaded from env var AUTH_SECRET).
+
+```typescript
+export function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  const token = req.cookies.session
+  if (!token) return res.status(401).send('Unauthorized')
+
+  try {
+    const payload = jwt.verify(token, process.env.AUTH_SECRET!)
+    req.user = payload as User
+    next()
+  } catch {
+    return res.status(401).send('Invalid token')
+  }
+}
+```
+
+The handler attaches the decoded payload to `req.user` so downstream
+handlers can access user identity without re-parsing.
+
+[USER session-12]: Are there any rate limits?
+
+[ASSISTANT session-12]: Yes, the project uses express-rate-limit. The default config
+is 100 requests per minute per IP, with a stricter 10/min window for the
+/auth/login endpoint specifically. Rate limit headers (X-RateLimit-Remaining,
+X-RateLimit-Reset) are included in every response.
+
+The configuration lives in src/middleware/rate-limit.ts. There's a
+dedicated bypass for internal service tokens — these are identified by
+the X-Service-Token header containing one of the keys listed in
+SERVICE_TOKEN_ALLOWLIST.
+
+[USER session-12]: Where are session tokens stored on the client?
+
+[ASSISTANT session-12]: httpOnly cookies, with the SameSite=Strict and Secure flags
+set in production. The cookie name is "session" and it's set by the login
+handler at /auth/login on a successful authentication. Logout clears the
+cookie by setting Max-Age=0.
+
+For mobile clients (where cookies aren't ideal), the auth module also
+supports Bearer tokens via the Authorization header. The middleware checks
+for the cookie first, then falls back to parsing the Authorization header.
+
+[USER session-12]: Database for user records?
+
+[ASSISTANT session-12]: PostgreSQL 15. The users table has the following schema:
+
+```sql
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(72) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_login_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_users_email ON users (email);
+```
+
+Passwords are hashed with bcrypt (cost factor 12). The application uses
+the `pg` Node driver with a connection pool of 10 connections by default,
+configurable via DB_POOL_SIZE env var.
+
+
+---
+
+[USER session-13]: Document the auth middleware in src/auth/middleware.ts.
+
+[ASSISTANT session-13]: Looking at the file. The auth module uses JWT tokens stored
+in httpOnly cookies. Tokens expire after 24 hours and refresh tokens rotate
+on every use. The middleware validates the JWT signature against the
+project's secret key (loaded from env var AUTH_SECRET).
+
+```typescript
+export function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  const token = req.cookies.session
+  if (!token) return res.status(401).send('Unauthorized')
+
+  try {
+    const payload = jwt.verify(token, process.env.AUTH_SECRET!)
+    req.user = payload as User
+    next()
+  } catch {
+    return res.status(401).send('Invalid token')
+  }
+}
+```
+
+The handler attaches the decoded payload to `req.user` so downstream
+handlers can access user identity without re-parsing.
+
+[USER session-13]: Are there any rate limits?
+
+[ASSISTANT session-13]: Yes, the project uses express-rate-limit. The default config
+is 100 requests per minute per IP, with a stricter 10/min window for the
+/auth/login endpoint specifically. Rate limit headers (X-RateLimit-Remaining,
+X-RateLimit-Reset) are included in every response.
+
+The configuration lives in src/middleware/rate-limit.ts. There's a
+dedicated bypass for internal service tokens — these are identified by
+the X-Service-Token header containing one of the keys listed in
+SERVICE_TOKEN_ALLOWLIST.
+
+[USER session-13]: Where are session tokens stored on the client?
+
+[ASSISTANT session-13]: httpOnly cookies, with the SameSite=Strict and Secure flags
+set in production. The cookie name is "session" and it's set by the login
+handler at /auth/login on a successful authentication. Logout clears the
+cookie by setting Max-Age=0.
+
+For mobile clients (where cookies aren't ideal), the auth module also
+supports Bearer tokens via the Authorization header. The middleware checks
+for the cookie first, then falls back to parsing the Authorization header.
+
+[USER session-13]: Database for user records?
+
+[ASSISTANT session-13]: PostgreSQL 15. The users table has the following schema:
+
+```sql
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(72) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_login_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_users_email ON users (email);
+```
+
+Passwords are hashed with bcrypt (cost factor 12). The application uses
+the `pg` Node driver with a connection pool of 10 connections by default,
+configurable via DB_POOL_SIZE env var.
+
+
+---
+
+[USER session-14]: Document the auth middleware in src/auth/middleware.ts.
+
+[ASSISTANT session-14]: Looking at the file. The auth module uses JWT tokens stored
+in httpOnly cookies. Tokens expire after 24 hours and refresh tokens rotate
+on every use. The middleware validates the JWT signature against the
+project's secret key (loaded from env var AUTH_SECRET).
+
+```typescript
+export function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  const token = req.cookies.session
+  if (!token) return res.status(401).send('Unauthorized')
+
+  try {
+    const payload = jwt.verify(token, process.env.AUTH_SECRET!)
+    req.user = payload as User
+    next()
+  } catch {
+    return res.status(401).send('Invalid token')
+  }
+}
+```
+
+The handler attaches the decoded payload to `req.user` so downstream
+handlers can access user identity without re-parsing.
+
+[USER session-14]: Are there any rate limits?
+
+[ASSISTANT session-14]: Yes, the project uses express-rate-limit. The default config
+is 100 requests per minute per IP, with a stricter 10/min window for the
+/auth/login endpoint specifically. Rate limit headers (X-RateLimit-Remaining,
+X-RateLimit-Reset) are included in every response.
+
+The configuration lives in src/middleware/rate-limit.ts. There's a
+dedicated bypass for internal service tokens — these are identified by
+the X-Service-Token header containing one of the keys listed in
+SERVICE_TOKEN_ALLOWLIST.
+
+[USER session-14]: Where are session tokens stored on the client?
+
+[ASSISTANT session-14]: httpOnly cookies, with the SameSite=Strict and Secure flags
+set in production. The cookie name is "session" and it's set by the login
+handler at /auth/login on a successful authentication. Logout clears the
+cookie by setting Max-Age=0.
+
+For mobile clients (where cookies aren't ideal), the auth module also
+supports Bearer tokens via the Authorization header. The middleware checks
+for the cookie first, then falls back to parsing the Authorization header.
+
+[USER session-14]: Database for user records?
+
+[ASSISTANT session-14]: PostgreSQL 15. The users table has the following schema:
+
+```sql
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(72) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_login_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_users_email ON users (email);
+```
+
+Passwords are hashed with bcrypt (cost factor 12). The application uses
+the `pg` Node driver with a connection pool of 10 connections by default,
+configurable via DB_POOL_SIZE env var.
+
+
+---
+
+[USER session-15]: Document the auth middleware in src/auth/middleware.ts.
+
+[ASSISTANT session-15]: Looking at the file. The auth module uses JWT tokens stored
+in httpOnly cookies. Tokens expire after 24 hours and refresh tokens rotate
+on every use. The middleware validates the JWT signature against the
+project's secret key (loaded from env var AUTH_SECRET).
+
+```typescript
+export function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  const token = req.cookies.session
+  if (!token) return res.status(401).send('Unauthorized')
+
+  try {
+    const payload = jwt.verify(token, process.env.AUTH_SECRET!)
+    req.user = payload as User
+    next()
+  } catch {
+    return res.status(401).send('Invalid token')
+  }
+}
+```
+
+The handler attaches the decoded payload to `req.user` so downstream
+handlers can access user identity without re-parsing.
+
+[USER session-15]: Are there any rate limits?
+
+[ASSISTANT session-15]: Yes, the project uses express-rate-limit. The default config
+is 100 requests per minute per IP, with a stricter 10/min window for the
+/auth/login endpoint specifically. Rate limit headers (X-RateLimit-Remaining,
+X-RateLimit-Reset) are included in every response.
+
+The configuration lives in src/middleware/rate-limit.ts. There's a
+dedicated bypass for internal service tokens — these are identified by
+the X-Service-Token header containing one of the keys listed in
+SERVICE_TOKEN_ALLOWLIST.
+
+[USER session-15]: Where are session tokens stored on the client?
+
+[ASSISTANT session-15]: httpOnly cookies, with the SameSite=Strict and Secure flags
+set in production. The cookie name is "session" and it's set by the login
+handler at /auth/login on a successful authentication. Logout clears the
+cookie by setting Max-Age=0.
+
+For mobile clients (where cookies aren't ideal), the auth module also
+supports Bearer tokens via the Authorization header. The middleware checks
+for the cookie first, then falls back to parsing the Authorization header.
+
+[USER session-15]: Database for user records?
+
+[ASSISTANT session-15]: PostgreSQL 15. The users table has the following schema:
+
+```sql
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(72) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_login_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_users_email ON users (email);
+```
+
+Passwords are hashed with bcrypt (cost factor 12). The application uses
+the `pg` Node driver with a connection pool of 10 connections by default,
+configurable via DB_POOL_SIZE env var.
+
+
+---
+
+[USER session-16]: Document the auth middleware in src/auth/middleware.ts.
+
+[ASSISTANT session-16]: Looking at the file. The auth module uses JWT tokens stored
+in httpOnly cookies. Tokens expire after 24 hours and refresh tokens rotate
+on every use. The middleware validates the JWT signature against the
+project's secret key (loaded from env var AUTH_SECRET).
+
+```typescript
+export function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  const token = req.cookies.session
+  if (!token) return res.status(401).send('Unauthorized')
+
+  try {
+    const payload = jwt.verify(token, process.env.AUTH_SECRET!)
+    req.user = payload as User
+    next()
+  } catch {
+    return res.status(401).send('Invalid token')
+  }
+}
+```
+
+The handler attaches the decoded payload to `req.user` so downstream
+handlers can access user identity without re-parsing.
+
+[USER session-16]: Are there any rate limits?
+
+[ASSISTANT session-16]: Yes, the project uses express-rate-limit. The default config
+is 100 requests per minute per IP, with a stricter 10/min window for the
+/auth/login endpoint specifically. Rate limit headers (X-RateLimit-Remaining,
+X-RateLimit-Reset) are included in every response.
+
+The configuration lives in src/middleware/rate-limit.ts. There's a
+dedicated bypass for internal service tokens — these are identified by
+the X-Service-Token header containing one of the keys listed in
+SERVICE_TOKEN_ALLOWLIST.
+
+[USER session-16]: Where are session tokens stored on the client?
+
+[ASSISTANT session-16]: httpOnly cookies, with the SameSite=Strict and Secure flags
+set in production. The cookie name is "session" and it's set by the login
+handler at /auth/login on a successful authentication. Logout clears the
+cookie by setting Max-Age=0.
+
+For mobile clients (where cookies aren't ideal), the auth module also
+supports Bearer tokens via the Authorization header. The middleware checks
+for the cookie first, then falls back to parsing the Authorization header.
+
+[USER session-16]: Database for user records?
+
+[ASSISTANT session-16]: PostgreSQL 15. The users table has the following schema:
+
+```sql
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(72) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_login_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_users_email ON users (email);
+```
+
+Passwords are hashed with bcrypt (cost factor 12). The application uses
+the `pg` Node driver with a connection pool of 10 connections by default,
+configurable via DB_POOL_SIZE env var.
+
+
+---
+
+[USER session-17]: Document the auth middleware in src/auth/middleware.ts.
+
+[ASSISTANT session-17]: Looking at the file. The auth module uses JWT tokens stored
+in httpOnly cookies. Tokens expire after 24 hours and refresh tokens rotate
+on every use. The middleware validates the JWT signature against the
+project's secret key (loaded from env var AUTH_SECRET).
+
+```typescript
+export function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  const token = req.cookies.session
+  if (!token) return res.status(401).send('Unauthorized')
+
+  try {
+    const payload = jwt.verify(token, process.env.AUTH_SECRET!)
+    req.user = payload as User
+    next()
+  } catch {
+    return res.status(401).send('Invalid token')
+  }
+}
+```
+
+The handler attaches the decoded payload to `req.user` so downstream
+handlers can access user identity without re-parsing.
+
+[USER session-17]: Are there any rate limits?
+
+[ASSISTANT session-17]: Yes, the project uses express-rate-limit. The default config
+is 100 requests per minute per IP, with a stricter 10/min window for the
+/auth/login endpoint specifically. Rate limit headers (X-RateLimit-Remaining,
+X-RateLimit-Reset) are included in every response.
+
+The configuration lives in src/middleware/rate-limit.ts. There's a
+dedicated bypass for internal service tokens — these are identified by
+the X-Service-Token header containing one of the keys listed in
+SERVICE_TOKEN_ALLOWLIST.
+
+[USER session-17]: Where are session tokens stored on the client?
+
+[ASSISTANT session-17]: httpOnly cookies, with the SameSite=Strict and Secure flags
+set in production. The cookie name is "session" and it's set by the login
+handler at /auth/login on a successful authentication. Logout clears the
+cookie by setting Max-Age=0.
+
+For mobile clients (where cookies aren't ideal), the auth module also
+supports Bearer tokens via the Authorization header. The middleware checks
+for the cookie first, then falls back to parsing the Authorization header.
+
+[USER session-17]: Database for user records?
+
+[ASSISTANT session-17]: PostgreSQL 15. The users table has the following schema:
+
+```sql
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(72) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_login_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_users_email ON users (email);
+```
+
+Passwords are hashed with bcrypt (cost factor 12). The application uses
+the `pg` Node driver with a connection pool of 10 connections by default,
+configurable via DB_POOL_SIZE env var.
+
+
+---
+
+[USER session-18]: Document the auth middleware in src/auth/middleware.ts.
+
+[ASSISTANT session-18]: Looking at the file. The auth module uses JWT tokens stored
+in httpOnly cookies. Tokens expire after 24 hours and refresh tokens rotate
+on every use. The middleware validates the JWT signature against the
+project's secret key (loaded from env var AUTH_SECRET).
+
+```typescript
+export function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  const token = req.cookies.session
+  if (!token) return res.status(401).send('Unauthorized')
+
+  try {
+    const payload = jwt.verify(token, process.env.AUTH_SECRET!)
+    req.user = payload as User
+    next()
+  } catch {
+    return res.status(401).send('Invalid token')
+  }
+}
+```
+
+The handler attaches the decoded payload to `req.user` so downstream
+handlers can access user identity without re-parsing.
+
+[USER session-18]: Are there any rate limits?
+
+[ASSISTANT session-18]: Yes, the project uses express-rate-limit. The default config
+is 100 requests per minute per IP, with a stricter 10/min window for the
+/auth/login endpoint specifically. Rate limit headers (X-RateLimit-Remaining,
+X-RateLimit-Reset) are included in every response.
+
+The configuration lives in src/middleware/rate-limit.ts. There's a
+dedicated bypass for internal service tokens — these are identified by
+the X-Service-Token header containing one of the keys listed in
+SERVICE_TOKEN_ALLOWLIST.
+
+[USER session-18]: Where are session tokens stored on the client?
+
+[ASSISTANT session-18]: httpOnly cookies, with the SameSite=Strict and Secure flags
+set in production. The cookie name is "session" and it's set by the login
+handler at /auth/login on a successful authentication. Logout clears the
+cookie by setting Max-Age=0.
+
+For mobile clients (where cookies aren't ideal), the auth module also
+supports Bearer tokens via the Authorization header. The middleware checks
+for the cookie first, then falls back to parsing the Authorization header.
+
+[USER session-18]: Database for user records?
+
+[ASSISTANT session-18]: PostgreSQL 15. The users table has the following schema:
+
+```sql
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(72) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_login_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_users_email ON users (email);
+```
+
+Passwords are hashed with bcrypt (cost factor 12). The application uses
+the `pg` Node driver with a connection pool of 10 connections by default,
+configurable via DB_POOL_SIZE env var.
+
+
+---
+
+[USER session-19]: Document the auth middleware in src/auth/middleware.ts.
+
+[ASSISTANT session-19]: Looking at the file. The auth module uses JWT tokens stored
+in httpOnly cookies. Tokens expire after 24 hours and refresh tokens rotate
+on every use. The middleware validates the JWT signature against the
+project's secret key (loaded from env var AUTH_SECRET).
+
+```typescript
+export function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  const token = req.cookies.session
+  if (!token) return res.status(401).send('Unauthorized')
+
+  try {
+    const payload = jwt.verify(token, process.env.AUTH_SECRET!)
+    req.user = payload as User
+    next()
+  } catch {
+    return res.status(401).send('Invalid token')
+  }
+}
+```
+
+The handler attaches the decoded payload to `req.user` so downstream
+handlers can access user identity without re-parsing.
+
+[USER session-19]: Are there any rate limits?
+
+[ASSISTANT session-19]: Yes, the project uses express-rate-limit. The default config
+is 100 requests per minute per IP, with a stricter 10/min window for the
+/auth/login endpoint specifically. Rate limit headers (X-RateLimit-Remaining,
+X-RateLimit-Reset) are included in every response.
+
+The configuration lives in src/middleware/rate-limit.ts. There's a
+dedicated bypass for internal service tokens — these are identified by
+the X-Service-Token header containing one of the keys listed in
+SERVICE_TOKEN_ALLOWLIST.
+
+[USER session-19]: Where are session tokens stored on the client?
+
+[ASSISTANT session-19]: httpOnly cookies, with the SameSite=Strict and Secure flags
+set in production. The cookie name is "session" and it's set by the login
+handler at /auth/login on a successful authentication. Logout clears the
+cookie by setting Max-Age=0.
+
+For mobile clients (where cookies aren't ideal), the auth module also
+supports Bearer tokens via the Authorization header. The middleware checks
+for the cookie first, then falls back to parsing the Authorization header.
+
+[USER session-19]: Database for user records?
+
+[ASSISTANT session-19]: PostgreSQL 15. The users table has the following schema:
+
+```sql
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(72) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_login_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_users_email ON users (email);
+```
+
+Passwords are hashed with bcrypt (cost factor 12). The application uses
+the `pg` Node driver with a connection pool of 10 connections by default,
+configurable via DB_POOL_SIZE env var.
+
+
+---
+
+[USER session-20]: Document the auth middleware in src/auth/middleware.ts.
+
+[ASSISTANT session-20]: Looking at the file. The auth module uses JWT tokens stored
+in httpOnly cookies. Tokens expire after 24 hours and refresh tokens rotate
+on every use. The middleware validates the JWT signature against the
+project's secret key (loaded from env var AUTH_SECRET).
+
+```typescript
+export function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  const token = req.cookies.session
+  if (!token) return res.status(401).send('Unauthorized')
+
+  try {
+    const payload = jwt.verify(token, process.env.AUTH_SECRET!)
+    req.user = payload as User
+    next()
+  } catch {
+    return res.status(401).send('Invalid token')
+  }
+}
+```
+
+The handler attaches the decoded payload to `req.user` so downstream
+handlers can access user identity without re-parsing.
+
+[USER session-20]: Are there any rate limits?
+
+[ASSISTANT session-20]: Yes, the project uses express-rate-limit. The default config
+is 100 requests per minute per IP, with a stricter 10/min window for the
+/auth/login endpoint specifically. Rate limit headers (X-RateLimit-Remaining,
+X-RateLimit-Reset) are included in every response.
+
+The configuration lives in src/middleware/rate-limit.ts. There's a
+dedicated bypass for internal service tokens — these are identified by
+the X-Service-Token header containing one of the keys listed in
+SERVICE_TOKEN_ALLOWLIST.
+
+[USER session-20]: Where are session tokens stored on the client?
+
+[ASSISTANT session-20]: httpOnly cookies, with the SameSite=Strict and Secure flags
+set in production. The cookie name is "session" and it's set by the login
+handler at /auth/login on a successful authentication. Logout clears the
+cookie by setting Max-Age=0.
+
+For mobile clients (where cookies aren't ideal), the auth module also
+supports Bearer tokens via the Authorization header. The middleware checks
+for the cookie first, then falls back to parsing the Authorization header.
+
+[USER session-20]: Database for user records?
+
+[ASSISTANT session-20]: PostgreSQL 15. The users table has the following schema:
+
+```sql
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(72) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_login_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_users_email ON users (email);
+```
+
+Passwords are hashed with bcrypt (cost factor 12). The application uses
+the `pg` Node driver with a connection pool of 10 connections by default,
+configurable via DB_POOL_SIZE env var.
+
+
+---
+
+[USER session-21]: Document the auth middleware in src/auth/middleware.ts.
+
+[ASSISTANT session-21]: Looking at the file. The auth module uses JWT tokens stored
+in httpOnly cookies. Tokens expire after 24 hours and refresh tokens rotate
+on every use. The middleware validates the JWT signature against the
+project's secret key (loaded from env var AUTH_SECRET).
+
+```typescript
+export function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  const token = req.cookies.session
+  if (!token) return res.status(401).send('Unauthorized')
+
+  try {
+    const payload = jwt.verify(token, process.env.AUTH_SECRET!)
+    req.user = payload as User
+    next()
+  } catch {
+    return res.status(401).send('Invalid token')
+  }
+}
+```
+
+The handler attaches the decoded payload to `req.user` so downstream
+handlers can access user identity without re-parsing.
+
+[USER session-21]: Are there any rate limits?
+
+[ASSISTANT session-21]: Yes, the project uses express-rate-limit. The default config
+is 100 requests per minute per IP, with a stricter 10/min window for the
+/auth/login endpoint specifically. Rate limit headers (X-RateLimit-Remaining,
+X-RateLimit-Reset) are included in every response.
+
+The configuration lives in src/middleware/rate-limit.ts. There's a
+dedicated bypass for internal service tokens — these are identified by
+the X-Service-Token header containing one of the keys listed in
+SERVICE_TOKEN_ALLOWLIST.
+
+[USER session-21]: Where are session tokens stored on the client?
+
+[ASSISTANT session-21]: httpOnly cookies, with the SameSite=Strict and Secure flags
+set in production. The cookie name is "session" and it's set by the login
+handler at /auth/login on a successful authentication. Logout clears the
+cookie by setting Max-Age=0.
+
+For mobile clients (where cookies aren't ideal), the auth module also
+supports Bearer tokens via the Authorization header. The middleware checks
+for the cookie first, then falls back to parsing the Authorization header.
+
+[USER session-21]: Database for user records?
+
+[ASSISTANT session-21]: PostgreSQL 15. The users table has the following schema:
+
+```sql
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(72) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_login_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_users_email ON users (email);
+```
+
+Passwords are hashed with bcrypt (cost factor 12). The application uses
+the `pg` Node driver with a connection pool of 10 connections by default,
+configurable via DB_POOL_SIZE env var.
+
+
+---
+
+[USER session-22]: Document the auth middleware in src/auth/middleware.ts.
+
+[ASSISTANT session-22]: Looking at the file. The auth module uses JWT tokens stored
+in httpOnly cookies. Tokens expire after 24 hours and refresh tokens rotate
+on every use. The middleware validates the JWT signature against the
+project's secret key (loaded from env var AUTH_SECRET).
+
+```typescript
+export function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  const token = req.cookies.session
+  if (!token) return res.status(401).send('Unauthorized')
+
+  try {
+    const payload = jwt.verify(token, process.env.AUTH_SECRET!)
+    req.user = payload as User
+    next()
+  } catch {
+    return res.status(401).send('Invalid token')
+  }
+}
+```
+
+The handler attaches the decoded payload to `req.user` so downstream
+handlers can access user identity without re-parsing.
+
+[USER session-22]: Are there any rate limits?
+
+[ASSISTANT session-22]: Yes, the project uses express-rate-limit. The default config
+is 100 requests per minute per IP, with a stricter 10/min window for the
+/auth/login endpoint specifically. Rate limit headers (X-RateLimit-Remaining,
+X-RateLimit-Reset) are included in every response.
+
+The configuration lives in src/middleware/rate-limit.ts. There's a
+dedicated bypass for internal service tokens — these are identified by
+the X-Service-Token header containing one of the keys listed in
+SERVICE_TOKEN_ALLOWLIST.
+
+[USER session-22]: Where are session tokens stored on the client?
+
+[ASSISTANT session-22]: httpOnly cookies, with the SameSite=Strict and Secure flags
+set in production. The cookie name is "session" and it's set by the login
+handler at /auth/login on a successful authentication. Logout clears the
+cookie by setting Max-Age=0.
+
+For mobile clients (where cookies aren't ideal), the auth module also
+supports Bearer tokens via the Authorization header. The middleware checks
+for the cookie first, then falls back to parsing the Authorization header.
+
+[USER session-22]: Database for user records?
+
+[ASSISTANT session-22]: PostgreSQL 15. The users table has the following schema:
+
+```sql
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(72) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_login_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_users_email ON users (email);
+```
+
+Passwords are hashed with bcrypt (cost factor 12). The application uses
+the `pg` Node driver with a connection pool of 10 connections by default,
+configurable via DB_POOL_SIZE env var.
+
+
+---
+
+[USER session-23]: Document the auth middleware in src/auth/middleware.ts.
+
+[ASSISTANT session-23]: Looking at the file. The auth module uses JWT tokens stored
+in httpOnly cookies. Tokens expire after 24 hours and refresh tokens rotate
+on every use. The middleware validates the JWT signature against the
+project's secret key (loaded from env var AUTH_SECRET).
+
+```typescript
+export function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  const token = req.cookies.session
+  if (!token) return res.status(401).send('Unauthorized')
+
+  try {
+    const payload = jwt.verify(token, process.env.AUTH_SECRET!)
+    req.user = payload as User
+    next()
+  } catch {
+    return res.status(401).send('Invalid token')
+  }
+}
+```
+
+The handler attaches the decoded payload to `req.user` so downstream
+handlers can access user identity without re-parsing.
+
+[USER session-23]: Are there any rate limits?
+
+[ASSISTANT session-23]: Yes, the project uses express-rate-limit. The default config
+is 100 requests per minute per IP, with a stricter 10/min window for the
+/auth/login endpoint specifically. Rate limit headers (X-RateLimit-Remaining,
+X-RateLimit-Reset) are included in every response.
+
+The configuration lives in src/middleware/rate-limit.ts. There's a
+dedicated bypass for internal service tokens — these are identified by
+the X-Service-Token header containing one of the keys listed in
+SERVICE_TOKEN_ALLOWLIST.
+
+[USER session-23]: Where are session tokens stored on the client?
+
+[ASSISTANT session-23]: httpOnly cookies, with the SameSite=Strict and Secure flags
+set in production. The cookie name is "session" and it's set by the login
+handler at /auth/login on a successful authentication. Logout clears the
+cookie by setting Max-Age=0.
+
+For mobile clients (where cookies aren't ideal), the auth module also
+supports Bearer tokens via the Authorization header. The middleware checks
+for the cookie first, then falls back to parsing the Authorization header.
+
+[USER session-23]: Database for user records?
+
+[ASSISTANT session-23]: PostgreSQL 15. The users table has the following schema:
+
+```sql
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(72) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_login_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_users_email ON users (email);
+```
+
+Passwords are hashed with bcrypt (cost factor 12). The application uses
+the `pg` Node driver with a connection pool of 10 connections by default,
+configurable via DB_POOL_SIZE env var.
+
+
+---
+
+[USER session-24]: Document the auth middleware in src/auth/middleware.ts.
+
+[ASSISTANT session-24]: Looking at the file. The auth module uses JWT tokens stored
+in httpOnly cookies. Tokens expire after 24 hours and refresh tokens rotate
+on every use. The middleware validates the JWT signature against the
+project's secret key (loaded from env var AUTH_SECRET).
+
+```typescript
+export function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  const token = req.cookies.session
+  if (!token) return res.status(401).send('Unauthorized')
+
+  try {
+    const payload = jwt.verify(token, process.env.AUTH_SECRET!)
+    req.user = payload as User
+    next()
+  } catch {
+    return res.status(401).send('Invalid token')
+  }
+}
+```
+
+The handler attaches the decoded payload to `req.user` so downstream
+handlers can access user identity without re-parsing.
+
+[USER session-24]: Are there any rate limits?
+
+[ASSISTANT session-24]: Yes, the project uses express-rate-limit. The default config
+is 100 requests per minute per IP, with a stricter 10/min window for the
+/auth/login endpoint specifically. Rate limit headers (X-RateLimit-Remaining,
+X-RateLimit-Reset) are included in every response.
+
+The configuration lives in src/middleware/rate-limit.ts. There's a
+dedicated bypass for internal service tokens — these are identified by
+the X-Service-Token header containing one of the keys listed in
+SERVICE_TOKEN_ALLOWLIST.
+
+[USER session-24]: Where are session tokens stored on the client?
+
+[ASSISTANT session-24]: httpOnly cookies, with the SameSite=Strict and Secure flags
+set in production. The cookie name is "session" and it's set by the login
+handler at /auth/login on a successful authentication. Logout clears the
+cookie by setting Max-Age=0.
+
+For mobile clients (where cookies aren't ideal), the auth module also
+supports Bearer tokens via the Authorization header. The middleware checks
+for the cookie first, then falls back to parsing the Authorization header.
+
+[USER session-24]: Database for user records?
+
+[ASSISTANT session-24]: PostgreSQL 15. The users table has the following schema:
+
+```sql
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(72) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_login_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_users_email ON users (email);
+```
+
+Passwords are hashed with bcrypt (cost factor 12). The application uses
+the `pg` Node driver with a connection pool of 10 connections by default,
+configurable via DB_POOL_SIZE env var.
+
+
+---
+
+[USER session-25]: Document the auth middleware in src/auth/middleware.ts.
+
+[ASSISTANT session-25]: Looking at the file. The auth module uses JWT tokens stored
+in httpOnly cookies. Tokens expire after 24 hours and refresh tokens rotate
+on every use. The middleware validates the JWT signature against the
+project's secret key (loaded from env var AUTH_SECRET).
+
+```typescript
+export function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  const token = req.cookies.session
+  if (!token) return res.status(401).send('Unauthorized')
+
+  try {
+    const payload = jwt.verify(token, process.env.AUTH_SECRET!)
+    req.user = payload as User
+    next()
+  } catch {
+    return res.status(401).send('Invalid token')
+  }
+}
+```
+
+The handler attaches the decoded payload to `req.user` so downstream
+handlers can access user identity without re-parsing.
+
+[USER session-25]: Are there any rate limits?
+
+[ASSISTANT session-25]: Yes, the project uses express-rate-limit. The default config
+is 100 requests per minute per IP, with a stricter 10/min window for the
+/auth/login endpoint specifically. Rate limit headers (X-RateLimit-Remaining,
+X-RateLimit-Reset) are included in every response.
+
+The configuration lives in src/middleware/rate-limit.ts. There's a
+dedicated bypass for internal service tokens — these are identified by
+the X-Service-Token header containing one of the keys listed in
+SERVICE_TOKEN_ALLOWLIST.
+
+[USER session-25]: Where are session tokens stored on the client?
+
+[ASSISTANT session-25]: httpOnly cookies, with the SameSite=Strict and Secure flags
+set in production. The cookie name is "session" and it's set by the login
+handler at /auth/login on a successful authentication. Logout clears the
+cookie by setting Max-Age=0.
+
+For mobile clients (where cookies aren't ideal), the auth module also
+supports Bearer tokens via the Authorization header. The middleware checks
+for the cookie first, then falls back to parsing the Authorization header.
+
+[USER session-25]: Database for user records?
+
+[ASSISTANT session-25]: PostgreSQL 15. The users table has the following schema:
+
+```sql
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(72) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_login_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_users_email ON users (email);
+```
+
+Passwords are hashed with bcrypt (cost factor 12). The application uses
+the `pg` Node driver with a connection pool of 10 connections by default,
+configurable via DB_POOL_SIZE env var.
+
+
+---
+
+[USER session-26]: Document the auth middleware in src/auth/middleware.ts.
+
+[ASSISTANT session-26]: Looking at the file. The auth module uses JWT tokens stored
+in httpOnly cookies. Tokens expire after 24 hours and refresh tokens rotate
+on every use. The middleware validates the JWT signature against the
+project's secret key (loaded from env var AUTH_SECRET).
+
+```typescript
+export function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  const token = req.cookies.session
+  if (!token) return res.status(401).send('Unauthorized')
+
+  try {
+    const payload = jwt.verify(token, process.env.AUTH_SECRET!)
+    req.user = payload as User
+    next()
+  } catch {
+    return res.status(401).send('Invalid token')
+  }
+}
+```
+
+The handler attaches the decoded payload to `req.user` so downstream
+handlers can access user identity without re-parsing.
+
+[USER session-26]: Are there any rate limits?
+
+[ASSISTANT session-26]: Yes, the project uses express-rate-limit. The default config
+is 100 requests per minute per IP, with a stricter 10/min window for the
+/auth/login endpoint specifically. Rate limit headers (X-RateLimit-Remaining,
+X-RateLimit-Reset) are included in every response.
+
+The configuration lives in src/middleware/rate-limit.ts. There's a
+dedicated bypass for internal service tokens — these are identified by
+the X-Service-Token header containing one of the keys listed in
+SERVICE_TOKEN_ALLOWLIST.
+
+[USER session-26]: Where are session tokens stored on the client?
+
+[ASSISTANT session-26]: httpOnly cookies, with the SameSite=Strict and Secure flags
+set in production. The cookie name is "session" and it's set by the login
+handler at /auth/login on a successful authentication. Logout clears the
+cookie by setting Max-Age=0.
+
+For mobile clients (where cookies aren't ideal), the auth module also
+supports Bearer tokens via the Authorization header. The middleware checks
+for the cookie first, then falls back to parsing the Authorization header.
+
+[USER session-26]: Database for user records?
+
+[ASSISTANT session-26]: PostgreSQL 15. The users table has the following schema:
+
+```sql
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(72) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_login_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_users_email ON users (email);
+```
+
+Passwords are hashed with bcrypt (cost factor 12). The application uses
+the `pg` Node driver with a connection pool of 10 connections by default,
+configurable via DB_POOL_SIZE env var.
+
+
+---
+
+[USER session-27]: Document the auth middleware in src/auth/middleware.ts.
+
+[ASSISTANT session-27]: Looking at the file. The auth module uses JWT tokens stored
+in httpOnly cookies. Tokens expire after 24 hours and refresh tokens rotate
+on every use. The middleware validates the JWT signature against the
+project's secret key (loaded from env var AUTH_SECRET).
+
+```typescript
+export function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  const token = req.cookies.session
+  if (!token) return res.status(401).send('Unauthorized')
+
+  try {
+    const payload = jwt.verify(token, process.env.AUTH_SECRET!)
+    req.user = payload as User
+    next()
+  } catch {
+    return res.status(401).send('Invalid token')
+  }
+}
+```
+
+The handler attaches the decoded payload to `req.user` so downstream
+handlers can access user identity without re-parsing.
+
+[USER session-27]: Are there any rate limits?
+
+[ASSISTANT session-27]: Yes, the project uses express-rate-limit. The default config
+is 100 requests per minute per IP, with a stricter 10/min window for the
+/auth/login endpoint specifically. Rate limit headers (X-RateLimit-Remaining,
+X-RateLimit-Reset) are included in every response.
+
+The configuration lives in src/middleware/rate-limit.ts. There's a
+dedicated bypass for internal service tokens — these are identified by
+the X-Service-Token header containing one of the keys listed in
+SERVICE_TOKEN_ALLOWLIST.
+
+[USER session-27]: Where are session tokens stored on the client?
+
+[ASSISTANT session-27]: httpOnly cookies, with the SameSite=Strict and Secure flags
+set in production. The cookie name is "session" and it's set by the login
+handler at /auth/login on a successful authentication. Logout clears the
+cookie by setting Max-Age=0.
+
+For mobile clients (where cookies aren't ideal), the auth module also
+supports Bearer tokens via the Authorization header. The middleware checks
+for the cookie first, then falls back to parsing the Authorization header.
+
+[USER session-27]: Database for user records?
+
+[ASSISTANT session-27]: PostgreSQL 15. The users table has the following schema:
+
+```sql
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(72) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_login_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_users_email ON users (email);
+```
+
+Passwords are hashed with bcrypt (cost factor 12). The application uses
+the `pg` Node driver with a connection pool of 10 connections by default,
+configurable via DB_POOL_SIZE env var.
+
+
+---
+
+[USER session-28]: Document the auth middleware in src/auth/middleware.ts.
+
+[ASSISTANT session-28]: Looking at the file. The auth module uses JWT tokens stored
+in httpOnly cookies. Tokens expire after 24 hours and refresh tokens rotate
+on every use. The middleware validates the JWT signature against the
+project's secret key (loaded from env var AUTH_SECRET).
+
+```typescript
+export function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  const token = req.cookies.session
+  if (!token) return res.status(401).send('Unauthorized')
+
+  try {
+    const payload = jwt.verify(token, process.env.AUTH_SECRET!)
+    req.user = payload as User
+    next()
+  } catch {
+    return res.status(401).send('Invalid token')
+  }
+}
+```
+
+The handler attaches the decoded payload to `req.user` so downstream
+handlers can access user identity without re-parsing.
+
+[USER session-28]: Are there any rate limits?
+
+[ASSISTANT session-28]: Yes, the project uses express-rate-limit. The default config
+is 100 requests per minute per IP, with a stricter 10/min window for the
+/auth/login endpoint specifically. Rate limit headers (X-RateLimit-Remaining,
+X-RateLimit-Reset) are included in every response.
+
+The configuration lives in src/middleware/rate-limit.ts. There's a
+dedicated bypass for internal service tokens — these are identified by
+the X-Service-Token header containing one of the keys listed in
+SERVICE_TOKEN_ALLOWLIST.
+
+[USER session-28]: Where are session tokens stored on the client?
+
+[ASSISTANT session-28]: httpOnly cookies, with the SameSite=Strict and Secure flags
+set in production. The cookie name is "session" and it's set by the login
+handler at /auth/login on a successful authentication. Logout clears the
+cookie by setting Max-Age=0.
+
+For mobile clients (where cookies aren't ideal), the auth module also
+supports Bearer tokens via the Authorization header. The middleware checks
+for the cookie first, then falls back to parsing the Authorization header.
+
+[USER session-28]: Database for user records?
+
+[ASSISTANT session-28]: PostgreSQL 15. The users table has the following schema:
+
+```sql
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(72) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_login_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_users_email ON users (email);
+```
+
+Passwords are hashed with bcrypt (cost factor 12). The application uses
+the `pg` Node driver with a connection pool of 10 connections by default,
+configurable via DB_POOL_SIZE env var.
+
+
+---
+
+[USER session-29]: Document the auth middleware in src/auth/middleware.ts.
+
+[ASSISTANT session-29]: Looking at the file. The auth module uses JWT tokens stored
+in httpOnly cookies. Tokens expire after 24 hours and refresh tokens rotate
+on every use. The middleware validates the JWT signature against the
+project's secret key (loaded from env var AUTH_SECRET).
+
+```typescript
+export function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  const token = req.cookies.session
+  if (!token) return res.status(401).send('Unauthorized')
+
+  try {
+    const payload = jwt.verify(token, process.env.AUTH_SECRET!)
+    req.user = payload as User
+    next()
+  } catch {
+    return res.status(401).send('Invalid token')
+  }
+}
+```
+
+The handler attaches the decoded payload to `req.user` so downstream
+handlers can access user identity without re-parsing.
+
+[USER session-29]: Are there any rate limits?
+
+[ASSISTANT session-29]: Yes, the project uses express-rate-limit. The default config
+is 100 requests per minute per IP, with a stricter 10/min window for the
+/auth/login endpoint specifically. Rate limit headers (X-RateLimit-Remaining,
+X-RateLimit-Reset) are included in every response.
+
+The configuration lives in src/middleware/rate-limit.ts. There's a
+dedicated bypass for internal service tokens — these are identified by
+the X-Service-Token header containing one of the keys listed in
+SERVICE_TOKEN_ALLOWLIST.
+
+[USER session-29]: Where are session tokens stored on the client?
+
+[ASSISTANT session-29]: httpOnly cookies, with the SameSite=Strict and Secure flags
+set in production. The cookie name is "session" and it's set by the login
+handler at /auth/login on a successful authentication. Logout clears the
+cookie by setting Max-Age=0.
+
+For mobile clients (where cookies aren't ideal), the auth module also
+supports Bearer tokens via the Authorization header. The middleware checks
+for the cookie first, then falls back to parsing the Authorization header.
+
+[USER session-29]: Database for user records?
+
+[ASSISTANT session-29]: PostgreSQL 15. The users table has the following schema:
+
+```sql
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(72) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_login_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_users_email ON users (email);
+```
+
+Passwords are hashed with bcrypt (cost factor 12). The application uses
+the `pg` Node driver with a connection pool of 10 connections by default,
+configurable via DB_POOL_SIZE env var.
+
+
+---
+
+[USER session-30]: Document the auth middleware in src/auth/middleware.ts.
+
+[ASSISTANT session-30]: Looking at the file. The auth module uses JWT tokens stored
+in httpOnly cookies. Tokens expire after 24 hours and refresh tokens rotate
+on every use. The middleware validates the JWT signature against the
+project's secret key (loaded from env var AUTH_SECRET).
+
+```typescript
+export function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  const token = req.cookies.session
+  if (!token) return res.status(401).send('Unauthorized')
+
+  try {
+    const payload = jwt.verify(token, process.env.AUTH_SECRET!)
+    req.user = payload as User
+    next()
+  } catch {
+    return res.status(401).send('Invalid token')
+  }
+}
+```
+
+The handler attaches the decoded payload to `req.user` so downstream
+handlers can access user identity without re-parsing.
+
+[USER session-30]: Are there any rate limits?
+
+[ASSISTANT session-30]: Yes, the project uses express-rate-limit. The default config
+is 100 requests per minute per IP, with a stricter 10/min window for the
+/auth/login endpoint specifically. Rate limit headers (X-RateLimit-Remaining,
+X-RateLimit-Reset) are included in every response.
+
+The configuration lives in src/middleware/rate-limit.ts. There's a
+dedicated bypass for internal service tokens — these are identified by
+the X-Service-Token header containing one of the keys listed in
+SERVICE_TOKEN_ALLOWLIST.
+
+[USER session-30]: Where are session tokens stored on the client?
+
+[ASSISTANT session-30]: httpOnly cookies, with the SameSite=Strict and Secure flags
+set in production. The cookie name is "session" and it's set by the login
+handler at /auth/login on a successful authentication. Logout clears the
+cookie by setting Max-Age=0.
+
+For mobile clients (where cookies aren't ideal), the auth module also
+supports Bearer tokens via the Authorization header. The middleware checks
+for the cookie first, then falls back to parsing the Authorization header.
+
+[USER session-30]: Database for user records?
+
+[ASSISTANT session-30]: PostgreSQL 15. The users table has the following schema:
+
+```sql
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(72) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_login_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_users_email ON users (email);
+```
+
+Passwords are hashed with bcrypt (cost factor 12). The application uses
+the `pg` Node driver with a connection pool of 10 connections by default,
+configurable via DB_POOL_SIZE env var.
+
+
+---
+
+[USER session-31]: Document the auth middleware in src/auth/middleware.ts.
+
+[ASSISTANT session-31]: Looking at the file. The auth module uses JWT tokens stored
+in httpOnly cookies. Tokens expire after 24 hours and refresh tokens rotate
+on every use. The middleware validates the JWT signature against the
+project's secret key (loaded from env var AUTH_SECRET).
+
+```typescript
+export function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  const token = req.cookies.session
+  if (!token) return res.status(401).send('Unauthorized')
+
+  try {
+    const payload = jwt.verify(token, process.env.AUTH_SECRET!)
+    req.user = payload as User
+    next()
+  } catch {
+    return res.status(401).send('Invalid token')
+  }
+}
+```
+
+The handler attaches the decoded payload to `req.user` so downstream
+handlers can access user identity without re-parsing.
+
+[USER session-31]: Are there any rate limits?
+
+[ASSISTANT session-31]: Yes, the project uses express-rate-limit. The default config
+is 100 requests per minute per IP, with a stricter 10/min window for the
+/auth/login endpoint specifically. Rate limit headers (X-RateLimit-Remaining,
+X-RateLimit-Reset) are included in every response.
+
+The configuration lives in src/middleware/rate-limit.ts. There's a
+dedicated bypass for internal service tokens — these are identified by
+the X-Service-Token header containing one of the keys listed in
+SERVICE_TOKEN_ALLOWLIST.
+
+[USER session-31]: Where are session tokens stored on the client?
+
+[ASSISTANT session-31]: httpOnly cookies, with the SameSite=Strict and Secure flags
+set in production. The cookie name is "session" and it's set by the login
+handler at /auth/login on a successful authentication. Logout clears the
+cookie by setting Max-Age=0.
+
+For mobile clients (where cookies aren't ideal), the auth module also
+supports Bearer tokens via the Authorization header. The middleware checks
+for the cookie first, then falls back to parsing the Authorization header.
+
+[USER session-31]: Database for user records?
+
+[ASSISTANT session-31]: PostgreSQL 15. The users table has the following schema:
+
+```sql
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(72) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_login_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_users_email ON users (email);
+```
+
+Passwords are hashed with bcrypt (cost factor 12). The application uses
+the `pg` Node driver with a connection pool of 10 connections by default,
+configurable via DB_POOL_SIZE env var.
+
+
+---
+
+[USER session-32]: Document the auth middleware in src/auth/middleware.ts.
+
+[ASSISTANT session-32]: Looking at the file. The auth module uses JWT tokens stored
+in httpOnly cookies. Tokens expire after 24 hours and refresh tokens rotate
+on every use. The middleware validates the JWT signature against the
+project's secret key (loaded from env var AUTH_SECRET).
+
+```typescript
+export function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  const token = req.cookies.session
+  if (!token) return res.status(401).send('Unauthorized')
+
+  try {
+    const payload = jwt.verify(token, process.env.AUTH_SECRET!)
+    req.user = payload as User
+    next()
+  } catch {
+    return res.status(401).send('Invalid token')
+  }
+}
+```
+
+The handler attaches the decoded payload to `req.user` so downstream
+handlers can access user identity without re-parsing.
+
+[USER session-32]: Are there any rate limits?
+
+[ASSISTANT session-32]: Yes, the project uses express-rate-limit. The default config
+is 100 requests per minute per IP, with a stricter 10/min window for the
+/auth/login endpoint specifically. Rate limit headers (X-RateLimit-Remaining,
+X-RateLimit-Reset) are included in every response.
+
+The configuration lives in src/middleware/rate-limit.ts. There's a
+dedicated bypass for internal service tokens — these are identified by
+the X-Service-Token header containing one of the keys listed in
+SERVICE_TOKEN_ALLOWLIST.
+
+[USER session-32]: Where are session tokens stored on the client?
+
+[ASSISTANT session-32]: httpOnly cookies, with the SameSite=Strict and Secure flags
+set in production. The cookie name is "session" and it's set by the login
+handler at /auth/login on a successful authentication. Logout clears the
+cookie by setting Max-Age=0.
+
+For mobile clients (where cookies aren't ideal), the auth module also
+supports Bearer tokens via the Authorization header. The middleware checks
+for the cookie first, then falls back to parsing the Authorization header.
+
+[USER session-32]: Database for user records?
+
+[ASSISTANT session-32]: PostgreSQL 15. The users table has the following schema:
+
+```sql
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(72) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_login_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_users_email ON users (email);
+```
+
+Passwords are hashed with bcrypt (cost factor 12). The application uses
+the `pg` Node driver with a connection pool of 10 connections by default,
+configurable via DB_POOL_SIZE env var.
+
+
+---
+
+[USER session-33]: Document the auth middleware in src/auth/middleware.ts.
+
+[ASSISTANT session-33]: Looking at the file. The auth module uses JWT tokens stored
+in httpOnly cookies. Tokens expire after 24 hours and refresh tokens rotate
+on every use. The middleware validates the JWT signature against the
+project's secret key (loaded from env var AUTH_SECRET).
+
+```typescript
+export function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  const token = req.cookies.session
+  if (!token) return res.status(401).send('Unauthorized')
+
+  try {
+    const payload = jwt.verify(token, process.env.AUTH_SECRET!)
+    req.user = payload as User
+    next()
+  } catch {
+    return res.status(401).send('Invalid token')
+  }
+}
+```
+
+The handler attaches the decoded payload to `req.user` so downstream
+handlers can access user identity without re-parsing.
+
+[USER session-33]: Are there any rate limits?
+
+[ASSISTANT session-33]: Yes, the project uses express-rate-limit. The default config
+is 100 requests per minute per IP, with a stricter 10/min window for the
+/auth/login endpoint specifically. Rate limit headers (X-RateLimit-Remaining,
+X-RateLimit-Reset) are included in every response.
+
+The configuration lives in src/middleware/rate-limit.ts. There's a
+dedicated bypass for internal service tokens — these are identified by
+the X-Service-Token header containing one of the keys listed in
+SERVICE_TOKEN_ALLOWLIST.
+
+[USER session-33]: Where are session tokens stored on the client?
+
+[ASSISTANT session-33]: httpOnly cookies, with the SameSite=Strict and Secure flags
+set in production. The cookie name is "session" and it's set by the login
+handler at /auth/login on a successful authentication. Logout clears the
+cookie by setting Max-Age=0.
+
+For mobile clients (where cookies aren't ideal), the auth module also
+supports Bearer tokens via the Authorization header. The middleware checks
+for the cookie first, then falls back to parsing the Authorization header.
+
+[USER session-33]: Database for user records?
+
+[ASSISTANT session-33]: PostgreSQL 15. The users table has the following schema:
+
+```sql
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(72) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_login_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_users_email ON users (email);
+```
+
+Passwords are hashed with bcrypt (cost factor 12). The application uses
+the `pg` Node driver with a connection pool of 10 connections by default,
+configurable via DB_POOL_SIZE env var.
+
+
+---
+
+[USER session-34]: Document the auth middleware in src/auth/middleware.ts.
+
+[ASSISTANT session-34]: Looking at the file. The auth module uses JWT tokens stored
+in httpOnly cookies. Tokens expire after 24 hours and refresh tokens rotate
+on every use. The middleware validates the JWT signature against the
+project's secret key (loaded from env var AUTH_SECRET).
+
+```typescript
+export function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  const token = req.cookies.session
+  if (!token) return res.status(401).send('Unauthorized')
+
+  try {
+    const payload = jwt.verify(token, process.env.AUTH_SECRET!)
+    req.user = payload as User
+    next()
+  } catch {
+    return res.status(401).send('Invalid token')
+  }
+}
+```
+
+The handler attaches the decoded payload to `req.user` so downstream
+handlers can access user identity without re-parsing.
+
+[USER session-34]: Are there any rate limits?
+
+[ASSISTANT session-34]: Yes, the project uses express-rate-limit. The default config
+is 100 requests per minute per IP, with a stricter 10/min window for the
+/auth/login endpoint specifically. Rate limit headers (X-RateLimit-Remaining,
+X-RateLimit-Reset) are included in every response.
+
+The configuration lives in src/middleware/rate-limit.ts. There's a
+dedicated bypass for internal service tokens — these are identified by
+the X-Service-Token header containing one of the keys listed in
+SERVICE_TOKEN_ALLOWLIST.
+
+[USER session-34]: Where are session tokens stored on the client?
+
+[ASSISTANT session-34]: httpOnly cookies, with the SameSite=Strict and Secure flags
+set in production. The cookie name is "session" and it's set by the login
+handler at /auth/login on a successful authentication. Logout clears the
+cookie by setting Max-Age=0.
+
+For mobile clients (where cookies aren't ideal), the auth module also
+supports Bearer tokens via the Authorization header. The middleware checks
+for the cookie first, then falls back to parsing the Authorization header.
+
+[USER session-34]: Database for user records?
+
+[ASSISTANT session-34]: PostgreSQL 15. The users table has the following schema:
+
+```sql
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(72) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_login_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_users_email ON users (email);
+```
+
+Passwords are hashed with bcrypt (cost factor 12). The application uses
+the `pg` Node driver with a connection pool of 10 connections by default,
+configurable via DB_POOL_SIZE env var.
+
+
+---
+
+[USER session-35]: Document the auth middleware in src/auth/middleware.ts.
+
+[ASSISTANT session-35]: Looking at the file. The auth module uses JWT tokens stored
+in httpOnly cookies. Tokens expire after 24 hours and refresh tokens rotate
+on every use. The middleware validates the JWT signature against the
+project's secret key (loaded from env var AUTH_SECRET).
+
+```typescript
+export function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  const token = req.cookies.session
+  if (!token) return res.status(401).send('Unauthorized')
+
+  try {
+    const payload = jwt.verify(token, process.env.AUTH_SECRET!)
+    req.user = payload as User
+    next()
+  } catch {
+    return res.status(401).send('Invalid token')
+  }
+}
+```
+
+The handler attaches the decoded payload to `req.user` so downstream
+handlers can access user identity without re-parsing.
+
+[USER session-35]: Are there any rate limits?
+
+[ASSISTANT session-35]: Yes, the project uses express-rate-limit. The default config
+is 100 requests per minute per IP, with a stricter 10/min window for the
+/auth/login endpoint specifically. Rate limit headers (X-RateLimit-Remaining,
+X-RateLimit-Reset) are included in every response.
+
+The configuration lives in src/middleware/rate-limit.ts. There's a
+dedicated bypass for internal service tokens — these are identified by
+the X-Service-Token header containing one of the keys listed in
+SERVICE_TOKEN_ALLOWLIST.
+
+[USER session-35]: Where are session tokens stored on the client?
+
+[ASSISTANT session-35]: httpOnly cookies, with the SameSite=Strict and Secure flags
+set in production. The cookie name is "session" and it's set by the login
+handler at /auth/login on a successful authentication. Logout clears the
+cookie by setting Max-Age=0.
+
+For mobile clients (where cookies aren't ideal), the auth module also
+supports Bearer tokens via the Authorization header. The middleware checks
+for the cookie first, then falls back to parsing the Authorization header.
+
+[USER session-35]: Database for user records?
+
+[ASSISTANT session-35]: PostgreSQL 15. The users table has the following schema:
+
+```sql
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(72) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_login_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_users_email ON users (email);
+```
+
+Passwords are hashed with bcrypt (cost factor 12). The application uses
+the `pg` Node driver with a connection pool of 10 connections by default,
+configurable via DB_POOL_SIZE env var.
+
+
+---
+
+[USER session-36]: Document the auth middleware in src/auth/middleware.ts.
+
+[ASSISTANT session-36]: Looking at the file. The auth module uses JWT tokens stored
+in httpOnly cookies. Tokens expire after 24 hours and refresh tokens rotate
+on every use. The middleware validates the JWT signature against the
+project's secret key (loaded from env var AUTH_SECRET).
+
+```typescript
+export function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  const token = req.cookies.session
+  if (!token) return res.status(401).send('Unauthorized')
+
+  try {
+    const payload = jwt.verify(token, process.env.AUTH_SECRET!)
+    req.user = payload as User
+    next()
+  } catch {
+    return res.status(401).send('Invalid token')
+  }
+}
+```
+
+The handler attaches the decoded payload to `req.user` so downstream
+handlers can access user identity without re-parsing.
+
+[USER session-36]: Are there any rate limits?
+
+[ASSISTANT session-36]: Yes, the project uses express-rate-limit. The default config
+is 100 requests per minute per IP, with a stricter 10/min window for the
+/auth/login endpoint specifically. Rate limit headers (X-RateLimit-Remaining,
+X-RateLimit-Reset) are included in every response.
+
+The configuration lives in src/middleware/rate-limit.ts. There's a
+dedicated bypass for internal service tokens — these are identified by
+the X-Service-Token header containing one of the keys listed in
+SERVICE_TOKEN_ALLOWLIST.
+
+[USER session-36]: Where are session tokens stored on the client?
+
+[ASSISTANT session-36]: httpOnly cookies, with the SameSite=Strict and Secure flags
+set in production. The cookie name is "session" and it's set by the login
+handler at /auth/login on a successful authentication. Logout clears the
+cookie by setting Max-Age=0.
+
+For mobile clients (where cookies aren't ideal), the auth module also
+supports Bearer tokens via the Authorization header. The middleware checks
+for the cookie first, then falls back to parsing the Authorization header.
+
+[USER session-36]: Database for user records?
+
+[ASSISTANT session-36]: PostgreSQL 15. The users table has the following schema:
+
+```sql
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(72) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_login_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_users_email ON users (email);
+```
+
+Passwords are hashed with bcrypt (cost factor 12). The application uses
+the `pg` Node driver with a connection pool of 10 connections by default,
+configurable via DB_POOL_SIZE env var.
+
+
+---
+
+[USER session-37]: Document the auth middleware in src/auth/middleware.ts.
+
+[ASSISTANT session-37]: Looking at the file. The auth module uses JWT tokens stored
+in httpOnly cookies. Tokens expire after 24 hours and refresh tokens rotate
+on every use. The middleware validates the JWT signature against the
+project's secret key (loaded from env var AUTH_SECRET).
+
+```typescript
+export function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  const token = req.cookies.session
+  if (!token) return res.status(401).send('Unauthorized')
+
+  try {
+    const payload = jwt.verify(token, process.env.AUTH_SECRET!)
+    req.user = payload as User
+    next()
+  } catch {
+    return res.status(401).send('Invalid token')
+  }
+}
+```
+
+The handler attaches the decoded payload to `req.user` so downstream
+handlers can access user identity without re-parsing.
+
+[USER session-37]: Are there any rate limits?
+
+[ASSISTANT session-37]: Yes, the project uses express-rate-limit. The default config
+is 100 requests per minute per IP, with a stricter 10/min window for the
+/auth/login endpoint specifically. Rate limit headers (X-RateLimit-Remaining,
+X-RateLimit-Reset) are included in every response.
+
+The configuration lives in src/middleware/rate-limit.ts. There's a
+dedicated bypass for internal service tokens — these are identified by
+the X-Service-Token header containing one of the keys listed in
+SERVICE_TOKEN_ALLOWLIST.
+
+[USER session-37]: Where are session tokens stored on the client?
+
+[ASSISTANT session-37]: httpOnly cookies, with the SameSite=Strict and Secure flags
+set in production. The cookie name is "session" and it's set by the login
+handler at /auth/login on a successful authentication. Logout clears the
+cookie by setting Max-Age=0.
+
+For mobile clients (where cookies aren't ideal), the auth module also
+supports Bearer tokens via the Authorization header. The middleware checks
+for the cookie first, then falls back to parsing the Authorization header.
+
+[USER session-37]: Database for user records?
+
+[ASSISTANT session-37]: PostgreSQL 15. The users table has the following schema:
+
+```sql
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(72) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_login_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_users_email ON users (email);
+```
+
+Passwords are hashed with bcrypt (cost factor 12). The application uses
+the `pg` Node driver with a connection pool of 10 connections by default,
+configurable via DB_POOL_SIZE env var.
+
+
+---
+
+[USER session-38]: Document the auth middleware in src/auth/middleware.ts.
+
+[ASSISTANT session-38]: Looking at the file. The auth module uses JWT tokens stored
+in httpOnly cookies. Tokens expire after 24 hours and refresh tokens rotate
+on every use. The middleware validates the JWT signature against the
+project's secret key (loaded from env var AUTH_SECRET).
+
+```typescript
+export function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  const token = req.cookies.session
+  if (!token) return res.status(401).send('Unauthorized')
+
+  try {
+    const payload = jwt.verify(token, process.env.AUTH_SECRET!)
+    req.user = payload as User
+    next()
+  } catch {
+    return res.status(401).send('Invalid token')
+  }
+}
+```
+
+The handler attaches the decoded payload to `req.user` so downstream
+handlers can access user identity without re-parsing.
+
+[USER session-38]: Are there any rate limits?
+
+[ASSISTANT session-38]: Yes, the project uses express-rate-limit. The default config
+is 100 requests per minute per IP, with a stricter 10/min window for the
+/auth/login endpoint specifically. Rate limit headers (X-RateLimit-Remaining,
+X-RateLimit-Reset) are included in every response.
+
+The configuration lives in src/middleware/rate-limit.ts. There's a
+dedicated bypass for internal service tokens — these are identified by
+the X-Service-Token header containing one of the keys listed in
+SERVICE_TOKEN_ALLOWLIST.
+
+[USER session-38]: Where are session tokens stored on the client?
+
+[ASSISTANT session-38]: httpOnly cookies, with the SameSite=Strict and Secure flags
+set in production. The cookie name is "session" and it's set by the login
+handler at /auth/login on a successful authentication. Logout clears the
+cookie by setting Max-Age=0.
+
+For mobile clients (where cookies aren't ideal), the auth module also
+supports Bearer tokens via the Authorization header. The middleware checks
+for the cookie first, then falls back to parsing the Authorization header.
+
+[USER session-38]: Database for user records?
+
+[ASSISTANT session-38]: PostgreSQL 15. The users table has the following schema:
+
+```sql
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(72) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_login_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_users_email ON users (email);
+```
+
+Passwords are hashed with bcrypt (cost factor 12). The application uses
+the `pg` Node driver with a connection pool of 10 connections by default,
+configurable via DB_POOL_SIZE env var.
+
+
+---
+
+[USER session-39]: Document the auth middleware in src/auth/middleware.ts.
+
+[ASSISTANT session-39]: Looking at the file. The auth module uses JWT tokens stored
+in httpOnly cookies. Tokens expire after 24 hours and refresh tokens rotate
+on every use. The middleware validates the JWT signature against the
+project's secret key (loaded from env var AUTH_SECRET).
+
+```typescript
+export function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  const token = req.cookies.session
+  if (!token) return res.status(401).send('Unauthorized')
+
+  try {
+    const payload = jwt.verify(token, process.env.AUTH_SECRET!)
+    req.user = payload as User
+    next()
+  } catch {
+    return res.status(401).send('Invalid token')
+  }
+}
+```
+
+The handler attaches the decoded payload to `req.user` so downstream
+handlers can access user identity without re-parsing.
+
+[USER session-39]: Are there any rate limits?
+
+[ASSISTANT session-39]: Yes, the project uses express-rate-limit. The default config
+is 100 requests per minute per IP, with a stricter 10/min window for the
+/auth/login endpoint specifically. Rate limit headers (X-RateLimit-Remaining,
+X-RateLimit-Reset) are included in every response.
+
+The configuration lives in src/middleware/rate-limit.ts. There's a
+dedicated bypass for internal service tokens — these are identified by
+the X-Service-Token header containing one of the keys listed in
+SERVICE_TOKEN_ALLOWLIST.
+
+[USER session-39]: Where are session tokens stored on the client?
+
+[ASSISTANT session-39]: httpOnly cookies, with the SameSite=Strict and Secure flags
+set in production. The cookie name is "session" and it's set by the login
+handler at /auth/login on a successful authentication. Logout clears the
+cookie by setting Max-Age=0.
+
+For mobile clients (where cookies aren't ideal), the auth module also
+supports Bearer tokens via the Authorization header. The middleware checks
+for the cookie first, then falls back to parsing the Authorization header.
+
+[USER session-39]: Database for user records?
+
+[ASSISTANT session-39]: PostgreSQL 15. The users table has the following schema:
+
+```sql
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(72) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_login_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_users_email ON users (email);
+```
+
+Passwords are hashed with bcrypt (cost factor 12). The application uses
+the `pg` Node driver with a connection pool of 10 connections by default,
+configurable via DB_POOL_SIZE env var.
+
+
+---
+
+[USER session-40]: Document the auth middleware in src/auth/middleware.ts.
+
+[ASSISTANT session-40]: Looking at the file. The auth module uses JWT tokens stored
+in httpOnly cookies. Tokens expire after 24 hours and refresh tokens rotate
+on every use. The middleware validates the JWT signature against the
+project's secret key (loaded from env var AUTH_SECRET).
+
+```typescript
+export function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  const token = req.cookies.session
+  if (!token) return res.status(401).send('Unauthorized')
+
+  try {
+    const payload = jwt.verify(token, process.env.AUTH_SECRET!)
+    req.user = payload as User
+    next()
+  } catch {
+    return res.status(401).send('Invalid token')
+  }
+}
+```
+
+The handler attaches the decoded payload to `req.user` so downstream
+handlers can access user identity without re-parsing.
+
+[USER session-40]: Are there any rate limits?
+
+[ASSISTANT session-40]: Yes, the project uses express-rate-limit. The default config
+is 100 requests per minute per IP, with a stricter 10/min window for the
+/auth/login endpoint specifically. Rate limit headers (X-RateLimit-Remaining,
+X-RateLimit-Reset) are included in every response.
+
+The configuration lives in src/middleware/rate-limit.ts. There's a
+dedicated bypass for internal service tokens — these are identified by
+the X-Service-Token header containing one of the keys listed in
+SERVICE_TOKEN_ALLOWLIST.
+
+[USER session-40]: Where are session tokens stored on the client?
+
+[ASSISTANT session-40]: httpOnly cookies, with the SameSite=Strict and Secure flags
+set in production. The cookie name is "session" and it's set by the login
+handler at /auth/login on a successful authentication. Logout clears the
+cookie by setting Max-Age=0.
+
+For mobile clients (where cookies aren't ideal), the auth module also
+supports Bearer tokens via the Authorization header. The middleware checks
+for the cookie first, then falls back to parsing the Authorization header.
+
+[USER session-40]: Database for user records?
+
+[ASSISTANT session-40]: PostgreSQL 15. The users table has the following schema:
+
+```sql
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(72) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_login_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_users_email ON users (email);
+```
+
+Passwords are hashed with bcrypt (cost factor 12). The application uses
+the `pg` Node driver with a connection pool of 10 connections by default,
+configurable via DB_POOL_SIZE env var.
+
+
+---
+
+[USER session-41]: Document the auth middleware in src/auth/middleware.ts.
+
+[ASSISTANT session-41]: Looking at the file. The auth module uses JWT tokens stored
+in httpOnly cookies. Tokens expire after 24 hours and refresh tokens rotate
+on every use. The middleware validates the JWT signature against the
+project's secret key (loaded from env var AUTH_SECRET).
+
+```typescript
+export function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  const token = req.cookies.session
+  if (!token) return res.status(401).send('Unauthorized')
+
+  try {
+    const payload = jwt.verify(token, process.env.AUTH_SECRET!)
+    req.user = payload as User
+    next()
+  } catch {
+    return res.status(401).send('Invalid token')
+  }
+}
+```
+
+The handler attaches the decoded payload to `req.user` so downstream
+handlers can access user identity without re-parsing.
+
+[USER session-41]: Are there any rate limits?
+
+[ASSISTANT session-41]: Yes, the project uses express-rate-limit. The default config
+is 100 requests per minute per IP, with a stricter 10/min window for the
+/auth/login endpoint specifically. Rate limit headers (X-RateLimit-Remaining,
+X-RateLimit-Reset) are included in every response.
+
+The configuration lives in src/middleware/rate-limit.ts. There's a
+dedicated bypass for internal service tokens — these are identified by
+the X-Service-Token header containing one of the keys listed in
+SERVICE_TOKEN_ALLOWLIST.
+
+[USER session-41]: Where are session tokens stored on the client?
+
+[ASSISTANT session-41]: httpOnly cookies, with the SameSite=Strict and Secure flags
+set in production. The cookie name is "session" and it's set by the login
+handler at /auth/login on a successful authentication. Logout clears the
+cookie by setting Max-Age=0.
+
+For mobile clients (where cookies aren't ideal), the auth module also
+supports Bearer tokens via the Authorization header. The middleware checks
+for the cookie first, then falls back to parsing the Authorization header.
+
+[USER session-41]: Database for user records?
+
+[ASSISTANT session-41]: PostgreSQL 15. The users table has the following schema:
+
+```sql
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(72) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_login_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_users_email ON users (email);
+```
+
+Passwords are hashed with bcrypt (cost factor 12). The application uses
+the `pg` Node driver with a connection pool of 10 connections by default,
+configurable via DB_POOL_SIZE env var.
+
+
+---
+
+[USER session-42]: Document the auth middleware in src/auth/middleware.ts.
+
+[ASSISTANT session-42]: Looking at the file. The auth module uses JWT tokens stored
+in httpOnly cookies. Tokens expire after 24 hours and refresh tokens rotate
+on every use. The middleware validates the JWT signature against the
+project's secret key (loaded from env var AUTH_SECRET).
+
+```typescript
+export function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  const token = req.cookies.session
+  if (!token) return res.status(401).send('Unauthorized')
+
+  try {
+    const payload = jwt.verify(token, process.env.AUTH_SECRET!)
+    req.user = payload as User
+    next()
+  } catch {
+    return res.status(401).send('Invalid token')
+  }
+}
+```
+
+The handler attaches the decoded payload to `req.user` so downstream
+handlers can access user identity without re-parsing.
+
+[USER session-42]: Are there any rate limits?
+
+[ASSISTANT session-42]: Yes, the project uses express-rate-limit. The default config
+is 100 requests per minute per IP, with a stricter 10/min window for the
+/auth/login endpoint specifically. Rate limit headers (X-RateLimit-Remaining,
+X-RateLimit-Reset) are included in every response.
+
+The configuration lives in src/middleware/rate-limit.ts. There's a
+dedicated bypass for internal service tokens — these are identified by
+the X-Service-Token header containing one of the keys listed in
+SERVICE_TOKEN_ALLOWLIST.
+
+[USER session-42]: Where are session tokens stored on the client?
+
+[ASSISTANT session-42]: httpOnly cookies, with the SameSite=Strict and Secure flags
+set in production. The cookie name is "session" and it's set by the login
+handler at /auth/login on a successful authentication. Logout clears the
+cookie by setting Max-Age=0.
+
+For mobile clients (where cookies aren't ideal), the auth module also
+supports Bearer tokens via the Authorization header. The middleware checks
+for the cookie first, then falls back to parsing the Authorization header.
+
+[USER session-42]: Database for user records?
+
+[ASSISTANT session-42]: PostgreSQL 15. The users table has the following schema:
+
+```sql
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(72) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_login_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_users_email ON users (email);
+```
+
+Passwords are hashed with bcrypt (cost factor 12). The application uses
+the `pg` Node driver with a connection pool of 10 connections by default,
+configurable via DB_POOL_SIZE env var.
+
+
+---
+
+[USER session-43]: Document the auth middleware in src/auth/middleware.ts.
+
+[ASSISTANT session-43]: Looking at the file. The auth module uses JWT tokens stored
+in httpOnly cookies. Tokens expire after 24 hours and refresh tokens rotate
+on every use. The middleware validates the JWT signature against the
+project's secret key (loaded from env var AUTH_SECRET).
+
+```typescript
+export function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  const token = req.cookies.session
+  if (!token) return res.status(401).send('Unauthorized')
+
+  try {
+    const payload = jwt.verify(token, process.env.AUTH_SECRET!)
+    req.user = payload as User
+    next()
+  } catch {
+    return res.status(401).send('Invalid token')
+  }
+}
+```
+
+The handler attaches the decoded payload to `req.user` so downstream
+handlers can access user identity without re-parsing.
+
+[USER session-43]: Are there any rate limits?
+
+[ASSISTANT session-43]: Yes, the project uses express-rate-limit. The default config
+is 100 requests per minute per IP, with a stricter 10/min window for the
+/auth/login endpoint specifically. Rate limit headers (X-RateLimit-Remaining,
+X-RateLimit-Reset) are included in every response.
+
+The configuration lives in src/middleware/rate-limit.ts. There's a
+dedicated bypass for internal service tokens — these are identified by
+the X-Service-Token header containing one of the keys listed in
+SERVICE_TOKEN_ALLOWLIST.
+
+[USER session-43]: Where are session tokens stored on the client?
+
+[ASSISTANT session-43]: httpOnly cookies, with the SameSite=Strict and Secure flags
+set in production. The cookie name is "session" and it's set by the login
+handler at /auth/login on a successful authentication. Logout clears the
+cookie by setting Max-Age=0.
+
+For mobile clients (where cookies aren't ideal), the auth module also
+supports Bearer tokens via the Authorization header. The middleware checks
+for the cookie first, then falls back to parsing the Authorization header.
+
+[USER session-43]: Database for user records?
+
+[ASSISTANT session-43]: PostgreSQL 15. The users table has the following schema:
+
+```sql
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(72) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_login_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_users_email ON users (email);
+```
+
+Passwords are hashed with bcrypt (cost factor 12). The application uses
+the `pg` Node driver with a connection pool of 10 connections by default,
+configurable via DB_POOL_SIZE env var.
+
+
+---
+
+[USER session-44]: Document the auth middleware in src/auth/middleware.ts.
+
+[ASSISTANT session-44]: Looking at the file. The auth module uses JWT tokens stored
+in httpOnly cookies. Tokens expire after 24 hours and refresh tokens rotate
+on every use. The middleware validates the JWT signature against the
+project's secret key (loaded from env var AUTH_SECRET).
+
+```typescript
+export function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  const token = req.cookies.session
+  if (!token) return res.status(401).send('Unauthorized')
+
+  try {
+    const payload = jwt.verify(token, process.env.AUTH_SECRET!)
+    req.user = payload as User
+    next()
+  } catch {
+    return res.status(401).send('Invalid token')
+  }
+}
+```
+
+The handler attaches the decoded payload to `req.user` so downstream
+handlers can access user identity without re-parsing.
+
+[USER session-44]: Are there any rate limits?
+
+[ASSISTANT session-44]: Yes, the project uses express-rate-limit. The default config
+is 100 requests per minute per IP, with a stricter 10/min window for the
+/auth/login endpoint specifically. Rate limit headers (X-RateLimit-Remaining,
+X-RateLimit-Reset) are included in every response.
+
+The configuration lives in src/middleware/rate-limit.ts. There's a
+dedicated bypass for internal service tokens — these are identified by
+the X-Service-Token header containing one of the keys listed in
+SERVICE_TOKEN_ALLOWLIST.
+
+[USER session-44]: Where are session tokens stored on the client?
+
+[ASSISTANT session-44]: httpOnly cookies, with the SameSite=Strict and Secure flags
+set in production. The cookie name is "session" and it's set by the login
+handler at /auth/login on a successful authentication. Logout clears the
+cookie by setting Max-Age=0.
+
+For mobile clients (where cookies aren't ideal), the auth module also
+supports Bearer tokens via the Authorization header. The middleware checks
+for the cookie first, then falls back to parsing the Authorization header.
+
+[USER session-44]: Database for user records?
+
+[ASSISTANT session-44]: PostgreSQL 15. The users table has the following schema:
+
+```sql
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(72) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_login_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_users_email ON users (email);
+```
+
+Passwords are hashed with bcrypt (cost factor 12). The application uses
+the `pg` Node driver with a connection pool of 10 connections by default,
+configurable via DB_POOL_SIZE env var.
+
+
+---
+
+[USER session-45]: Document the auth middleware in src/auth/middleware.ts.
+
+[ASSISTANT session-45]: Looking at the file. The auth module uses JWT tokens stored
+in httpOnly cookies. Tokens expire after 24 hours and refresh tokens rotate
+on every use. The middleware validates the JWT signature against the
+project's secret key (loaded from env var AUTH_SECRET).
+
+```typescript
+export function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  const token = req.cookies.session
+  if (!token) return res.status(401).send('Unauthorized')
+
+  try {
+    const payload = jwt.verify(token, process.env.AUTH_SECRET!)
+    req.user = payload as User
+    next()
+  } catch {
+    return res.status(401).send('Invalid token')
+  }
+}
+```
+
+The handler attaches the decoded payload to `req.user` so downstream
+handlers can access user identity without re-parsing.
+
+[USER session-45]: Are there any rate limits?
+
+[ASSISTANT session-45]: Yes, the project uses express-rate-limit. The default config
+is 100 requests per minute per IP, with a stricter 10/min window for the
+/auth/login endpoint specifically. Rate limit headers (X-RateLimit-Remaining,
+X-RateLimit-Reset) are included in every response.
+
+The configuration lives in src/middleware/rate-limit.ts. There's a
+dedicated bypass for internal service tokens — these are identified by
+the X-Service-Token header containing one of the keys listed in
+SERVICE_TOKEN_ALLOWLIST.
+
+[USER session-45]: Where are session tokens stored on the client?
+
+[ASSISTANT session-45]: httpOnly cookies, with the SameSite=Strict and Secure flags
+set in production. The cookie name is "session" and it's set by the login
+handler at /auth/login on a successful authentication. Logout clears the
+cookie by setting Max-Age=0.
+
+For mobile clients (where cookies aren't ideal), the auth module also
+supports Bearer tokens via the Authorization header. The middleware checks
+for the cookie first, then falls back to parsing the Authorization header.
+
+[USER session-45]: Database for user records?
+
+[ASSISTANT session-45]: PostgreSQL 15. The users table has the following schema:
+
+```sql
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(72) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_login_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_users_email ON users (email);
+```
+
+Passwords are hashed with bcrypt (cost factor 12). The application uses
+the `pg` Node driver with a connection pool of 10 connections by default,
+configurable via DB_POOL_SIZE env var.
+
+
+---
+
+[USER session-46]: Document the auth middleware in src/auth/middleware.ts.
+
+[ASSISTANT session-46]: Looking at the file. The auth module uses JWT tokens stored
+in httpOnly cookies. Tokens expire after 24 hours and refresh tokens rotate
+on every use. The middleware validates the JWT signature against the
+project's secret key (loaded from env var AUTH_SECRET).
+
+```typescript
+export function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  const token = req.cookies.session
+  if (!token) return res.status(401).send('Unauthorized')
+
+  try {
+    const payload = jwt.verify(token, process.env.AUTH_SECRET!)
+    req.user = payload as User
+    next()
+  } catch {
+    return res.status(401).send('Invalid token')
+  }
+}
+```
+
+The handler attaches the decoded payload to `req.user` so downstream
+handlers can access user identity without re-parsing.
+
+[USER session-46]: Are there any rate limits?
+
+[ASSISTANT session-46]: Yes, the project uses express-rate-limit. The default config
+is 100 requests per minute per IP, with a stricter 10/min window for the
+/auth/login endpoint specifically. Rate limit headers (X-RateLimit-Remaining,
+X-RateLimit-Reset) are included in every response.
+
+The configuration lives in src/middleware/rate-limit.ts. There's a
+dedicated bypass for internal service tokens — these are identified by
+the X-Service-Token header containing one of the keys listed in
+SERVICE_TOKEN_ALLOWLIST.
+
+[USER session-46]: Where are session tokens stored on the client?
+
+[ASSISTANT session-46]: httpOnly cookies, with the SameSite=Strict and Secure flags
+set in production. The cookie name is "session" and it's set by the login
+handler at /auth/login on a successful authentication. Logout clears the
+cookie by setting Max-Age=0.
+
+For mobile clients (where cookies aren't ideal), the auth module also
+supports Bearer tokens via the Authorization header. The middleware checks
+for the cookie first, then falls back to parsing the Authorization header.
+
+[USER session-46]: Database for user records?
+
+[ASSISTANT session-46]: PostgreSQL 15. The users table has the following schema:
+
+```sql
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(72) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_login_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_users_email ON users (email);
+```
+
+Passwords are hashed with bcrypt (cost factor 12). The application uses
+the `pg` Node driver with a connection pool of 10 connections by default,
+configurable via DB_POOL_SIZE env var.
+
+
+---
+
+[USER session-47]: Document the auth middleware in src/auth/middleware.ts.
+
+[ASSISTANT session-47]: Looking at the file. The auth module uses JWT tokens stored
+in httpOnly cookies. Tokens expire after 24 hours and refresh tokens rotate
+on every use. The middleware validates the JWT signature against the
+project's secret key (loaded from env var AUTH_SECRET).
+
+```typescript
+export function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  const token = req.cookies.session
+  if (!token) return res.status(401).send('Unauthorized')
+
+  try {
+    const payload = jwt.verify(token, process.env.AUTH_SECRET!)
+    req.user = payload as User
+    next()
+  } catch {
+    return res.status(401).send('Invalid token')
+  }
+}
+```
+
+The handler attaches the decoded payload to `req.user` so downstream
+handlers can access user identity without re-parsing.
+
+[USER session-47]: Are there any rate limits?
+
+[ASSISTANT session-47]: Yes, the project uses express-rate-limit. The default config
+is 100 requests per minute per IP, with a stricter 10/min window for the
+/auth/login endpoint specifically. Rate limit headers (X-RateLimit-Remaining,
+X-RateLimit-Reset) are included in every response.
+
+The configuration lives in src/middleware/rate-limit.ts. There's a
+dedicated bypass for internal service tokens — these are identified by
+the X-Service-Token header containing one of the keys listed in
+SERVICE_TOKEN_ALLOWLIST.
+
+[USER session-47]: Where are session tokens stored on the client?
+
+[ASSISTANT session-47]: httpOnly cookies, with the SameSite=Strict and Secure flags
+set in production. The cookie name is "session" and it's set by the login
+handler at /auth/login on a successful authentication. Logout clears the
+cookie by setting Max-Age=0.
+
+For mobile clients (where cookies aren't ideal), the auth module also
+supports Bearer tokens via the Authorization header. The middleware checks
+for the cookie first, then falls back to parsing the Authorization header.
+
+[USER session-47]: Database for user records?
+
+[ASSISTANT session-47]: PostgreSQL 15. The users table has the following schema:
+
+```sql
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(72) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_login_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_users_email ON users (email);
+```
+
+Passwords are hashed with bcrypt (cost factor 12). The application uses
+the `pg` Node driver with a connection pool of 10 connections by default,
+configurable via DB_POOL_SIZE env var.
+
+
+---
+
+[USER session-48]: Document the auth middleware in src/auth/middleware.ts.
+
+[ASSISTANT session-48]: Looking at the file. The auth module uses JWT tokens stored
+in httpOnly cookies. Tokens expire after 24 hours and refresh tokens rotate
+on every use. The middleware validates the JWT signature against the
+project's secret key (loaded from env var AUTH_SECRET).
+
+```typescript
+export function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  const token = req.cookies.session
+  if (!token) return res.status(401).send('Unauthorized')
+
+  try {
+    const payload = jwt.verify(token, process.env.AUTH_SECRET!)
+    req.user = payload as User
+    next()
+  } catch {
+    return res.status(401).send('Invalid token')
+  }
+}
+```
+
+The handler attaches the decoded payload to `req.user` so downstream
+handlers can access user identity without re-parsing.
+
+[USER session-48]: Are there any rate limits?
+
+[ASSISTANT session-48]: Yes, the project uses express-rate-limit. The default config
+is 100 requests per minute per IP, with a stricter 10/min window for the
+/auth/login endpoint specifically. Rate limit headers (X-RateLimit-Remaining,
+X-RateLimit-Reset) are included in every response.
+
+The configuration lives in src/middleware/rate-limit.ts. There's a
+dedicated bypass for internal service tokens — these are identified by
+the X-Service-Token header containing one of the keys listed in
+SERVICE_TOKEN_ALLOWLIST.
+
+[USER session-48]: Where are session tokens stored on the client?
+
+[ASSISTANT session-48]: httpOnly cookies, with the SameSite=Strict and Secure flags
+set in production. The cookie name is "session" and it's set by the login
+handler at /auth/login on a successful authentication. Logout clears the
+cookie by setting Max-Age=0.
+
+For mobile clients (where cookies aren't ideal), the auth module also
+supports Bearer tokens via the Authorization header. The middleware checks
+for the cookie first, then falls back to parsing the Authorization header.
+
+[USER session-48]: Database for user records?
+
+[ASSISTANT session-48]: PostgreSQL 15. The users table has the following schema:
+
+```sql
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(72) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_login_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_users_email ON users (email);
+```
+
+Passwords are hashed with bcrypt (cost factor 12). The application uses
+the `pg` Node driver with a connection pool of 10 connections by default,
+configurable via DB_POOL_SIZE env var.
+
+
+---
+
+[USER session-49]: Document the auth middleware in src/auth/middleware.ts.
+
+[ASSISTANT session-49]: Looking at the file. The auth module uses JWT tokens stored
+in httpOnly cookies. Tokens expire after 24 hours and refresh tokens rotate
+on every use. The middleware validates the JWT signature against the
+project's secret key (loaded from env var AUTH_SECRET).
+
+```typescript
+export function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  const token = req.cookies.session
+  if (!token) return res.status(401).send('Unauthorized')
+
+  try {
+    const payload = jwt.verify(token, process.env.AUTH_SECRET!)
+    req.user = payload as User
+    next()
+  } catch {
+    return res.status(401).send('Invalid token')
+  }
+}
+```
+
+The handler attaches the decoded payload to `req.user` so downstream
+handlers can access user identity without re-parsing.
+
+[USER session-49]: Are there any rate limits?
+
+[ASSISTANT session-49]: Yes, the project uses express-rate-limit. The default config
+is 100 requests per minute per IP, with a stricter 10/min window for the
+/auth/login endpoint specifically. Rate limit headers (X-RateLimit-Remaining,
+X-RateLimit-Reset) are included in every response.
+
+The configuration lives in src/middleware/rate-limit.ts. There's a
+dedicated bypass for internal service tokens — these are identified by
+the X-Service-Token header containing one of the keys listed in
+SERVICE_TOKEN_ALLOWLIST.
+
+[USER session-49]: Where are session tokens stored on the client?
+
+[ASSISTANT session-49]: httpOnly cookies, with the SameSite=Strict and Secure flags
+set in production. The cookie name is "session" and it's set by the login
+handler at /auth/login on a successful authentication. Logout clears the
+cookie by setting Max-Age=0.
+
+For mobile clients (where cookies aren't ideal), the auth module also
+supports Bearer tokens via the Authorization header. The middleware checks
+for the cookie first, then falls back to parsing the Authorization header.
+
+[USER session-49]: Database for user records?
+
+[ASSISTANT session-49]: PostgreSQL 15. The users table has the following schema:
+
+```sql
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(72) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_login_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_users_email ON users (email);
+```
+
+Passwords are hashed with bcrypt (cost factor 12). The application uses
+the `pg` Node driver with a connection pool of 10 connections by default,
+configurable via DB_POOL_SIZE env var.
+
+
+---
+
+[USER session-50]: Document the auth middleware in src/auth/middleware.ts.
+
+[ASSISTANT session-50]: Looking at the file. The auth module uses JWT tokens stored
+in httpOnly cookies. Tokens expire after 24 hours and refresh tokens rotate
+on every use. The middleware validates the JWT signature against the
+project's secret key (loaded from env var AUTH_SECRET).
+
+```typescript
+export function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  const token = req.cookies.session
+  if (!token) return res.status(401).send('Unauthorized')
+
+  try {
+    const payload = jwt.verify(token, process.env.AUTH_SECRET!)
+    req.user = payload as User
+    next()
+  } catch {
+    return res.status(401).send('Invalid token')
+  }
+}
+```
+
+The handler attaches the decoded payload to `req.user` so downstream
+handlers can access user identity without re-parsing.
+
+[USER session-50]: Are there any rate limits?
+
+[ASSISTANT session-50]: Yes, the project uses express-rate-limit. The default config
+is 100 requests per minute per IP, with a stricter 10/min window for the
+/auth/login endpoint specifically. Rate limit headers (X-RateLimit-Remaining,
+X-RateLimit-Reset) are included in every response.
+
+The configuration lives in src/middleware/rate-limit.ts. There's a
+dedicated bypass for internal service tokens — these are identified by
+the X-Service-Token header containing one of the keys listed in
+SERVICE_TOKEN_ALLOWLIST.
+
+[USER session-50]: Where are session tokens stored on the client?
+
+[ASSISTANT session-50]: httpOnly cookies, with the SameSite=Strict and Secure flags
+set in production. The cookie name is "session" and it's set by the login
+handler at /auth/login on a successful authentication. Logout clears the
+cookie by setting Max-Age=0.
+
+For mobile clients (where cookies aren't ideal), the auth module also
+supports Bearer tokens via the Authorization header. The middleware checks
+for the cookie first, then falls back to parsing the Authorization header.
+
+[USER session-50]: Database for user records?
+
+[ASSISTANT session-50]: PostgreSQL 15. The users table has the following schema:
+
+```sql
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(72) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_login_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_users_email ON users (email);
+```
+
+Passwords are hashed with bcrypt (cost factor 12). The application uses
+the `pg` Node driver with a connection pool of 10 connections by default,
+configurable via DB_POOL_SIZE env var.
+
+
+---
+
+[USER session-51]: Document the auth middleware in src/auth/middleware.ts.
+
+[ASSISTANT session-51]: Looking at the file. The auth module uses JWT tokens stored
+in httpOnly cookies. Tokens expire after 24 hours and refresh tokens rotate
+on every use. The middleware validates the JWT signature against the
+project's secret key (loaded from env var AUTH_SECRET).
+
+```typescript
+export function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  const token = req.cookies.session
+  if (!token) return res.status(401).send('Unauthorized')
+
+  try {
+    const payload = jwt.verify(token, process.env.AUTH_SECRET!)
+    req.user = payload as User
+    next()
+  } catch {
+    return res.status(401).send('Invalid token')
+  }
+}
+```
+
+The handler attaches the decoded payload to `req.user` so downstream
+handlers can access user identity without re-parsing.
+
+[USER session-51]: Are there any rate limits?
+
+[ASSISTANT session-51]: Yes, the project uses express-rate-limit. The default config
+is 100 requests per minute per IP, with a stricter 10/min window for the
+/auth/login endpoint specifically. Rate limit headers (X-RateLimit-Remaining,
+X-RateLimit-Reset) are included in every response.
+
+The configuration lives in src/middleware/rate-limit.ts. There's a
+dedicated bypass for internal service tokens — these are identified by
+the X-Service-Token header containing one of the keys listed in
+SERVICE_TOKEN_ALLOWLIST.
+
+[USER session-51]: Where are session tokens stored on the client?
+
+[ASSISTANT session-51]: httpOnly cookies, with the SameSite=Strict and Secure flags
+set in production. The cookie name is "session" and it's set by the login
+handler at /auth/login on a successful authentication. Logout clears the
+cookie by setting Max-Age=0.
+
+For mobile clients (where cookies aren't ideal), the auth module also
+supports Bearer tokens via the Authorization header. The middleware checks
+for the cookie first, then falls back to parsing the Authorization header.
+
+[USER session-51]: Database for user records?
+
+[ASSISTANT session-51]: PostgreSQL 15. The users table has the following schema:
+
+```sql
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(72) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_login_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_users_email ON users (email);
+```
+
+Passwords are hashed with bcrypt (cost factor 12). The application uses
+the `pg` Node driver with a connection pool of 10 connections by default,
+configurable via DB_POOL_SIZE env var.
+
+
+---
+
+[USER session-52]: Document the auth middleware in src/auth/middleware.ts.
+
+[ASSISTANT session-52]: Looking at the file. The auth module uses JWT tokens stored
+in httpOnly cookies. Tokens expire after 24 hours and refresh tokens rotate
+on every use. The middleware validates the JWT signature against the
+project's secret key (loaded from env var AUTH_SECRET).
+
+```typescript
+export function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  const token = req.cookies.session
+  if (!token) return res.status(401).send('Unauthorized')
+
+  try {
+    const payload = jwt.verify(token, process.env.AUTH_SECRET!)
+    req.user = payload as User
+    next()
+  } catch {
+    return res.status(401).send('Invalid token')
+  }
+}
+```
+
+The handler attaches the decoded payload to `req.user` so downstream
+handlers can access user identity without re-parsing.
+
+[USER session-52]: Are there any rate limits?
+
+[ASSISTANT session-52]: Yes, the project uses express-rate-limit. The default config
+is 100 requests per minute per IP, with a stricter 10/min window for the
+/auth/login endpoint specifically. Rate limit headers (X-RateLimit-Remaining,
+X-RateLimit-Reset) are included in every response.
+
+The configuration lives in src/middleware/rate-limit.ts. There's a
+dedicated bypass for internal service tokens — these are identified by
+the X-Service-Token header containing one of the keys listed in
+SERVICE_TOKEN_ALLOWLIST.
+
+[USER session-52]: Where are session tokens stored on the client?
+
+[ASSISTANT session-52]: httpOnly cookies, with the SameSite=Strict and Secure flags
+set in production. The cookie name is "session" and it's set by the login
+handler at /auth/login on a successful authentication. Logout clears the
+cookie by setting Max-Age=0.
+
+For mobile clients (where cookies aren't ideal), the auth module also
+supports Bearer tokens via the Authorization header. The middleware checks
+for the cookie first, then falls back to parsing the Authorization header.
+
+[USER session-52]: Database for user records?
+
+[ASSISTANT session-52]: PostgreSQL 15. The users table has the following schema:
+
+```sql
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(72) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_login_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_users_email ON users (email);
+```
+
+Passwords are hashed with bcrypt (cost factor 12). The application uses
+the `pg` Node driver with a connection pool of 10 connections by default,
+configurable via DB_POOL_SIZE env var.
+
+
+---
+
+[USER session-53]: Document the auth middleware in src/auth/middleware.ts.
+
+[ASSISTANT session-53]: Looking at the file. The auth module uses JWT tokens stored
+in httpOnly cookies. Tokens expire after 24 hours and refresh tokens rotate
+on every use. The middleware validates the JWT signature against the
+project's secret key (loaded from env var AUTH_SECRET).
+
+```typescript
+export function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  const token = req.cookies.session
+  if (!token) return res.status(401).send('Unauthorized')
+
+  try {
+    const payload = jwt.verify(token, process.env.AUTH_SECRET!)
+    req.user = payload as User
+    next()
+  } catch {
+    return res.status(401).send('Invalid token')
+  }
+}
+```
+
+The handler attaches the decoded payload to `req.user` so downstream
+handlers can access user identity without re-parsing.
+
+[USER session-53]: Are there any rate limits?
+
+[ASSISTANT session-53]: Yes, the project uses express-rate-limit. The default config
+is 100 requests per minute per IP, with a stricter 10/min window for the
+/auth/login endpoint specifically. Rate limit headers (X-RateLimit-Remaining,
+X-RateLimit-Reset) are included in every response.
+
+The configuration lives in src/middleware/rate-limit.ts. There's a
+dedicated bypass for internal service tokens — these are identified by
+the X-Service-Token header containing one of the keys listed in
+SERVICE_TOKEN_ALLOWLIST.
+
+[USER session-53]: Where are session tokens stored on the client?
+
+[ASSISTANT session-53]: httpOnly cookies, with the SameSite=Strict and Secure flags
+set in production. The cookie name is "session" and it's set by the login
+handler at /auth/login on a successful authentication. Logout clears the
+cookie by setting Max-Age=0.
+
+For mobile clients (where cookies aren't ideal), the auth module also
+supports Bearer tokens via the Authorization header. The middleware checks
+for the cookie first, then falls back to parsing the Authorization header.
+
+[USER session-53]: Database for user records?
+
+[ASSISTANT session-53]: PostgreSQL 15. The users table has the following schema:
+
+```sql
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(72) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_login_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_users_email ON users (email);
+```
+
+Passwords are hashed with bcrypt (cost factor 12). The application uses
+the `pg` Node driver with a connection pool of 10 connections by default,
+configurable via DB_POOL_SIZE env var.
+
+
+---
+
+[USER session-54]: Document the auth middleware in src/auth/middleware.ts.
+
+[ASSISTANT session-54]: Looking at the file. The auth module uses JWT tokens stored
+in httpOnly cookies. Tokens expire after 24 hours and refresh tokens rotate
+on every use. The middleware validates the JWT signature against the
+project's secret key (loaded from env var AUTH_SECRET).
+
+```typescript
+export function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  const token = req.cookies.session
+  if (!token) return res.status(401).send('Unauthorized')
+
+  try {
+    const payload = jwt.verify(token, process.env.AUTH_SECRET!)
+    req.user = payload as User
+    next()
+  } catch {
+    return res.status(401).send('Invalid token')
+  }
+}
+```
+
+The handler attaches the decoded payload to `req.user` so downstream
+handlers can access user identity without re-parsing.
+
+[USER session-54]: Are there any rate limits?
+
+[ASSISTANT session-54]: Yes, the project uses express-rate-limit. The default config
+is 100 requests per minute per IP, with a stricter 10/min window for the
+/auth/login endpoint specifically. Rate limit headers (X-RateLimit-Remaining,
+X-RateLimit-Reset) are included in every response.
+
+The configuration lives in src/middleware/rate-limit.ts. There's a
+dedicated bypass for internal service tokens — these are identified by
+the X-Service-Token header containing one of the keys listed in
+SERVICE_TOKEN_ALLOWLIST.
+
+[USER session-54]: Where are session tokens stored on the client?
+
+[ASSISTANT session-54]: httpOnly cookies, with the SameSite=Strict and Secure flags
+set in production. The cookie name is "session" and it's set by the login
+handler at /auth/login on a successful authentication. Logout clears the
+cookie by setting Max-Age=0.
+
+For mobile clients (where cookies aren't ideal), the auth module also
+supports Bearer tokens via the Authorization header. The middleware checks
+for the cookie first, then falls back to parsing the Authorization header.
+
+[USER session-54]: Database for user records?
+
+[ASSISTANT session-54]: PostgreSQL 15. The users table has the following schema:
+
+```sql
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(72) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_login_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_users_email ON users (email);
+```
+
+Passwords are hashed with bcrypt (cost factor 12). The application uses
+the `pg` Node driver with a connection pool of 10 connections by default,
+configurable via DB_POOL_SIZE env var.
+
+
+---
+
+[USER session-55]: Document the auth middleware in src/auth/middleware.ts.
+
+[ASSISTANT session-55]: Looking at the file. The auth module uses JWT tokens stored
+in httpOnly cookies. Tokens expire after 24 hours and refresh tokens rotate
+on every use. The middleware validates the JWT signature against the
+project's secret key (loaded from env var AUTH_SECRET).
+
+```typescript
+export function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  const token = req.cookies.session
+  if (!token) return res.status(401).send('Unauthorized')
+
+  try {
+    const payload = jwt.verify(token, process.env.AUTH_SECRET!)
+    req.user = payload as User
+    next()
+  } catch {
+    return res.status(401).send('Invalid token')
+  }
+}
+```
+
+The handler attaches the decoded payload to `req.user` so downstream
+handlers can access user identity without re-parsing.
+
+[USER session-55]: Are there any rate limits?
+
+[ASSISTANT session-55]: Yes, the project uses express-rate-limit. The default config
+is 100 requests per minute per IP, with a stricter 10/min window for the
+/auth/login endpoint specifically. Rate limit headers (X-RateLimit-Remaining,
+X-RateLimit-Reset) are included in every response.
+
+The configuration lives in src/middleware/rate-limit.ts. There's a
+dedicated bypass for internal service tokens — these are identified by
+the X-Service-Token header containing one of the keys listed in
+SERVICE_TOKEN_ALLOWLIST.
+
+[USER session-55]: Where are session tokens stored on the client?
+
+[ASSISTANT session-55]: httpOnly cookies, with the SameSite=Strict and Secure flags
+set in production. The cookie name is "session" and it's set by the login
+handler at /auth/login on a successful authentication. Logout clears the
+cookie by setting Max-Age=0.
+
+For mobile clients (where cookies aren't ideal), the auth module also
+supports Bearer tokens via the Authorization header. The middleware checks
+for the cookie first, then falls back to parsing the Authorization header.
+
+[USER session-55]: Database for user records?
+
+[ASSISTANT session-55]: PostgreSQL 15. The users table has the following schema:
+
+```sql
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(72) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_login_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_users_email ON users (email);
+```
+
+Passwords are hashed with bcrypt (cost factor 12). The application uses
+the `pg` Node driver with a connection pool of 10 connections by default,
+configurable via DB_POOL_SIZE env var.
+
+
+---
+
+[USER session-56]: Document the auth middleware in src/auth/middleware.ts.
+
+[ASSISTANT session-56]: Looking at the file. The auth module uses JWT tokens stored
+in httpOnly cookies. Tokens expire after 24 hours and refresh tokens rotate
+on every use. The middleware validates the JWT signature against the
+project's secret key (loaded from env var AUTH_SECRET).
+
+```typescript
+export function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  const token = req.cookies.session
+  if (!token) return res.status(401).send('Unauthorized')
+
+  try {
+    const payload = jwt.verify(token, process.env.AUTH_SECRET!)
+    req.user = payload as User
+    next()
+  } catch {
+    return res.status(401).send('Invalid token')
+  }
+}
+```
+
+The handler attaches the decoded payload to `req.user` so downstream
+handlers can access user identity without re-parsing.
+
+[USER session-56]: Are there any rate limits?
+
+[ASSISTANT session-56]: Yes, the project uses express-rate-limit. The default config
+is 100 requests per minute per IP, with a stricter 10/min window for the
+/auth/login endpoint specifically. Rate limit headers (X-RateLimit-Remaining,
+X-RateLimit-Reset) are included in every response.
+
+The configuration lives in src/middleware/rate-limit.ts. There's a
+dedicated bypass for internal service tokens — these are identified by
+the X-Service-Token header containing one of the keys listed in
+SERVICE_TOKEN_ALLOWLIST.
+
+[USER session-56]: Where are session tokens stored on the client?
+
+[ASSISTANT session-56]: httpOnly cookies, with the SameSite=Strict and Secure flags
+set in production. The cookie name is "session" and it's set by the login
+handler at /auth/login on a successful authentication. Logout clears the
+cookie by setting Max-Age=0.
+
+For mobile clients (where cookies aren't ideal), the auth module also
+supports Bearer tokens via the Authorization header. The middleware checks
+for the cookie first, then falls back to parsing the Authorization header.
+
+[USER session-56]: Database for user records?
+
+[ASSISTANT session-56]: PostgreSQL 15. The users table has the following schema:
+
+```sql
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(72) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_login_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_users_email ON users (email);
+```
+
+Passwords are hashed with bcrypt (cost factor 12). The application uses
+the `pg` Node driver with a connection pool of 10 connections by default,
+configurable via DB_POOL_SIZE env var.
+
+
+---
+
+[USER session-57]: Document the auth middleware in src/auth/middleware.ts.
+
+[ASSISTANT session-57]: Looking at the file. The auth module uses JWT tokens stored
+in httpOnly cookies. Tokens expire after 24 hours and refresh tokens rotate
+on every use. The middleware validates the JWT signature against the
+project's secret key (loaded from env var AUTH_SECRET).
+
+```typescript
+export function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  const token = req.cookies.session
+  if (!token) return res.status(401).send('Unauthorized')
+
+  try {
+    const payload = jwt.verify(token, process.env.AUTH_SECRET!)
+    req.user = payload as User
+    next()
+  } catch {
+    return res.status(401).send('Invalid token')
+  }
+}
+```
+
+The handler attaches the decoded payload to `req.user` so downstream
+handlers can access user identity without re-parsing.
+
+[USER session-57]: Are there any rate limits?
+
+[ASSISTANT session-57]: Yes, the project uses express-rate-limit. The default config
+is 100 requests per minute per IP, with a stricter 10/min window for the
+/auth/login endpoint specifically. Rate limit headers (X-RateLimit-Remaining,
+X-RateLimit-Reset) are included in every response.
+
+The configuration lives in src/middleware/rate-limit.ts. There's a
+dedicated bypass for internal service tokens — these are identified by
+the X-Service-Token header containing one of the keys listed in
+SERVICE_TOKEN_ALLOWLIST.
+
+[USER session-57]: Where are session tokens stored on the client?
+
+[ASSISTANT session-57]: httpOnly cookies, with the SameSite=Strict and Secure flags
+set in production. The cookie name is "session" and it's set by the login
+handler at /auth/login on a successful authentication. Logout clears the
+cookie by setting Max-Age=0.
+
+For mobile clients (where cookies aren't ideal), the auth module also
+supports Bearer tokens via the Authorization header. The middleware checks
+for the cookie first, then falls back to parsing the Authorization header.
+
+[USER session-57]: Database for user records?
+
+[ASSISTANT session-57]: PostgreSQL 15. The users table has the following schema:
+
+```sql
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(72) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_login_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_users_email ON users (email);
+```
+
+Passwords are hashed with bcrypt (cost factor 12). The application uses
+the `pg` Node driver with a connection pool of 10 connections by default,
+configurable via DB_POOL_SIZE env var.
+
+
+---
+
+[USER session-58]: Document the auth middleware in src/auth/middleware.ts.
+
+[ASSISTANT session-58]: Looking at the file. The auth module uses JWT tokens stored
+in httpOnly cookies. Tokens expire after 24 hours and refresh tokens rotate
+on every use. The middleware validates the JWT signature against the
+project's secret key (loaded from env var AUTH_SECRET).
+
+```typescript
+export function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  const token = req.cookies.session
+  if (!token) return res.status(401).send('Unauthorized')
+
+  try {
+    const payload = jwt.verify(token, process.env.AUTH_SECRET!)
+    req.user = payload as User
+    next()
+  } catch {
+    return res.status(401).send('Invalid token')
+  }
+}
+```
+
+The handler attaches the decoded payload to `req.user` so downstream
+handlers can access user identity without re-parsing.
+
+[USER session-58]: Are there any rate limits?
+
+[ASSISTANT session-58]: Yes, the project uses express-rate-limit. The default config
+is 100 requests per minute per IP, with a stricter 10/min window for the
+/auth/login endpoint specifically. Rate limit headers (X-RateLimit-Remaining,
+X-RateLimit-Reset) are included in every response.
+
+The configuration lives in src/middleware/rate-limit.ts. There's a
+dedicated bypass for internal service tokens — these are identified by
+the X-Service-Token header containing one of the keys listed in
+SERVICE_TOKEN_ALLOWLIST.
+
+[USER session-58]: Where are session tokens stored on the client?
+
+[ASSISTANT session-58]: httpOnly cookies, with the SameSite=Strict and Secure flags
+set in production. The cookie name is "session" and it's set by the login
+handler at /auth/login on a successful authentication. Logout clears the
+cookie by setting Max-Age=0.
+
+For mobile clients (where cookies aren't ideal), the auth module also
+supports Bearer tokens via the Authorization header. The middleware checks
+for the cookie first, then falls back to parsing the Authorization header.
+
+[USER session-58]: Database for user records?
+
+[ASSISTANT session-58]: PostgreSQL 15. The users table has the following schema:
+
+```sql
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(72) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_login_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_users_email ON users (email);
+```
+
+Passwords are hashed with bcrypt (cost factor 12). The application uses
+the `pg` Node driver with a connection pool of 10 connections by default,
+configurable via DB_POOL_SIZE env var.
+
+
+---
+
+[USER session-59]: Document the auth middleware in src/auth/middleware.ts.
+
+[ASSISTANT session-59]: Looking at the file. The auth module uses JWT tokens stored
+in httpOnly cookies. Tokens expire after 24 hours and refresh tokens rotate
+on every use. The middleware validates the JWT signature against the
+project's secret key (loaded from env var AUTH_SECRET).
+
+```typescript
+export function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  const token = req.cookies.session
+  if (!token) return res.status(401).send('Unauthorized')
+
+  try {
+    const payload = jwt.verify(token, process.env.AUTH_SECRET!)
+    req.user = payload as User
+    next()
+  } catch {
+    return res.status(401).send('Invalid token')
+  }
+}
+```
+
+The handler attaches the decoded payload to `req.user` so downstream
+handlers can access user identity without re-parsing.
+
+[USER session-59]: Are there any rate limits?
+
+[ASSISTANT session-59]: Yes, the project uses express-rate-limit. The default config
+is 100 requests per minute per IP, with a stricter 10/min window for the
+/auth/login endpoint specifically. Rate limit headers (X-RateLimit-Remaining,
+X-RateLimit-Reset) are included in every response.
+
+The configuration lives in src/middleware/rate-limit.ts. There's a
+dedicated bypass for internal service tokens — these are identified by
+the X-Service-Token header containing one of the keys listed in
+SERVICE_TOKEN_ALLOWLIST.
+
+[USER session-59]: Where are session tokens stored on the client?
+
+[ASSISTANT session-59]: httpOnly cookies, with the SameSite=Strict and Secure flags
+set in production. The cookie name is "session" and it's set by the login
+handler at /auth/login on a successful authentication. Logout clears the
+cookie by setting Max-Age=0.
+
+For mobile clients (where cookies aren't ideal), the auth module also
+supports Bearer tokens via the Authorization header. The middleware checks
+for the cookie first, then falls back to parsing the Authorization header.
+
+[USER session-59]: Database for user records?
+
+[ASSISTANT session-59]: PostgreSQL 15. The users table has the following schema:
+
+```sql
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(72) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_login_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_users_email ON users (email);
+```
+
+Passwords are hashed with bcrypt (cost factor 12). The application uses
+the `pg` Node driver with a connection pool of 10 connections by default,
+configurable via DB_POOL_SIZE env var.
+
+
+---
+
+[USER session-60]: Document the auth middleware in src/auth/middleware.ts.
+
+[ASSISTANT session-60]: Looking at the file. The auth module uses JWT tokens stored
+in httpOnly cookies. Tokens expire after 24 hours and refresh tokens rotate
+on every use. The middleware validates the JWT signature against the
+project's secret key (loaded from env var AUTH_SECRET).
+
+```typescript
+export function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  const token = req.cookies.session
+  if (!token) return res.status(401).send('Unauthorized')
+
+  try {
+    const payload = jwt.verify(token, process.env.AUTH_SECRET!)
+    req.user = payload as User
+    next()
+  } catch {
+    return res.status(401).send('Invalid token')
+  }
+}
+```
+
+The handler attaches the decoded payload to `req.user` so downstream
+handlers can access user identity without re-parsing.
+
+[USER session-60]: Are there any rate limits?
+
+[ASSISTANT session-60]: Yes, the project uses express-rate-limit. The default config
+is 100 requests per minute per IP, with a stricter 10/min window for the
+/auth/login endpoint specifically. Rate limit headers (X-RateLimit-Remaining,
+X-RateLimit-Reset) are included in every response.
+
+The configuration lives in src/middleware/rate-limit.ts. There's a
+dedicated bypass for internal service tokens — these are identified by
+the X-Service-Token header containing one of the keys listed in
+SERVICE_TOKEN_ALLOWLIST.
+
+[USER session-60]: Where are session tokens stored on the client?
+
+[ASSISTANT session-60]: httpOnly cookies, with the SameSite=Strict and Secure flags
+set in production. The cookie name is "session" and it's set by the login
+handler at /auth/login on a successful authentication. Logout clears the
+cookie by setting Max-Age=0.
+
+For mobile clients (where cookies aren't ideal), the auth module also
+supports Bearer tokens via the Authorization header. The middleware checks
+for the cookie first, then falls back to parsing the Authorization header.
+
+[USER session-60]: Database for user records?
+
+[ASSISTANT session-60]: PostgreSQL 15. The users table has the following schema:
+
+```sql
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(72) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_login_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_users_email ON users (email);
+```
+
+Passwords are hashed with bcrypt (cost factor 12). The application uses
+the `pg` Node driver with a connection pool of 10 connections by default,
+configurable via DB_POOL_SIZE env var.

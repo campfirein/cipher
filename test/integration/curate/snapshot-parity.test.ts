@@ -109,7 +109,7 @@ async function runDagAgainstFixture(label: string): Promise<{
 }> {
   const context = loadFixture(label)
   const ctx: NodeContext = {
-    initialInput: {context, existing: [], history: {}, meta: {}},
+    initialInput: {context, history: {}, meta: {}},
     services: makeStubServices(),
     taskId: `baseline-${label}`,
   }

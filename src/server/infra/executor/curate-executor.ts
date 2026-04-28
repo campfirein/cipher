@@ -30,6 +30,24 @@ import {PreCompactionService} from './pre-compaction/pre-compaction-service.js'
 
 type BackgroundDrainAgent = ICipherAgent & {drainBackgroundWork?: () => Promise<void>}
 
+/**
+ * Build a human-readable source name for the R-3 provenance envelope.
+ * Handles the 0/1/few/many file cases cleanly:
+ *   - 0 files       → 'cli-text'
+ *   - 1 file        → that file's path
+ *   - 2-3 files     → comma-joined
+ *   - 4+ files      → first 3 + '+N more' summary
+ *
+ * Per PHASE-2.5-PLAN.md §3.4 — the executor's input is `options.files: string[]`
+ * (not a scalar `filePath`), so a single name needs to summarize multi-file batches.
+ */
+function deriveProvenanceName(files?: string[]): string {
+  if (!files || files.length === 0) return 'cli-text'
+  if (files.length === 1) return files[0]
+  if (files.length <= 3) return files.join(',')
+  return `${files.slice(0, 3).join(',')}+${files.length - 3} more`
+}
+
 export interface CurateExecutorDeps {
   /** Override file content reader (primarily for testing). */
   readonly fileContentReader?: FileContentReader
@@ -78,7 +96,7 @@ export class CurateExecutor implements ICurateExecutor {
   }
 
   public async executeWithAgent(agent: ICipherAgent, options: CurateExecuteOptions): Promise<string> {
-    const {clientCwd, content, files, projectRoot, taskId} = options
+    const {clientCwd, content, files, logId, projectRoot, taskId} = options
 
     // --- Phase 1: Preprocessing (no sessions created yet — safe to throw) ---
     const fileReferenceInstructions = await this.processFileReferences(files ?? [], clientCwd)
@@ -126,13 +144,24 @@ export class CurateExecutor implements ICurateExecutor {
       // No more 50-iteration agent loop. The DAG is deterministic; each
       // service-bound slot makes at most one LLM call (extract per chunk,
       // conflict per fact-set). See plan/agent-driven-graph/DESIGN.md.
+      //
+      // R-3 (PHASE-2.5-PLAN.md §3.4): derive provenance from `options.files`
+      // (not options.filePath — the schema uses an array per i-curate-executor.ts:13)
+      // and thread `logId` + `taskId` through buildLiveServices so each curated
+      // leaf's `Reason` field carries cur-<id> + source provenance + statement preview.
       const services = buildLiveServices({
         agent,
         basePath: path.join(baseDir, BRV_DIR, 'context-tree'),
+        logId,
         lookupSubject: async (subject) => {
           if (!this.searchService) return []
           return loadExistingMemory(this.searchService, [subject], {limitPerSubject: 3})
         },
+        provenance: {
+          name: deriveProvenanceName(files),
+          type: files && files.length > 0 ? 'file' : 'text',
+        },
+        taskId,
       })
 
       const metadata = {
@@ -150,7 +179,14 @@ export class CurateExecutor implements ICurateExecutor {
       // recon inputs for recon-node. `existing` was previously here but is
       // now dead — services.detectConflicts sources its own existing memory
       // via the lookupSubject closure above (see runner.ts NodeServices doc).
+      //
+      // R-5 (PHASE-2.6-PLAN.md §3.1): rolled back from 8 → 4 per Phase 2.5
+      // §3.5 go/no-go gate. Phase 4 UAT showed c=8 regressed Scenario 3 from
+      // 150s (Phase 3 baseline) → 169s, most likely from gpt-5.4-mini
+      // rate-limit retries. The 30s gap to ≤120s spec moves to a Phase 6
+      // perf spike with profiler-driven measurements (don't guess-and-rerun).
       const ctx: NodeContext = {
+        extractConcurrency: 4,
         initialInput: {
           context: effectiveContext,
           history: {entries: [], totalProcessed: 0},
