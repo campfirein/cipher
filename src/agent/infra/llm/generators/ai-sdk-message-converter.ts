@@ -63,18 +63,25 @@ export function toModelMessages(messages: InternalMessage[]): ModelMessage[] {
 /**
  * Convert our ToolSet to AI SDK tool definitions.
  * Tools are declared without `execute` — our agentic loop handles execution.
+ *
+ * The last tool gets `providerOptions.anthropic.cacheControl: ephemeral`,
+ * which makes Anthropic cache the entire tool block (and the system prompt
+ * before it). Non-Anthropic providers ignore the `anthropic` namespace.
  */
 export function toAiSdkTools(tools?: InternalToolSet): Record<string, ReturnType<typeof aiSdkTool>> | undefined {
   if (!tools || Object.keys(tools).length === 0) {
     return undefined
   }
 
+  const entries = Object.entries(tools)
   const result: Record<string, ReturnType<typeof aiSdkTool>> = {}
 
-  for (const [name, def] of Object.entries(tools)) {
+  for (const [index, [name, def]] of entries.entries()) {
+    const isLast = index === entries.length - 1
     result[name] = aiSdkTool({
       description: def.description ?? '',
       inputSchema: jsonSchema(def.parameters as Record<string, unknown>),
+      ...(isLast && {providerOptions: {anthropic: {cacheControl: {type: 'ephemeral'}}}}),
     })
   }
 

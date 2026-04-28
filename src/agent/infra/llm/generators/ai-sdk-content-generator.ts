@@ -5,7 +5,7 @@
  * Replaces per-provider content generators with one unified implementation.
  */
 
-import type {LanguageModel} from 'ai'
+import type {LanguageModel, ModelMessage} from 'ai'
 
 import {generateText, streamText} from 'ai'
 
@@ -21,6 +21,28 @@ import {StreamChunkType} from '../../../core/interfaces/i-content-generator.js'
 import {toAiSdkTools, toModelMessages} from './ai-sdk-message-converter.js'
 
 const DEFAULT_CHARS_PER_TOKEN = 4
+
+/**
+ * Prepend the system prompt as a system-role message carrying
+ * `providerOptions.anthropic.cacheControl: ephemeral`. AI SDK's top-level
+ * `system: string` parameter does not propagate providerOptions, so the
+ * only way to attach Anthropic cache_control to the system block is to
+ * pass it through the messages array. Non-Anthropic providers ignore the
+ * `anthropic` namespace.
+ */
+function prependCachedSystemMessage(systemPrompt: string | undefined, messages: ModelMessage[]): ModelMessage[] {
+  if (!systemPrompt) {
+    return messages
+  }
+
+  const systemMessage: ModelMessage = {
+    content: systemPrompt,
+    providerOptions: {anthropic: {cacheControl: {type: 'ephemeral'}}},
+    role: 'system',
+  }
+
+  return [systemMessage, ...messages]
+}
 
 /**
  * Configuration for AiSdkContentGenerator.
@@ -54,7 +76,7 @@ export class AiSdkContentGenerator implements IContentGenerator {
   }
 
   public async generateContent(request: GenerateContentRequest): Promise<GenerateContentResponse> {
-    const messages = toModelMessages(request.contents)
+    const messages = prependCachedSystemMessage(request.systemPrompt, toModelMessages(request.contents))
     const tools = toAiSdkTools(request.tools)
 
     const result = await generateText({
@@ -63,7 +85,6 @@ export class AiSdkContentGenerator implements IContentGenerator {
       messages,
       model: this.model,
       temperature: request.config.temperature,
-      ...(request.systemPrompt && {system: request.systemPrompt}),
       ...(tools && {tools}),
       ...(request.config.topK !== undefined && {topK: request.config.topK}),
       ...(request.config.topP !== undefined && {topP: request.config.topP}),
@@ -90,6 +111,7 @@ export class AiSdkContentGenerator implements IContentGenerator {
     const rawUsage = result.usage as Record<string, number | undefined>
     const cacheReadTokens = typeof rawUsage.cachedInputTokens === 'number' ? rawUsage.cachedInputTokens : undefined
     const reasoningTokens = typeof rawUsage.reasoningTokens === 'number' ? rawUsage.reasoningTokens : undefined
+    const cacheCreationTokens = extractAnthropicCacheCreation(result.providerMetadata)
 
     return {
       content: result.text,
@@ -101,13 +123,14 @@ export class AiSdkContentGenerator implements IContentGenerator {
         outputTokens: result.usage.outputTokens ?? 0,
         totalTokens: result.usage.totalTokens ?? 0,
         ...(cacheReadTokens !== undefined && {cacheReadTokens}),
+        ...(cacheCreationTokens !== undefined && {cacheCreationTokens}),
         ...(reasoningTokens !== undefined && {reasoningTokens}),
       },
     }
   }
 
   public async *generateContentStream(request: GenerateContentRequest): AsyncGenerator<GenerateContentChunk> {
-    const messages = toModelMessages(request.contents)
+    const messages = prependCachedSystemMessage(request.systemPrompt, toModelMessages(request.contents))
     const tools = toAiSdkTools(request.tools)
 
     const result = streamText({
@@ -116,7 +139,6 @@ export class AiSdkContentGenerator implements IContentGenerator {
       messages,
       model: this.model,
       temperature: request.config.temperature,
-      ...(request.systemPrompt && {system: request.systemPrompt}),
       ...(tools && {tools}),
       ...(request.config.topK !== undefined && {topK: request.config.topK}),
       ...(request.config.topP !== undefined && {topP: request.config.topP}),
@@ -142,11 +164,13 @@ export class AiSdkContentGenerator implements IContentGenerator {
           if (rawUsage && typeof rawUsage.inputTokens === 'number' && typeof rawUsage.outputTokens === 'number') {
             const cacheReadTokens = typeof rawUsage.cachedInputTokens === 'number' ? rawUsage.cachedInputTokens : undefined
             const reasoningTokens = typeof rawUsage.reasoningTokens === 'number' ? rawUsage.reasoningTokens : undefined
+            const cacheCreationTokens = extractAnthropicCacheCreation(finishEvent.providerMetadata)
             usage = {
               inputTokens: rawUsage.inputTokens,
               outputTokens: rawUsage.outputTokens,
               totalTokens: rawUsage.totalTokens ?? rawUsage.inputTokens + rawUsage.outputTokens,
               ...(cacheReadTokens !== undefined && {cacheReadTokens}),
+              ...(cacheCreationTokens !== undefined && {cacheCreationTokens}),
               ...(reasoningTokens !== undefined && {reasoningTokens}),
             }
           }
@@ -248,6 +272,30 @@ export function extractStreamErrorMessage(error: unknown): string {
   }
 
   return String(error)
+}
+
+/**
+ * Extract Anthropic's cache_creation_input_tokens from AI SDK providerMetadata.
+ *
+ * Anthropic surfaces this as `providerMetadata.anthropic.cacheCreationInputTokens`
+ * (it is not folded into the standard usage object). It tells us how many
+ * tokens were written into the cache on this request — i.e., the prefix
+ * Anthropic just stored. Reads on subsequent requests show up in
+ * `usage.cachedInputTokens` instead.
+ */
+function extractAnthropicCacheCreation(providerMetadata: unknown): number | undefined {
+  if (!providerMetadata || typeof providerMetadata !== 'object') {
+    return undefined
+  }
+
+  const meta = providerMetadata as Record<string, Record<string, unknown> | undefined>
+  const {anthropic} = meta
+  if (!anthropic) {
+    return undefined
+  }
+
+  const value = anthropic.cacheCreationInputTokens
+  return typeof value === 'number' ? value : undefined
 }
 
 /**
