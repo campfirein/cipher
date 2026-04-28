@@ -144,6 +144,24 @@ describe('DreamExecutor', () => {
       expect(result).to.not.include('No changes needed')
     })
 
+    it('omits the flagged-for-review line when review is disabled', () => {
+      const executor = new DreamExecutor(deps)
+      const formatResult = (executor as unknown as {formatResult(logId: string, summary: import('../../../../src/server/infra/dream/dream-log-schema.js').DreamLogSummary, reviewDisabled: boolean): string}).formatResult.bind(executor)
+
+      const result = formatResult('drm-3600', {consolidated: 1, errors: 0, flaggedForReview: 2, pruned: 0, synthesized: 1}, true)
+      expect(result).to.include('1 consolidated')
+      expect(result).to.include('1 synthesized')
+      expect(result).to.not.include('flagged for review')
+    })
+
+    it('still shows the flagged-for-review line when review is enabled', () => {
+      const executor = new DreamExecutor(deps)
+      const formatResult = (executor as unknown as {formatResult(logId: string, summary: import('../../../../src/server/infra/dream/dream-log-schema.js').DreamLogSummary, reviewDisabled: boolean): string}).formatResult.bind(executor)
+
+      const result = formatResult('drm-3700', {consolidated: 0, errors: 0, flaggedForReview: 3, pruned: 0, synthesized: 0}, false)
+      expect(result).to.include('3 operations flagged for review')
+    })
+
     it('formats result with error count and omits no-changes message', () => {
       const executor = new DreamExecutor(deps)
       const formatResult = (executor as unknown as {formatResult(logId: string, summary: import('../../../../src/server/infra/dream/dream-log-schema.js').DreamLogSummary): string}).formatResult.bind(executor)

@@ -212,7 +212,7 @@ export class DreamExecutor {
       }))
 
       succeeded = true
-      return {logId, result: this.formatResult(logId, summary)}
+      return {logId, result: this.formatResult(logId, summary, reviewDisabled)}
     } catch (error) {
       // Save error/partial log entry (best-effort). Use allOperations so any work
       // that completed before the failure is captured — keeps the audit trail and
@@ -440,7 +440,7 @@ export class DreamExecutor {
     return new Set(results.filter((f): f is string => f !== null))
   }
 
-  private formatResult(logId: string, summary: DreamLogSummary): string {
+  private formatResult(logId: string, summary: DreamLogSummary, reviewDisabled: boolean): string {
     const parts = [`Dream completed (${logId})`]
     const counts = [
       summary.consolidated > 0 ? `${summary.consolidated} consolidated` : '',
@@ -457,7 +457,10 @@ export class DreamExecutor {
       parts.push(`${summary.errors} operations failed`)
     }
 
-    if (summary.flaggedForReview > 0) {
+    // Suppress when review is disabled — the count comes from LLM `needsReview` tags
+    // computed before the dual-write gate, so the ops were intentionally not enqueued
+    // and would not appear in `brv review pending`.
+    if (summary.flaggedForReview > 0 && !reviewDisabled) {
       parts.push(`${summary.flaggedForReview} operations flagged for review`)
     }
 
