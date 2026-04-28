@@ -1,7 +1,7 @@
 import {expect} from 'chai'
 import * as git from 'isomorphic-git'
 import fs, {existsSync} from 'node:fs'
-import {mkdir, readFile, rm, unlink, writeFile} from 'node:fs/promises'
+import {mkdir, readFile, rm, unlink, utimes, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {stub} from 'sinon'
@@ -355,6 +355,45 @@ describe('IsomorphicGitService', () => {
       expect(entries).to.deep.include({path: 'tracked.md', staged: false, status: 'untracked'})
     })
 
+    it('[1,2,0] git rm --cached then edit reports staged deletion + untracked', async () => {
+      await writeFile(join(testDir, 'tracked.md'), 'original')
+      await service.add({directory: testDir, filePaths: ['tracked.md']})
+      await service.commit({directory: testDir, message: 'initial'})
+
+      await git.remove({dir: testDir, filepath: 'tracked.md', fs})
+      await writeFile(join(testDir, 'tracked.md'), 'edited after rm --cached')
+
+      const matrix = await git.statusMatrix({dir: testDir, fs})
+      expect(matrix).to.deep.equal([['tracked.md', 1, 2, 0]])
+
+      const result = await service.status({directory: testDir})
+      expect(result.isClean).to.be.false
+      const entries = result.files.filter((f) => f.path === 'tracked.md')
+      expect(entries).to.have.length(2)
+      expect(entries).to.deep.include({path: 'tracked.md', staged: true, status: 'deleted'})
+      expect(entries).to.deep.include({path: 'tracked.md', staged: false, status: 'untracked'})
+    })
+
+    it('[0,0,3] staged new file then deleted from disk reports add + delete', async () => {
+      // Need an existing commit so git.statusMatrix has a HEAD to compare against.
+      await writeFile(join(testDir, 'seed.md'), 'seed')
+      await service.add({directory: testDir, filePaths: ['seed.md']})
+      await service.commit({directory: testDir, message: 'seed'})
+
+      await writeFile(join(testDir, 'fresh.md'), 'staged content')
+      await service.add({directory: testDir, filePaths: ['fresh.md']})
+      await unlink(join(testDir, 'fresh.md'))
+
+      const matrix = await git.statusMatrix({dir: testDir, fs})
+      const freshRow = matrix.find((row) => row[0] === 'fresh.md')
+      expect(freshRow).to.deep.equal(['fresh.md', 0, 0, 3])
+
+      const result = await service.status({directory: testDir})
+      const entries = result.files.filter((f) => f.path === 'fresh.md')
+      expect(entries).to.deep.include({path: 'fresh.md', staged: true, status: 'added'})
+      expect(entries).to.deep.include({path: 'fresh.md', staged: false, status: 'deleted'})
+    })
+
     it('[0,2,3] reports partially staged new file as staged added + unstaged modified', async () => {
       // new file: add to index (staged added), then modify on disk without re-staging
       await writeFile(join(testDir, 'new.md'), 'original')
@@ -367,6 +406,62 @@ describe('IsomorphicGitService', () => {
       expect(entries).to.have.length(2)
       expect(entries).to.deep.include({path: 'new.md', staged: true, status: 'added'})
       expect(entries).to.deep.include({path: 'new.md', staged: false, status: 'modified'})
+    })
+
+    it('[1,1,3] reports staged modification when workdir is restored to HEAD content after add', async () => {
+      // Reachable in the wild via editor undo+autosave, AI agent revert, or sync-tool rollback
+      // after `brv vc add`: workdir matches HEAD, but the index still holds the staged blob.
+      const tracked = join(testDir, 'tracked.md')
+      await writeFile(tracked, 'v1\n')
+      await service.add({directory: testDir, filePaths: ['tracked.md']})
+      await service.commit({directory: testDir, message: 'initial'})
+
+      await writeFile(tracked, 'v2\n')
+      await service.add({directory: testDir, filePaths: ['tracked.md']})
+
+      // Filesystem-only restore to HEAD content; index untouched.
+      // Force a distinct mtime so isomorphic-git re-reads the workdir blob instead of
+      // trusting the index's stat cache (which would yield [1,2,2] otherwise).
+      await writeFile(tracked, 'v1\n')
+      const future = new Date(Date.now() + 2000)
+      await utimes(tracked, future, future)
+
+      const matrix = await git.statusMatrix({dir: testDir, fs})
+      expect(matrix).to.deep.equal([['tracked.md', 1, 1, 3]])
+
+      const result = await service.status({directory: testDir})
+
+      expect(result.isClean).to.be.false
+      const entries = result.files.filter((f) => f.path === 'tracked.md')
+      expect(entries).to.deep.include({path: 'tracked.md', staged: true, status: 'modified'})
+    })
+
+    it('status.isClean implies pull dirty-filter sees no rows (cross-property invariant)', async () => {
+      // Engineer the [1,1,3] tuple. status() and pull() must agree on cleanliness:
+      // status uses parseMatrix's whitelist; pull uses `row[2] !== 1 || row[3] !== 1`.
+      // The bug is the case where status.isClean is true but pull's filter is non-empty.
+      const path = join(testDir, 'a.md')
+      await writeFile(path, 'v1\n')
+      await service.add({directory: testDir, filePaths: ['a.md']})
+      await service.commit({directory: testDir, message: 'initial'})
+
+      await writeFile(path, 'v2\n')
+      await service.add({directory: testDir, filePaths: ['a.md']})
+      await writeFile(path, 'v1\n')
+      const future = new Date(Date.now() + 2000)
+      await utimes(path, future, future)
+
+      const status = await service.status({directory: testDir})
+      const matrix = await git.statusMatrix({dir: testDir, fs})
+      const pullDirty = matrix
+        .filter((row) => row[2] !== 1 || row[3] !== 1)
+        .map((row) => String(row[0]))
+
+      if (status.isClean) {
+        expect(pullDirty, 'pull would consider files dirty while status reports clean').to.deep.equal([])
+      } else {
+        expect(status.files.map((f) => f.path)).to.include.members(pullDirty)
+      }
     })
 
     it('reports correct statuses for multiple files with mixed states', async () => {

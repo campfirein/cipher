@@ -1462,6 +1462,34 @@ describe('VcHandler', () => {
       }
     })
 
+    it('should surface affected file paths in pull overwrite error', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.listRemotes.resolves([{remote: 'origin', url: 'https://example.com/repo.git'}])
+      deps.gitService.pull.rejects(
+        new GitError(
+          'Your local changes to the following files would be overwritten by merge:\n' +
+            '\ttracked.md\n' +
+            '\tnotes/log.md\n' +
+            'Please commit your changes before you merge.',
+        ),
+      )
+      deps.gitService.getTrackingBranch.resolves({remote: 'origin', remoteBranch: 'main'})
+      makeVcHandler(deps).setup()
+
+      try {
+        await deps.requestHandlers[VcEvents.PULL]({}, CLIENT_ID)
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(VcError)
+        if (error instanceof VcError) {
+          expect(error.code).to.equal(VcErrorCode.UNCOMMITTED_CHANGES)
+          expect(error.message).to.include('tracked.md')
+          expect(error.message).to.include('notes/log.md')
+        }
+      }
+    })
+
     it('should throw VcError UNRELATED_HISTORIES when pull fails with unrelated histories GitError', async () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.isInitialized.resolves(true)
