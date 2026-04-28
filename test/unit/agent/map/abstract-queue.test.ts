@@ -20,12 +20,24 @@ function makeFailingGenerator(sandbox: SinonSandbox): IContentGenerator {
   } as unknown as IContentGenerator
 }
 
+/**
+ * Stream stub that responds in the XML format expected by H3's batched generator.
+ * Sniffs the request's user content for `<file path="..."` tokens and emits one
+ * `<file path="X"><abstract|overview>generated text</...></file>` per detected
+ * path. The L0 vs L1 branch is detected from the system prompt.
+ */
 function makeSuccessfulGenerator(sandbox: SinonSandbox): IContentGenerator {
   return {
     estimateTokensSync: () => 10,
     generateContent: sandbox.stub().rejects(new Error('n/a')),
-    generateContentStream: sandbox.stub().callsFake(async function *() {
-      yield {content: 'generated text', isComplete: false}
+    generateContentStream: sandbox.stub().callsFake(async function *(request: {contents?: Array<{content?: string}>; systemPrompt?: string}) {
+      const userContent = request.contents?.[0]?.content ?? ''
+      const isAbstract = (request.systemPrompt ?? '').includes('one-line')
+      const innerTag = isAbstract ? 'abstract' : 'overview'
+      const pathMatches = [...userContent.matchAll(/<file\s+path="([^"]+)"/g)]
+      const paths = pathMatches.length > 0 ? pathMatches.map((m) => m[1]) : ['unknown']
+      const xml = paths.map((p) => `<file path="${p}"><${innerTag}>generated text</${innerTag}></file>`).join('\n')
+      yield {content: xml, isComplete: false}
       yield {isComplete: true}
     }),
   } as unknown as IContentGenerator
@@ -213,6 +225,55 @@ describe('AbstractGenerationQueue', () => {
       const raw = await fs.readFile(join(tmpDir, '.brv', '_queue_status.json'), 'utf8')
       const written = JSON.parse(raw) as {pending: number}
       expect(written.pending).to.equal(1)
+    })
+
+    it('processes up to BATCH_SIZE_CAP items in a single LLM cycle', async () => {
+      const successfulGenerator = makeSuccessfulGenerator(sandbox)
+      const q = new AbstractGenerationQueue(tmpDir)
+      q.setGenerator(successfulGenerator)
+
+      const N = 5
+      for (let i = 0; i < N; i++) {
+        q.enqueue({contextPath: join(tmpDir, `f${i}.md`), fullContent: `content ${i}`})
+      }
+
+      await q.drain()
+
+      // 1 batch * 2 LLM calls (L0 + L1) = exactly 2 stream calls for N=5
+      const stub = successfulGenerator.generateContentStream as ReturnType<typeof sandbox.stub>
+      expect(stub.callCount).to.equal(2, 'Expected exactly 2 LLM stream calls for a 5-item batch (1×L0 + 1×L1)')
+      expect(q.getStatus()).to.deep.equal({failed: 0, pending: 0, processed: N, processing: false})
+
+      // Every file gets its abstract.md and overview.md written
+      const fileChecks = Array.from({length: N}, async (_, i) => {
+        const abstractPath = join(tmpDir, `f${i}.abstract.md`)
+        const overviewPath = join(tmpDir, `f${i}.overview.md`)
+        const [abstractText, overviewText] = await Promise.all([
+          fs.readFile(abstractPath, 'utf8'),
+          fs.readFile(overviewPath, 'utf8'),
+        ])
+        expect(abstractText).to.equal('generated text')
+        expect(overviewText).to.equal('generated text')
+      })
+      await Promise.all(fileChecks)
+    })
+
+    it('splits oversized backlogs into multiple batches', async () => {
+      const successfulGenerator = makeSuccessfulGenerator(sandbox)
+      const q = new AbstractGenerationQueue(tmpDir)
+      q.setGenerator(successfulGenerator)
+
+      const N = 7  // > BATCH_SIZE_CAP=5 → expect 2 batches (5 + 2)
+      for (let i = 0; i < N; i++) {
+        q.enqueue({contextPath: join(tmpDir, `f${i}.md`), fullContent: `content ${i}`})
+      }
+
+      await q.drain()
+
+      const stub = successfulGenerator.generateContentStream as ReturnType<typeof sandbox.stub>
+      // 2 batches × 2 LLM calls each = 4 stream calls
+      expect(stub.callCount).to.equal(4, 'Expected 4 stream calls for 7 items split into batches of 5+2')
+      expect(q.getStatus().processed).to.equal(N)
     })
 
     it('status file reflects retrying items in pending count', async () => {

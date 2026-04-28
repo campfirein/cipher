@@ -28,6 +28,7 @@ import {STREAMING_EVENT_NAMES} from '../../core/domain/streaming/types.js'
 import {ToolName} from '../../core/domain/tools/constants.js'
 import {AgentEventBus} from '../events/event-emitter.js'
 import {RetryableContentGenerator} from '../llm/generators/index.js'
+import {wrapBackgroundGeneratorWithTelemetry} from '../llm/generators/wrap-with-telemetry.js'
 import {createGeneratorForProvider} from '../llm/providers/index.js'
 import {DEFAULT_RETRY_POLICY} from '../llm/retry/retry-policy.js'
 import {EventBasedLogger} from '../logger/event-based-logger.js'
@@ -1042,6 +1043,7 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
   private createFreshRetryableGenerator(
     fresh: ProviderConfigResponse,
     options: {
+      backgroundTelemetryBus?: AgentEventBus
       httpConfig: ByteRoverHttpConfig
       httpReferer?: string
       modelFallback: string
@@ -1066,6 +1068,10 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
       siteName: options.siteName,
       temperature: 0,
     })
+
+    if (options.backgroundTelemetryBus) {
+      return wrapBackgroundGeneratorWithTelemetry(freshGenerator, options.backgroundTelemetryBus)
+    }
 
     return new RetryableContentGenerator(freshGenerator, {policy: DEFAULT_RETRY_POLICY})
   }
@@ -1184,10 +1190,11 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
       temperature: 0,
     })
 
-    // Wrap with retry for background resilience (no event bus — background tasks have no UI)
-    const retryableCurateGenerator = new RetryableContentGenerator(curateGenerator, {
-      policy: DEFAULT_RETRY_POLICY,
-    })
+    // Wrap with retry for background resilience. Telemetry: the abstract-queue
+    // background path has no per-session bus, so we forward llmservice:usage
+    // onto the agent bus directly via wrapBackgroundGeneratorWithTelemetry —
+    // otherwise UsageLogger never sees abstract-generation calls.
+    const retryableCurateGenerator = wrapBackgroundGeneratorWithTelemetry(curateGenerator, this._agentEventBus)
 
     // Wire generator into the abstract queue so background generation can proceed
     services.abstractQueue.setGenerator(retryableCurateGenerator)
@@ -1200,6 +1207,7 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
           TransportStateEventNames.GET_PROVIDER_CONFIG,
         )
         const retryableFreshGenerator = this.createFreshRetryableGenerator(fresh, {
+          backgroundTelemetryBus: this._agentEventBus,
           httpConfig,
           httpReferer: sessionLLMConfig.httpReferer,
           modelFallback: sessionLLMConfig.model,
