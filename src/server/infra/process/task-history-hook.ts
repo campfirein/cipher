@@ -17,9 +17,9 @@ import type {TaskInfo} from '../../core/domain/transport/task-info.js'
 import type {ITaskLifecycleHook} from '../../core/interfaces/process/i-task-lifecycle-hook.js'
 import type {ITaskHistoryStore} from '../../core/interfaces/storage/i-task-history-store.js'
 
-import {TASK_HISTORY_ID_PREFIX} from '../../constants.js'
-import {TASK_HISTORY_SCHEMA_VERSION, TaskHistoryEntrySchema} from '../../core/domain/entities/task-history-entry.js'
+import {TaskHistoryEntrySchema} from '../../core/domain/entities/task-history-entry.js'
 import {processLog} from '../../utils/process-logger.js'
+import {buildTaskHistoryEntryCandidate} from './task-history-entry-builder.js'
 
 type TaskHistoryHookOptions = {
   /** Per-project store factory (DIP — never depends on FileTaskHistoryStore directly). */
@@ -61,43 +61,16 @@ export class TaskHistoryHook implements ITaskLifecycleHook {
     await this.persist(task)
   }
 
-  /** Build the base shape (fields shared by every status branch). */
-  private baseFromTaskInfo(task: TaskInfo): Record<string, unknown> {
-    return {
-      content: task.content,
-      createdAt: task.createdAt,
-      id: `${TASK_HISTORY_ID_PREFIX}-${task.taskId}`,
-      projectPath: task.projectPath,
-      schemaVersion: TASK_HISTORY_SCHEMA_VERSION,
-      taskId: task.taskId,
-      type: task.type,
-      ...(task.clientCwd === undefined ? {} : {clientCwd: task.clientCwd}),
-      ...(task.files === undefined ? {} : {files: task.files}),
-      ...(task.folderPath === undefined ? {} : {folderPath: task.folderPath}),
-      ...(task.logId === undefined ? {} : {logId: task.logId}),
-      ...(task.model === undefined ? {} : {model: task.model}),
-      ...(task.provider === undefined ? {} : {provider: task.provider}),
-      ...(task.reasoningContents === undefined ? {} : {reasoningContents: task.reasoningContents}),
-      ...(task.responseContent === undefined ? {} : {responseContent: task.responseContent}),
-      ...(task.sessionId === undefined ? {} : {sessionId: task.sessionId}),
-      ...(task.toolCalls === undefined ? {} : {toolCalls: task.toolCalls}),
-      ...(task.worktreeRoot === undefined ? {} : {worktreeRoot: task.worktreeRoot}),
-    }
-  }
-
   /**
    * Build + save a `TaskHistoryEntry` from the current `TaskInfo`. Optional
    * `override` injects branch-specific fields (status / completedAt / error /
-   * result). When omitted, the branch shape is inferred from `task.status`.
+   * result). When omitted, the branch shape is inferred from `task.status`
+   * by `buildTaskHistoryEntryCandidate`.
    */
   private async persist(task: TaskInfo, override?: Record<string, unknown>): Promise<void> {
     if (!task.projectPath) return
 
-    const candidate = {
-      ...this.baseFromTaskInfo(task),
-      ...this.statusShapeFromTaskInfo(task),
-      ...override,
-    }
+    const candidate = buildTaskHistoryEntryCandidate({override, task})
 
     let entry: TaskHistoryEntry
     try {
@@ -115,46 +88,6 @@ export class TaskHistoryHook implements ITaskLifecycleHook {
       processLog(
         `TaskHistoryHook: store.save failed for ${task.taskId}: ${error instanceof Error ? error.message : String(error)}`,
       )
-    }
-  }
-
-  /**
-   * Build the per-branch shape inferred from `task.status`. Override-only
-   * paths (terminal hooks) supply their own status; this is the default for
-   * `onTaskUpdate` calls during in-flight transitions.
-   */
-  private statusShapeFromTaskInfo(task: TaskInfo): Record<string, unknown> {
-    switch (task.status) {
-      case 'cancelled':
-      case 'completed': {
-        return {
-          completedAt: task.completedAt ?? Date.now(),
-          status: task.status,
-          ...(task.startedAt === undefined ? {} : {startedAt: task.startedAt}),
-          ...(task.status === 'completed' && task.result !== undefined ? {result: task.result} : {}),
-        }
-      }
-
-      case 'error': {
-        return {
-          completedAt: task.completedAt ?? Date.now(),
-          error: task.error ?? {code: 'TASK_ERROR', message: 'unknown error', name: 'TaskError'},
-          status: 'error',
-          ...(task.startedAt === undefined ? {} : {startedAt: task.startedAt}),
-        }
-      }
-
-      case 'started': {
-        return {
-          startedAt: task.startedAt ?? task.createdAt,
-          status: 'started',
-        }
-      }
-
-      // 'created' or undefined — minimal base, no extra branch fields.
-      default: {
-        return {status: 'created'}
-      }
     }
   }
 }

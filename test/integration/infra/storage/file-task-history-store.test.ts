@@ -33,7 +33,9 @@ describe('FileTaskHistoryStore', () => {
   let indexPath: string
 
   beforeEach(async () => {
-    tempDir = join(tmpdir(), `brv-task-history-test-${Date.now()}-${Math.random().toString(36).slice(2)}`)
+    // Use crypto.randomUUID for guaranteed uniqueness — under high load
+    // (full suite run) two consecutive tests can collide on Date.now()+Math.random.
+    tempDir = join(tmpdir(), `brv-task-history-test-${Date.now()}-${(await import('node:crypto')).randomUUID()}`)
     await mkdir(tempDir, {recursive: true})
     // Disable stale recovery + prune + compaction by default — legacy fixtures
     // use ancient `createdAt` values + low entry counts that would otherwise
@@ -52,6 +54,23 @@ describe('FileTaskHistoryStore', () => {
   })
 
   afterEach(async () => {
+    // Drain any in-flight prune/compaction so the rm below doesn't race with
+    // a pending writeFile / rename and trip ENOTEMPTY. The C1 fix's pre-rename
+    // recovery scan reads every data file, which extends the prune duration
+    // past the test body's await chain in some cases.
+    for (let i = 0; i < 30; i++) {
+      // eslint-disable-next-line no-await-in-loop
+      await new Promise<void>((r) => {
+        setTimeout(() => r(), 10)
+      })
+      // eslint-disable-next-line no-await-in-loop
+      const ok = await rm(tempDir, {force: true, recursive: true}).then(
+        () => true,
+        () => false,
+      )
+      if (ok) return
+    }
+
     await rm(tempDir, {force: true, recursive: true})
   })
 
@@ -299,13 +318,13 @@ describe('FileTaskHistoryStore', () => {
       expect(lines).to.have.lengthOf(2) // still 1 save + 1 tombstone
     })
 
-    it('deleteMany single pass — appends multiple tombstones, returns count of newly-deleted', async () => {
+    it('deleteMany single pass — appends multiple tombstones, returns ids of newly-deleted', async () => {
       await store.save(completedEntry('a'))
       await store.save(completedEntry('b'))
       await store.save(completedEntry('c'))
 
-      const count = await store.deleteMany(['a', 'b', 'c'])
-      expect(count).to.equal(3)
+      const removed = await store.deleteMany(['a', 'b', 'c'])
+      expect(removed).to.have.members(['a', 'b', 'c'])
 
       // All data files gone
       const files = await readdir(dataDir)
@@ -326,8 +345,8 @@ describe('FileTaskHistoryStore', () => {
       // Simulate a concurrent unlink: delete one data file out-of-band before deleteMany runs.
       await rm(join(dataDir, 'tsk-race-a.json'), {force: true})
 
-      const count = await store.deleteMany(['race-a', 'race-b'])
-      expect(count).to.equal(2)
+      const removed = await store.deleteMany(['race-a', 'race-b'])
+      expect(removed).to.have.members(['race-a', 'race-b'])
 
       const files = await readdir(dataDir)
       expect(files).to.have.lengthOf(0)
@@ -417,8 +436,13 @@ describe('FileTaskHistoryStore', () => {
     beforeEach(() => {
       // Override outer store with a small threshold so we can fabricate
       // "stale" entries via createdAt: Date.now() - 200.
+      // `daemonStartedAt` is set FAR IN THE FUTURE so every save in this
+      // describe registers `lastSavedAt < daemonStartedAt` — i.e. the C0
+      // gate treats them as pre-boot orphans (recoverable). The new
+      // 'daemon-startup gate (C0)' describe below tests the inverse.
       store = new FileTaskHistoryStore({
         baseDir: tempDir,
+        daemonStartedAt: Date.now() + 60_000_000_000,
         maxAgeDays: 0,
         maxEntries: Number.POSITIVE_INFINITY,
         maxIndexBloatRatio: Number.POSITIVE_INFINITY,
@@ -581,6 +605,48 @@ describe('FileTaskHistoryStore', () => {
       expect(result![0].status).to.equal('error')
     })
 
+    // N1 — chmod-based test only meaningful on POSIX where directory
+    // permissions enforce. Windows ignores chmod for FAT/NTFS perms.
+    const itPosix = process.platform === 'win32' ? it.skip : it
+    itPosix('N1 — writeAtomic failure leaves index unchanged (no orphaned recovery line)', async () => {
+      // Sequential persistRecovery semantics: if the data-file write fails,
+      // the recovery line MUST NOT be appended. Otherwise the index would
+      // claim status='error' while the on-disk data file still says
+      // 'started' — list() and getById() would diverge for the same row.
+      //
+      // The previous parallel implementation ran writeAtomic and appendFile
+      // concurrently with independent catches: if writeAtomic failed but
+      // appendFile succeeded, the index gained an orphan recovery line.
+
+      await store.save(staleStartedEntry('pf'))
+
+      // Snapshot index state BEFORE recovery attempt.
+      const indexBefore = await readFile(indexPath, 'utf8')
+
+      // Make dataDir read-only so writeAtomic's writeFile-to-tmp fails with EACCES.
+      const {chmod} = await import('node:fs/promises')
+      await chmod(dataDir, 0o555)
+
+      let threw = false
+      try {
+        await store.list() // triggers recovery → recoverViaTaskId → persistRecovery
+      } catch {
+        threw = true
+      }
+
+      // Restore writability for afterEach cleanup.
+      await chmod(dataDir, 0o755)
+
+      expect(threw, 'recovery threw — must swallow disk errors').to.equal(false)
+
+      // Sequential: writeAtomic fails first → return BEFORE appendFile → no new line.
+      const indexAfter = await readFile(indexPath, 'utf8')
+      expect(
+        indexAfter,
+        'index gained an orphan recovery line despite data-file write failure',
+      ).to.equal(indexBefore)
+    })
+
     it('recovery line carries schemaVersion: 1', async () => {
       await store.save(staleStartedEntry('schema-check'))
       await store.list() // triggers recovery, appends recovery line
@@ -590,6 +656,218 @@ describe('FileTaskHistoryStore', () => {
       const recoveryLine = JSON.parse(lines.at(-1) ?? '') as Record<string, unknown>
       expect(recoveryLine.schemaVersion).to.equal(1)
       expect(recoveryLine.status).to.equal('error')
+    })
+  })
+
+  describe('daemon-startup gate (C0)', () => {
+    // These tests use the DEFAULT daemonStartedAt (Date.now() at construction),
+    // so any save() inside the test registers `lastSavedAt > daemonStartedAt` and
+    // is treated as a "live in-flight" entry that must NOT be recovered. This
+    // covers the regression where >10-min-running curate/dream tasks were being
+    // ping-ponged to `error: INTERRUPTED` on every list() / getById() call.
+    const STALE_THRESHOLD_MS = 100
+
+    let liveStore: FileTaskHistoryStore
+
+    beforeEach(() => {
+      liveStore = new FileTaskHistoryStore({
+        baseDir: tempDir,
+        // daemonStartedAt defaults to Date.now() — saves are post-boot
+        maxAgeDays: 0,
+        maxEntries: Number.POSITIVE_INFINITY,
+        maxIndexBloatRatio: Number.POSITIVE_INFINITY,
+        staleThresholdMs: STALE_THRESHOLD_MS,
+      })
+    })
+
+    // eslint-disable-next-line unicorn/consistent-function-scoping
+    function liveStartedEntry(taskId: string, createdAtOffsetMs = 200): TaskHistoryEntry {
+      const createdAt = Date.now() - createdAtOffsetMs
+      return makeEntry({
+        createdAt,
+        startedAt: createdAt + 10,
+        status: 'started',
+        taskId,
+      })
+    }
+
+    it('list() does NOT recover live entries (lastSavedAt > daemonStartedAt) even when stale by age', async () => {
+      await liveStore.save(liveStartedEntry('live-task'))
+
+      // Wait past stale threshold so isStale would otherwise fire.
+      await new Promise<void>((r) => {
+        setTimeout(() => r(), 150)
+      })
+
+      const result = await liveStore.list()
+      expect(result).to.have.lengthOf(1)
+      expect(result[0].status).to.equal('started')
+      expect(result[0].taskId).to.equal('live-task')
+
+      // No recovery line appended — only the original save line exists.
+      const indexRaw = await readFile(indexPath, 'utf8')
+      const lines = indexRaw.split('\n').filter(Boolean)
+      expect(lines).to.have.lengthOf(1)
+    })
+
+    it('list() does NOT ping-pong — repeated list+save loops keep entry as `started`', async () => {
+      // Reproduces the original C0 bug scenario: long-running task whose
+      // throttled saves alternate with WebUI list() polls.
+      await liveStore.save(liveStartedEntry('no-pingpong'))
+
+      await new Promise<void>((r) => {
+        setTimeout(() => r(), 150)
+      })
+
+      for (let i = 0; i < 5; i++) {
+        // eslint-disable-next-line no-await-in-loop
+        const result = await liveStore.list()
+        expect(result, `iteration ${i}`).to.have.lengthOf(1)
+        expect(result[0].status, `iteration ${i}`).to.equal('started')
+
+        // Simulate the next throttled lifecycle save (TaskHistoryHook.onTaskUpdate).
+        // eslint-disable-next-line no-await-in-loop
+        await liveStore.save(liveStartedEntry('no-pingpong'))
+      }
+
+      // Index has only the 6 save lines (1 initial + 5 re-saves), zero recoveries.
+      const indexRaw = await readFile(indexPath, 'utf8')
+      const lines = indexRaw.split('\n').filter(Boolean)
+      expect(lines).to.have.lengthOf(6)
+
+      for (const lineRaw of lines) {
+        const parsed = JSON.parse(lineRaw) as Record<string, unknown>
+        expect(parsed.status).to.equal('started')
+      }
+    })
+
+    it('getById() does NOT recover live entries — returns original `started` entry as-is', async () => {
+      await liveStore.save(liveStartedEntry('live-get'))
+
+      await new Promise<void>((r) => {
+        setTimeout(() => r(), 150)
+      })
+
+      const fetched = await liveStore.getById('live-get')
+      expect(fetched).to.exist
+      expect(fetched!.status).to.equal('started')
+
+      // No recovery line appended.
+      const indexRaw = await readFile(indexPath, 'utf8')
+      const lines = indexRaw.split('\n').filter(Boolean)
+      expect(lines).to.have.lengthOf(1)
+
+      // Data file untouched (no `error` payload).
+      const dataRaw = await readFile(join(dataDir, 'tsk-live-get.json'), 'utf8')
+      const onDisk = JSON.parse(dataRaw) as Record<string, unknown>
+      expect(onDisk.status).to.equal('started')
+    })
+
+    it('list() DOES recover entries from a previous daemon boot (lastSavedAt < daemonStartedAt)', async () => {
+      // Simulate "previous daemon left an orphan" by writing index + data file
+      // directly with `lastSavedAt` set to a pre-boot time, then constructing a
+      // new store whose daemonStartedAt is AFTER that timestamp.
+      const previousBootTime = Date.now() - 1_000_000
+      const taskId = 'leftover-task'
+      const createdAt = previousBootTime
+      const entry = makeEntry({
+        createdAt,
+        startedAt: createdAt + 10,
+        status: 'started',
+        taskId,
+      })
+
+      await mkdir(dataDir, {recursive: true})
+      await writeFile(join(dataDir, `tsk-${taskId}.json`), JSON.stringify(entry, null, 2), 'utf8')
+
+      const indexLine = {
+        content: entry.content,
+        createdAt,
+        // Pre-boot: previous daemon's last save before crash.
+        lastSavedAt: createdAt + 100,
+        projectPath: '/p',
+        schemaVersion: 1,
+        startedAt: createdAt + 10,
+        status: 'started',
+        taskId,
+        type: 'curate',
+      }
+      await mkdir(storeDir, {recursive: true})
+      await writeFile(indexPath, JSON.stringify(indexLine) + '\n', 'utf8')
+
+      const newDaemon = new FileTaskHistoryStore({
+        baseDir: tempDir,
+        daemonStartedAt: Date.now(), // AFTER the indexLine.lastSavedAt
+        maxAgeDays: 0,
+        maxEntries: Number.POSITIVE_INFINITY,
+        maxIndexBloatRatio: Number.POSITIVE_INFINITY,
+        staleThresholdMs: STALE_THRESHOLD_MS,
+      })
+
+      const result = await newDaemon.list()
+      expect(result).to.have.lengthOf(1)
+      expect(result[0].status).to.equal('error')
+      expect(result[0].error).to.deep.equal({
+        code: 'INTERRUPTED',
+        message: 'Interrupted (daemon terminated)',
+        name: 'TaskError',
+      })
+    })
+
+    it('list() recovers legacy index lines without lastSavedAt (back-compat)', async () => {
+      // Lines written by an older codebase have no `lastSavedAt` field. Treat
+      // them as eligible for stale-recovery so existing on-disk state from
+      // pre-C0 deploys is still cleaned up.
+      const taskId = 'legacy-task'
+      const createdAt = Date.now() - 1_000_000
+      const entry = makeEntry({
+        createdAt,
+        startedAt: createdAt + 10,
+        status: 'started',
+        taskId,
+      })
+
+      await mkdir(dataDir, {recursive: true})
+      await writeFile(join(dataDir, `tsk-${taskId}.json`), JSON.stringify(entry, null, 2), 'utf8')
+
+      // Index line WITHOUT lastSavedAt.
+      const legacyLine = {
+        content: entry.content,
+        createdAt,
+        projectPath: '/p',
+        schemaVersion: 1,
+        startedAt: createdAt + 10,
+        status: 'started',
+        taskId,
+        type: 'curate',
+      }
+      await mkdir(storeDir, {recursive: true})
+      await writeFile(indexPath, JSON.stringify(legacyLine) + '\n', 'utf8')
+
+      const newDaemon = new FileTaskHistoryStore({
+        baseDir: tempDir,
+        daemonStartedAt: Date.now(),
+        maxAgeDays: 0,
+        maxEntries: Number.POSITIVE_INFINITY,
+        maxIndexBloatRatio: Number.POSITIVE_INFINITY,
+        staleThresholdMs: STALE_THRESHOLD_MS,
+      })
+
+      const result = await newDaemon.list()
+      expect(result).to.have.lengthOf(1)
+      expect(result[0].status).to.equal('error')
+    })
+
+    it('save() persists `lastSavedAt` on every appended index line', async () => {
+      const before = Date.now()
+      await liveStore.save(makeEntry({taskId: 'with-lastSavedAt'}))
+      const after = Date.now()
+
+      const indexRaw = await readFile(indexPath, 'utf8')
+      const line = JSON.parse(indexRaw.trim()) as Record<string, unknown>
+      expect(line.lastSavedAt, 'lastSavedAt missing on save').to.be.a('number')
+      expect(line.lastSavedAt).to.be.at.least(before)
+      expect(line.lastSavedAt).to.be.at.most(after)
     })
   })
 
@@ -603,15 +881,31 @@ describe('FileTaskHistoryStore', () => {
     }
 
     async function waitForPruneToSettle(): Promise<void> {
+      // Initial wait to let the first scheduled prune timer fire — without
+      // this, polling can return immediately if it samples BEFORE the timer.
+      await new Promise<void>((r) => {
+        setTimeout(() => r(), 15)
+      })
+
+      // Require N consecutive stable checks — catches multi-pass prune cycles
+      // where line count plateaus briefly between phase 1 (tombstone) and
+      // phase 2 (cascading compaction or pruneRequested follow-up).
+      let stableChecks = 0
       let prev = await countIndexLines()
-      for (let i = 0; i < 50; i++) {
+      for (let i = 0; i < 80; i++) {
         // eslint-disable-next-line no-await-in-loop
         await new Promise((r) => {
           setTimeout(r, 4)
         })
         // eslint-disable-next-line no-await-in-loop
         const cur = await countIndexLines()
-        if (cur === prev) return
+        if (cur === prev) {
+          stableChecks++
+          if (stableChecks >= 4) return
+        } else {
+          stableChecks = 0
+        }
+
         prev = cur
       }
     }
@@ -753,11 +1047,15 @@ describe('FileTaskHistoryStore', () => {
       })
 
       it('rewrites _index.jsonl with one line per live entry', async () => {
+        // ratio=1 ensures compaction fires whenever total > live (any duplicate).
+        // Originally ratio=2 — flaky under load because timer 1's compaction
+        // could fire mid-saves and converge to a state where the FINAL index
+        // still had a duplicate (3/2=1.5 < 2 → no further compaction).
         store = new FileTaskHistoryStore({
           baseDir: tempDir,
           maxAgeDays: 0,
           maxEntries: Number.POSITIVE_INFINITY,
-          maxIndexBloatRatio: 2,
+          maxIndexBloatRatio: 1,
           staleThresholdMs: Number.POSITIVE_INFINITY,
         })
 
@@ -822,6 +1120,69 @@ describe('FileTaskHistoryStore', () => {
         const dataFiles = await readdir(dataDir)
         expect(dataFiles).to.not.include('tsk-orphan.json')
         expect(dataFiles).to.include('tsk-live.json')
+      })
+
+      it('N2 — recoverPreRenameSaves applies C0 gate to orphan data files (no resurrection of stale entries)', async () => {
+        // An orphan data file with status='started' and a pre-boot
+        // createdAt must be recovered to status='error' on encounter, NOT
+        // re-appended as a live entry. The previous code re-stamped
+        // lastSavedAt=Date.now() unconditionally, so the C0 gate then
+        // protected the resurrection forever as a current-boot live task.
+        const STALE_THRESHOLD_MS = 100
+        store = new FileTaskHistoryStore({
+          baseDir: tempDir,
+          // Daemon boot now — the orphan's lastSavedAt (we don't write one)
+          // and createdAt are pre-boot, so the C0 gate qualifies it as
+          // recoverable.
+          daemonStartedAt: Date.now(),
+          maxAgeDays: 0,
+          maxEntries: Number.POSITIVE_INFINITY,
+          maxIndexBloatRatio: 1.5,
+          staleThresholdMs: STALE_THRESHOLD_MS,
+        })
+
+        const oldCreatedAt = Date.now() - 10 * STALE_THRESHOLD_MS
+        const orphanEntry = makeEntry({
+          createdAt: oldCreatedAt,
+          startedAt: oldCreatedAt + 10,
+          status: 'started',
+          taskId: 'phantom-revival',
+        })
+
+        // Plant the orphan: data file present, NO index line.
+        await mkdir(dataDir, {recursive: true})
+        await writeFile(
+          join(dataDir, 'tsk-phantom-revival.json'),
+          JSON.stringify(orphanEntry, null, 2),
+          'utf8',
+        )
+
+        // Drive compaction so recoverPreRenameSaves runs and encounters the orphan.
+        // Repeated saves on the same taskId inflate the bloat ratio past 1.5.
+        for (let i = 0; i < 4; i++) {
+          // eslint-disable-next-line no-await-in-loop
+          await store.save(
+            makeEntry({completedAt: Date.now(), createdAt: Date.now(), status: 'completed', taskId: 'driver'}),
+          )
+        }
+
+        await waitForPruneToSettle()
+
+        // After compaction, the orphan is reachable via list() (recoverPreRenameSaves
+        // re-appended its index line). The fix requires that re-appended line to
+        // reflect the recovered (status='error') state, not the original 'started'.
+        const list = await store.list()
+        const phantom = list.find((t) => t.taskId === 'phantom-revival')
+        expect(phantom, 'orphan never reached list — recoverPreRenameSaves dropped it').to.exist
+        expect(
+          phantom!.status,
+          'N2: orphan was resurrected as live instead of recovered to error',
+        ).to.equal('error')
+
+        // getById must agree.
+        const fetched = await store.getById('phantom-revival')
+        expect(fetched, 'getById returned undefined for resurrected orphan').to.exist
+        expect(fetched!.status).to.equal('error')
       })
 
       it('atomic rename — no half-written index visible during compaction', async () => {
@@ -897,6 +1258,155 @@ describe('FileTaskHistoryStore', () => {
 
         // Save should complete well under typical prune-pass time (<100ms generous bound).
         expect(elapsed).to.be.lessThan(100)
+      })
+
+      it('C1 — saves landing concurrent with compaction survive (post-rewrite re-read picks them up)', async () => {
+        // Reproduces the C1 race: under the OLD code, `sweepOrphanData` was
+        // called with a snapshot taken BEFORE `rewriteIndex`. A save() that
+        // appended its index line + wrote its data file between the snapshot
+        // and the sweep would have its data file unlinked. The fix re-reads
+        // the index AFTER the rewrite and unions newly-appended taskIds into
+        // the live set before the sweep.
+        //
+        // Aggressive bloat ratio so compaction fires after every tombstone batch.
+        const raceStore = new FileTaskHistoryStore({
+          baseDir: tempDir,
+          daemonStartedAt: Date.now() + 60_000_000_000,
+          maxAgeDays: 0,
+          maxEntries: Number.POSITIVE_INFINITY,
+          maxIndexBloatRatio: 1.5,
+          staleThresholdMs: Number.POSITIVE_INFINITY,
+        })
+
+        // Seed pool that we'll repeatedly tombstone to drive compaction.
+        const SEED_COUNT = 10
+        const seedIds = Array.from({length: SEED_COUNT}, (_, i) => `seed-${i}`)
+        for (const id of seedIds) {
+          // eslint-disable-next-line no-await-in-loop
+          await raceStore.save(makeEntry({taskId: id}))
+        }
+
+        // Burst: tombstone all seeds (drives ratio > 1.5 → compaction fires)
+        // and concurrently save 30 racing entries. Without the C1 fix, some
+        // race-N data files would be silently unlinked by the sweep.
+        const RACE_COUNT = 30
+        const raceIds = Array.from({length: RACE_COUNT}, (_, i) => `race-${i}`)
+
+        const racingSaves: Promise<void>[] = []
+        for (const id of raceIds) {
+          racingSaves.push(raceStore.save(makeEntry({taskId: id})))
+        }
+
+        await raceStore.deleteMany(seedIds) // triggers compaction
+        await Promise.all(racingSaves)
+
+        await waitForPruneToSettle()
+        // Allow any cascaded prune to fully drain before assertion.
+        await new Promise<void>((r) => {
+          setTimeout(() => r(), 50)
+        })
+
+        // Every racing taskId must still be retrievable: index has its line AND
+        // data file is intact. With the old code, ~5-15% of race-N would be lost.
+        for (const id of raceIds) {
+          // eslint-disable-next-line no-await-in-loop
+          const fetched = await raceStore.getById(id)
+          expect(fetched, `lost race taskId ${id} to C1 sweep race`).to.exist
+          expect(fetched!.taskId).to.equal(id)
+        }
+      })
+
+      it('B2 — deletes landing concurrent with compaction stay deleted (no phantom rows)', async () => {
+        // Reproduces the B2 race: under the OLD code, a tombstone whose
+        // `appendFile` landed AFTER `maybeCompact` snapshotted the index but
+        // BEFORE the rewrite's `rename` would be wiped by the rename — the
+        // post-rewrite re-read found no tombstone (rewrite was built from the
+        // pre-tombstone snapshot) and `recoverPreRenameSaves` could not
+        // recover from the data dir because the delete had already unlinked
+        // the data file. Result: index lists the taskId as live, no data
+        // file → phantom row in `list()` whose `getById()` returns undefined.
+        //
+        // Heavy interleaved burst across multiple sub-trials to provoke the
+        // race window (snapshot→rename inside maybeCompact). The fix —
+        // serializing tombstoneAndUnlink against the snapshot+rewrite via a
+        // promise-chain rewriteLock — eliminates the race entirely, so the
+        // test asserts ZERO phantoms across the full set.
+        const raceStore = new FileTaskHistoryStore({
+          baseDir: tempDir,
+          // Far-future daemonStartedAt so test saves never trigger stale recovery.
+          daemonStartedAt: Date.now() + 60_000_000_000,
+          maxAgeDays: 0,
+          maxEntries: Number.POSITIVE_INFINITY,
+          maxIndexBloatRatio: 1.5,
+          staleThresholdMs: Number.POSITIVE_INFINITY,
+        })
+
+        // Multiple sub-trials with interleaved saves and deletes — each
+        // sub-trial spreads the deleteMany across the save burst so the
+        // tombstones land at different points relative to compaction.
+        const SUBTRIALS = 8
+        const SEEDS_PER_TRIAL = 20
+        const FRESH_PER_TRIAL = 40
+        const allSeedIds: string[] = []
+
+        for (let trial = 0; trial < SUBTRIALS; trial++) {
+          const seedIds = Array.from({length: SEEDS_PER_TRIAL}, (_, i) => `t${trial}-doomed-${i}`)
+          const freshIds = Array.from({length: FRESH_PER_TRIAL}, (_, i) => `t${trial}-fresh-${i}`)
+          allSeedIds.push(...seedIds)
+
+          for (const id of seedIds) {
+            // eslint-disable-next-line no-await-in-loop
+            await raceStore.save(
+              makeEntry({completedAt: Date.now(), createdAt: Date.now(), status: 'completed', taskId: id}),
+            )
+          }
+
+          // Interleave: alternate save (triggers firePrune) and delete-of-one
+          // so tombstones land at varied compaction phases across the burst.
+          const ops: Promise<unknown>[] = []
+          for (let i = 0; i < FRESH_PER_TRIAL; i++) {
+            ops.push(
+              raceStore.save(
+                makeEntry({
+                  completedAt: Date.now(),
+                  createdAt: Date.now(),
+                  status: 'completed',
+                  taskId: freshIds[i],
+                }),
+              ),
+            )
+            if (i < SEEDS_PER_TRIAL) {
+              ops.push(raceStore.deleteMany([seedIds[i]]))
+            }
+          }
+
+          // eslint-disable-next-line no-await-in-loop
+          await Promise.all(ops)
+          // eslint-disable-next-line no-await-in-loop
+          await waitForPruneToSettle()
+        }
+
+        // Drain any final cascaded prune.
+        await new Promise<void>((r) => {
+          setTimeout(() => r(), 50)
+        })
+
+        // Assertion: NO doomed taskId is reachable, NONE appears in list().
+        const list = await raceStore.list()
+        const phantoms = list.filter((t) => allSeedIds.includes(t.taskId))
+        expect(
+          phantoms.map((t) => t.taskId),
+          `B2 phantoms detected in list() — tombstones lost to compaction race`,
+        ).to.deep.equal([])
+
+        for (const id of allSeedIds) {
+          // eslint-disable-next-line no-await-in-loop
+          const fetched = await raceStore.getById(id)
+          expect(
+            fetched,
+            `B2 phantom — getById(${id}) succeeded after delete+compaction race`,
+          ).to.be.undefined
+        }
       })
 
       it('unlink race on already-deleted data file does not throw', async () => {

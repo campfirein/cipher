@@ -17,6 +17,8 @@ interface TaskCreatedPayload {
   content: string
   files?: string[]
   folderPath?: string
+  model?: string
+  provider?: string
   taskId: string
   type: string
 }
@@ -40,6 +42,10 @@ interface TaskErrorPayload {
 }
 
 interface TaskCancelledPayload {
+  taskId: string
+}
+
+interface TaskDeletedPayload {
   taskId: string
 }
 
@@ -94,6 +100,8 @@ export function useTaskSubscriptions(): void {
           createdAt: Date.now(),
           ...(data.files?.length ? {files: data.files} : {}),
           ...(data.folderPath ? {folderPath: data.folderPath} : {}),
+          ...(data.model ? {model: data.model} : {}),
+          ...(data.provider ? {provider: data.provider} : {}),
           status: 'created',
           type: data.type,
         })
@@ -124,6 +132,14 @@ export function useTaskSubscriptions(): void {
           completedAt: Date.now(),
           status: 'cancelled',
         })
+      }),
+
+      // task:deleted is broadcast by the daemon when ANY client (this tab,
+      // another tab, or the TUI) removes a task via task:delete /
+      // task:deleteBulk / task:clearCompleted. Other clients drop the row
+      // from their local view so all UIs stay in sync without polling.
+      apiClient.on<TaskDeletedPayload>(TaskEvents.DELETED, (data) => {
+        store.removeTask(data.taskId)
       }),
 
       apiClient.on<LlmToolCallPayload>(LlmEvents.TOOL_CALL, (data) => {

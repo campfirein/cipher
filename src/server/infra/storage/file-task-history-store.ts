@@ -54,6 +54,14 @@ const IndexDataLineSchema = z.object({
   error: TaskErrorDataSchema.optional(),
   files: z.array(z.string()).optional(),
   folderPath: z.string().optional(),
+  /**
+   * Wall-clock time the line was appended to `_index.jsonl`. Optional for
+   * back-compat with legacy lines (treated as `undefined` → eligible for
+   * stale recovery if otherwise stale by age). Used by the daemon-startup
+   * gate to skip recovery for entries written by the CURRENT daemon
+   * (post-boot), which by definition belong to in-memory active tasks.
+   */
+  lastSavedAt: z.number().optional(),
   model: z.string().optional(),
   projectPath: z.string(),
   provider: z.string().optional(),
@@ -90,9 +98,24 @@ const FILENAME_PREFIX = 'tsk-'
 type FileTaskHistoryStoreOptions = {
   baseDir: string
   /**
+   * Wall-clock time at which this daemon process started. Used to gate
+   * stale-recovery: only entries whose `lastSavedAt < daemonStartedAt`
+   * are considered orphans of a previous daemon boot. Entries saved
+   * post-boot belong to an in-memory active task and must NEVER be
+   * recovered to `error: INTERRUPTED` (the read path would otherwise
+   * ping-pong with the live throttled saves at every `list()` call).
+   *
+   * Defaults to `Date.now()` at construction time, which is correct for
+   * production (one store per project, constructed at first use).
+   * Tests that wish to simulate "entries from a previous daemon" should
+   * pass a value FAR IN THE FUTURE so their saves register as pre-boot.
+   */
+  daemonStartedAt?: number
+  /**
    * Age-based prune threshold. Entries older than this many days are
-   * tombstoned + their data files unlinked. Default `TASK_HISTORY_DEFAULT_MAX_AGE_DAYS` (30).
-   * Set to 0 to disable age-based prune.
+   * tombstoned + their data files unlinked. Default `TASK_HISTORY_DEFAULT_MAX_AGE_DAYS`
+   * (0 — disabled by default; count cap is the sole retention). Pass a
+   * positive integer to opt in to time-based eviction for a specific store.
    */
   maxAgeDays?: number
   /**
@@ -119,13 +142,32 @@ type FileTaskHistoryStoreOptions = {
 }
 
 export class FileTaskHistoryStore implements ITaskHistoryStore {
+  private readonly daemonStartedAt: number
   private readonly dataDir: string
   /** Dedup-by-taskId result of the last index read. Invalidated on save/delete/recovery/prune. */
   private indexCache: Map<string, IndexLine> | undefined
+  /**
+   * In-flight `readIndexDedup` promise — concurrent callers (e.g. `getById`
+   * and a parallel `prune` timer) share the same pass so the embedded
+   * stale-recovery side effect cannot double-append index lines for the
+   * same taskId.
+   */
+  private indexDedupInFlight: Promise<Map<string, IndexLine>> | undefined
   private readonly indexPath: string
   private readonly maxAgeDays: number
   private readonly maxEntries: number
   private readonly maxIndexBloatRatio: number
+  /**
+   * Promise-chain lock serializing operations that mutate the index file
+   * AND the data dir together — compaction (snapshot → rewrite → post-rewrite
+   * recovery → orphan sweep) and tombstoneAndUnlink (append + unlink). These
+   * two operations cannot interleave: a tombstone landing mid-rewrite would
+   * be wiped by `rename`, and `recoverPreRenameSaves` cannot recover the
+   * tombstone (the data file has been unlinked) — leaving a phantom row
+   * (B2). `save()` is intentionally NOT locked: its data file persists, so
+   * the C1 fix recovers from the data dir if the index line is wiped.
+   */
+  private operationLock: Promise<void> = Promise.resolve()
   /** Dedupes concurrent prune passes — only one runs at a time. */
   private pruneInFlight = false
   /** Set when a save fires while a prune is in flight; triggers a re-run after current pass. */
@@ -137,6 +179,7 @@ export class FileTaskHistoryStore implements ITaskHistoryStore {
     this.storeDir = join(opts.baseDir, TASK_HISTORY_DIR)
     this.indexPath = join(this.storeDir, INDEX_FILE)
     this.dataDir = join(this.storeDir, DATA_DIR)
+    this.daemonStartedAt = opts.daemonStartedAt ?? Date.now()
     this.maxAgeDays = opts.maxAgeDays ?? TASK_HISTORY_DEFAULT_MAX_AGE_DAYS
     this.maxEntries = opts.maxEntries ?? TASK_HISTORY_DEFAULT_MAX_ENTRIES
     this.maxIndexBloatRatio = opts.maxIndexBloatRatio ?? TASK_HISTORY_DEFAULT_MAX_INDEX_BLOAT_RATIO
@@ -175,9 +218,9 @@ export class FileTaskHistoryStore implements ITaskHistoryStore {
     return true
   }
 
-  async deleteMany(taskIds: string[]): Promise<number> {
+  async deleteMany(taskIds: string[]): Promise<string[]> {
     const valid = taskIds.filter((id) => TASK_ID_PATTERN.test(id))
-    if (valid.length === 0) return 0
+    if (valid.length === 0) return []
 
     const dedup = await this.readIndexDedup()
     const live = valid.filter((id) => {
@@ -186,7 +229,7 @@ export class FileTaskHistoryStore implements ITaskHistoryStore {
     })
 
     if (live.length > 0) await this.tombstoneAndUnlink(live)
-    return live.length
+    return live
   }
 
   // ── M2.02 scope ────────────────────────────────────────────────────────────
@@ -194,23 +237,21 @@ export class FileTaskHistoryStore implements ITaskHistoryStore {
   async getById(taskId: string): Promise<TaskHistoryEntry | undefined> {
     if (!TASK_ID_PATTERN.test(taskId)) return undefined
 
-    let entry: TaskHistoryEntry
+    // readIndexDedup is the canonical recovery driver — it honors the
+    // daemon-startup gate (C0) and rewrites the data file for any genuinely
+    // orphaned entries from a previous daemon boot. After it runs, reading
+    // the data file gives the recovered (or live, post-boot) shape.
+    const dedup = await this.readIndexDedup()
+    const line = dedup.get(taskId)
+    if (line === undefined || '_deleted' in line) return undefined
+
     try {
       const raw = await readFile(this.dataPath(taskId), 'utf8')
       const parsed = TaskHistoryEntrySchema.safeParse(JSON.parse(raw))
-      if (!parsed.success) return undefined
-      entry = parsed.data
+      return parsed.success ? parsed.data : undefined
     } catch {
       return undefined
     }
-
-    if (this.isStale(entry.status, entry.createdAt, Date.now())) {
-      const recovered = this.buildRecovered(entry, Date.now())
-      await this.persistRecovery(recovered)
-      return recovered
-    }
-
-    return entry
   }
 
   async list(
@@ -254,8 +295,13 @@ export class FileTaskHistoryStore implements ITaskHistoryStore {
     // Step 1: write the data file atomically (UUID temp → rename).
     await this.writeAtomic(this.dataPath(validated.taskId), JSON.stringify(validated, null, 2))
 
-    // Step 2: append the summary line (single ≤4KB POSIX append, atomic per PIPE_BUF).
-    const summary = projectToIndexLine(validated)
+    // Step 2: append the summary line (single ≤4KB POSIX append, atomic per
+    // PIPE_BUF). `lastSavedAt` is the wall-clock time of THIS append — the
+    // daemon-startup gate in `isStaleAndRecoverable` uses it to skip recovery
+    // for entries the current daemon is actively writing (live in-memory
+    // tasks). The C1 race vs. compaction is closed by `maybeCompact`'s
+    // post-rewrite re-read of the index.
+    const summary: IndexDataLine = {...projectToIndexLine(validated), lastSavedAt: Date.now()}
     await appendFile(this.indexPath, JSON.stringify(summary) + '\n', 'utf8')
 
     this.indexCache = undefined
@@ -283,6 +329,57 @@ export class FileTaskHistoryStore implements ITaskHistoryStore {
 
   private dataPath(taskId: string): string {
     return join(this.dataDir, `${FILENAME_PREFIX}${taskId}.json`)
+  }
+
+  private async doReadIndexDedup(): Promise<Map<string, IndexLine>> {
+    const map = new Map<string, IndexLine>()
+
+    let raw: string
+    try {
+      raw = await readFile(this.indexPath, 'utf8')
+    } catch {
+      // No index yet — return empty map and cache it.
+      this.indexCache = map
+      return map
+    }
+
+    for (const lineRaw of raw.split('\n')) {
+      const trimmed = lineRaw.trim()
+      if (!trimmed) continue
+
+      let json: unknown
+      try {
+        json = JSON.parse(trimmed)
+      } catch {
+        continue
+      }
+
+      const parsed = IndexLineSchema.safeParse(json)
+      if (!parsed.success) continue
+
+      // Last line wins per taskId (dedup).
+      map.set(parsed.data.taskId, parsed.data)
+    }
+
+    // Stale recovery — sequential within this pass to keep index appends atomic.
+    // The daemon-startup gate (C0) inside `isStaleAndRecoverable` skips entries
+    // saved post-boot so live in-memory tasks (>10 min old createdAt but actively
+    // writing throttled updates) are not falsely tombstoned to INTERRUPTED.
+    const now = Date.now()
+    const staleTaskIds: string[] = []
+    for (const [taskId, line] of map) {
+      if ('_deleted' in line) continue
+      if (this.isStaleAndRecoverable(line, now)) staleTaskIds.push(taskId)
+    }
+
+    for (const taskId of staleTaskIds) {
+      // eslint-disable-next-line no-await-in-loop -- sequential is intentional (atomicity)
+      const recovered = await this.recoverViaTaskId(taskId, now)
+      if (recovered !== undefined) map.set(taskId, recovered)
+    }
+
+    this.indexCache = map
+    return map
   }
 
   /**
@@ -328,78 +425,146 @@ export class FileTaskHistoryStore implements ITaskHistoryStore {
   }
 
   /**
+   * Daemon-startup gate (C0): only entries whose `lastSavedAt` predates this
+   * daemon's boot are eligible for stale recovery. An entry written by the
+   * CURRENT daemon (post-boot) belongs to an in-memory active task whose
+   * lifecycle hook is still firing throttled saves — recovering it would
+   * ping-pong the on-disk state against the next save.
+   *
+   * Legacy lines (no `lastSavedAt`) fall back to the age-only check so
+   * existing index files from before this field was introduced behave as
+   * they did pre-C0.
+   */
+  private isStaleAndRecoverable(line: IndexDataLine, now: number): boolean {
+    if (!this.isStale(line.status, line.createdAt, now)) return false
+    if (line.lastSavedAt !== undefined && line.lastSavedAt >= this.daemonStartedAt) return false
+    return true
+  }
+
+  /**
    * Rewrite `_index.jsonl` keeping one line per live entry when bloat exceeds
    * the configured ratio. Sweeps orphan data files (taskId not in live map)
    * after the rewrite so the data dir stays in sync.
+   *
+   * Locked against `tombstoneAndUnlink` via `operationLock` — see B2 comment
+   * on the field declaration.
    */
   private async maybeCompact(): Promise<void> {
     if (!Number.isFinite(this.maxIndexBloatRatio)) return
 
-    let raw: string
-    try {
-      raw = await readFile(this.indexPath, 'utf8')
-    } catch {
-      return
-    }
-
-    const allLines: IndexLine[] = []
-    const liveMap = new Map<string, IndexDataLine>()
-    for (const lineRaw of raw.split('\n')) {
-      const trimmed = lineRaw.trim()
-      if (!trimmed) continue
-      let json: unknown
+    await this.withOperationLock(async () => {
+      let raw: string
       try {
-        json = JSON.parse(trimmed)
+        raw = await readFile(this.indexPath, 'utf8')
       } catch {
-        continue
+        return
       }
 
-      const parsed = IndexLineSchema.safeParse(json)
-      if (!parsed.success) continue
-      allLines.push(parsed.data)
-      if ('_deleted' in parsed.data) {
-        liveMap.delete(parsed.data.taskId)
-      } else {
-        liveMap.set(parsed.data.taskId, parsed.data)
+      const allLines: IndexLine[] = []
+      const liveMap = new Map<string, IndexDataLine>()
+      for (const lineRaw of raw.split('\n')) {
+        const trimmed = lineRaw.trim()
+        if (!trimmed) continue
+        let json: unknown
+        try {
+          json = JSON.parse(trimmed)
+        } catch {
+          continue
+        }
+
+        const parsed = IndexLineSchema.safeParse(json)
+        if (!parsed.success) continue
+        allLines.push(parsed.data)
+        if ('_deleted' in parsed.data) {
+          liveMap.delete(parsed.data.taskId)
+        } else {
+          liveMap.set(parsed.data.taskId, parsed.data)
+        }
       }
-    }
 
-    const liveCount = liveMap.size
-    const totalCount = allLines.length
+      const liveCount = liveMap.size
+      const totalCount = allLines.length
 
-    // Avoid divide-by-zero; skip when nothing to compact.
-    if (liveCount === 0 || totalCount / liveCount <= this.maxIndexBloatRatio) return
+      // Avoid divide-by-zero; skip when nothing to compact.
+      if (liveCount === 0 || totalCount / liveCount <= this.maxIndexBloatRatio) return
 
-    const liveLines = [...liveMap.values()]
-    await this.rewriteIndex(liveLines)
-    await this.sweepOrphanData(new Set(liveMap.keys()))
-    this.indexCache = undefined
+      const liveLines = [...liveMap.values()]
+      await this.rewriteIndex(liveLines)
+
+      // C1 fix — close BOTH race windows around the rename:
+      // (1) saves whose appendFile landed AFTER the rename are visible in the
+      //     post-rewrite index → picked up by the re-read.
+      // (2) saves whose appendFile landed BEFORE the rename were overwritten
+      //     by the rename, but their data file (`tsk-{taskId}.json`) still
+      //     exists on disk. We detect them as "data-file present, taskId not
+      //     in post-rewrite index AND not tombstoned", read the data file,
+      //     and re-append the index line. The data file is preserved by the
+      //     subsequent sweep because the recovered taskId is in the live set.
+      const postRewriteLiveIds = new Set<string>(liveMap.keys())
+      const postRewriteTombstones = new Set<string>()
+      try {
+        const postRaw = await readFile(this.indexPath, 'utf8')
+        for (const lineRaw of postRaw.split('\n')) {
+          const trimmed = lineRaw.trim()
+          if (!trimmed) continue
+          let json: unknown
+          try {
+            json = JSON.parse(trimmed)
+          } catch {
+            continue
+          }
+
+          const parsed = IndexLineSchema.safeParse(json)
+          if (!parsed.success) continue
+          if ('_deleted' in parsed.data) {
+            postRewriteLiveIds.delete(parsed.data.taskId)
+            postRewriteTombstones.add(parsed.data.taskId)
+          } else {
+            postRewriteLiveIds.add(parsed.data.taskId)
+          }
+        }
+      } catch {
+        // Fall back to the snapshot if the post-rewrite read fails.
+      }
+
+      await this.recoverPreRenameSaves(postRewriteLiveIds, postRewriteTombstones)
+
+      await this.sweepOrphanData(postRewriteLiveIds)
+      this.indexCache = undefined
+    })
   }
 
   /**
-   * Best-effort: write the recovered shape to the data file AND append the
-   * recovery line to the index. Both writes run in parallel; each catches its
-   * own failure and logs via `transportLog`. Never throws to caller.
+   * Best-effort: write the recovered shape to the data file FIRST, then
+   * append the recovery line to the index. Sequential ordering matches
+   * `save()` and bounds the failure mode: if the data-file write fails,
+   * we return BEFORE the index append so the index never gains an orphan
+   * recovery line pointing to an unmutated data file (which would split
+   * `list()` from `getById()` — N1). Each step swallows its own error
+   * and logs via `transportLog`; never throws to caller.
    */
   private async persistRecovery(recovered: TaskHistoryEntry): Promise<void> {
-    await Promise.all([
-      this.writeAtomic(this.dataPath(recovered.taskId), JSON.stringify(recovered, null, 2)).catch(
-        (error: unknown) => {
-          transportLog(
-            `stale recovery: failed to write data file for ${recovered.taskId}: ${error instanceof Error ? error.message : String(error)}`,
-          )
-        },
-      ),
-      appendFile(
-        this.indexPath,
-        JSON.stringify(projectToIndexLine(recovered)) + '\n',
-        'utf8',
-      ).catch((error: unknown) => {
-        transportLog(
-          `stale recovery: failed to append index line for ${recovered.taskId}: ${error instanceof Error ? error.message : String(error)}`,
-        )
-      }),
-    ])
+    try {
+      await this.writeAtomic(this.dataPath(recovered.taskId), JSON.stringify(recovered, null, 2))
+    } catch (error: unknown) {
+      transportLog(
+        `stale recovery: failed to write data file for ${recovered.taskId}: ${error instanceof Error ? error.message : String(error)}`,
+      )
+      return
+    }
+
+    const recoveryLine: IndexDataLine = {...projectToIndexLine(recovered), lastSavedAt: Date.now()}
+    try {
+      await appendFile(this.indexPath, JSON.stringify(recoveryLine) + '\n', 'utf8')
+    } catch (error: unknown) {
+      transportLog(
+        `stale recovery: failed to append index line for ${recovered.taskId}: ${error instanceof Error ? error.message : String(error)}`,
+      )
+      // Index stays stale; next read will re-attempt via recoverViaTaskId,
+      // whose terminal-status short-circuit returns the data file's now-
+      // recovered projection without re-writing.
+    }
+
     this.indexCache = undefined
   }
 
@@ -448,52 +613,93 @@ export class FileTaskHistoryStore implements ITaskHistoryStore {
 
   private async readIndexDedup(): Promise<Map<string, IndexLine>> {
     if (this.indexCache) return this.indexCache
+    // Re-entrancy: if a pass is already in flight (e.g. one started by getById
+    // and a parallel one about to start from the firePrune timer), reuse it.
+    // Without this, both passes find the same stale entry and both call
+    // `persistRecovery` → two recovery lines appended for the same taskId.
+    if (this.indexDedupInFlight) return this.indexDedupInFlight
 
-    const map = new Map<string, IndexLine>()
-
-    let raw: string
+    this.indexDedupInFlight = this.doReadIndexDedup()
     try {
-      raw = await readFile(this.indexPath, 'utf8')
+      return await this.indexDedupInFlight
+    } finally {
+      this.indexDedupInFlight = undefined
+    }
+  }
+
+  /**
+   * Detect data files whose index line was overwritten by the compaction
+   * rename (race window: save's `appendFile` landed BEFORE compaction's
+   * `rename`). For each, parse the data file and either:
+   *   - C1 path (current-boot save): re-append as live with `lastSavedAt = now`.
+   *   - N2 path (prior-boot orphan): delegate to `recoverViaTaskId`, which
+   *     mutates the data file to `status: 'error'` and persists the recovery
+   *     line. Without this gate, an old `'started'` orphan would be re-stamped
+   *     `lastSavedAt = Date.now()` and the C0 daemon-startup check would then
+   *     forever protect it as a live current-boot task.
+   *
+   * Distinguishing C1 vs N2: synthesize a probe `IndexDataLine` from the data
+   * file with no `lastSavedAt` and feed it through `isStaleAndRecoverable`.
+   * Recent saves (createdAt within `staleThresholdMs`) fall through to the
+   * C1 branch; old `'created'`/`'started'` orphans take the N2 branch.
+   */
+  private async recoverPreRenameSaves(
+    liveIds: Set<string>,
+    tombstones: Set<string>,
+  ): Promise<void> {
+    let dataFilenames: string[]
+    try {
+      dataFilenames = await readdir(this.dataDir)
     } catch {
-      // No index yet — return empty map and cache it.
-      this.indexCache = map
-      return map
+      return
     }
 
-    for (const lineRaw of raw.split('\n')) {
-      const trimmed = lineRaw.trim()
-      if (!trimmed) continue
+    const now = Date.now()
+    for (const filename of dataFilenames) {
+      if (!filename.startsWith(FILENAME_PREFIX) || !filename.endsWith('.json')) continue
+      const taskId = filename.slice(FILENAME_PREFIX.length, -'.json'.length)
+      if (liveIds.has(taskId) || tombstones.has(taskId)) continue
 
-      let json: unknown
+      // Orphan candidate — read the data file and try to recover.
+      let raw: string
       try {
-        json = JSON.parse(trimmed)
+        // eslint-disable-next-line no-await-in-loop
+        raw = await readFile(this.dataPath(taskId), 'utf8')
       } catch {
         continue
       }
 
-      const parsed = IndexLineSchema.safeParse(json)
+      let parsed
+      try {
+        parsed = TaskHistoryEntrySchema.safeParse(JSON.parse(raw))
+      } catch {
+        continue
+      }
+
       if (!parsed.success) continue
 
-      // Last line wins per taskId (dedup).
-      map.set(parsed.data.taskId, parsed.data)
-    }
+      const projected = projectToIndexLine(parsed.data)
 
-    // Stale recovery — sequential within this pass to keep index appends atomic.
-    const now = Date.now()
-    const staleTaskIds: string[] = []
-    for (const [taskId, line] of map) {
-      if ('_deleted' in line) continue
-      if (this.isStale(line.status, line.createdAt, now)) staleTaskIds.push(taskId)
-    }
+      // N2: prior-boot stale orphan → recover to 'error' before re-appending.
+      if (this.isStaleAndRecoverable(projected, now)) {
+        // eslint-disable-next-line no-await-in-loop
+        const recoveredLine = await this.recoverViaTaskId(taskId, now)
+        if (recoveredLine !== undefined) liveIds.add(taskId)
+        continue
+      }
 
-    for (const taskId of staleTaskIds) {
-      // eslint-disable-next-line no-await-in-loop -- sequential is intentional (atomicity)
-      const recovered = await this.recoverViaTaskId(taskId, now)
-      if (recovered !== undefined) map.set(taskId, recovered)
+      // C1: current-boot orphan from the rewrite race → re-append as live.
+      const recovered: IndexDataLine = {...projected, lastSavedAt: now}
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        await appendFile(this.indexPath, JSON.stringify(recovered) + '\n', 'utf8')
+        liveIds.add(taskId)
+      } catch (error) {
+        transportLog(
+          `task-history: pre-rename save recovery append failed for ${taskId}: ${error instanceof Error ? error.message : String(error)}`,
+        )
+      }
     }
-
-    this.indexCache = map
-    return map
   }
 
   /**
@@ -597,21 +803,48 @@ export class FileTaskHistoryStore implements ITaskHistoryStore {
    * tombstone is ~80 bytes, so this is safe up to ~50 ids per call. For larger
    * batches concurrent saves could interleave; M2.03 (compaction) is the right
    * place to add chunking if real workloads need it.
+   *
+   * Locked against `maybeCompact` via `operationLock` (B2): if our appendFile
+   * landed mid-rewrite the tombstone would be wiped by `rename`, and our
+   * subsequent unlink would orphan the index entry recoverPreRenameSaves
+   * cannot detect (data file gone). Holding the lock for the entire append +
+   * unlink sequence guarantees both are durable before any compaction
+   * consumes the snapshot.
    */
   private async tombstoneAndUnlink(taskIds: readonly string[]): Promise<void> {
     if (taskIds.length === 0) return
 
-    const now = Date.now()
-    const lines = taskIds
-      .map((taskId) =>
-        JSON.stringify({_deleted: true, deletedAt: now, schemaVersion: TASK_HISTORY_SCHEMA_VERSION, taskId}) + '\n',
+    await this.withOperationLock(async () => {
+      const now = Date.now()
+      const lines = taskIds
+        .map((taskId) =>
+          JSON.stringify({_deleted: true, deletedAt: now, schemaVersion: TASK_HISTORY_SCHEMA_VERSION, taskId}) + '\n',
+        )
+        .join('')
+
+      await appendFile(this.indexPath, lines, 'utf8')
+      await Promise.all(
+        taskIds.map((id) => rm(this.dataPath(id), {force: true}).catch(() => {})),
       )
-      .join('')
-    await appendFile(this.indexPath, lines, 'utf8')
-    await Promise.all(
-      taskIds.map((id) => rm(this.dataPath(id), {force: true}).catch(() => {})),
-    )
-    this.indexCache = undefined
+      this.indexCache = undefined
+    })
+  }
+
+  private async withOperationLock<T>(fn: () => Promise<T>): Promise<T> {
+    const previous = this.operationLock
+    // Lazy-init: the Promise constructor invokes its executor synchronously,
+    // so `release` is guaranteed assigned before any await. CLAUDE.md exception
+    // for definite-assignment in lazy-init patterns applies.
+    let release!: () => void
+    this.operationLock = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    try {
+      await previous
+      return await fn()
+    } finally {
+      release()
+    }
   }
 
   private async writeAtomic(filePath: string, content: string): Promise<void> {

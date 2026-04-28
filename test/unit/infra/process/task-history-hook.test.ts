@@ -28,7 +28,7 @@ function makeStubStore(sandbox: SinonSandbox): StubStore {
   return {
     clear: sandbox.stub().resolves({deletedCount: 0, taskIds: []}),
     delete: sandbox.stub().resolves(true),
-    deleteMany: sandbox.stub().resolves(0),
+    deleteMany: sandbox.stub().resolves([]),
     getById: sandbox.stub().resolves(),
     list: sandbox.stub().resolves([]),
     save: sandbox.stub().resolves(),

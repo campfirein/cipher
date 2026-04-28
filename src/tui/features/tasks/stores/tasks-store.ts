@@ -80,6 +80,8 @@ export interface TasksActions {
   createTask: (taskId: string, type: 'curate' | 'query', content: string, files?: string[]) => void
   /** Get a task by ID */
   getTask: (taskId: string) => Task | undefined
+  /** Remove a task from local state (driven by `task:deleted` broadcast). */
+  removeTask: (taskId: string) => void
   /** Set task to cancelled */
   setCancelled: (taskId: string) => void
   /** Set task to completed with result */
@@ -238,6 +240,14 @@ export const useTasksStore = create<TasksActions & TasksState>()((set, get) => (
     }),
 
   getTask: (taskId) => get().tasks.get(taskId),
+
+  removeTask: (taskId) =>
+    set((state) => {
+      if (!state.tasks.has(taskId)) return state
+      const tasks = new Map(state.tasks)
+      tasks.delete(taskId)
+      return {stats: computeStats(tasks), tasks}
+    }),
 
   setCancelled: (taskId) =>
     set((state) => {

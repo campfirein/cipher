@@ -740,6 +740,15 @@ export const TaskCancelResponseSchema = z.object({
 export const TaskListRequestSchema = z.object({
   /** Pagination cursor — return tasks with createdAt < before. */
   before: z.number().optional(),
+  /**
+   * Tiebreaker for cursor pagination. When two tasks share the same `createdAt`
+   * (same-millisecond bursts from a single client), `before` alone is ambiguous
+   * — the next page might skip rows that share the boundary createdAt. Pass
+   * `beforeTaskId` together with `before` to skip exactly the row at the
+   * boundary and continue strictly past it. Optional for back-compat; when
+   * omitted the server falls back to the `<` semantics on `before` alone.
+   */
+  beforeTaskId: z.string().optional(),
   /** Page size — server clamps to 1..1000; defaults to 50 when omitted (handler policy). */
   limit: z.number().int().min(1).max(1000).optional(),
   /** Optional project filter — defaults to caller's registered project */
@@ -776,6 +785,12 @@ export const TaskListItemSchema = z.object({
 export const TaskListResponseSchema = z.object({
   /** Cursor for the next page — pass as `before` to fetch older tasks. Undefined when no more. */
   nextCursor: z.number().optional(),
+  /**
+   * Companion tiebreaker for `nextCursor`. Pass back as `beforeTaskId` together
+   * with `before` to disambiguate same-millisecond clusters at page boundaries.
+   * Always returned together with `nextCursor`.
+   */
+  nextCursorTaskId: z.string().optional(),
   tasks: z.array(TaskListItemSchema),
 })
 
@@ -801,6 +816,14 @@ export const TaskDeleteRequestSchema = z.object({
 
 export const TaskDeleteResponseSchema = z.object({
   error: z.string().optional(),
+  /**
+   * `true` when the task was actually removed (was live in-memory or persisted),
+   * `false` when the call was a no-op (taskId unknown or already tombstoned).
+   * Idempotent semantics on `success` are preserved — `success: true` indicates
+   * the request was valid; `removed` distinguishes "actually removed" from
+   * "no-op". `task:deleteBulk` uses this to compute an accurate `deletedCount`.
+   */
+  removed: z.boolean().optional(),
   success: z.boolean(),
 })
 
