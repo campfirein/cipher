@@ -23,6 +23,7 @@
  */
 
 import {expect} from 'chai'
+import {randomUUID} from 'node:crypto'
 import {mkdir, rm} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
@@ -129,7 +130,7 @@ describe('E2E smoke — TaskHistory + WebUI surface (proj/persis-task-history)',
 
   beforeEach(async () => {
     sandbox = createSandbox()
-    tempDir = join(tmpdir(), `brv-e2e-task-history-${Date.now()}-${Math.random().toString(36).slice(2)}`)
+    tempDir = join(tmpdir(), `brv-e2e-task-history-${Date.now()}-${randomUUID()}`)
     await mkdir(tempDir, {recursive: true})
 
     // Production-default daemonStartedAt (Date.now()) — this is what the cache

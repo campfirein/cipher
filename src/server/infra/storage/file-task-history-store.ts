@@ -153,6 +153,18 @@ export class FileTaskHistoryStore implements ITaskHistoryStore {
    * same taskId.
    */
   private indexDedupInFlight: Promise<Map<string, IndexLine>> | undefined
+  /**
+   * Monotonic counter bumped on every write to the index (save / tombstone /
+   * recovery / compaction). `doReadIndexDedup` samples it at start and at
+   * end of its pass; if the epoch advanced during the pass, the snapshot
+   * the pass built is stale relative to disk and MUST NOT replace the
+   * `indexCache`. Without this guard, a `firePrune` pass that began before
+   * a concurrent `save()` can finish AFTER that save's cache invalidation
+   * and overwrite the invalidation with a snapshot missing the just-saved
+   * row — visible to callers as "list() returns N-1 entries after N awaited
+   * saves" (the Category B race).
+   */
+  private indexEpoch = 0
   private readonly indexPath: string
   private readonly maxAgeDays: number
   private readonly maxEntries: number
@@ -168,6 +180,15 @@ export class FileTaskHistoryStore implements ITaskHistoryStore {
    * the C1 fix recovers from the data dir if the index line is wiped.
    */
   private operationLock: Promise<void> = Promise.resolve()
+  /**
+   * Promise of the most recently scheduled prune+compaction pass. Each
+   * `firePrune()` call wraps its `setTimeout` in a promise and assigns it
+   * here; re-entrance via `pruneRequested` extends the chain through the
+   * tail-recursive `firePrune()` in the `.finally`. Tests await on this via
+   * `flushPendingOperations()` to drain pending work deterministically
+   * instead of polling.
+   */
+  private pruneChain: Promise<void> = Promise.resolve()
   /** Dedupes concurrent prune passes — only one runs at a time. */
   private pruneInFlight = false
   /** Set when a save fires while a prune is in flight; triggers a re-run after current pass. */
@@ -230,6 +251,28 @@ export class FileTaskHistoryStore implements ITaskHistoryStore {
 
     if (live.length > 0) await this.tombstoneAndUnlink(live)
     return live
+  }
+
+  /**
+   * Deterministically wait for all in-flight prune/compaction work to drain.
+   * Loops because each prune pass may schedule the next via `pruneRequested`,
+   * which `firePrune()` reschedules at the tail of `pruneChain`. Also drains
+   * `operationLock` so any compaction/tombstone serializer queued behind a
+   * prune has finished its writes before the caller proceeds.
+   *
+   * Test-only contract: production daemon never calls this — saves are
+   * fire-and-forget by design.
+   */
+  async flushPendingOperations(): Promise<void> {
+    let last = this.pruneChain
+    await last
+    while (last !== this.pruneChain) {
+      last = this.pruneChain
+      // eslint-disable-next-line no-await-in-loop
+      await last
+    }
+
+    await this.operationLock
   }
 
   // ── M2.02 scope ────────────────────────────────────────────────────────────
@@ -304,7 +347,7 @@ export class FileTaskHistoryStore implements ITaskHistoryStore {
     const summary: IndexDataLine = {...projectToIndexLine(validated), lastSavedAt: Date.now()}
     await appendFile(this.indexPath, JSON.stringify(summary) + '\n', 'utf8')
 
-    this.indexCache = undefined
+    this.invalidateIndexCaches()
 
     // Step 3: schedule prune+compaction in background (fire-and-forget, dedup'd).
     this.firePrune()
@@ -332,14 +375,21 @@ export class FileTaskHistoryStore implements ITaskHistoryStore {
   }
 
   private async doReadIndexDedup(): Promise<Map<string, IndexLine>> {
+    // Capture the index epoch BEFORE any I/O. If the epoch advances during
+    // this pass (concurrent save/tombstone/recovery write), the snapshot we
+    // build is stale relative to disk and MUST NOT be cached — caching it
+    // would silently overwrite the writer's `indexCache = undefined` and
+    // make the just-written row invisible to the next reader.
+    const startEpoch = this.indexEpoch
+
     const map = new Map<string, IndexLine>()
 
     let raw: string
     try {
       raw = await readFile(this.indexPath, 'utf8')
     } catch {
-      // No index yet — return empty map and cache it.
-      this.indexCache = map
+      // No index yet — return empty map and cache it (only if no concurrent write).
+      if (this.indexEpoch === startEpoch) this.indexCache = map
       return map
     }
 
@@ -378,7 +428,11 @@ export class FileTaskHistoryStore implements ITaskHistoryStore {
       if (recovered !== undefined) map.set(taskId, recovered)
     }
 
-    this.indexCache = map
+    // Only cache when no concurrent writer bumped the epoch during this pass.
+    // Recovery itself bumps `indexEpoch` (see `persistRecovery`), so a pass
+    // that triggered recovery will fall through to `return map` without
+    // caching — the next call re-reads the freshly-rewritten index.
+    if (this.indexEpoch === startEpoch) this.indexCache = map
     return map
   }
 
@@ -401,23 +455,41 @@ export class FileTaskHistoryStore implements ITaskHistoryStore {
 
     this.pruneInFlight = true
     this.pruneRequested = false
-    const timer = setTimeout(() => {
-      this.pruneAndCompact()
-        .catch((error: unknown) => {
-          transportLog(
-            `task-history: prune+compaction failed: ${error instanceof Error ? error.message : String(error)}`,
-          )
-        })
-        .finally(() => {
-          this.pruneInFlight = false
-          if (this.pruneRequested) {
-            this.pruneRequested = false
-            this.firePrune()
-          }
-        })
-    }, 0)
-    // Don't keep the event loop alive for a pending prune at process exit.
-    timer.unref?.()
+    this.pruneChain = new Promise<void>((resolve) => {
+      const timer = setTimeout(() => {
+        this.pruneAndCompact()
+          .catch((error: unknown) => {
+            transportLog(
+              `task-history: prune+compaction failed: ${error instanceof Error ? error.message : String(error)}`,
+            )
+          })
+          .finally(() => {
+            this.pruneInFlight = false
+            if (this.pruneRequested) {
+              this.pruneRequested = false
+              this.firePrune()
+            }
+
+            resolve()
+          })
+      }, 0)
+      // Don't keep the event loop alive for a pending prune at process exit.
+      timer.unref?.()
+    })
+  }
+
+  /**
+   * Drop all cached/in-flight reads of the index AND bump `indexEpoch` so any
+   * concurrent `doReadIndexDedup` pass that sampled the old epoch will skip
+   * its setCache step. Called by every write path (save / tombstone /
+   * recovery / compaction). Both layers must clear together — leaving
+   * `indexDedupInFlight` set after a write would let a list() call hit the
+   * pre-write promise and silently return the stale snapshot.
+   */
+  private invalidateIndexCaches(): void {
+    this.indexCache = undefined
+    this.indexDedupInFlight = undefined
+    this.indexEpoch++
   }
 
   private isStale(status: TaskHistoryStatus, createdAt: number, now: number): boolean {
@@ -530,7 +602,7 @@ export class FileTaskHistoryStore implements ITaskHistoryStore {
       await this.recoverPreRenameSaves(postRewriteLiveIds, postRewriteTombstones)
 
       await this.sweepOrphanData(postRewriteLiveIds)
-      this.indexCache = undefined
+      this.invalidateIndexCaches()
     })
   }
 
@@ -565,7 +637,7 @@ export class FileTaskHistoryStore implements ITaskHistoryStore {
       // recovered projection without re-writing.
     }
 
-    this.indexCache = undefined
+    this.invalidateIndexCaches()
   }
 
   /**
@@ -608,7 +680,7 @@ export class FileTaskHistoryStore implements ITaskHistoryStore {
     // Always invalidate the cache after a pass so subsequent reads re-read
     // disk — protects against external writes (e.g. tests appending tombstones
     // out-of-band) that happen between prune phases.
-    this.indexCache = undefined
+    this.invalidateIndexCaches()
   }
 
   private async readIndexDedup(): Promise<Map<string, IndexLine>> {
@@ -826,7 +898,7 @@ export class FileTaskHistoryStore implements ITaskHistoryStore {
       await Promise.all(
         taskIds.map((id) => rm(this.dataPath(id), {force: true}).catch(() => {})),
       )
-      this.indexCache = undefined
+      this.invalidateIndexCaches()
     })
   }
 
