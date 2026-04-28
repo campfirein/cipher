@@ -113,8 +113,9 @@ type FileTaskHistoryStoreOptions = {
   daemonStartedAt?: number
   /**
    * Age-based prune threshold. Entries older than this many days are
-   * tombstoned + their data files unlinked. Default `TASK_HISTORY_DEFAULT_MAX_AGE_DAYS` (30).
-   * Set to 0 to disable age-based prune.
+   * tombstoned + their data files unlinked. Default `TASK_HISTORY_DEFAULT_MAX_AGE_DAYS`
+   * (0 — disabled by default; count cap is the sole retention). Pass a
+   * positive integer to opt in to time-based eviction for a specific store.
    */
   maxAgeDays?: number
   /**

@@ -17,6 +17,8 @@ interface TaskCreatedPayload {
   content: string
   files?: string[]
   folderPath?: string
+  model?: string
+  provider?: string
   taskId: string
   type: string
 }
@@ -98,6 +100,8 @@ export function useTaskSubscriptions(): void {
           createdAt: Date.now(),
           ...(data.files?.length ? {files: data.files} : {}),
           ...(data.folderPath ? {folderPath: data.folderPath} : {}),
+          ...(data.model ? {model: data.model} : {}),
+          ...(data.provider ? {provider: data.provider} : {}),
           status: 'created',
           type: data.type,
         })
