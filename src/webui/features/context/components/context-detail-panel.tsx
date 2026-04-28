@@ -7,14 +7,13 @@ import { useMemo } from 'react'
 
 import type { ContextNode } from '../types'
 
+import { noop } from '../../../lib/noop'
 import { useGetContextFileMetadata } from '../api/get-context-file-metadata'
 import { useGetContextHistory } from '../api/get-context-history'
 import { useContextTree } from '../hooks/use-context-tree'
 import { isFilePath } from '../utils/tree-utils'
 import { ContextBreadcrumb } from './context-breadcrumb'
 import { MarkdownView } from './markdown-view'
-
-const NOOP = () => { }
 
 interface ContextDetailPanelProps {
   onToggleHistory?: () => void
@@ -136,7 +135,7 @@ export function ContextDetailPanel({ onToggleHistory }: ContextDetailPanelProps)
           onContentChange={setEditContent}
           onEnterEditMode={enterEditMode}
           onSaveChanges={saveChanges}
-          onToggleHistory={onToggleHistory ?? NOOP}
+          onToggleHistory={onToggleHistory ?? noop}
           showTags={false}
           tags={fileData?.tags}
           timeline={

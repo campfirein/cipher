@@ -20,14 +20,16 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@campfirein/byterover-packages/components/dropdown-menu'
-import {ArrowRightLeft, ChevronDown, FolderOpen, SquareArrowOutUpRight} from 'lucide-react'
+import {ArrowRightLeft, ChevronDown, FolderOpen, FolderSearch, SquareArrowOutUpRight} from 'lucide-react'
 import {useMemo, useState} from 'react'
+import {toast} from 'sonner'
 
 import {ProjectLocationDTO} from '../../../../shared/transport/events'
 import {useTransportStore} from '../../../stores/transport-store'
 import {isSafeHttpUrl} from '../../auth/utils/is-safe-http-url'
 import {useGetProjectConfig} from '../api/get-project-config'
 import {useGetProjectList} from '../api/get-project-list'
+import {useRevealProjectFolder} from '../api/reveal-project-folder'
 import {displayPath} from '../utils/display-path'
 import {getProjectName} from '../utils/project-name'
 import {AllProjectsDialog} from './all-projects-dialog'
@@ -97,14 +99,25 @@ type OpenProjectItemProps = {
 function OpenProjectItem({isSelected, onSelect, project}: OpenProjectItemProps) {
   const name = getProjectName(project.projectPath)
   const {data: projectConfig} = useGetProjectConfig({projectPath: project.projectPath})
+  const reveal = useRevealProjectFolder()
   const teamName = projectConfig?.brvConfig?.teamName
   const spaceName = projectConfig?.brvConfig?.spaceName
   const remoteLabel = teamName && spaceName ? `${teamName} / ${spaceName}` : undefined
   // Only open http(s) URLs — SSH remotes (git@host:…) can't open in a browser,
   // and a tampered `.git/config` could otherwise smuggle `javascript:` / `file:` URIs.
-  const openableRemoteUrl = projectConfig?.remoteUrl && isSafeHttpUrl(projectConfig.remoteUrl)
-    ? projectConfig.remoteUrl
-    : undefined
+  const openableRemoteUrl =
+    projectConfig?.remoteUrl && isSafeHttpUrl(projectConfig.remoteUrl) ? projectConfig.remoteUrl : undefined
+
+  function handleRevealLocal() {
+    reveal.mutate(
+      {projectPath: project.projectPath},
+      {
+        onError(error) {
+          toast.error(error instanceof Error ? error.message : 'Failed to open folder.')
+        },
+      },
+    )
+  }
 
   return (
     <DropdownMenuSub>
@@ -124,6 +137,10 @@ function OpenProjectItem({isSelected, onSelect, project}: OpenProjectItemProps) 
         >
           <SquareArrowOutUpRight className="size-4" />
           <span className="text-sm">Open Remote space</span>
+        </DropdownMenuItem>
+        <DropdownMenuItem disabled={reveal.isPending} onClick={handleRevealLocal}>
+          <FolderSearch className="size-4" />
+          <span className="text-sm">Open local folder</span>
         </DropdownMenuItem>
       </DropdownMenuSubContent>
     </DropdownMenuSub>

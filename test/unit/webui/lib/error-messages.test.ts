@@ -39,21 +39,22 @@ describe('formatError', () => {
     expect(formatError({})).to.equal('Something went wrong')
   })
 
-  describe('context-aware overrides', () => {
-    it('includes the project path in the USER_NOT_CONFIGURED override when context is provided', () => {
+  describe('USER_NOT_CONFIGURED override', () => {
+    // The override is now a plain string: the webui Configuration page is the
+    // remediation surface, so we don't interpolate project paths or reference
+    // `brv vc config` anymore.
+    it('returns the web-friendly message regardless of context', () => {
       const error = {code: 'ERR_VC_USER_NOT_CONFIGURED', message: 'raw server message'}
-      const result = formatError(error, 'fallback copy', {projectPath: '/Users/thien/my-proj'})
+      const withCtx = formatError(error, 'fallback copy', {projectPath: '/Users/thien/my-proj'})
+      const withoutCtx = formatError(error)
 
-      expect(result).to.include('/Users/thien/my-proj')
-      expect(result).to.include('brv vc config')
+      expect(withCtx).to.equal('Commit author is not configured.')
+      expect(withoutCtx).to.equal('Commit author is not configured.')
     })
 
-    it('falls back to a generic USER_NOT_CONFIGURED override when no project path is supplied', () => {
+    it('does not leak `undefined` when no context is supplied', () => {
       const error = {code: 'ERR_VC_USER_NOT_CONFIGURED', message: 'raw server message'}
-      const result = formatError(error)
-
-      expect(result).to.include('brv vc config')
-      expect(result).to.not.include('undefined')
+      expect(formatError(error)).to.not.include('undefined')
     })
 
     it('ignores context for non-function overrides', () => {

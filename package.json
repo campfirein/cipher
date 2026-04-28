@@ -12,7 +12,7 @@
     "coding-assistant",
     "knowledge-management"
   ],
-  "version": "3.8.3",
+  "version": "3.10.0",
   "author": "ByteRover",
   "bin": {
     "brv": "./bin/run.js"
@@ -34,7 +34,7 @@
     "@ai-sdk/xai": "^2.0.57",
     "@anthropic-ai/sdk": "^0.70.1",
     "@campfirein/brv-transport-client": "github:campfirein/brv-transport-client#1.0.0",
-    "@campfirein/byterover-packages": "github:campfirein/byterover-packages#1.0.1",
+    "@campfirein/byterover-packages": "github:campfirein/byterover-packages#1.0.2",
     "@google/genai": "^1.29.0",
     "@inkjs/ui": "^2.0.0",
     "@inquirer/prompts": "^7.9.0",
@@ -77,6 +77,7 @@
     "react": "^19.2.1",
     "react-diff-viewer-continued": "^4.2.0",
     "react-dom": "^19.2.1",
+    "react-reconciler": "0.33.0",
     "react-markdown": "^10.1.0",
     "react-router-dom": "^7.13.0",
     "react-syntax-highlighter": "^16.1.1",
@@ -220,6 +221,16 @@
   "types": "dist/index.d.ts",
   "bundleDependencies": [
     "@campfirein/brv-transport-client",
-    "@campfirein/byterover-packages"
+    "@campfirein/byterover-packages",
+    "react",
+    "react-dom",
+    "react-reconciler",
+    "ink",
+    "fullscreen-ink",
+    "@inkjs/ui",
+    "ink-spinner",
+    "ink-text-input",
+    "ink-scroll-list",
+    "ink-scroll-view"
   ]
 }

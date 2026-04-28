@@ -1,3 +1,4 @@
+import {Badge} from '@campfirein/byterover-packages/components/badge'
 import {DialogDescription, DialogHeader, DialogTitle} from '@campfirein/byterover-packages/components/dialog'
 import {Input} from '@campfirein/byterover-packages/components/input'
 import {cn} from '@campfirein/byterover-packages/lib/utils'
@@ -8,18 +9,31 @@ import type {ProviderDTO} from '../../../../../shared/transport/events'
 
 import {providerIcons} from './provider-icons'
 
+const BYTEROVER_PROVIDER_ID = 'byterover'
+
 interface ProviderSelectStepProps {
   onSelect: (provider: ProviderDTO) => void
   providers: ProviderDTO[]
+}
+
+/**
+ * Sort ByteRover to the top so it shows as the default choice. Everything else
+ * keeps its server-side ordering.
+ */
+function orderProviders(providers: ProviderDTO[]): ProviderDTO[] {
+  const byterover = providers.find((p) => p.id === BYTEROVER_PROVIDER_ID)
+  if (!byterover) return providers
+  return [byterover, ...providers.filter((p) => p.id !== BYTEROVER_PROVIDER_ID)]
 }
 
 export function ProviderSelectStep({onSelect, providers}: ProviderSelectStepProps) {
   const [search, setSearch] = useState('')
 
   const filtered = useMemo(() => {
-    if (!search) return providers
+    const ordered = orderProviders(providers)
+    if (!search) return ordered
     const q = search.toLowerCase()
-    return providers.filter((p) => p.name.toLowerCase().includes(q))
+    return ordered.filter((p) => p.name.toLowerCase().includes(q))
   }, [providers, search])
 
   return (
@@ -41,6 +55,7 @@ export function ProviderSelectStep({onSelect, providers}: ProviderSelectStepProp
           {filtered.map((provider) => {
             const icon = providerIcons[provider.id]
             const isActive = provider.isCurrent
+            const isByteRover = provider.id === BYTEROVER_PROVIDER_ID
 
             return (
               <button
@@ -56,9 +71,19 @@ export function ProviderSelectStep({onSelect, providers}: ProviderSelectStepProp
                 <div className="bg-muted/50 grid size-7 shrink-0 place-items-center overflow-hidden rounded-md">
                   {icon && <img alt="" className="size-5" src={icon} />}
                 </div>
-                <div className="min-w-0 flex-1">
-                  <div className="text-foreground truncate text-sm font-medium">{provider.name}</div>
-                  <div className="text-muted-foreground min-h-[1lh] truncate text-xs">{provider.description}</div>
+                <div className="min-w-0 flex-1 space-y-0.5">
+                  <div className="text-foreground flex flex-wrap items-center gap-1.5 text-sm">
+                    <span className="font-medium truncate">{provider.name}</span>
+                    {isByteRover && (
+                      <Badge
+                        className="border-amber-500/50 bg-amber-500/15 text-amber-400 h-[18px] rounded-sm px-1.5 text-[11px] font-medium leading-none"
+                        variant="outline"
+                      >
+                        Native
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="text-muted-foreground min-h-lh truncate text-xs">{provider.description}</div>
                 </div>
                 <div
                   className={cn(

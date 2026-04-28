@@ -11,6 +11,12 @@ import type {ReasoningContentItem, TaskListItem, ToolCallEvent} from '../../../.
 export type {ReasoningContentItem, ToolCallEvent} from '../../../../shared/transport/events/task-events'
 
 export interface StoredTask extends TaskListItem {
+  /**
+   * True if we received any `llmservice:error` broadcast for this task.
+   * Used to show a provider-config CTA on the error surface even when the
+   * task:error payload doesn't carry a structured error code.
+   */
+  hadLlmServiceError?: boolean
   isStreaming?: boolean
   reasoningContents?: ReasoningContentItem[]
   /** Set when the agent's response stream resolves (final assistant message). */

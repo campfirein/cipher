@@ -37,8 +37,6 @@ type DialogKind = 'new-branch' | null
 
 type DeleteTarget = {branchName: string}
 
-const TOAST_OPTS = {position: 'top-center'} as const
-
 function triggerLabel(status: ReturnType<typeof useGetVcStatus>['data']): string {
   if (!status) return 'branch'
   if (!status.initialized) return 'No git repo'
@@ -113,10 +111,9 @@ export function BranchDropdown() {
     setOpen(false)
     try {
       await checkout.mutateAsync({branch: branchName})
-      toast.success(message, TOAST_OPTS)
+      toast.success(message)
     } catch (error) {
       toast.error('Failed to switch branch', {
-        ...TOAST_OPTS,
         description: formatError(error),
       })
     }
@@ -147,10 +144,9 @@ export function BranchDropdown() {
         // Tracking will fall back to unset; the user can retry via CLI.
       }
 
-      toast.success(`Switched to ${localName} (tracking ${branch.name})`, TOAST_OPTS)
+      toast.success(`Switched to ${localName} (tracking ${branch.name})`)
     } catch (error) {
       toast.error('Failed to checkout remote branch', {
-        ...TOAST_OPTS,
         description: formatError(error),
       })
     }
@@ -168,7 +164,6 @@ export function BranchDropdown() {
   function handleFetchAll() {
     setOpen(false)
     toast.promise(fetchMut.mutateAsync({}), {
-      ...TOAST_OPTS,
       error: (err: unknown) => ({
         description: formatError(err),
         message: 'Fetch failed',
@@ -181,7 +176,6 @@ export function BranchDropdown() {
   function handlePull() {
     setOpen(false)
     toast.promise(pull.mutateAsync({}), {
-      ...TOAST_OPTS,
       error: (err: unknown) => ({
         description: formatError(err),
         message: 'Pull failed',

@@ -116,16 +116,10 @@ export class SocketIOTransportServer implements ITransportServer {
     event: string,
     handler: RequestHandler<TRequest, TResponse>,
   ): void {
-    const {io} = this
-    if (!io) {
-      throw new TransportServerNotStartedError('onRequest')
-    }
-
-    // Store handler wrapped to accept unknown types (avoids type assertion)
+    // Pre-start registration is supported: start()'s connection handler iterates this.requestHandlers.
     const wrappedHandler: StoredRequestHandler = (data, clientId) => handler(data as TRequest, clientId)
     this.requestHandlers.set(event, wrappedHandler)
 
-    // Apply handler to all existing sockets
     for (const socket of this.sockets.values()) {
       this.registerEventHandler(socket, event, wrappedHandler)
     }

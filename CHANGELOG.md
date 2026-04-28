@@ -2,6 +2,35 @@
 
 All notable user-facing changes to ByteRover CLI will be documented in this file.
 
+## [3.10.0]
+
+### Added
+- **Connect OpenClaude as an agent.** Run `brv connectors install "OpenClaude"` or pick it in `/connectors`.
+
+### Changed
+- **Prettier `brv login` confirmation page.** The browser tab after sign-in now matches the brv dark theme, with a styled error page if sign-in fails.
+- **Faster, more reliable first-run startup.** The first `brv` command after install or restart connects more consistently, and no longer hangs when the sign-in provider is slow.
+
+### Fixed
+- **`brv restart` works inside nested shell wrappers.** Used to leave the daemon stuck when `brv` was launched through several wrapper scripts (a shell alias, an npm script, or a CI runner). Fixed on macOS, Linux, and Windows.
+- **`brv curate` counts as one operation, not many.** Curating many folders at once was being billed once per folder, which could push fresh free-tier accounts past their limit in a single run. Grouped correctly now.
+- **Security update.** Patched `postcss` and several other dependencies to address a high-severity advisory.
+
+## [3.9.0]
+
+### Added
+- **`brv vc diff` shows what changed in your context tree.** See staged and unstaged changes against HEAD, or compare branches and commits. Also available as `/vc-diff` in the REPL and with `--format json`.
+- **`brv vc remote remove` deletes a git remote.** Available from the CLI and from a new Delete button (with confirmation) in the web UI Remotes panel.
+- **Configuration page in `brv webui`.** Manage your context-tree git identity (user.name, user.email) and the `origin` remote from the browser. One click seeds your identity from your signed-in ByteRover account; a status dot is amber when identity is unset and green once it is. Provider and remote error toasts deep-link back to the relevant section.
+
+### Changed
+- **First-run tour teaches by clicking through.** Instead of auto-opening the composer, the tour highlights the Tasks tab and "New task" button with a glowing arrow and dims the rest of the page. Failed tasks during the tour now offer a "Try again" action that prefills the composer.
+- **ByteRover pinned at the top of the provider picker.** In `brv webui`, ByteRover sits first with a "Native" badge and opens the sign-in popup directly, with no extra confirmation step.
+
+### Fixed
+- **Google default model updated to `gemini-3-flash-preview`** (was `gemini-3.1-flash-lite-preview`).
+- **`brv dream` no longer pollutes `brv vc` diffs.** Synthesis used to reorder context-file frontmatter fields (`title`, `summary`, `tags`, `keywords`, `related`, `createdAt`, `updatedAt`); field order is now preserved.
+
 ## [3.8.3]
 
 ### Changed

@@ -156,7 +156,7 @@ export class DreamExecutor {
           const changedPaths = diffStates(preState, postState)
           if (changedPaths.length > 0) {
             const summaryService = new FileContextTreeSummaryService()
-            await summaryService.propagateStaleness(changedPaths, agent, projectRoot)
+            await summaryService.propagateStaleness(changedPaths, agent, projectRoot, options.taskId)
             const manifestService = new FileContextTreeManifestService({baseDirectory: projectRoot})
             await manifestService.buildManifest(projectRoot)
           }
