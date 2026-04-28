@@ -1,4 +1,3 @@
- 
 import type {Server} from 'node:http'
 import type {Socket} from 'node:net'
 
@@ -15,7 +14,7 @@ const PAGE_STYLE = `
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { height: 100%; }
   body {
-    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
     background: #000;
     color: #e5e5e5;
     min-height: 100vh;
@@ -139,12 +138,21 @@ const SUCCESS_HTML = `<!DOCTYPE html>
 <div class="card">
   <div class="icon-circle">${USER_ICON_SVG}</div>
   <h1>Authentication Successful</h1>
-  <p>You can now safely close this tab and return to where you left off</p>
+  <p>You can now safely close this tab and return to where you left off.</p>
 </div>
 </body>
 </html>`
 
-function errorHtml(message: string): string {
+/**
+ * Render the failure card. `details` is rendered in a monospace red-tint block
+ * underneath the body copy when present and non-empty; omit it for blank or
+ * undefined input so we don't show an empty `.error-detail` box.
+ */
+function errorHtml(details?: string): string {
+  const trimmed = details?.trim() ?? ''
+  const detailBlock = trimmed.length > 0
+    ? `<div class="error-detail">${escapeHtml(trimmed)}</div>`
+    : ''
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -158,8 +166,8 @@ function errorHtml(message: string): string {
 <div class="card">
   <div class="icon-circle">${ALERT_ICON_SVG}</div>
   <h1>Authentication Failed</h1>
-  <p>An error occurred while signing you in. Return to the CLI and try again.</p>
-  <div class="error-detail">${escapeHtml(message)}</div>
+  <p>Something went wrong while signing you in. Return to the CLI and try again.</p>
+  ${detailBlock}
 </div>
 </body>
 </html>`
@@ -257,16 +265,20 @@ export class CallbackServer {
       const state = firstQueryParam(req.query.state)
 
       if (error !== undefined) {
-        const errorMessage = errorDescription ?? error
-        this.app.locals.onError?.(errorMessage)
-        res.status(400).type('html').send(errorHtml(errorMessage))
+        // `??` would let `?error_description=` (empty string) through and render
+        // an empty red detail box; `||` falls back to the error code instead.
+        const detail = (errorDescription && errorDescription.length > 0) ? errorDescription : error
+        this.app.locals.onError?.(detail)
+        res.status(400).type('html').send(errorHtml(detail))
         return
       }
 
       if (code === undefined || state === undefined) {
-        const missingMessage = 'Missing code or state parameter'
-        this.app.locals.onError?.(missingMessage)
-        res.status(400).type('html').send(errorHtml(missingMessage))
+        // Keep the OAuth-jargon string for the CLI-facing onError callback (it
+        // surfaces in `brv login` stderr / logs where it's actionable), but
+        // render the user-facing card with the friendlier copy + no detail box.
+        this.app.locals.onError?.('Missing code or state parameter')
+        res.status(400).type('html').send(errorHtml())
         return
       }
 

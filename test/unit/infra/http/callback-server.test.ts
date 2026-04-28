@@ -136,7 +136,7 @@ describe('CallbackServer', () => {
       expect(body).to.include('&lt;script&gt;alert(&quot;x&quot;)&lt;/script&gt;')
     })
 
-    it('returns 400 + error HTML when code or state is missing', async () => {
+    it('returns 400 + friendly error HTML when code or state is missing (no jargon leaks to UI)', async () => {
       server = new CallbackServer()
       const port = await server.start()
 
@@ -147,10 +147,36 @@ describe('CallbackServer', () => {
       // eslint-disable-next-line n/no-unsupported-features/node-builtins
       const res = await fetch(`http://localhost:${port}/callback?code=abc`) // no state
       const body = await res.text()
+      const captured = await errorPromise
+
+      expect(res.status).to.equal(400)
+      // User-facing card shows friendly copy, NOT the OAuth-jargon onError string.
+      expect(body).to.include('Authentication Failed')
+      expect(body).to.include('Return to the CLI and try again')
+      expect(body).to.not.include('Missing code or state parameter')
+      // The OAuth-jargon string still surfaces to the CLI-side onError callback.
+      expect((captured as Error).message).to.include('Missing code or state parameter')
+    })
+
+    it('omits the .error-detail box when error_description is empty', async () => {
+      server = new CallbackServer()
+      const port = await server.start()
+
+      const errorPromise = server
+        .waitForCallback('any-state', 5000)
+        .catch((error: Error) => error)
+
+      // ?error=foo&error_description= — empty description must NOT render an empty red box.
+      // eslint-disable-next-line n/no-unsupported-features/node-builtins
+      const res = await fetch(`http://localhost:${port}/callback?error=server_error&error_description=`)
+      const body = await res.text()
       await errorPromise
 
       expect(res.status).to.equal(400)
-      expect(body).to.include('Missing code or state parameter')
+      // No empty detail block.
+      expect(body).to.not.include('<div class="error-detail"></div>')
+      // Falls back to the error code when description is blank.
+      expect(body).to.include('server_error')
     })
   })
 
