@@ -37,6 +37,8 @@ import {SessionMetadataStore} from '../../../agent/infra/session/session-metadat
 import {FileKeyStorage} from '../../../agent/infra/storage/file-key-storage.js'
 import {createSearchKnowledgeService} from '../../../agent/infra/tools/implementations/search-knowledge-service.js'
 import {AuthEvents} from '../../../shared/transport/events/auth-events.js'
+import {decodeGatherContent} from '../../../shared/transport/gather-content.js'
+import {decodeRecordAnswerContent} from '../../../shared/transport/record-answer-content.js'
 import {decodeSearchContent} from '../../../shared/transport/search-content.js'
 import {getCurrentConfig} from '../../config/environment.js'
 import {BRV_DIR, DEFAULT_LLM_MODEL, PROJECT} from '../../constants.js'
@@ -50,6 +52,7 @@ import {
 } from '../../core/domain/transport/schemas.js'
 import {FileContextTreeArchiveService} from '../context-tree/file-context-tree-archive-service.js'
 import {RuntimeSignalStore} from '../context-tree/runtime-signal-store.js'
+import {toBrvSearchResult} from '../dispatcher/query-dispatcher.js'
 import {DreamLockService} from '../dream/dream-lock-service.js'
 import {DreamLogStore} from '../dream/dream-log-store.js'
 import {DreamStateService} from '../dream/dream-state-service.js'
@@ -57,7 +60,9 @@ import {DreamTrigger} from '../dream/dream-trigger.js'
 import {CurateExecutor} from '../executor/curate-executor.js'
 import {DreamExecutor} from '../executor/dream-executor.js'
 import {FolderPackExecutor} from '../executor/folder-pack-executor.js'
+import {GatherExecutor} from '../executor/gather-executor.js'
 import {QueryExecutor} from '../executor/query-executor.js'
+import {RecordAnswerExecutor} from '../executor/record-answer-executor.js'
 import {SearchExecutor} from '../executor/search-executor.js'
 import {FileCurateLogStore} from '../storage/file-curate-log-store.js'
 import {FileReviewBackupStore} from '../storage/file-review-backup-store.js'
@@ -95,6 +100,15 @@ const port = portEnv
 const projectPath = projectPathEnv
 
 const agentLog = createAgentLogger(process.env.BRV_SESSION_LOG, `[agent-process:${projectPath}]`)
+
+/**
+ * Task types that bypass provider validation (no LLM dependency).
+ * - `'search'`: CLI BM25 retrieval
+ * - `'mcp-search'`: Phase 5 MCP tier 0/1/2 dispatch
+ * - `'gather'`: Phase 5 context bundle assembly
+ * - `'record-answer'`: Phase 5 cache write
+ */
+const LLM_FREE_TASK_TYPES = new Set<string>(['gather', 'mcp-search', 'record-answer', 'search'])
 
 /**
  * Persist a brand-new session's metadata and set it as active.
@@ -401,6 +415,14 @@ async function start(): Promise<void> {
     searchService,
   })
   const searchExecutor = new SearchExecutor(searchService)
+  // Phase 5 Task 5.3: shared GatherExecutor for both `brv_gather` MCP and
+  // `brv gather` CLI. Pure data — no LLM, no agent dep.
+  const gatherExecutor = new GatherExecutor({searchService})
+  // Phase 5 Task 5.4: shares the cache instance with QueryExecutor's
+  // dispatcher so agent-recorded answers flow back to tier 0/1 reads.
+  const recordAnswerExecutor = new RecordAnswerExecutor({
+    ...(queryExecutor.dispatcher.cache ? {cache: queryExecutor.dispatcher.cache} : {}),
+  })
 
   transport.on<TaskExecute>(TransportTaskEventNames.EXECUTE, (task) => {
     agentLog(`task:execute received taskId=${task.taskId} type=${task.type} activeTaskCount=${activeTaskCount + 1}`)
@@ -409,7 +431,9 @@ async function start(): Promise<void> {
       task,
       curateExecutor,
       folderPackExecutor,
+      gatherExecutor,
       queryExecutor,
+      recordAnswerExecutor,
       searchExecutor,
       searchService,
       configResult.storagePath,
@@ -429,7 +453,9 @@ async function executeTask(
   task: TaskExecute,
   curateExecutor: CurateExecutor,
   folderPackExecutor: FolderPackExecutor,
+  gatherExecutor: GatherExecutor,
   queryExecutor: QueryExecutor,
+  recordAnswerExecutor: RecordAnswerExecutor,
   searchExecutor: SearchExecutor,
   searchKnowledgeService: ISearchKnowledgeService,
   storagePath: string,
@@ -442,9 +468,10 @@ async function executeTask(
   } = task
   if (!transport || !agent) return
 
-  // Search tasks are pure BM25 retrieval — no LLM, no provider needed.
-  // Skip provider validation so search works even without a configured provider.
-  if (type !== 'search') {
+  // LLM-free task types skip provider validation. PHASE-5-CODE-REVIEW.md F3:
+  // brv_search/brv_gather/brv_record_answer must work without a configured
+  // provider per the Phase 5 invariant — they're pure BM25 / pure cache writes.
+  if (!LLM_FREE_TASK_TYPES.has(type)) {
     const freshProviderConfig = await transport.requestWithAck<ProviderConfigResponse>(
       TransportStateEventNames.GET_PROVIDER_CONFIG,
     )
@@ -591,6 +618,47 @@ async function executeTask(
           break
         }
 
+        case 'gather': {
+          // Phase 5 Task 5.3 (PHASE-5-PLAN.md): assemble a context bundle for
+          // the agent (or human user) to synthesize from. NEVER invokes the LLM.
+          const gatherOptions = decodeGatherContent(content)
+          const gatherResult = await gatherExecutor.execute({
+            ...(gatherOptions.limit === undefined ? {} : {limit: gatherOptions.limit}),
+            query: gatherOptions.query,
+            ...(gatherOptions.scope === undefined ? {} : {scope: gatherOptions.scope}),
+            ...(gatherOptions.tokenBudget === undefined ? {} : {tokenBudget: gatherOptions.tokenBudget}),
+          })
+          result = JSON.stringify(gatherResult)
+
+          break
+        }
+
+        case 'mcp-search': {
+          // Phase 5 Task 5.2 (PHASE-5-PLAN.md): tier 0/1/2 path for the
+          // brv-search MCP tool. Routes through QueryExecutor's shared
+          // QueryDispatcher (same cache + searchService instances as
+          // legacy brv_query) — never invokes the LLM.
+          //
+          // PHASE-5-CODE-REVIEW.md F2: compute fingerprint via QueryExecutor
+          // so tier 0/1 hits work. Without it, the search → gather →
+          // record-answer → search loop can never reach tier-0 cache.
+          //
+          // PHASE-5-CODE-REVIEW.md F4: map the internal DispatchResult to
+          // the public BrvSearchResult DTO (snake_case per DESIGN §6.1).
+          // Internal `searchResult` MUST NOT leak across the MCP boundary.
+          const searchOptions = decodeSearchContent(content)
+          const fingerprint = await queryExecutor.resolveFingerprint(worktreeRoot)
+          const dispatchResult = await queryExecutor.dispatcher.dispatch({
+            ...(fingerprint === undefined ? {} : {fingerprint}),
+            ...(searchOptions.limit === undefined ? {} : {limit: searchOptions.limit}),
+            query: searchOptions.query,
+            ...(searchOptions.scope === undefined ? {} : {scope: searchOptions.scope}),
+          })
+          result = JSON.stringify(toBrvSearchResult(dispatchResult))
+
+          break
+        }
+
         case 'query': {
           const queryResult = await queryExecutor.executeWithAgent(agent, {query: content, taskId, worktreeRoot})
           result = queryResult.response
@@ -608,6 +676,17 @@ async function executeTask(
           } catch {
             agentLog(`task:queryResult send failed taskId=${taskId}`)
           }
+
+          break
+        }
+
+        case 'record-answer': {
+          // Phase 5 Task 5.4 (PHASE-5-PLAN.md): write agent-synthesized
+          // answer back into the shared cache. Closes the loop so future
+          // equivalent queries hit tier 0/1 via brv_search / brv_query.
+          const recordOptions = decodeRecordAnswerContent(content)
+          const recordResult = await recordAnswerExecutor.execute(recordOptions)
+          result = JSON.stringify(recordResult)
 
           break
         }

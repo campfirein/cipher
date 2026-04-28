@@ -1,12 +1,13 @@
+/* eslint-disable camelcase -- DESIGN §6.2 specifies snake_case for the gather payload */
 import type {ITransportClient, TaskAck} from '@campfirein/brv-transport-client'
 
 import {Args, Command, Flags} from '@oclif/core'
 import {randomUUID} from 'node:crypto'
 
-import type {SearchKnowledgeResult} from '../../agent/infra/sandbox/tools-sdk.js'
+import type {GatherResult} from '../../server/core/interfaces/executor/i-gather-executor.js'
 
 import {TaskEvents} from '../../shared/transport/events/index.js'
-import {encodeSearchContent} from '../../shared/transport/search-content.js'
+import {encodeGatherContent} from '../../shared/transport/gather-content.js'
 import {
   type DaemonClientOptions,
   formatConnectionError,
@@ -14,32 +15,38 @@ import {
   withDaemonRetry,
 } from '../lib/daemon-client.js'
 import {writeJsonResponse} from '../lib/json-response.js'
-import {formatSearchTextOutput} from '../lib/search-format.js'
 import {waitForTaskCompletion} from '../lib/task-client.js'
 
-export default class Search extends Command {
+export default class Gather extends Command {
   public static args = {
     query: Args.string({
-      description: 'Search query to find relevant knowledge in the context tree',
+      description: 'Question to gather context for (no LLM synthesis — bundle is returned for inspection)',
       required: true,
     }),
   }
-  public static description = `Search the context tree for relevant knowledge
+  public static description = `Assemble an LLM-free context bundle from the context tree
 
-Returns ranked results with paths, scores, and excerpts.
-Pure BM25 retrieval — no LLM, no token cost.
+Returns the prefetched markdown bundle, search metadata, token estimate, and
+follow-up hints — the same payload that the brv_gather MCP tool returns to
+external agents. Useful for:
+  • Debugging "what context would the agent see for this query?"
+  • Pipelining: brv gather "..." --format json | external-llm
+  • Inspecting bundle size before paying tokens for synthesis
 
-Use this for structured results with file paths.
-Use "brv query" when you need a synthesized answer.`
+Use "brv search" for ranked BM25 results without bundle assembly.
+Use "brv query" when you want the synthesized answer.`
   public static examples = [
-    '# Search for knowledge about authentication',
-    '<%= config.bin %> <%= command.id %> "authentication"',
+    '# Gather context for an agent-style question',
+    '<%= config.bin %> <%= command.id %> "how does authentication work"',
     '',
-    '# Limit results and scope to a domain',
-    '<%= config.bin %> <%= command.id %> "JWT tokens" --limit 5 --scope auth/',
+    '# Restrict scope and cap result count',
+    '<%= config.bin %> <%= command.id %> "JWT tokens" --scope auth/ --limit 5',
     '',
-    '# JSON output (for automation)',
-    '<%= config.bin %> <%= command.id %> "auth" --format json',
+    '# Cap token budget for large knowledge bases',
+    '<%= config.bin %> <%= command.id %> "auth" --token-budget 8000',
+    '',
+    '# JSON output (pipeline-friendly)',
+    '<%= config.bin %> <%= command.id %> "auth" --format json | jq .total_tokens_estimated',
   ]
   public static flags = {
     format: Flags.string({
@@ -49,12 +56,17 @@ Use "brv query" when you need a synthesized answer.`
     }),
     limit: Flags.integer({
       default: 10,
-      description: 'Maximum number of results (1-50)',
+      description: 'Maximum number of BM25 results to include (1-50)',
       max: 50,
       min: 1,
     }),
     scope: Flags.string({
       description: 'Path prefix to scope results (e.g. "auth/" for auth domain only)',
+    }),
+    'token-budget': Flags.integer({
+      description: 'Soft cap on bundle tokens (default 4000). Truncates excess sections.',
+      max: 64_000,
+      min: 100,
     }),
   }
   public static strict = false
@@ -64,7 +76,7 @@ Use "brv query" when you need a synthesized answer.`
   }
 
   public async run(): Promise<void> {
-    const {args, flags} = await this.parse(Search)
+    const {args, flags} = await this.parse(Gather)
     const format: 'json' | 'text' = flags.format === 'json' ? 'json' : 'text'
 
     if (!this.validateInput(args.query, format)) return
@@ -72,7 +84,6 @@ Use "brv query" when you need a synthesized answer.`
     try {
       await withDaemonRetry(
         async (client, projectRoot, worktreeRoot) => {
-          // No provider validation — search is pure BM25, no LLM needed.
           await this.submitTask({
             client,
             format,
@@ -80,6 +91,7 @@ Use "brv query" when you need a synthesized answer.`
             projectRoot,
             query: args.query,
             scope: flags.scope,
+            tokenBudget: flags['token-budget'],
             worktreeRoot,
           })
         },
@@ -97,11 +109,42 @@ Use "brv query" when you need a synthesized answer.`
     }
   }
 
+  private formatTextOutput(gatherResult: GatherResult): string[] {
+    const lines: string[] = []
+    const meta = gatherResult.search_metadata
+
+    lines.push(
+      '',
+      `Search metadata: ${meta.result_count} result(s), top score ${meta.top_score.toFixed(2)}, total found ${meta.total_found}`,
+      `Bundle tokens (estimated): ${gatherResult.total_tokens_estimated}`,
+    )
+
+    if (gatherResult.prefetched_context) {
+      lines.push('', '=== Prefetched context ===', '', gatherResult.prefetched_context)
+    } else {
+      lines.push('', '(No high-confidence passages above the score threshold.)')
+    }
+
+    if (gatherResult.manifest_context) {
+      lines.push('', '=== Manifest context ===', '', gatherResult.manifest_context)
+    }
+
+    if (gatherResult.follow_up_hints && gatherResult.follow_up_hints.length > 0) {
+      lines.push('', 'Follow-up hints:')
+      for (const hint of gatherResult.follow_up_hints) {
+        lines.push(`  - ${hint}`)
+      }
+    }
+
+    lines.push('')
+    return lines
+  }
+
   private reportError(error: unknown, format: 'json' | 'text'): void {
-    const errorMessage = error instanceof Error ? error.message : 'Search failed'
+    const errorMessage = error instanceof Error ? error.message : 'Gather failed'
 
     if (format === 'json') {
-      writeJsonResponse({command: 'search', data: {error: errorMessage, status: 'error'}, success: false})
+      writeJsonResponse({command: 'gather', data: {error: errorMessage, status: 'error'}, success: false})
     } else {
       this.log(formatConnectionError(error))
     }
@@ -119,33 +162,39 @@ Use "brv query" when you need a synthesized answer.`
     projectRoot?: string
     query: string
     scope?: string
+    tokenBudget?: number
     worktreeRoot?: string
   }): Promise<void> {
     const {client, format, projectRoot, query, worktreeRoot} = props
     const taskId = randomUUID()
 
-    const contentPayload = encodeSearchContent({limit: props.limit, query, scope: props.scope})
+    const contentPayload = encodeGatherContent({
+      ...(props.limit === undefined ? {} : {limit: props.limit}),
+      query,
+      ...(props.scope === undefined ? {} : {scope: props.scope}),
+      ...(props.tokenBudget === undefined ? {} : {tokenBudget: props.tokenBudget}),
+    })
 
     const taskPayload = {
       clientCwd: process.cwd(),
       content: contentPayload,
       ...(projectRoot ? {projectPath: projectRoot} : {}),
       taskId,
-      type: 'search' as const,
+      type: 'gather' as const,
       ...(worktreeRoot ? {worktreeRoot} : {}),
     }
 
     const completionPromise = waitForTaskCompletion(
       {
         client,
-        command: 'search',
+        command: 'gather',
         format,
         onCompleted: ({result}) => {
           if (!result) {
             if (format === 'json') {
               writeJsonResponse({
-                command: 'search',
-                data: {results: [], status: 'completed', totalFound: 0},
+                command: 'gather',
+                data: {prefetched_context: '', status: 'completed'},
                 success: true,
               })
             } else {
@@ -156,28 +205,24 @@ Use "brv query" when you need a synthesized answer.`
           }
 
           try {
-            const searchResult = JSON.parse(result) as SearchKnowledgeResult
+            const gatherResult = JSON.parse(result) as GatherResult
 
             if (format === 'json') {
               writeJsonResponse({
-                command: 'search',
-                data: {
-                  ...searchResult,
-                  status: 'completed',
-                },
+                command: 'gather',
+                data: {...gatherResult, status: 'completed'},
                 success: true,
               })
             } else {
-              for (const line of formatSearchTextOutput(searchResult)) {
+              for (const line of this.formatTextOutput(gatherResult)) {
                 this.log(line)
               }
             }
           } catch {
-            // Fallback: result isn't valid JSON — display as-is
             if (format === 'json') {
               writeJsonResponse({
-                command: 'search',
-                data: {error: 'Invalid search result format', raw: result, status: 'error'},
+                command: 'gather',
+                data: {error: 'Invalid gather result format', raw: result, status: 'error'},
                 success: false,
               })
             } else {
@@ -188,7 +233,7 @@ Use "brv query" when you need a synthesized answer.`
         onError({error}) {
           if (format === 'json') {
             writeJsonResponse({
-              command: 'search',
+              command: 'gather',
               data: {event: 'error', message: error.message, status: 'error'},
               success: false,
             })
@@ -208,17 +253,17 @@ Use "brv query" when you need a synthesized answer.`
 
     if (format === 'json') {
       writeJsonResponse({
-        command: 'search',
-        data: {message: 'Search query is required.', status: 'error'},
+        command: 'gather',
+        data: {message: 'Gather query is required.', status: 'error'},
         success: false,
       })
     } else {
-      this.log('Search query is required.')
-      this.log('Usage: brv search "your query here"')
+      this.log('Gather query is required.')
+      this.log('Usage: brv gather "your question here"')
     }
 
-    // PHASE-5-UAT.md UAT-14 (Codex Pass 8 finding): empty input must exit
-    // non-zero so CI scripts can detect failure.
+    // PHASE-5-UAT.md UAT-14: empty input must exit non-zero so CI scripts
+    // can detect failure (`brv gather "" || echo failed`).
     process.exitCode = 1
     return false
   }
