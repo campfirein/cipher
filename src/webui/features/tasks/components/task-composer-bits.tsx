@@ -25,7 +25,10 @@ export function CurateAttachmentHint() {
 export function PrefillBadge({label}: {label: string}) {
   return (
     <Badge
-      className="text-primary-foreground absolute top-2.5 right-3 gap-1.5 px-2 text-[10px] tracking-[0.08em] uppercase"
+      // Bottom-left so the badge shares the textarea's reserved bottom band
+      // with the keyboard hint (which lives at bottom-right) instead of
+      // overlapping the first line of the prefilled example.
+      className="text-primary-foreground absolute bottom-2 left-3 gap-1.5 px-2 text-[10px] tracking-[0.08em] uppercase"
       variant="secondary"
     >
       <span aria-hidden className="bg-primary-foreground size-1.5 rounded-full" />
