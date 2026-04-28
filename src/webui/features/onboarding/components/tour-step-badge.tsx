@@ -8,7 +8,10 @@ import {Badge} from '@campfirein/byterover-packages/components/badge'
 export function TourStepBadge({label}: {label: string}) {
   return (
     <Badge
-      className="mono border-primary-foreground bg-primary-foreground/20 h-6 w-fit gap-1 px-2 text-[10px] tracking-[0.08em] uppercase"
+      // `leading-none` collapses the line-height to the glyph height so the
+      // 10px label centers cleanly inside the 24px (h-6) pill instead of
+      // sitting on the default text baseline.
+      className="mono border-primary-foreground bg-primary-foreground/20 inline-flex h-6 w-fit items-center gap-1 px-2 text-[10px] leading-none tracking-[0.08em] uppercase"
       variant="outline"
     >
       {label}

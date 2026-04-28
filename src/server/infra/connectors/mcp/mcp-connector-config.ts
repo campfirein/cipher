@@ -210,6 +210,19 @@ export const MCP_CONNECTOR_CONFIGS = {
     serverConfig: DEFAULT_SERVER_CONFIG,
     serverKeyPath: STANDARD_KEY_PATH,
   },
+  OpenClaude: {
+    configPath: '.mcp.json',
+    format: 'json',
+    mode: 'auto',
+    scope: 'project',
+    serverConfig: {
+      type: 'stdio',
+      command: 'brv',
+      args: ['mcp'],
+      env: {},
+    },
+    serverKeyPath: STANDARD_KEY_PATH,
+  },
   OpenCode: {
     format: 'json',
     manualGuide: 'https://opencode.ai/docs/mcp-servers/#manage',
