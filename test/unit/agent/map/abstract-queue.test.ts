@@ -20,12 +20,24 @@ function makeFailingGenerator(sandbox: SinonSandbox): IContentGenerator {
   } as unknown as IContentGenerator
 }
 
+/**
+ * Stream stub that responds in the XML format expected by H3's batched generator.
+ * Sniffs the request's user content for `<file path="..."` tokens and emits one
+ * `<file path="X"><abstract|overview>generated text</...></file>` per detected
+ * path. The L0 vs L1 branch is detected from the system prompt.
+ */
 function makeSuccessfulGenerator(sandbox: SinonSandbox): IContentGenerator {
   return {
     estimateTokensSync: () => 10,
     generateContent: sandbox.stub().rejects(new Error('n/a')),
-    generateContentStream: sandbox.stub().callsFake(async function *() {
-      yield {content: 'generated text', isComplete: false}
+    generateContentStream: sandbox.stub().callsFake(async function *(request: {contents?: Array<{content?: string}>; systemPrompt?: string}) {
+      const userContent = request.contents?.[0]?.content ?? ''
+      const isAbstract = (request.systemPrompt ?? '').includes('one-line')
+      const innerTag = isAbstract ? 'abstract' : 'overview'
+      const pathMatches = [...userContent.matchAll(/<file\s+path="([^"]+)"/g)]
+      const paths = pathMatches.length > 0 ? pathMatches.map((m) => m[1]) : ['unknown']
+      const xml = paths.map((p) => `<file path="${p}"><${innerTag}>generated text</${innerTag}></file>`).join('\n')
+      yield {content: xml, isComplete: false}
       yield {isComplete: true}
     }),
   } as unknown as IContentGenerator
@@ -99,24 +111,28 @@ describe('AbstractGenerationQueue', () => {
       const q = new AbstractGenerationQueue(tmpDir, 2) // maxAttempts=2 → one retry
 
       q.setGenerator(generator)
-      q.enqueue({contextPath: join(tmpDir, 'file.md'), fullContent: 'content'})
+      // Enqueue BATCH_SIZE_CAP=5 items so the batch fires immediately.
+      for (let i = 0; i < 5; i++) {
+        q.enqueue({contextPath: join(tmpDir, `file-${i}.md`), fullContent: 'content'})
+      }
 
-      // scheduleNext fires via setImmediate; processNext is now awaiting generateFileAbstracts
+      // scheduleNext fires via setImmediate; processNext is now awaiting generateFileAbstractsBatch
       await new Promise<void>((r) => { setImmediate(r) })
       expect(q.getStatus().processing).to.equal(true)
 
-      // Trigger failure — processNext catch fires: retrying++, setTimeout(500ms backoff)
+      // Trigger failure — Promise.all over the two parallel streams rejects,
+      // processNext catch fires: each item retrying++, setTimeout(500ms backoff)
       rejectNextCall(new Error('deliberate failure'))
-      // Two setImmediate ticks: one for the catch block, one for the finally block
+      // Ticks for catch + finally + microtask queue
+      await new Promise<void>((r) => { setImmediate(r) })
       await new Promise<void>((r) => { setImmediate(r) })
       await new Promise<void>((r) => { setImmediate(r) })
 
-      // Item is now in retry backoff: retrying=1, pending=[]
-      // Before fix: getStatus().pending was 0 (retrying items invisible)
-      // After fix:  getStatus().pending is 1 (retrying items folded into pending)
+      // All 5 items now in retry backoff: retrying=5, pending=[]
+      // getStatus().pending folds retrying into pending so callers don't see false-idle.
       const status = q.getStatus()
       expect(status.processing).to.equal(false)
-      expect(status.pending).to.equal(1)
+      expect(status.pending).to.equal(5)
       expect(status.failed).to.equal(0)
     })
   })
@@ -213,6 +229,79 @@ describe('AbstractGenerationQueue', () => {
       const raw = await fs.readFile(join(tmpDir, '.brv', '_queue_status.json'), 'utf8')
       const written = JSON.parse(raw) as {pending: number}
       expect(written.pending).to.equal(1)
+    })
+
+    it('buffers items below BATCH_SIZE_CAP without firing LLM calls', async () => {
+      const successfulGenerator = makeSuccessfulGenerator(sandbox)
+      const q = new AbstractGenerationQueue(tmpDir)
+      q.setGenerator(successfulGenerator)
+
+      // Enqueue 3 items — below BATCH_SIZE_CAP=5, so no batch should fire.
+      for (let i = 0; i < 3; i++) {
+        q.enqueue({contextPath: join(tmpDir, `f${i}.md`), fullContent: `content ${i}`})
+      }
+
+      // Give scheduleNext time to (incorrectly) fire if the buffer guard is broken.
+      await new Promise<void>((r) => { setImmediate(r) })
+      await new Promise<void>((r) => { setImmediate(r) })
+
+      const stub = successfulGenerator.generateContentStream as ReturnType<typeof sandbox.stub>
+      expect(stub.callCount).to.equal(0, 'Expected 0 LLM calls while pending is below BATCH_SIZE_CAP')
+      expect(q.getStatus()).to.deep.equal({failed: 0, pending: 3, processed: 0, processing: false})
+
+      // drain() forces the partial batch to flush → exactly 2 stream calls.
+      await q.drain()
+      expect(stub.callCount).to.equal(2, 'Expected drain() to flush the partial batch as 1×L0 + 1×L1')
+      expect(q.getStatus().processed).to.equal(3)
+    })
+
+    it('processes up to BATCH_SIZE_CAP items in a single LLM cycle', async () => {
+      const successfulGenerator = makeSuccessfulGenerator(sandbox)
+      const q = new AbstractGenerationQueue(tmpDir)
+      q.setGenerator(successfulGenerator)
+
+      const N = 5
+      for (let i = 0; i < N; i++) {
+        q.enqueue({contextPath: join(tmpDir, `f${i}.md`), fullContent: `content ${i}`})
+      }
+
+      await q.drain()
+
+      // 1 batch * 2 LLM calls (L0 + L1) = exactly 2 stream calls for N=5
+      const stub = successfulGenerator.generateContentStream as ReturnType<typeof sandbox.stub>
+      expect(stub.callCount).to.equal(2, 'Expected exactly 2 LLM stream calls for a 5-item batch (1×L0 + 1×L1)')
+      expect(q.getStatus()).to.deep.equal({failed: 0, pending: 0, processed: N, processing: false})
+
+      // Every file gets its abstract.md and overview.md written
+      const fileChecks = Array.from({length: N}, async (_, i) => {
+        const abstractPath = join(tmpDir, `f${i}.abstract.md`)
+        const overviewPath = join(tmpDir, `f${i}.overview.md`)
+        const [abstractText, overviewText] = await Promise.all([
+          fs.readFile(abstractPath, 'utf8'),
+          fs.readFile(overviewPath, 'utf8'),
+        ])
+        expect(abstractText).to.equal('generated text')
+        expect(overviewText).to.equal('generated text')
+      })
+      await Promise.all(fileChecks)
+    })
+
+    it('splits oversized backlogs into multiple batches', async () => {
+      const successfulGenerator = makeSuccessfulGenerator(sandbox)
+      const q = new AbstractGenerationQueue(tmpDir)
+      q.setGenerator(successfulGenerator)
+
+      const N = 7  // > BATCH_SIZE_CAP=5 → expect 2 batches (5 + 2)
+      for (let i = 0; i < N; i++) {
+        q.enqueue({contextPath: join(tmpDir, `f${i}.md`), fullContent: `content ${i}`})
+      }
+
+      await q.drain()
+
+      const stub = successfulGenerator.generateContentStream as ReturnType<typeof sandbox.stub>
+      // 2 batches × 2 LLM calls each = 4 stream calls
+      expect(stub.callCount).to.equal(4, 'Expected 4 stream calls for 7 items split into batches of 5+2')
+      expect(q.getStatus().processed).to.equal(N)
     })
 
     it('status file reflects retrying items in pending count', async () => {

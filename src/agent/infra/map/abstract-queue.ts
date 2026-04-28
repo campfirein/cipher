@@ -4,7 +4,17 @@ import {join} from 'node:path'
 
 import type {IContentGenerator} from '../../core/interfaces/i-content-generator.js'
 
-import {generateFileAbstracts} from './abstract-generator.js'
+import {generateFileAbstractsBatch} from './abstract-generator.js'
+
+/**
+ * Maximum files combined into a single batched L0/L1 LLM call.
+ *
+ * Two parallel calls fire per cycle: one L0 batch (~80 tok output × N files +
+ * tags), one L1 batch (~1500 tok output × N files + tags). At N=5 the L1
+ * output budget caps at ~8K tokens; raising N further risks output truncation
+ * on smaller-context models. Lowering N reduces savings without quality gain.
+ */
+const BATCH_SIZE_CAP = 5
 
 const QUEUE_TRACE_ENABLED = process.env.BRV_QUEUE_TRACE === '1'
 const LOG_PATH = process.env.BRV_SESSION_LOG
@@ -47,6 +57,13 @@ export interface AbstractQueueStatus {
  * - drain() waits for all pending/processing items to complete (for graceful shutdown)
  */
 export class AbstractGenerationQueue {
+  /**
+   * When true, scheduleNext fires the next batch even if pending is below
+   * BATCH_SIZE_CAP. Set by drain(); reset once the queue is fully idle.
+   * Without this, items below the cap would be buffered indefinitely with
+   * no flush trigger when a curate writes fewer files than the cap.
+   */
+  private drainRequested = false
   private drainResolvers: Array<() => void> = []
   private failed = 0
   private generator: IContentGenerator | undefined
@@ -71,7 +88,13 @@ export class AbstractGenerationQueue {
    */
   async drain(): Promise<void> {
     queueLog(`drain:start idle=${this.isIdle()} pending=${this.pending.length} retrying=${this.retrying} processing=${this.processing}`)
+    // Force any buffered (below-cap) pending items to fire as a final batch.
+    // scheduleNext respects drainRequested even when pending < BATCH_SIZE_CAP.
+    this.drainRequested = true
+    this.scheduleNext()
+
     if (this.isIdle()) {
+      this.drainRequested = false
       await this.statusWritePromise.catch(() => {})
       queueLog('drain:resolved-immediate')
       return
@@ -105,7 +128,13 @@ export class AbstractGenerationQueue {
     this.pending.push({attempts: 0, contextPath: item.contextPath, fullContent: item.fullContent})
     queueLog(`enqueue path=${item.contextPath} pending=${this.pending.length} retrying=${this.retrying} processing=${this.processing}`)
     this.queueStatusWrite()
-    this.scheduleNext()
+    // Buffer until cap is reached; drain() will trigger the final flush
+    // for partial batches at curate-end. Without this gating, the first
+    // enqueue starts a 1-item batch before the curate finishes writing
+    // the rest of its files.
+    if (this.pending.length >= BATCH_SIZE_CAP || this.drainRequested) {
+      this.scheduleNext()
+    }
   }
 
   /**
@@ -151,8 +180,10 @@ export class AbstractGenerationQueue {
     this.processing = true
     this.queueStatusWrite()
 
-    const item = this.pending.shift()!
-    queueLog(`process:start path=${item.contextPath} remaining=${this.pending.length} retrying=${this.retrying}`)
+    // Drain up to BATCH_SIZE_CAP items into a single batch. Items beyond the
+    // cap stay pending for the next cycle.
+    const batch = this.pending.splice(0, BATCH_SIZE_CAP)
+    queueLog(`process:start batchSize=${batch.length} remaining=${this.pending.length} retrying=${this.retrying}`)
 
     try {
       // Refresh credentials before each generation (OAuth tokens may expire)
@@ -163,28 +194,45 @@ export class AbstractGenerationQueue {
         console.debug(`[AbstractQueue] token refresh failed, proceeding with existing generator: ${msg}`)
       }
 
-      const {abstractContent, overviewContent} = await generateFileAbstracts(
-        item.fullContent,
+      const results = await generateFileAbstractsBatch(
+        batch.map((it) => ({contextPath: it.contextPath, fullContent: it.fullContent})),
         this.generator,
       )
 
-      // Derive sibling paths: replace .md with .abstract.md and .overview.md
-      const abstractPath = item.contextPath.replace(/\.md$/, '.abstract.md')
-      const overviewPath = item.contextPath.replace(/\.md$/, '.overview.md')
+      // Write all batched outputs in parallel. Empty strings are valid (model
+      // produced no content for that path) — preserves existing fail-open.
+      await Promise.all(results.flatMap((r) => {
+        const abstractPath = r.contextPath.replace(/\.md$/, '.abstract.md')
+        const overviewPath = r.contextPath.replace(/\.md$/, '.overview.md')
+        return [
+          writeFile(abstractPath, r.abstractContent, 'utf8'),
+          writeFile(overviewPath, r.overviewContent, 'utf8'),
+        ]
+      }))
 
-      await Promise.all([
-        writeFile(abstractPath, abstractContent, 'utf8'),
-        writeFile(overviewPath, overviewContent, 'utf8'),
-      ])
-
-      this.processed++
-      queueLog(`process:success path=${item.contextPath} processed=${this.processed}`)
+      this.processed += batch.length
+      queueLog(`process:success batchSize=${batch.length} processed=${this.processed}`)
     } catch (error) {
+      // Batch-level failure → re-enqueue each item individually with its own
+      // attempts counter, mirroring per-item retry semantics. Items past
+      // maxAttempts count as failed.
       const msg = error instanceof Error ? error.message : String(error)
-      console.debug(`[AbstractQueue] ${item.contextPath} attempt ${item.attempts + 1}/${this.maxAttempts}: ${msg}`)
-      item.attempts++
-      if (item.attempts < this.maxAttempts) {
-        // Exponential backoff: 500ms, 1000ms, 2000ms, ...
+      const failedThisCycle: QueueItem[] = []
+      const retryThisCycle: QueueItem[] = []
+      for (const item of batch) {
+        item.attempts++
+        if (item.attempts < this.maxAttempts) {
+          retryThisCycle.push(item)
+        } else {
+          this.failed++
+          failedThisCycle.push(item)
+          queueLog(`process:failed path=${item.contextPath} failed=${this.failed}`)
+        }
+      }
+
+      console.debug(`[AbstractQueue] batch attempt failed (${msg}); retrying=${retryThisCycle.length}, exhausted=${failedThisCycle.length}`)
+
+      for (const item of retryThisCycle) {
         const delay = 500 * 2 ** (item.attempts - 1)
         this.retrying++
         this.queueStatusWrite()
@@ -195,13 +243,10 @@ export class AbstractGenerationQueue {
           this.queueStatusWrite()
           this.scheduleNext()
         }, delay)
-      } else {
-        this.failed++
-        queueLog(`process:failed path=${item.contextPath} failed=${this.failed}`)
       }
     } finally {
       this.processing = false
-      queueLog(`process:finally path=${item.contextPath} pending=${this.pending.length} retrying=${this.retrying} processed=${this.processed} failed=${this.failed}`)
+      queueLog(`process:finally batchSize=${batch.length} pending=${this.pending.length} retrying=${this.retrying} processed=${this.processed} failed=${this.failed}`)
       this.queueStatusWrite()
     }
 
@@ -220,6 +265,10 @@ export class AbstractGenerationQueue {
       return
     }
 
+    // Reset drain state once the queue settles — next curate's enqueue burst
+    // should buffer normally up to BATCH_SIZE_CAP again.
+    this.drainRequested = false
+
     queueLog(`drain:idle pending=${this.pending.length} retrying=${this.retrying} processed=${this.processed} failed=${this.failed}`)
     const resolvers = this.drainResolvers.splice(0)
     const settledStatusWrite = this.statusWritePromise.catch(() => {})
@@ -229,8 +278,19 @@ export class AbstractGenerationQueue {
   }
 
   private scheduleNext(): void {
-    if (!this.generator || this.processing || this.pending.length === 0) {
+    if (!this.generator || this.processing) {
+      return
+    }
+
+    if (this.pending.length === 0) {
       this.resolveDrainersIfIdle()
+      return
+    }
+
+    // Buffer items below the cap unless drain has been requested (curate-end
+    // signal). This keeps the queue from firing partial 1-item batches in the
+    // middle of a multi-file curate.
+    if (this.pending.length < BATCH_SIZE_CAP && !this.drainRequested) {
       return
     }
 
