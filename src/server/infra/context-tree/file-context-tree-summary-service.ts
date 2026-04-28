@@ -113,10 +113,7 @@ export class FileContextTreeSummaryService implements IContextTreeSummaryService
       // Step 4: Total input tokens
       const totalInputTokens = children.reduce((sum, c) => sum + c.tokens, 0)
 
-      // Step 5: Three-tier escalation via CipherAgent.
-      // When the caller supplies parentTaskId, use it verbatim so the billing
-      // service groups summary LLM calls under the caller's session. Standalone
-      // invocations fall back to the per-directory label.
+      // Step 5: Three-tier escalation via CipherAgent
       const taskId = parentTaskId ?? `summary_${directoryPath.replaceAll('/', '_') || 'root'}`
       const childEntries = children.map((c) => ({content: c.content, name: c.name}))
       let summaryText: string
