@@ -1,6 +1,9 @@
-import type {TaskHistoryEntry} from '../../../server/core/domain/entities/task-history-entry.js'
-
-export type {TaskHistoryEntry} from '../../../server/core/domain/entities/task-history-entry.js'
+/**
+ * Persisted-entry schema version. Bumped only on shape-breaking changes to
+ * `TaskHistoryEntry`. The Zod schema in `server/core/domain/entities/` uses
+ * `z.literal(TASK_HISTORY_SCHEMA_VERSION)` to refuse mismatched on-disk lines.
+ */
+export const TASK_HISTORY_SCHEMA_VERSION = 1
 
 export const TaskEvents = {
   ACK: 'task:ack',
@@ -164,3 +167,69 @@ export type TaskGetRequest = {
 export type TaskGetResponse = {
   task: null | TaskHistoryEntry
 }
+
+/**
+ * Full per-task error payload — superset of `TaskListItem.error`, adds the
+ * optional `details` bag. Mirrors `TaskErrorDataSchema` in
+ * `src/server/core/domain/entities/task-history-entry.ts`; the server schema
+ * carries `satisfies z.ZodType<TaskErrorData>` to keep them aligned.
+ */
+export type TaskErrorData = {
+  code?: string
+  details?: Record<string, unknown>
+  message: string
+  name: string
+}
+
+/**
+ * Discriminated-union shape for a persisted task. The server-side Zod schema
+ * (`TaskHistoryEntrySchema`) is the runtime source of truth and carries
+ * `satisfies z.ZodType<TaskHistoryEntry>` so any drift between the two
+ * representations is a typecheck error.
+ *
+ * Lives in `shared/` so webui + tui can consume it without inverting the
+ * dependency direction onto `server/`.
+ */
+type TaskHistoryEntryBase = {
+  clientCwd?: string
+  content: string
+  createdAt: number
+  files?: string[]
+  folderPath?: string
+  id: string
+  logId?: string
+  model?: string
+  projectPath: string
+  provider?: string
+  reasoningContents?: ReasoningContentItem[]
+  responseContent?: string
+  schemaVersion: typeof TASK_HISTORY_SCHEMA_VERSION
+  sessionId?: string
+  taskId: string
+  toolCalls?: ToolCallEvent[]
+  type: string
+  worktreeRoot?: string
+}
+
+export type TaskHistoryEntry =
+  | (TaskHistoryEntryBase & {
+      completedAt: number
+      error: TaskErrorData
+      startedAt?: number
+      status: 'error'
+    })
+  | (TaskHistoryEntryBase & {
+      completedAt: number
+      result?: string
+      startedAt?: number
+      status: 'completed'
+    })
+  | (TaskHistoryEntryBase & {
+      completedAt: number
+      startedAt?: number
+      status: 'cancelled'
+    })
+  | (TaskHistoryEntryBase & {startedAt: number; status: 'started'})
+  | (TaskHistoryEntryBase & {status: 'created'})
+
+export type TaskHistoryStatus = TaskHistoryEntry['status']

@@ -12,14 +12,27 @@
  * - `started`: agent acknowledged, `startedAt` set.
  * - `completed` | `error` | `cancelled`: terminal — `completedAt` set.
  *
- * Zod schema is the runtime source of truth. The `ReasoningContentItem`
- * and `ToolCallEvent` interfaces live in `shared/transport/events/` so
- * webui + tui consume the same definitions.
+ * The TS shape lives in `shared/transport/events/task-events.ts` so the
+ * web UI can consume it without webui→server boundary inversion. The
+ * Zod schema below is the runtime source of truth and carries
+ * `satisfies z.ZodType<TaskHistoryEntry>` so any drift between the
+ * type and the schema is a typecheck error.
  */
 
 import {z} from 'zod'
 
-import type {ReasoningContentItem, ToolCallEvent} from '../../../../shared/transport/events/task-events.js'
+import type {
+  ReasoningContentItem,
+  TaskErrorData,
+  TaskHistoryEntry,
+  ToolCallEvent,
+} from '../../../../shared/transport/events/task-events.js'
+
+import {TASK_HISTORY_SCHEMA_VERSION} from '../../../../shared/transport/events/task-events.js'
+
+// Re-export for back-compat with existing server-side imports.
+export type {TaskHistoryEntry, TaskHistoryStatus} from '../../../../shared/transport/events/task-events.js'
+export {TASK_HISTORY_SCHEMA_VERSION} from '../../../../shared/transport/events/task-events.js'
 
 // Inlined to break a transport/schemas.ts <-> entities/ circular import.
 // Mirrors `TaskErrorDataSchema` in transport/schemas.ts; both must stay in sync.
@@ -28,9 +41,7 @@ const TaskErrorDataSchema = z.object({
   details: z.record(z.unknown()).optional(),
   message: z.string(),
   name: z.string(),
-})
-
-export const TASK_HISTORY_SCHEMA_VERSION = 1
+}) satisfies z.ZodType<TaskErrorData>
 
 export const ToolCallEventSchema = z.object({
   args: z.record(z.unknown()),
@@ -91,7 +102,4 @@ export const TaskHistoryEntrySchema = z.discriminatedUnion('status', [
     startedAt: z.number().optional(),
     status: z.literal('cancelled'),
   }),
-])
-
-export type TaskHistoryEntry = z.infer<typeof TaskHistoryEntrySchema>
-export type TaskHistoryStatus = TaskHistoryEntry['status']
+]) satisfies z.ZodType<TaskHistoryEntry>
