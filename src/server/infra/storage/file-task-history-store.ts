@@ -95,6 +95,44 @@ const INDEX_FILE = '_index.jsonl'
 const DATA_DIR = 'data'
 const FILENAME_PREFIX = 'tsk-'
 
+/**
+ * Per-`appendFile`-call byte ceiling. 3.5 KB leaves comfortable headroom under
+ * the historical 4 KB PIPE_BUF threshold that most kernels still honor for
+ * single-syscall write atomicity to regular files in append mode.
+ */
+const MAX_APPEND_CHUNK_BYTES = 3584
+
+/**
+ * Group a list of pre-serialized index lines into batches whose total UTF-8
+ * byte length stays under `maxBytes`. A single line larger than `maxBytes` is
+ * emitted as its own batch (we never split a line — the caller relies on
+ * line-level atomicity).
+ *
+ * Exported for direct unit-testing of the chunk boundaries.
+ */
+export function chunkLinesByBytes(
+  lines: readonly string[],
+  maxBytes: number,
+): readonly (readonly string[])[] {
+  const chunks: string[][] = []
+  let current: string[] = []
+  let currentBytes = 0
+  for (const line of lines) {
+    const lineBytes = Buffer.byteLength(line, 'utf8')
+    if (current.length > 0 && currentBytes + lineBytes > maxBytes) {
+      chunks.push(current)
+      current = []
+      currentBytes = 0
+    }
+
+    current.push(line)
+    currentBytes += lineBytes
+  }
+
+  if (current.length > 0) chunks.push(current)
+  return chunks
+}
+
 type FileTaskHistoryStoreOptions = {
   baseDir: string
   /**
@@ -866,38 +904,44 @@ export class FileTaskHistoryStore implements ITaskHistoryStore {
   }
 
   /**
-   * Tombstone the given taskIds in a single index-append, then unlink each data file
-   * in parallel. Order matters: tombstone first so list/getById skip the entry even
-   * if the unlink fails (orphan data files are swept by M2.03 compaction). Reverse
-   * order would leave the row visible to list while getById returns undefined.
+   * Tombstone the given taskIds, then unlink each data file in parallel. Order
+   * matters: tombstone first so list/getById skip the entry even if the unlink
+   * fails (orphan data files are swept by M2.03 compaction). Reverse order
+   * would leave the row visible to list while getById returns undefined.
    *
-   * Atomicity: a single `appendFile` is POSIX-atomic up to ~4 KB (PIPE_BUF). One
-   * tombstone is ~80 bytes, so this is safe up to ~50 ids per call. For larger
-   * batches concurrent saves could interleave; M2.03 (compaction) is the right
-   * place to add chunking if real workloads need it.
+   * Tombstones are appended in size-bounded chunks (each <`MAX_APPEND_CHUNK_BYTES`).
+   * POSIX guarantees nothing about regular-file write atomicity beyond pipes
+   * (PIPE_BUF applies to FIFOs/sockets only). Linux ext4 / macOS APFS happen
+   * to serialize appends per inode, but other filesystems may interleave a
+   * concurrent unlocked `save()` into the middle of a large multi-line write,
+   * corrupting a tombstone JSON line. Keeping every individual `appendFile`
+   * call comfortably under 4 KB lets the kernel page-cache write path treat
+   * each call as a single sector-level write, which most filesystems handle
+   * atomically.
    *
    * Locked against `maybeCompact` via `operationLock` (B2): if our appendFile
    * landed mid-rewrite the tombstone would be wiped by `rename`, and our
-   * subsequent unlink would orphan the index entry recoverPreRenameSaves
-   * cannot detect (data file gone). Holding the lock for the entire append +
-   * unlink sequence guarantees both are durable before any compaction
-   * consumes the snapshot.
+   * subsequent unlink would orphan the index entry `recoverPreRenameSaves`
+   * cannot detect (data file gone). The lock spans the entire chunked append
+   * + unlink sequence so all tombstones and unlinks are durable before any
+   * compaction consumes the snapshot.
    */
   private async tombstoneAndUnlink(taskIds: readonly string[]): Promise<void> {
     if (taskIds.length === 0) return
 
     await this.withOperationLock(async () => {
       const now = Date.now()
-      const lines = taskIds
-        .map((taskId) =>
+      const lines = taskIds.map(
+        (taskId) =>
           JSON.stringify({_deleted: true, deletedAt: now, schemaVersion: TASK_HISTORY_SCHEMA_VERSION, taskId}) + '\n',
-        )
-        .join('')
-
-      await appendFile(this.indexPath, lines, 'utf8')
-      await Promise.all(
-        taskIds.map((id) => rm(this.dataPath(id), {force: true}).catch(() => {})),
       )
+
+      for (const chunk of chunkLinesByBytes(lines, MAX_APPEND_CHUNK_BYTES)) {
+        // eslint-disable-next-line no-await-in-loop -- sequential is intentional (atomicity)
+        await appendFile(this.indexPath, chunk.join(''), 'utf8')
+      }
+
+      await Promise.all(taskIds.map((id) => rm(this.dataPath(id), {force: true}).catch(() => {})))
       this.invalidateIndexCaches()
     })
   }
