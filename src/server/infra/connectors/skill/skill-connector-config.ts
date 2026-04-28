@@ -60,6 +60,10 @@ export const SKILL_CONNECTOR_CONFIGS = {
     globalPath: '.kiro/skills',
     projectPath: '.kiro/skills',
   },
+  OpenClaude: {
+    globalPath: '.claude/skills',
+    projectPath: '.claude/skills',
+  },
   OpenClaw: {
     globalPath: '.openclaw/skills',
     projectPath: null,
