@@ -2,6 +2,21 @@
 
 All notable user-facing changes to ByteRover CLI will be documented in this file.
 
+## [3.9.0]
+
+### Added
+- **`brv vc diff` shows what changed in your context tree.** See staged and unstaged changes against HEAD, or compare branches and commits. Also available as `/vc-diff` in the REPL and with `--format json`.
+- **`brv vc remote remove` deletes a git remote.** Available from the CLI and from a new Delete button (with confirmation) in the web UI Remotes panel.
+- **Configuration page in `brv webui`.** Manage your context-tree git identity (user.name, user.email) and the `origin` remote from the browser. One click seeds your identity from your signed-in ByteRover account; a status dot is amber when identity is unset and green once it is. Provider and remote error toasts deep-link back to the relevant section.
+
+### Changed
+- **First-run tour teaches by clicking through.** Instead of auto-opening the composer, the tour highlights the Tasks tab and "New task" button with a glowing arrow and dims the rest of the page. Failed tasks during the tour now offer a "Try again" action that prefills the composer.
+- **ByteRover pinned at the top of the provider picker.** In `brv webui`, ByteRover sits first with a "Native" badge and opens the sign-in popup directly, with no extra confirmation step.
+
+### Fixed
+- **Google default model updated to `gemini-3-flash-preview`** (was `gemini-3.1-flash-lite-preview`).
+- **`brv dream` no longer pollutes `brv vc` diffs.** Synthesis used to reorder context-file frontmatter fields (`title`, `summary`, `tags`, `keywords`, `related`, `createdAt`, `updatedAt`); field order is now preserved.
+
 ## [3.8.3]
 
 ### Changed
