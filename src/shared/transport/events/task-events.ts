@@ -49,7 +49,7 @@ export type TaskListItemStatus = 'cancelled' | 'completed' | 'created' | 'error'
  * Reasoning/thinking content item with timestamp for ordering.
  * Shared between webui, tui, and the server-side TaskHistoryEntry.
  */
-export interface ReasoningContentItem {
+export type ReasoningContentItem = {
   content: string
   /** Whether this reasoning item is still being streamed */
   isThinking?: boolean
@@ -62,7 +62,7 @@ export interface ReasoningContentItem {
  * carries the `running | completed | error` state machine and is the form
  * stored in `TaskHistoryEntry.toolCalls`.
  */
-export interface ToolCallEvent {
+export type ToolCallEvent = {
   args: Record<string, unknown>
   callId?: string
   error?: string
@@ -101,6 +101,12 @@ export interface TaskListItem {
 
 export interface TaskListRequest {
   before?: number
+  /**
+   * Tiebreaker for `before` when multiple tasks share the same `createdAt`
+   * (same-millisecond bursts). Pass back the `nextCursorTaskId` from the
+   * previous response together with `before = nextCursor`.
+   */
+  beforeTaskId?: string
   limit?: number
   projectPath?: string
   status?: TaskListItemStatus[]
@@ -109,44 +115,52 @@ export interface TaskListRequest {
 
 export interface TaskListResponse {
   nextCursor?: number
+  /** Companion tiebreaker for `nextCursor` — see `TaskListRequest.beforeTaskId`. */
+  nextCursorTaskId?: string
   tasks: TaskListItem[]
 }
 
-export interface TaskClearCompletedRequest {
+export type TaskClearCompletedRequest = {
   projectPath?: string
 }
 
-export interface TaskClearCompletedResponse {
+export type TaskClearCompletedResponse = {
   deletedCount: number
   error?: string
 }
 
-export interface TaskDeleteBulkRequest {
+export type TaskDeleteBulkRequest = {
   taskIds: string[]
 }
 
-export interface TaskDeleteBulkResponse {
+export type TaskDeleteBulkResponse = {
   deletedCount: number
   error?: string
 }
 
-export interface TaskDeleteRequest {
+export type TaskDeleteRequest = {
   taskId: string
 }
 
-export interface TaskDeleteResponse {
+export type TaskDeleteResponse = {
   error?: string
+  /**
+   * `true` when the task was actually removed (was live or persisted),
+   * `false` when the call was a no-op (taskId unknown or already tombstoned).
+   * `task:deleteBulk` uses this to compute an accurate `deletedCount`.
+   */
+  removed?: boolean
   success: boolean
 }
 
-export interface TaskDeletedEvent {
+export type TaskDeletedEvent = {
   taskId: string
 }
 
-export interface TaskGetRequest {
+export type TaskGetRequest = {
   taskId: string
 }
 
-export interface TaskGetResponse {
+export type TaskGetResponse = {
   task: null | TaskHistoryEntry
 }

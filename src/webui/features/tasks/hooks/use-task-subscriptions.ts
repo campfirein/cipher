@@ -43,6 +43,10 @@ interface TaskCancelledPayload {
   taskId: string
 }
 
+interface TaskDeletedPayload {
+  taskId: string
+}
+
 interface LlmToolCallPayload {
   args: Record<string, unknown>
   callId?: string
@@ -124,6 +128,14 @@ export function useTaskSubscriptions(): void {
           completedAt: Date.now(),
           status: 'cancelled',
         })
+      }),
+
+      // task:deleted is broadcast by the daemon when ANY client (this tab,
+      // another tab, or the TUI) removes a task via task:delete /
+      // task:deleteBulk / task:clearCompleted. Other clients drop the row
+      // from their local view so all UIs stay in sync without polling.
+      apiClient.on<TaskDeletedPayload>(TaskEvents.DELETED, (data) => {
+        store.removeTask(data.taskId)
       }),
 
       apiClient.on<LlmToolCallPayload>(LlmEvents.TOOL_CALL, (data) => {

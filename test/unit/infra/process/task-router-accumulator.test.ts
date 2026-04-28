@@ -185,6 +185,37 @@ describe('TaskRouter — llmservice accumulator', () => {
     expect(task?.reasoningContents?.[0].timestamp).to.be.a('number')
   })
 
+  it('repeated llmservice:thinking events deduplicate (parity with TUI store)', async () => {
+    // Without dedup, persisted entries grew multiple consecutive empty
+    // {isThinking: true, content: ''} markers that the live UI never showed.
+    const taskId = randomUUID()
+    await createTask(taskId)
+
+    dispatchLlm(LlmEventNames.THINKING, {sessionId: 's1', taskId})
+    dispatchLlm(LlmEventNames.THINKING, {sessionId: 's1', taskId})
+    dispatchLlm(LlmEventNames.THINKING, {sessionId: 's1', taskId})
+
+    const task = getLiveTask(taskId)
+    expect(task?.reasoningContents).to.have.lengthOf(1)
+    expect(task?.reasoningContents?.[0]).to.include({content: '', isThinking: true})
+  })
+
+  it('llmservice:thinking after a non-thinking chunk pushes a new marker (boundary case)', async () => {
+    // After body has flowed and the last item is `isThinking: false`, a fresh
+    // THINKING signals the model is starting a new reasoning block. Don't dedup.
+    const taskId = randomUUID()
+    await createTask(taskId)
+
+    dispatchLlm(LlmEventNames.THINKING, {sessionId: 's1', taskId})
+    dispatchLlm(LlmEventNames.CHUNK, {content: 'body', sessionId: 's1', taskId, type: 'reasoning'})
+    dispatchLlm(LlmEventNames.THINKING, {sessionId: 's1', taskId})
+
+    const task = getLiveTask(taskId)
+    expect(task?.reasoningContents).to.have.lengthOf(2)
+    expect(task?.reasoningContents?.[0]).to.include({content: 'body', isThinking: false})
+    expect(task?.reasoningContents?.[1]).to.include({content: '', isThinking: true})
+  })
+
   it('llmservice:chunk type=reasoning appends content to the last reasoning item', async () => {
     const taskId = randomUUID()
     await createTask(taskId)

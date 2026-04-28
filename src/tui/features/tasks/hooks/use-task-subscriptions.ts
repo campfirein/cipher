@@ -52,6 +52,14 @@ export function useTaskSubscriptions(): void {
         store.setCancelled(data.taskId)
       }),
 
+      // task:deleted is broadcast by the daemon when ANY client (this TUI, the
+      // WebUI, or another tab) removes a task via task:delete /
+      // task:deleteBulk / task:clearCompleted. Drop the row locally so all
+      // surfaces stay in sync without polling.
+      client.on<{taskId: string}>('task:deleted', (data) => {
+        store.removeTask(data.taskId)
+      }),
+
       client.on<LlmToolCall>('llmservice:toolCall', (data) => {
         if (!data.taskId) return
         store.addToolCall(data.taskId, {

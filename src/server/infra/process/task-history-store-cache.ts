@@ -21,6 +21,19 @@ const MAX_LISTED_ORPHANS = 5
 const stores = new Map<string, FileTaskHistoryStore>()
 const auditedProjects = new Set<string>()
 
+/**
+ * Daemon boot wall-clock timestamp. Captured at module load so EVERY per-project
+ * store shares the same boot reference. The C0 daemon-startup gate inside
+ * `FileTaskHistoryStore.isStaleAndRecoverable` uses this to skip stale-recovery
+ * for entries written post-boot — those belong to live in-memory tasks whose
+ * lifecycle hooks are still firing throttled saves and must not be tombstoned
+ * to `INTERRUPTED`.
+ *
+ * `resetTaskHistoryStoreCache()` re-captures it so tests see fresh boot
+ * semantics per `beforeEach`.
+ */
+let daemonStartedAt = Date.now()
+
 /** Optional logger override for tests — when set, audit triggered inside getStore uses this. */
 let testLoggerForGetStore: ((msg: string) => void) | undefined
 
@@ -32,7 +45,7 @@ let testLoggerForGetStore: ((msg: string) => void) | undefined
 export function getStore(projectPath: string): FileTaskHistoryStore {
   let store = stores.get(projectPath)
   if (!store) {
-    store = new FileTaskHistoryStore({baseDir: getProjectDataDir(projectPath)})
+    store = new FileTaskHistoryStore({baseDir: getProjectDataDir(projectPath), daemonStartedAt})
     stores.set(projectPath, store)
   }
 
@@ -97,6 +110,9 @@ export function resetTaskHistoryStoreCache(): void {
   stores.clear()
   auditedProjects.clear()
   testLoggerForGetStore = undefined
+  // Re-capture boot time so tests see fresh "this daemon just started" semantics
+  // for the C0 stale-recovery gate.
+  daemonStartedAt = Date.now()
 }
 
 /** Test-only: inject a logger into the audit path triggered by `getStore`. Pass no arg to clear. */

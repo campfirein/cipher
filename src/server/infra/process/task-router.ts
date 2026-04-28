@@ -16,7 +16,6 @@
  */
 
 import type {ReasoningContentItem, ToolCallEvent} from '../../../shared/transport/events/task-events.js'
-import type {TaskHistoryEntry} from '../../core/domain/entities/task-history-entry.js'
 import type {
   LlmChunkEvent,
   LlmErrorEvent,
@@ -51,12 +50,10 @@ import type {IAgentPool} from '../../core/interfaces/agent/i-agent-pool.js'
 import type {ITaskLifecycleHook} from '../../core/interfaces/process/i-task-lifecycle-hook.js'
 import type {IProjectRegistry} from '../../core/interfaces/project/i-project-registry.js'
 import type {IProjectRouter} from '../../core/interfaces/routing/i-project-router.js'
-import type {ITaskHistoryStore, TaskHistoryStatus} from '../../core/interfaces/storage/i-task-history-store.js'
+import type {ITaskHistoryStore} from '../../core/interfaces/storage/i-task-history-store.js'
 import type {ITransportServer} from '../../core/interfaces/transport/i-transport-server.js'
 import type {TaskInfo} from './types.js'
 
-import {TASK_HISTORY_ID_PREFIX} from '../../constants.js'
-import {TASK_HISTORY_SCHEMA_VERSION, TaskHistoryEntrySchema} from '../../core/domain/entities/task-history-entry.js'
 import {AgentNotAvailableError, serializeTaskError} from '../../core/domain/errors/task-error.js'
 import {LlmEventNames, TransportLlmEventList, TransportTaskEventNames} from '../../core/domain/transport/schemas.js'
 import {isDescendantOf} from '../../utils/path-utils.js'
@@ -64,6 +61,7 @@ import {transportLog} from '../../utils/process-logger.js'
 import {isValidTaskType} from '../../utils/type-guards.js'
 import {resolveProject} from '../project/resolve-project.js'
 import {broadcastToProjectRoom} from './broadcast-utils.js'
+import {buildTaskHistoryEntry} from './task-history-entry-builder.js'
 
 type LlmEventName = (typeof TransportLlmEventList)[number]
 
@@ -137,87 +135,59 @@ function hasTaskId(data: unknown): data is {[key: string]: unknown; taskId: stri
   return typeof data === 'object' && data !== null && 'taskId' in data && typeof data.taskId === 'string'
 }
 
+/** Type guard for a plain JSON object — replaces ad-hoc `as Record<string, unknown>` casts. */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
 function matchesListFilters(
   item: TaskListItem,
-  filters: {before?: number; projectFilter: string; statusFilter?: TaskListItemStatus[]},
+  filters: {
+    before?: number
+    /**
+     * Tiebreaker for `before`. When two tasks share the same `createdAt` and
+     * `before === item.createdAt`, the row with `taskId < beforeTaskId`
+     * survives (so we strictly continue past the previous page boundary).
+     * When omitted, falls back to the original `<` semantics on `before`.
+     */
+    beforeTaskId?: string
+    projectFilter: string
+    statusFilter?: TaskListItemStatus[]
+    /**
+     * Optional task-type filter (e.g. `['curate']`, `['query', 'search']`).
+     * Empty array is treated as omitted to match the store's `?.length`
+     * semantics — both layers must agree so persisted+in-memory results
+     * are filtered consistently.
+     */
+    typeFilter?: string[]
+  },
 ): boolean {
   const taskProject = item.projectPath
   if (taskProject !== undefined && taskProject !== filters.projectFilter) return false
-  if (filters.before !== undefined && item.createdAt >= filters.before) return false
+  if (filters.before !== undefined) {
+    if (filters.beforeTaskId !== undefined) {
+      // Composite cursor: strictly past (before, beforeTaskId) in DESC order.
+      if (item.createdAt > filters.before) return false
+      if (item.createdAt === filters.before && item.taskId >= filters.beforeTaskId) return false
+    } else if (item.createdAt >= filters.before) {
+      return false
+    }
+  }
+
   if (filters.statusFilter && filters.statusFilter.length > 0 && !filters.statusFilter.includes(item.status)) {
+    return false
+  }
+
+  if (filters.typeFilter && filters.typeFilter.length > 0 && !filters.typeFilter.includes(item.type)) {
     return false
   }
 
   return true
 }
 
-/**
- * Build a `TaskHistoryEntry` from in-memory `TaskInfo` for `handleTaskGet`.
- * Mirrors `TaskHistoryHook.baseFromTaskInfo` + `statusShapeFromTaskInfo`
- * (M2.06) — kept inline rather than imported because the hook → router
- * direction would deepen TaskRouter's coupling. If both drift, sync here +
- * in `task-history-hook.ts`. Future M2.x refactor: extract to
- * `task-history-entry-builder.ts`.
- */
-function synthesizeEntryFromTaskInfo(task: TaskInfo): TaskHistoryEntry | undefined {
-  if (task.projectPath === undefined) return undefined
-
-  const base: Record<string, unknown> = {
-    content: task.content,
-    createdAt: task.createdAt,
-    id: `${TASK_HISTORY_ID_PREFIX}-${task.taskId}`,
-    projectPath: task.projectPath,
-    schemaVersion: TASK_HISTORY_SCHEMA_VERSION,
-    taskId: task.taskId,
-    type: task.type,
-    ...(task.clientCwd === undefined ? {} : {clientCwd: task.clientCwd}),
-    ...(task.files === undefined ? {} : {files: task.files}),
-    ...(task.folderPath === undefined ? {} : {folderPath: task.folderPath}),
-    ...(task.logId === undefined ? {} : {logId: task.logId}),
-    ...(task.model === undefined ? {} : {model: task.model}),
-    ...(task.provider === undefined ? {} : {provider: task.provider}),
-    ...(task.reasoningContents === undefined ? {} : {reasoningContents: task.reasoningContents}),
-    ...(task.responseContent === undefined ? {} : {responseContent: task.responseContent}),
-    ...(task.sessionId === undefined ? {} : {sessionId: task.sessionId}),
-    ...(task.toolCalls === undefined ? {} : {toolCalls: task.toolCalls}),
-    ...(task.worktreeRoot === undefined ? {} : {worktreeRoot: task.worktreeRoot}),
-  }
-
-  const candidate = {...base, ...statusShapeForSynthesis(task)}
-  const parsed = TaskHistoryEntrySchema.safeParse(candidate)
-  return parsed.success ? parsed.data : undefined
-}
-
-function statusShapeForSynthesis(task: TaskInfo): Record<string, unknown> {
-  switch (task.status) {
-    case 'cancelled':
-    case 'completed': {
-      return {
-        completedAt: task.completedAt ?? Date.now(),
-        status: task.status,
-        ...(task.startedAt === undefined ? {} : {startedAt: task.startedAt}),
-        ...(task.status === 'completed' && task.result !== undefined ? {result: task.result} : {}),
-      }
-    }
-
-    case 'error': {
-      return {
-        completedAt: task.completedAt ?? Date.now(),
-        error: task.error ?? {code: 'TASK_ERROR', message: 'unknown error', name: 'TaskError'},
-        status: 'error',
-        ...(task.startedAt === undefined ? {} : {startedAt: task.startedAt}),
-      }
-    }
-
-    case 'started': {
-      return {startedAt: task.startedAt ?? task.createdAt, status: 'started'}
-    }
-
-    default: {
-      return {status: 'created'}
-    }
-  }
-}
+// `synthesizeEntryFromTaskInfo` was extracted to `task-history-entry-builder.ts`
+// alongside `TaskHistoryHook`'s identical code path. Both consumers now import
+// the same builder, so the two no longer drift.
 
 function toListItem(task: TaskInfo): TaskListItem {
   const status: TaskListItemStatus = task.status ?? (task.completedAt ? 'completed' : task.startedAt ? 'started' : 'created')
@@ -468,7 +438,15 @@ export class TaskRouter {
       }
 
       case LlmEventNames.THINKING: {
+        // Dedup parity with the TUI store (`tasks-store.ts:127`): if the last
+        // reasoning item is already a THINKING marker, skip — the model is
+        // about to stream more reasoning content that will be appended to it.
+        // Without this, repeated THINKING events from the provider produce
+        // multiple empty `{isThinking: true, content: ''}` items in persisted
+        // entries, which the live UI never showed.
         const items = task.reasoningContents ?? []
+        const last = items.at(-1)
+        if (last?.isThinking === true) return
         const nextItems: ReasoningContentItem[] = [
           ...items,
           {content: '', isThinking: true, timestamp: Date.now()},
@@ -479,7 +457,7 @@ export class TaskRouter {
       }
 
       case LlmEventNames.TOOL_CALL: {
-        const args = typeof data.args === 'object' && data.args !== null ? (data.args as Record<string, unknown>) : {}
+        const args = isRecord(data.args) ? data.args : {}
         const callId = typeof data.callId === 'string' ? data.callId : undefined
         const sessionId = typeof data.sessionId === 'string' ? data.sessionId : ''
         const toolName = typeof data.toolName === 'string' ? data.toolName : ''
@@ -1018,7 +996,7 @@ export class TaskRouter {
     if (liveTask !== undefined) {
       const {status} = liveTask
       if (status !== undefined && !TERMINAL_STATUSES.has(status)) {
-        return {error: `cannot delete task in status '${status}'`, success: false}
+        return {error: `cannot delete task in status '${status}'`, removed: false, success: false}
       }
     }
 
@@ -1044,22 +1022,92 @@ export class TaskRouter {
       }
     }
 
-    if (wasInMemory || wasLive) this.broadcastTaskDeleted(projectPath, taskId)
-    return {success: true}
+    const removed = wasInMemory || wasLive
+    if (removed) this.broadcastTaskDeleted(projectPath, taskId)
+
+    // C4: `removed` distinguishes "actually deleted" from "idempotent no-op".
+    // `task:deleteBulk` sums on this flag so unknown / already-tombstoned ids
+    // never inflate `deletedCount`. The wire-level `success` stays `true` to
+    // preserve the documented idempotent contract for single-delete callers.
+    return {removed, success: true}
   }
 
   private async handleTaskDeleteBulk(
     data: TaskDeleteBulkRequest,
     clientId: string,
   ): Promise<TaskDeleteBulkResponse> {
-    let deletedCount = 0
+    // N3: batch store.deleteMany per project instead of N×handleTaskDelete.
+    // Per-id work splits into (a) liveness/refusal checks + in-memory cleanup
+    // (cheap, sequential) and (b) the actual store mutation (expensive,
+    // batched). Bulk delete of 200 ids in one project: 1 readIndexDedup +
+    // 1 batched tombstone vs the previous 200 readIndexDedups.
+
+    type Pending = {projectPath: string; taskId: string; wasInMemory: boolean}
+    const pending: Pending[] = []
+
     for (const taskId of data.taskIds) {
-      // eslint-disable-next-line no-await-in-loop -- per-id projectPath resolution is sequential
-      const result = await this.handleTaskDelete({taskId}, clientId)
-      if (result.success) deletedCount++
+      // Refusal: non-terminal in-memory tasks must not be deleted out from
+      // under the agent — same contract as the single-delete handler.
+      const liveTask = this.tasks.get(taskId)
+      if (liveTask !== undefined) {
+        const {status} = liveTask
+        if (status !== undefined && !TERMINAL_STATUSES.has(status)) continue
+      }
+
+      // Resolve projectPath: in-memory first, then the client's registered project.
+      const projectPath =
+        liveTask?.projectPath ??
+        this.completedTasks.get(taskId)?.task.projectPath ??
+        this.resolveClientProjectPath?.(clientId)
+      if (projectPath === undefined) continue
+
+      const wasInMemory = this.tasks.has(taskId) || this.completedTasks.has(taskId)
+      this.tasks.delete(taskId)
+      this.completedTasks.delete(taskId)
+
+      pending.push({projectPath, taskId, wasInMemory})
     }
 
-    return {deletedCount}
+    // Group by projectPath for batched store.deleteMany.
+    const byProject = new Map<string, string[]>()
+    for (const {projectPath, taskId} of pending) {
+      const ids = byProject.get(projectPath) ?? []
+      ids.push(taskId)
+      byProject.set(projectPath, ids)
+    }
+
+    const storeRemoved = new Set<string>()
+    if (this.getTaskHistoryStore !== undefined) {
+      for (const [projectPath, ids] of byProject) {
+        try {
+          const store = this.getTaskHistoryStore(projectPath)
+          // eslint-disable-next-line no-await-in-loop -- per-project sequential; project count is small
+          const removed = await store.deleteMany(ids)
+          for (const id of removed) storeRemoved.add(id)
+        } catch (error) {
+          transportLog(
+            `handleTaskDeleteBulk: store.deleteMany failed for ${projectPath}: ${error instanceof Error ? error.message : String(error)}`,
+          )
+        }
+      }
+    }
+
+    // Final removed set = in-memory hits ∪ store hits. Per-id broadcast for
+    // each — preserves the C4 contract (no broadcast for unknown ids).
+    const removedSet = new Set<string>()
+    const projectByTaskId = new Map<string, string>()
+    for (const {projectPath, taskId, wasInMemory} of pending) {
+      if (wasInMemory || storeRemoved.has(taskId)) {
+        removedSet.add(taskId)
+        projectByTaskId.set(taskId, projectPath)
+      }
+    }
+
+    for (const taskId of removedSet) {
+      this.broadcastTaskDeleted(projectByTaskId.get(taskId), taskId)
+    }
+
+    return {deletedCount: removedSet.size}
   }
 
   private handleTaskError(data: TaskErrorEvent): void {
@@ -1114,7 +1162,7 @@ export class TaskRouter {
     // Try in-memory active first
     const liveTask = this.tasks.get(taskId) ?? this.completedTasks.get(taskId)?.task
     if (liveTask !== undefined) {
-      const synthesized = synthesizeEntryFromTaskInfo(liveTask)
+      const synthesized = buildTaskHistoryEntry(liveTask)
       if (synthesized !== undefined) return {task: synthesized}
     }
 
@@ -1146,18 +1194,22 @@ export class TaskRouter {
       taskProject === projectFilter || taskProject === undefined
 
     const limit = data.limit ?? DEFAULT_TASK_LIST_LIMIT
-    const {before, status: statusFilter} = data
+    const {before, beforeTaskId, status: statusFilter, type: typeFilter} = data
 
     // Persisted entries from the index (best-effort — tolerate store outages).
+    // `TaskListItemStatus` and `TaskHistoryStatus` are structurally identical
+    // (same five string literals) — both are typed via `TaskHistoryStatus =
+    // TaskListItemStatus` in the entity, so the store's filter accepts the
+    // wire shape directly with no cast.
     let persisted: TaskListItem[] = []
     if (this.getTaskHistoryStore !== undefined) {
       try {
         const store = this.getTaskHistoryStore(projectFilter)
-        const persistedStatuses = statusFilter as TaskHistoryStatus[] | undefined
         persisted = await store.list({
           projectPath: projectFilter,
           ...(before === undefined ? {} : {before}),
-          ...(persistedStatuses === undefined ? {} : {status: persistedStatuses}),
+          ...(statusFilter === undefined ? {} : {status: statusFilter}),
+          ...(typeFilter === undefined ? {} : {type: typeFilter}),
         })
       } catch (error) {
         transportLog(
@@ -1166,30 +1218,40 @@ export class TaskRouter {
       }
     }
 
+    const filterArgs = {before, beforeTaskId, projectFilter, statusFilter, typeFilter}
+
     // Build merge map (taskId → item). In-memory wins.
     const merged = new Map<string, TaskListItem>()
     for (const item of persisted) {
-      if (matchesListFilters(item, {before, projectFilter, statusFilter})) merged.set(item.taskId, item)
+      if (matchesListFilters(item, filterArgs)) merged.set(item.taskId, item)
     }
 
     for (const task of this.tasks.values()) {
       if (!matches(task.projectPath)) continue
       const item = toListItem(task)
-      if (matchesListFilters(item, {before, projectFilter, statusFilter})) merged.set(item.taskId, item)
+      if (matchesListFilters(item, filterArgs)) merged.set(item.taskId, item)
     }
 
     for (const {task} of this.completedTasks.values()) {
       if (!matches(task.projectPath)) continue
       const item = toListItem(task)
-      if (matchesListFilters(item, {before, projectFilter, statusFilter})) merged.set(item.taskId, item)
+      if (matchesListFilters(item, filterArgs)) merged.set(item.taskId, item)
     }
 
-    const items = [...merged.values()].sort((a, b) => b.createdAt - a.createdAt)
+    // Sort by (createdAt DESC, taskId DESC) so same-millisecond clusters have a
+    // stable secondary order matching the cursor tiebreaker.
+    const items = [...merged.values()].sort((a, b) => {
+      if (b.createdAt !== a.createdAt) return b.createdAt - a.createdAt
+      if (b.taskId > a.taskId) return 1
+      if (b.taskId < a.taskId) return -1
+      return 0
+    })
     const paged = items.slice(0, limit)
     const hasMore = items.length > paged.length
-    const nextCursor = hasMore && paged.length > 0 ? paged.at(-1)?.createdAt : undefined
+    const last = hasMore ? paged.at(-1) : undefined
 
-    return nextCursor === undefined ? {tasks: paged} : {nextCursor, tasks: paged}
+    if (last === undefined) return {tasks: paged}
+    return {nextCursor: last.createdAt, nextCursorTaskId: last.taskId, tasks: paged}
   }
 
   /**
@@ -1286,9 +1348,11 @@ export class TaskRouter {
       this.completedTasks.set(taskId, {completedAt: Date.now(), task})
       this.tasks.delete(taskId)
 
-      setTimeout(() => {
+      const timer = setTimeout(() => {
         this.completedTasks.delete(taskId)
       }, TASK_CLEANUP_GRACE_PERIOD_MS)
+      // Don't keep the event loop alive purely for completed-task GC.
+      timer.unref?.()
     }
   }
 

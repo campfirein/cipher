@@ -17,8 +17,13 @@ export interface ITaskHistoryStore {
   }>
   /** Remove a single entry by taskId. Idempotent — returns false on missing/already-deleted. */
   delete(taskId: string): Promise<boolean>
-  /** Bulk-delete by taskIds. Returns count of taskIds that were live before the call. */
-  deleteMany(taskIds: string[]): Promise<number>
+  /**
+   * Bulk-delete by taskIds. Returns the subset of input ids that were live
+   * (and have now been tombstoned) — invalid, unknown, and already-tombstoned
+   * ids are dropped. Callers can rely on the returned array length as the
+   * `deletedCount` and on the array contents for per-id broadcasts.
+   */
+  deleteMany(taskIds: string[]): Promise<string[]>
   /** Retrieve an entry's full Level 2 detail by taskId. Returns undefined if not found or corrupt. */
   getById(taskId: string): Promise<TaskHistoryEntry | undefined>
   /**

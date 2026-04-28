@@ -135,12 +135,19 @@ describe('M2.01 — TaskHistoryEntry + consolidation', () => {
   describe('shared types consolidation', () => {
     // eslint-disable-next-line unicorn/consistent-function-scoping
     function countDefinitions(typeName: string): number {
-      // Mirrors the ticket's verification step: `grep -rn "^export interface X" src/ | wc -l`
+      // Mirrors the ticket's verification step: `grep -rn "^export (interface|type) X" src/ | wc -l`
+      // CLAUDE.md prefers `type` for DTO shapes, so accept both forms.
       // Use `--include` to scope the scan to ts/tsx so generated/binary files don't pollute counts.
       try {
         const output = execFileSync(
           'grep',
-          ['-rn', '--include=*.ts', '--include=*.tsx', `^export interface ${typeName}\\b`, join(repoRoot, 'src')],
+          [
+            '-rEn',
+            '--include=*.ts',
+            '--include=*.tsx',
+            `^export (interface|type) ${typeName}\\b`,
+            join(repoRoot, 'src'),
+          ],
           {encoding: 'utf8'},
         )
         return output.trim() === '' ? 0 : output.trim().split('\n').length
@@ -158,7 +165,7 @@ describe('M2.01 — TaskHistoryEntry + consolidation', () => {
         join(repoRoot, 'src/shared/transport/events/task-events.ts'),
         'utf8',
       )
-      expect(/^export interface ReasoningContentItem\b/m.test(sharedFile)).to.equal(true)
+      expect(/^export (interface|type) ReasoningContentItem\b/m.test(sharedFile)).to.equal(true)
     })
 
     it('ToolCallEvent defined exactly once (in shared/)', () => {
@@ -167,7 +174,7 @@ describe('M2.01 — TaskHistoryEntry + consolidation', () => {
         join(repoRoot, 'src/shared/transport/events/task-events.ts'),
         'utf8',
       )
-      expect(/^export interface ToolCallEvent\b/m.test(sharedFile)).to.equal(true)
+      expect(/^export (interface|type) ToolCallEvent\b/m.test(sharedFile)).to.equal(true)
     })
 
     it('webui + tui imports resolve from shared/', () => {
