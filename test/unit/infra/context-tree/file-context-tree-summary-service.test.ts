@@ -334,4 +334,60 @@ describe('FileContextTreeSummaryService', () => {
       expect(results.some((result) => result.path === 'auth' && result.actionTaken)).to.equal(true)
     })
   })
+
+  describe('parentTaskId threading', () => {
+    it('uses parentTaskId for createTaskSession when provided', async () => {
+      const capturedTaskIds: string[] = []
+      const trackingAgent = createMockAgent('Summary.')
+      trackingAgent.createTaskSession = async (taskId: string) => {
+        capturedTaskIds.push(taskId)
+        return 'mock-session'
+      }
+
+      const authDir = join(contextTreeDir, 'auth')
+      await mkdir(authDir, {recursive: true})
+      await writeFile(join(authDir, 'jwt.md'), '# JWT\nToken handling.')
+
+      await service.generateSummary('auth', trackingAgent, testDir, 'curate-op-abc123')
+      expect(capturedTaskIds).to.include('curate-op-abc123')
+      expect(capturedTaskIds.every((id) => !id.startsWith('summary_'))).to.equal(true)
+    })
+
+    it('falls back to summary_<dir> taskId when parentTaskId is absent', async () => {
+      const capturedTaskIds: string[] = []
+      const trackingAgent = createMockAgent('Summary.')
+      trackingAgent.createTaskSession = async (taskId: string) => {
+        capturedTaskIds.push(taskId)
+        return 'mock-session'
+      }
+
+      const authDir = join(contextTreeDir, 'auth')
+      await mkdir(authDir, {recursive: true})
+      await writeFile(join(authDir, 'jwt.md'), '# JWT\nToken handling.')
+
+      await service.generateSummary('auth', trackingAgent, testDir)
+      expect(capturedTaskIds).to.include('summary_auth')
+    })
+
+    it('propagateStaleness threads parentTaskId through every generateSummary call', async () => {
+      const capturedTaskIds: string[] = []
+      const trackingAgent = createMockAgent('Summary.')
+      trackingAgent.createTaskSession = async (taskId: string) => {
+        capturedTaskIds.push(taskId)
+        return 'mock-session'
+      }
+
+      const topicDir = join(contextTreeDir, 'auth', 'jwt')
+      await mkdir(topicDir, {recursive: true})
+      await writeFile(join(topicDir, 'refresh.md'), '# Refresh')
+
+      const parentTaskId = 'curate-op-xyz789'
+      await service.propagateStaleness(['auth/jwt/refresh.md'], trackingAgent, testDir, parentTaskId)
+
+      // Every walk-up level (auth/jwt, auth) MUST share the parent id so the
+      // billing service groups them into one operation.
+      expect(capturedTaskIds.length).to.be.greaterThan(1)
+      expect(capturedTaskIds.every((id) => id === parentTaskId)).to.equal(true)
+    })
+  })
 })
