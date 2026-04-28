@@ -1,10 +1,11 @@
 import {Badge} from '@campfirein/byterover-packages/components/badge'
 import {Button} from '@campfirein/byterover-packages/components/button'
 import {Tooltip, TooltipContent, TooltipTrigger} from '@campfirein/byterover-packages/components/tooltip'
-import {Server} from 'lucide-react'
+import {Plug} from 'lucide-react'
 import {useState} from 'react'
 
 import logo from '../assets/logo-byterover.svg'
+import {StatusDot} from '../components/status-dot'
 import {AuthMenu} from '../features/auth/components/auth-menu'
 import {HelpMenu} from '../features/onboarding/components/help-menu'
 import {ProjectDropdown} from '../features/project/components/project-dropdown'
@@ -58,14 +59,22 @@ export function Header() {
       <div className="flex-1" />
 
       {/* Right: provider/model + docs + login */}
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-3">
         <Tooltip>
           <TooltipTrigger render={<Button onClick={() => setProviderDialogOpen(true)} size="sm" variant="ghost" />}>
-            <Server className="size-3.5 shrink-0 mr-1" />
+            <span className="relative mr-1 inline-flex size-4 shrink-0">
+              <Plug className="size-4" />
+              {activeProvider && (
+                <StatusDot
+                  className="border-background absolute -right-0.5 -bottom-0.5 size-2 border-2"
+                  tone="success"
+                />
+              )}
+            </span>
             {providerLabel}
-            {!activeProvider && <span className="size-1.5 shrink-0 rounded-full bg-amber-500" />}
+            {!activeProvider && <StatusDot pulsing tone="amber" />}
           </TooltipTrigger>
-          {!activeProvider && <TooltipContent>Configure to use curate/query feature</TooltipContent>}
+          <TooltipContent>Configure provider to power curate & query</TooltipContent>
         </Tooltip>
         <ProviderFlowDialog onOpenChange={setProviderDialogOpen} open={providerDialogOpen} />
 

@@ -12,7 +12,7 @@
     "coding-assistant",
     "knowledge-management"
   ],
-  "version": "3.8.3",
+  "version": "3.9.0",
   "author": "ByteRover",
   "bin": {
     "brv": "./bin/run.js"
@@ -34,7 +34,7 @@
     "@ai-sdk/xai": "^2.0.57",
     "@anthropic-ai/sdk": "^0.70.1",
     "@campfirein/brv-transport-client": "github:campfirein/brv-transport-client#1.0.0",
-    "@campfirein/byterover-packages": "github:campfirein/byterover-packages#1.0.1",
+    "@campfirein/byterover-packages": "github:campfirein/byterover-packages#1.0.2",
     "@google/genai": "^1.29.0",
     "@inkjs/ui": "^2.0.0",
     "@inquirer/prompts": "^7.9.0",

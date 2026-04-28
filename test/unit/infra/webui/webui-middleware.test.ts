@@ -8,6 +8,7 @@ import {createWebUiMiddleware} from '../../../../src/server/infra/webui/webui-mi
 
 interface HttpResult {
   body: string
+  headers: IncomingMessage['headers']
   status: number
 }
 
@@ -17,7 +18,11 @@ async function httpRequest(url: string): Promise<HttpResult> {
       const chunks: Buffer[] = []
       res.on('data', (chunk: Buffer) => chunks.push(chunk))
       res.on('end', () => {
-        resolve({body: Buffer.concat(chunks).toString('utf8'), status: res.statusCode ?? 0})
+        resolve({
+          body: Buffer.concat(chunks).toString('utf8'),
+          headers: res.headers,
+          status: res.statusCode ?? 0,
+        })
       })
       res.on('error', reject)
     }).on('error', reject)
@@ -109,6 +114,21 @@ describe('createWebUiMiddleware', () => {
 
     expect(response.status).to.equal(200)
     expect(response.body).to.equal(indexHtml)
+  })
+
+  it('should allow https images in Content-Security-Policy for OAuth provider avatars', async () => {
+    const distRoot = join(testDir, 'dist', 'webui')
+    mkdirSync(distRoot, {recursive: true})
+    writeFileSync(join(distRoot, 'index.html'), '<!doctype html>', 'utf8')
+
+    const port = await startServer(distRoot)
+    const response = await httpRequest(`http://127.0.0.1:${port}/`)
+
+    const csp = response.headers['content-security-policy']
+    expect(csp).to.be.a('string')
+    const imgSrc = (csp as string).split(';').map((d) => d.trim()).find((d) => d.startsWith('img-src'))
+    expect(imgSrc, 'img-src directive should be present').to.exist
+    expect(imgSrc).to.include('https:')
   })
 
   it('should not register static or SPA routes when webuiDistDir does not exist', async () => {

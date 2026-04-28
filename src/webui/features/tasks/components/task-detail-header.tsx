@@ -56,9 +56,9 @@ function CopyableTaskId({taskId}: {taskId: string}) {
   const copy = async () => {
     try {
       await navigator.clipboard.writeText(taskId)
-      toast.success('Task ID copied', {duration: 2000, position: 'top-center'})
+      toast.success('Task ID copied', {duration: 2000})
     } catch {
-      toast.error('Failed to copy task ID', {duration: 3000, position: 'top-center'})
+      toast.error('Failed to copy task ID', {duration: 3000})
     }
   }
 
