@@ -2,6 +2,20 @@
 
 All notable user-facing changes to ByteRover CLI will be documented in this file.
 
+## [3.10.0]
+
+### Added
+- **Connect OpenClaude as an agent.** Run `brv connectors install "OpenClaude"` or pick it in `/connectors`.
+
+### Changed
+- **Prettier `brv login` confirmation page.** The browser tab after sign-in now matches the brv dark theme, with a styled error page if sign-in fails.
+- **Faster, more reliable first-run startup.** The first `brv` command after install or restart connects more consistently, and no longer hangs when the sign-in provider is slow.
+
+### Fixed
+- **`brv restart` works inside nested shell wrappers.** Used to leave the daemon stuck when `brv` was launched through several wrapper scripts (a shell alias, an npm script, or a CI runner). Fixed on macOS, Linux, and Windows.
+- **`brv curate` counts as one operation, not many.** Curating many folders at once was being billed once per folder, which could push fresh free-tier accounts past their limit in a single run. Grouped correctly now.
+- **Security update.** Patched `postcss` and several other dependencies to address a high-severity advisory.
+
 ## [3.9.0]
 
 ### Added
