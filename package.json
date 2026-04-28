@@ -231,6 +231,9 @@
     "ink-spinner",
     "ink-text-input",
     "ink-scroll-list",
-    "ink-scroll-view"
+    "ink-scroll-view",
+    "@tanstack/react-query",
+    "react-router-dom",
+    "zustand"
   ]
 }
