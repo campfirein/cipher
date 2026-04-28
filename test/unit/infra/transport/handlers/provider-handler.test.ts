@@ -917,6 +917,22 @@ describe('ProviderHandler', () => {
       expect(openaiProvider?.authMethod).to.equal('oauth')
       expect(openaiProvider?.requiresApiKey).to.be.false
     })
+
+    it('should expose activeModel as undefined for openai-compatible connected without a model', async () => {
+      const config = ProviderConfig.createDefault().withProviderConnected('openai-compatible', {
+        baseUrl: 'http://localhost:11434/v1',
+      })
+      providerConfigStore.read.resolves(config)
+      providerConfigStore.isProviderConnected.withArgs('openai-compatible').resolves(true)
+      createHandler()
+
+      const handler = transport._handlers.get(ProviderEvents.LIST)
+      const result = await handler!(undefined, 'client-1')
+
+      const openaiCompat = result.providers.find((p: {id: string}) => p.id === 'openai-compatible')
+      expect(openaiCompat?.isConnected).to.be.true
+      expect(openaiCompat?.activeModel).to.be.undefined
+    })
   })
 
   describe('provider:cancelOAuth', () => {
