@@ -99,9 +99,8 @@ const projectPath = projectPathEnv
 const agentLog = createAgentLogger(process.env.BRV_SESSION_LOG, `[agent-process:${projectPath}]`)
 
 /**
- * Tracks detached post-curate work (Phase 4) so the user-perceived
- * `task:completed` fires immediately after the agent body finishes
- * (ENG-2522). Drained on shutdown to avoid truncating partial writes.
+ * Holds detached post-curate work so `task:completed` can fire as soon as
+ * the agent body finishes. Drained on shutdown to avoid truncated writes.
  */
 const postWorkRegistry = new PostWorkRegistry({
   onError(_projectPath, error) {
@@ -536,12 +535,9 @@ async function executeTask(
       // Socket dropped — continue executing so we can still emit task:completed/error when socket reconnects
     }
 
-    // Detached Phase 4 from a prior task on this project may still be writing
-    // `_index.md` / `_manifest.json`. Block new context-tree work until that
-    // drains — `task:completed` no longer implies "tree is free" since
-    // ENG-2522 detached Phase 4. Bounded by the prior task's Phase 4 (~18s
-    // worst case from the ticket); the user is already in the queue, so the
-    // task:started they observe is unaffected.
+    // Block new context-tree work until any detached Phase 4 from a prior
+    // task on this project drains — `task:completed` no longer implies the
+    // tree is free.
     if (type === 'curate' || type === 'curate-folder' || type === 'dream') {
       await postWorkRegistry.awaitProject(projectPath)
     }
@@ -549,10 +545,8 @@ async function executeTask(
     try {
       let result: string
       let logId: string | undefined
-      // Detached post-curate work (Phase 4). Captured during the curate /
-      // curate-folder cases and submitted to the PostWorkRegistry AFTER
-      // task:completed fires, so the user does not wait on summary regen
-      // and manifest rebuild (ENG-2522).
+      // Captured during curate / curate-folder; submitted to the registry
+      // after `task:completed` so the user does not wait on Phase 4.
       let postWork: (() => Promise<void>) | undefined
       switch (type) {
         case 'curate': {
@@ -659,8 +653,8 @@ async function executeTask(
         }
       }
 
-      // Emit task:completed BEFORE running detached Phase 4 — user sees the
-      // response as soon as the agent body finishes (ENG-2522).
+      // Emit task:completed BEFORE the detached Phase 4 so the user sees
+      // the response as soon as the agent body finishes.
       agentLog(`task:completed taskId=${taskId}`)
       try {
         transport.request(TransportTaskEventNames.COMPLETED, {clientId, ...(logId ? {logId} : {}), projectPath, result, taskId})
@@ -697,12 +691,9 @@ async function executeTask(
   } finally {
     activeTaskCount--
 
-    // Deferred hot-swap: if provider changed while tasks were in-flight,
-    // trigger swap now that all tasks are done. Detached Phase 4 means
-    // post-curate work can still be running `propagateStaleness` against
-    // `agent` after activeTaskCount reaches 0; rebuilding the SessionManager
-    // mid-LLM-call would cause Phase 4 to fail silently. Wait on the registry
-    // first so any in-flight Phase 4 finishes before the swap (ENG-2522).
+    // Deferred hot-swap when provider changed mid-task. Wait on detached
+    // Phase 4 first — rebuilding SessionManager during an in-flight
+    // `propagateStaleness` LLM call would silently corrupt Phase 4.
     if (activeTaskCount === 0 && providerConfigDirty && agent && transport) {
       const swapAgent = agent
       const swapTransport = transport
@@ -867,10 +858,8 @@ async function hotSwapProvider(
 async function shutdown(): Promise<void> {
   agentLog('Shutting down...')
 
-  // Drain any in-flight detached post-curate work BEFORE stopping the agent
-  // and disconnecting transport. propagateStaleness mid-write would otherwise
-  // leave `_index.md` truncated on SIGTERM. 30s + 5s grace mirrors the
-  // hardening committed to in the ENG-2522 plan.
+  // Drain detached Phase 4 BEFORE stopping the agent — `propagateStaleness`
+  // mid-write would otherwise leave `_index.md` truncated on SIGTERM.
   try {
     const drainStart = Date.now()
     const drainResult = await postWorkRegistry.drain(30_000)

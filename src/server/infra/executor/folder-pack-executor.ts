@@ -49,12 +49,7 @@ function folderPackLog(message: string): void {
 export class FolderPackExecutor implements IFolderPackExecutor {
   constructor(private readonly folderPackService: IFolderPackService) {}
 
-  /**
-   * Synchronous wrapper kept for backwards compatibility — runs the agent body
-   * AND awaits Phase 4 before returning. agent-process uses runAgentBody
-   * directly to fire `task:completed` early and queue Phase 4 to the
-   * PostWorkRegistry.
-   */
+  /** Synchronous wrapper — runs the agent body and awaits Phase 4 inline. */
   public async executeWithAgent(agent: ICipherAgent, options: FolderPackExecuteOptions): Promise<string> {
     const {finalize, response} = await this.runAgentBody(agent, options)
     await finalize()
@@ -62,9 +57,9 @@ export class FolderPackExecutor implements IFolderPackExecutor {
   }
 
   /**
-   * Run the folder-pack agent body and return the response immediately along
-   * with a finalize thunk that runs the post-curate Phase 4. See
-   * CurateExecutor.runAgentBody for the rationale (ENG-2522).
+   * Returns the response after the agent body, plus a `finalize` thunk for
+   * Phase 4 (snapshot diff → propagateStaleness → manifest rebuild → drain).
+   * Caller invokes `finalize` exactly once.
    */
   public async runAgentBody(
     agent: ICipherAgent,
@@ -955,11 +950,9 @@ await tools.curate([{
   }
 
   /**
-   * Phase 4 post-work for folder-pack curation. Mirrors CurateExecutor's
-   * propagateSummariesIfChanged: acquires the DreamLockService PID-lock so
-   * a concurrent dream cannot interleave on `_index.md` / `_manifest.json`.
-   * Skips propagation if the lock is held — dream's own propagateStaleness
-   * covers the same diff and the next curate catches anything residual.
+   * Folder-pack Phase 4. Holds the dream lock so a concurrent dream cannot
+   * interleave on `_index.md` / `_manifest.json`; skips when the lock is
+   * held. Fail-open.
    */
   private async runFolderPackPostWork(ctx: FolderPackPostWorkContext): Promise<void> {
     const {agent, preState, snapshotService, taskId, tempFileDir} = ctx

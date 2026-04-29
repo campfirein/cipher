@@ -25,9 +25,9 @@ import {DreamLockService} from '../../../../src/server/infra/dream/dream-lock-se
 import {FolderPackExecutor} from '../../../../src/server/infra/executor/folder-pack-executor.js'
 
 /**
- * Stub DreamLockService so Phase 4 tests don't hit a real filesystem
- * `<projectRoot>/.brv/dream.lock`. ENG-2522 added lock coordination around
- * propagateStaleness/buildManifest in folder-pack post-work.
+ * Default DreamLockService stubs so Phase 4 tests don't write real
+ * `dream.lock` files. Folder-pack's post-work holds the lock around
+ * propagateStaleness + buildManifest.
  */
 function stubDreamLockServiceDefaults(): void {
   stub(DreamLockService.prototype, 'tryAcquire').resolves({acquired: true, priorMtime: 0})
@@ -423,10 +423,9 @@ describe('FolderPackExecutor', () => {
     })
   })
 
-describe('runAgentBody / finalize split (ENG-2522)', () => {
-  // Mirrors the curate-executor split coverage. agent-process needs response
-  // BEFORE Phase 4 so it can fire `task:completed` and submit finalize() to
-  // the PostWorkRegistry. Folder-pack has no task-session lifecycle to test.
+describe('runAgentBody / finalize split', () => {
+  // Mirrors the curate-executor split: response must return before Phase 4
+  // so the daemon can fire `task:completed` and queue finalize.
 
   beforeEach(() => {
     stubDreamLockServiceDefaults()

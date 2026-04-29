@@ -1,11 +1,3 @@
-/**
- * PostWorkRegistry — tracks fire-and-forget post-curate work so the daemon can
- * (a) serialise work per project, (b) wait for all in-flight work on shutdown,
- * (c) let `--wait-finalize` block on completion for a specific project.
- *
- * These tests describe the contract before the implementation lands.
- */
-
 import {expect} from 'chai'
 
 import {PostWorkRegistry} from '../../../../src/server/infra/daemon/post-work-registry.js'
@@ -14,10 +6,7 @@ const noop = (): void => {
   // intentionally empty
 }
 
-/**
- * Manually-resolvable promise: lets a test pause a thunk mid-execution and
- * step through ordering invariants without sleeps.
- */
+/** Manually-resolvable promise — lets a test step through ordering invariants without sleeps. */
 function deferred<T = void>(): {promise: Promise<T>; reject: (err: Error) => void; resolve: (value: T) => void;} {
   let resolve: (value: T) => void = noop
   let reject: (err: Error) => void = noop
@@ -28,14 +17,10 @@ function deferred<T = void>(): {promise: Promise<T>; reject: (err: Error) => voi
   return {promise, reject, resolve}
 }
 
-/**
- * A never-resolving promise — feeds drain() with a thunk that exceeds the
- * timeout. Wrapped in a function so we can assign it as a thunk and so the
- * `(_resolve) => {}` executor body is not interpreted by ESLint as returning.
- */
+/** A never-resolving promise — feeds drain() with a thunk that exceeds the timeout. */
 function neverResolves(): Promise<void> {
   return new Promise<void>((_resolve) => {
-    // never call resolve — drain must abandon this thunk after its timeout
+    // never call resolve
   })
 }
 
@@ -233,9 +218,8 @@ describe('PostWorkRegistry', () => {
     })
 
     it('does not block on submissions arriving after the call', async () => {
-      // Captures the tail at call time (matches awaitProject semantics) — the
-      // hot-swap path needs deterministic completion against the snapshot, not
-      // an indefinite wait.
+      // Tail captured at call time (matches awaitProject semantics) — the
+      // hot-swap caller needs a deterministic completion, not an open wait.
       const registry = new PostWorkRegistry()
       const a = deferred<void>()
       registry.submit('/proj', async () => {
@@ -243,17 +227,13 @@ describe('PostWorkRegistry', () => {
       })
 
       const awaiting = registry.awaitAll()
-      // Submit a fresh, slow thunk AFTER awaitAll started.
       const b = deferred<void>()
       registry.submit('/proj', async () => {
         await b.promise
       })
 
       a.resolve()
-      // awaitAll resolves once the snapshot's tail finishes — even though the
-      // chained tail (via b) is still pending.
       await awaiting
-      // Cleanup: release the lingering thunk so the test exits cleanly.
       b.resolve()
       await registry.awaitProject('/proj')
     })

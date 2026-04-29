@@ -50,8 +50,7 @@ import {CurateExecutor} from '../../../../src/server/infra/executor/curate-execu
 
 /**
  * Default DreamLockService stubs so Phase 4 tests don't write real
- * `/p/.brv/dream.lock` files to disk. Tests that exercise the lock
- * coordination directly override these via stub.restore() + re-stub.
+ * `dream.lock` files. Tests exercising the lock directly re-stub via restore.
  */
 function stubDreamLockServiceDefaults(): void {
   stub(DreamLockService.prototype, 'tryAcquire').resolves({acquired: true, priorMtime: 0})
@@ -344,10 +343,9 @@ describe('CurateExecutor (regression)', () => {
     })
   })
 
-  describe('runAgentBody / finalize split (ENG-2522)', () => {
-    // The detached-Phase-4 design depends on runAgentBody returning the
-    // response BEFORE Phase 4 runs. agent-process fires task:completed off
-    // the response and submits finalize() to the PostWorkRegistry.
+  describe('runAgentBody / finalize split', () => {
+    // runAgentBody must return the response BEFORE Phase 4 runs so the daemon
+    // can fire `task:completed` early and queue finalize for background work.
 
     it('returns the agent response without running Phase 4 first', async () => {
       const agent = buildSplitTestAgent()
@@ -423,15 +421,13 @@ describe('CurateExecutor (regression)', () => {
     })
   })
 
-  describe('dream-lock coordination in Phase 4 (ENG-2522)', () => {
-    // The detached Phase 4 races with idle-triggered dream on `_index.md` /
-    // `_manifest.json`. Curate's finalize must hold DreamLockService while it
-    // runs propagateStaleness + buildManifest, otherwise dream's Phase 5 (which
-    // writes the same files) can interleave and corrupt the summary tree.
+  describe('dream-lock coordination in Phase 4', () => {
+    // Detached Phase 4 races with idle-triggered dream on `_index.md` /
+    // `_manifest.json`. Curate's finalize must hold the dream lock around
+    // propagateStaleness + buildManifest to prevent interleaving.
 
     it('acquires the dream lock before propagation and releases on success', async () => {
-      // Restore the default stubs from the top-level beforeEach so we can
-      // observe the actual call sequence (acquire → propagate → release).
+      // Restore default stubs so we can observe the real call sequence.
       restore()
       const tryAcquire = stub(DreamLockService.prototype, 'tryAcquire').resolves({acquired: true, priorMtime: 1234})
       const release = stub(DreamLockService.prototype, 'release').resolves()

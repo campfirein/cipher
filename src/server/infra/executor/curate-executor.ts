@@ -52,14 +52,7 @@ export class CurateExecutor implements ICurateExecutor {
     this.fileContentReader = fileContentReader ?? createFileContentReader()
   }
 
-  /**
-   * Synchronous wrapper kept for backwards compatibility — runs the agent body
-   * AND awaits Phase 4 before returning. Equivalent to the pre-detach behaviour.
-   *
-   * agent-process uses runAgentBody directly so it can fire `task:completed`
-   * after the agent body and queue Phase 4 to the PostWorkRegistry for
-   * asynchronous execution.
-   */
+  /** Synchronous wrapper — runs Phases 1-3 and awaits Phase 4 inline. */
   public async executeWithAgent(agent: ICipherAgent, options: CurateExecuteOptions): Promise<string> {
     const {finalize, response} = await this.runAgentBody(agent, options)
     await finalize()
@@ -67,17 +60,11 @@ export class CurateExecutor implements ICurateExecutor {
   }
 
   /**
-   * Run the agent body (Phases 1–3) and return the response immediately along
-   * with a `finalize` thunk that runs Phase 4 (snapshot diff, summary
-   * regeneration, manifest rebuild, dream counter, background drain, task
-   * session cleanup).
-   *
-   * The caller is responsible for invoking `finalize()` exactly once. The
-   * thunk is fail-open by design: errors inside Phase 4 do not propagate.
-   *
-   * If the agent body itself throws, the task session is cleaned up before
-   * the error propagates and no `finalize` is returned (the caller has
-   * nothing to invoke).
+   * Returns the response after Phases 1-3 plus a `finalize` thunk for Phase 4
+   * (snapshot diff, summary regen, manifest rebuild, dream counter, drain,
+   * task-session cleanup). Caller invokes `finalize` exactly once. The thunk
+   * is fail-open. If the agent body itself throws, the task session is cleaned
+   * up before propagating and no `finalize` is returned.
    */
   public async runAgentBody(
     agent: ICipherAgent,
@@ -165,22 +152,18 @@ export class CurateExecutor implements ICurateExecutor {
       // Parse curation status from agent response for status tracking
       this.lastStatus = this.parseCurationStatus(taskId, response)
     } catch (error) {
-      // Agent body failed — clean up the session before rethrowing so we don't leak it.
-      // No finalize is returned in this path (the caller has nothing to await).
+      // Clean up before propagating — error path returns no finalize.
       await agent.deleteTaskSession(taskSessionId)
       throw error
     }
 
-    // Build the Phase 4 thunk. It captures the closure state (preState, baseDir,
-    // agent, taskId, taskSessionId) and runs the post-curate work asynchronously.
     const finalize = async (): Promise<void> => {
       try {
         await this.propagateSummariesIfChanged({agent, baseDir, preState, snapshotService, taskId})
         await this.incrementDreamCounter(baseDir)
         await (agent as BackgroundDrainAgent).drainBackgroundWork?.()
       } finally {
-        // Clean up entire task session (sandbox + history) in one call.
-        // Lives in finally so it runs even if Phase 4 above throws.
+        // In `finally` so the session is deleted even if Phase 4 throws.
         await agent.deleteTaskSession(taskSessionId)
       }
     }
@@ -366,17 +349,11 @@ export class CurateExecutor implements ICurateExecutor {
   }
 
   /**
-   * Phase 4a–c: snapshot diff → propagateStaleness → opportunistic manifest rebuild.
-   *
-   * Acquires the DreamLockService PID-lock around the write block so a
-   * concurrent dream (which writes the same `_index.md` / `_manifest.json`)
-   * cannot interleave. Detached Phase 4 made this race reachable: with Phase
-   * 4 inline, the daemon was busy and idle-trigger dream couldn't fire. With
-   * Phase 4 detached, dream and curate's post-work can overlap. If the lock
-   * is held (dream is running), this method skips propagation — dream's own
-   * propagateStaleness covers the same changes, and the next curate catches
-   * any residual diff. Fail-open: any error inside is swallowed so it cannot
-   * block curate completion.
+   * Phase 4a–c: snapshot diff → propagateStaleness → opportunistic manifest
+   * rebuild. Holds the dream lock around the write block so a concurrent
+   * dream cannot interleave on `_index.md` / `_manifest.json`. Skips when
+   * the lock is held — dream's own propagation covers the same diff, and
+   * the next curate catches any residual. Fail-open.
    */
   private async propagateSummariesIfChanged(ctx: PropagateSummariesContext): Promise<void> {
     const {agent, baseDir, preState, snapshotService, taskId} = ctx

@@ -1,28 +1,13 @@
 /**
- * PostWorkRegistry
- *
- * Tracks fire-and-forget work that runs after `task:completed` is emitted to
- * the user — primarily the post-curate Phase 4 (summary regeneration, manifest
- * rebuild, dream-state increment, background drain).
- *
- * Three guarantees:
- *   - Work submitted for the same project runs serially (per-project mutex).
- *     Two concurrent curates' Phase 4 cannot race on snapshot pre-state or
- *     `_index.md` writes.
- *   - Work for different projects runs concurrently. No global lock.
- *   - The daemon can `drain()` on shutdown — wait for in-flight thunks to
- *     finish, abandoning any that exceed the timeout. Without this, SIGTERM
- *     during a propagateStaleness call could truncate a partially-written
- *     `_index.md`.
- *
- * Errors inside a thunk are swallowed (logged via the optional `onError`).
- * The registry is fail-open — one bad thunk must not block subsequent work.
+ * Per-project serialized fire-and-forget queue with bounded shutdown drain.
+ * Different projects run concurrently; same project runs serially so two
+ * writers cannot race on `_index.md`. Thunk errors are swallowed (via
+ * `onError`) so one bad thunk cannot block the chain.
  */
 
 export type PostWorkThunk = () => Promise<void>
 
 export type PostWorkRegistryOptions = {
-  /** Optional logger called on thunk errors. Stays light to keep the registry test-friendly. */
   onError?: (projectPath: string, error: unknown) => void
 }
 
@@ -41,22 +26,18 @@ export class PostWorkRegistry {
   }
 
   /**
-   * Wait until all currently-queued work across all projects completes. New
-   * submissions arriving during the await are NOT awaited — only the tails
-   * captured at call time. Used by the deferred hot-swap path so the agent
-   * is not rebuilt while a Phase 4 thunk is mid-LLM-call (ENG-2522).
+   * Wait on the snapshot of tails captured at call time across all projects.
+   * Submissions arriving during the await are not awaited.
    */
   public async awaitAll(): Promise<void> {
     const tails = [...this.tails.values()]
     if (tails.length === 0) return
-    // Tails are guaranteed not to reject — submit() swallows errors via onError.
     await Promise.all(tails)
   }
 
   /**
-   * Wait until all currently-queued work for `projectPath` completes. New
-   * submissions arriving during the await are NOT awaited — only the tail
-   * captured at call time. This makes `--wait-finalize` deterministic.
+   * Wait on the project's tail captured at call time. Submissions arriving
+   * during the await are not awaited — keeps `--wait-finalize` deterministic.
    */
   public async awaitProject(projectPath: string): Promise<void> {
     const tail = this.tails.get(projectPath)
@@ -66,13 +47,9 @@ export class PostWorkRegistry {
   }
 
   /**
-   * Drain all in-flight work across all projects. Returns counts of
-   * thunks that completed (`drained`) and that exceeded the timeout
-   * (`abandoned`). Errored thunks count as `drained` because the work
-   * has resolved (the error has surfaced to onError).
-   *
-   * Used by the daemon's shutdown handler to give post-curate work a
-   * bounded grace window before exit.
+   * Wait up to `timeoutMs` for in-flight work across all projects.
+   * Errored thunks count as `drained` (work resolved, surfaced to onError);
+   * thunks still running at the deadline count as `abandoned`.
    */
   public async drain(timeoutMs: number): Promise<{abandoned: number; drained: number}> {
     const tails = [...this.tails.values()]
@@ -109,11 +86,9 @@ export class PostWorkRegistry {
       .then(thunk)
       .catch((error: unknown) => {
         this.onError?.(projectPath, error)
-        // Swallow so subsequent submissions still run.
       })
       .finally(() => {
-        // Clean up the map entry if our tail is the latest (no follow-up
-        // submission appended). Keeps the registry from leaking entries.
+        // Drop the map entry only if no follow-up submission appended.
         if (this.tails.get(projectPath) === newTail) {
           this.tails.delete(projectPath)
         }
