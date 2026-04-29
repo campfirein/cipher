@@ -109,6 +109,7 @@ describe('FolderPackExecutor', () => {
       expect(instructionsVar).to.equal(llmGeneratedVarName)
     })
   })
+  })
 
   describe('summary propagation', () => {
   beforeEach(() => {
@@ -324,7 +325,6 @@ describe('FolderPackExecutor', () => {
     expect(drainBackgroundWork.calledOnce).to.be.true
   })
   })
-})
 
   describe('workspace path resolution (PR3)', () => {
     let testDir: string

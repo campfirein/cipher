@@ -535,9 +535,11 @@ async function executeTask(
       // Socket dropped — continue executing so we can still emit task:completed/error when socket reconnects
     }
 
-    // Block new context-tree work until any detached Phase 4 from a prior
-    // task on this project drains — `task:completed` no longer implies the
-    // tree is free.
+    // Block new tree-writers until any detached Phase 4 from a prior task
+    // on this project drains. `query` / `search` are intentionally NOT
+    // gated — they read the manifest and tolerate a stale snapshot via
+    // `readManifestIfFresh` + rebuild fallback, so blocking them would
+    // be a needless latency hit.
     if (type === 'curate' || type === 'curate-folder' || type === 'dream') {
       await postWorkRegistry.awaitProject(projectPath)
     }
@@ -694,13 +696,18 @@ async function executeTask(
     // Deferred hot-swap when provider changed mid-task. Wait on detached
     // Phase 4 first — rebuilding SessionManager during an in-flight
     // `propagateStaleness` LLM call would silently corrupt Phase 4.
+    // Reserve the swap slot synchronously by clearing the dirty flag now;
+    // a task arriving during the awaitAll wait then sees a clean flag and
+    // skips its inline swap, so only the deferred chain runs hotSwap.
     if (activeTaskCount === 0 && providerConfigDirty && agent && transport) {
+      providerConfigDirty = false
       const swapAgent = agent
       const swapTransport = transport
       postWorkRegistry
         .awaitAll()
         .then(() => hotSwapProvider(swapAgent, swapTransport))
         .catch((error: unknown) => {
+          providerConfigDirty = true
           agentLog(`deferred hotSwapProvider failed: ${error instanceof Error ? error.message : String(error)}`)
         })
     }

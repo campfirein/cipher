@@ -12,11 +12,8 @@ import {
   type FileReadResult,
 } from '../../utils/file-content-reader.js'
 import {validateFileForCurate} from '../../utils/file-validator.js'
-import {FileContextTreeManifestService} from '../context-tree/file-context-tree-manifest-service.js'
 import {FileContextTreeSnapshotService} from '../context-tree/file-context-tree-snapshot-service.js'
-import {FileContextTreeSummaryService} from '../context-tree/file-context-tree-summary-service.js'
-import {diffStates} from '../context-tree/snapshot-diff.js'
-import {DreamLockService} from '../dream/dream-lock-service.js'
+import {propagateSummariesUnderLock} from '../context-tree/propagate-summaries.js'
 import {DreamStateService} from '../dream/dream-state-service.js'
 import {PreCompactionService} from './pre-compaction/pre-compaction-service.js'
 
@@ -159,7 +156,7 @@ export class CurateExecutor implements ICurateExecutor {
 
     const finalize = async (): Promise<void> => {
       try {
-        await this.propagateSummariesIfChanged({agent, baseDir, preState, snapshotService, taskId})
+        await propagateSummariesUnderLock({agent, baseDir, preState, snapshotService, taskId})
         await this.incrementDreamCounter(baseDir)
         await (agent as BackgroundDrainAgent).drainBackgroundWork?.()
       } finally {
@@ -347,60 +344,4 @@ export class CurateExecutor implements ICurateExecutor {
     // Format with actual content
     return this.formatFileContentsForPrompt(readResults, skippedFiles, projectRoot)
   }
-
-  /**
-   * Phase 4a–c: snapshot diff → propagateStaleness → opportunistic manifest
-   * rebuild. Holds the dream lock around the write block so a concurrent
-   * dream cannot interleave on `_index.md` / `_manifest.json`. Skips when
-   * the lock is held — dream's own propagation covers the same diff, and
-   * the next curate catches any residual. Fail-open.
-   */
-  private async propagateSummariesIfChanged(ctx: PropagateSummariesContext): Promise<void> {
-    const {agent, baseDir, preState, snapshotService, taskId} = ctx
-    if (!preState) return
-
-    const dreamLockService = new DreamLockService({baseDir: path.join(baseDir, BRV_DIR)})
-    let acquireResult: Awaited<ReturnType<DreamLockService['tryAcquire']>>
-    try {
-      acquireResult = await dreamLockService.tryAcquire()
-    } catch {
-      return
-    }
-
-    if (!acquireResult.acquired) return
-
-    let succeeded = false
-    try {
-      const postState = await snapshotService.getCurrentState(baseDir)
-      const changedPaths = diffStates(preState, postState)
-      if (changedPaths.length === 0) {
-        succeeded = true
-        return
-      }
-
-      const summaryService = new FileContextTreeSummaryService()
-      const results = await summaryService.propagateStaleness(changedPaths, agent, baseDir, taskId)
-      if (results.some((r) => r.actionTaken)) {
-        const manifestService = new FileContextTreeManifestService({baseDirectory: baseDir})
-        await manifestService.buildManifest(baseDir)
-      }
-
-      succeeded = true
-    } catch {
-      // Fail-open: summary/manifest errors never block curation
-    } finally {
-      await (succeeded
-        ? dreamLockService.release()
-        : dreamLockService.rollback(acquireResult.priorMtime)
-      ).catch(() => {})
-    }
-  }
-}
-
-type PropagateSummariesContext = {
-  agent: ICipherAgent
-  baseDir: string
-  preState: Map<string, import('../../core/domain/entities/context-tree-snapshot.js').FileState> | undefined
-  snapshotService: FileContextTreeSnapshotService
-  taskId: string
 }

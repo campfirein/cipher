@@ -10,12 +10,8 @@ import type {
   IFolderPackExecutor,
 } from '../../core/interfaces/executor/i-folder-pack-executor.js'
 
-import {BRV_DIR} from '../../constants.js'
-import {FileContextTreeManifestService} from '../context-tree/file-context-tree-manifest-service.js'
 import {FileContextTreeSnapshotService} from '../context-tree/file-context-tree-snapshot-service.js'
-import {FileContextTreeSummaryService} from '../context-tree/file-context-tree-summary-service.js'
-import {diffStates} from '../context-tree/snapshot-diff.js'
-import {DreamLockService} from '../dream/dream-lock-service.js'
+import {propagateSummariesUnderLock} from '../context-tree/propagate-summaries.js'
 
 const LOG_PATH = process.env.BRV_SESSION_LOG
 type BackgroundDrainAgent = ICipherAgent & {drainBackgroundWork?: () => Promise<void>}
@@ -102,9 +98,13 @@ export class FolderPackExecutor implements IFolderPackExecutor {
     // Use iterative extraction strategy (inspired by rlm)
     const response = await this.executeIterative(agent, packResult, content, absoluteFolderPath, taskId, tempFileDir)
 
-    // Build the Phase 4 thunk — captures snapshot/agent state for the detached path.
+    // Build the Phase 4 thunk. Note: unlike CurateExecutor, the task session
+    // was already deleted inside `executeIterative`'s `finally`, so Phase 4's
+    // `propagateStaleness` runs against the agent's default session. That
+    // is fine for folder-pack — it has no per-task sandbox state to preserve
+    // through Phase 4.
     const finalize = async (): Promise<void> => {
-      await this.runFolderPackPostWork({agent, preState, snapshotService, taskId, tempFileDir})
+      await propagateSummariesUnderLock({agent, baseDir: tempFileDir, preState, snapshotService, taskId})
       await (agent as BackgroundDrainAgent).drainBackgroundWork?.()
     }
 
@@ -948,58 +948,4 @@ await tools.curate([{
 
     return response
   }
-
-  /**
-   * Folder-pack Phase 4. Holds the dream lock so a concurrent dream cannot
-   * interleave on `_index.md` / `_manifest.json`; skips when the lock is
-   * held. Fail-open.
-   */
-  private async runFolderPackPostWork(ctx: FolderPackPostWorkContext): Promise<void> {
-    const {agent, preState, snapshotService, taskId, tempFileDir} = ctx
-    if (!preState) return
-
-    const dreamLockService = new DreamLockService({baseDir: path.join(tempFileDir, BRV_DIR)})
-    let acquireResult: Awaited<ReturnType<DreamLockService['tryAcquire']>>
-    try {
-      acquireResult = await dreamLockService.tryAcquire()
-    } catch {
-      return
-    }
-
-    if (!acquireResult.acquired) return
-
-    let succeeded = false
-    try {
-      const postState = await snapshotService.getCurrentState(tempFileDir)
-      const changedPaths = diffStates(preState, postState)
-      if (changedPaths.length === 0) {
-        succeeded = true
-        return
-      }
-
-      const summaryService = new FileContextTreeSummaryService()
-      const results = await summaryService.propagateStaleness(changedPaths, agent, tempFileDir, taskId)
-      if (results.some((result) => result.actionTaken)) {
-        const manifestService = new FileContextTreeManifestService({baseDirectory: tempFileDir})
-        await manifestService.buildManifest(tempFileDir)
-      }
-
-      succeeded = true
-    } catch {
-      // Fail-open: summary/manifest errors never block curation
-    } finally {
-      await (succeeded
-        ? dreamLockService.release()
-        : dreamLockService.rollback(acquireResult.priorMtime)
-      ).catch(() => {})
-    }
-  }
-}
-
-type FolderPackPostWorkContext = {
-  agent: ICipherAgent
-  preState: Map<string, import('../../core/domain/entities/context-tree-snapshot.js').FileState> | undefined
-  snapshotService: FileContextTreeSnapshotService
-  taskId: string
-  tempFileDir: string
 }
