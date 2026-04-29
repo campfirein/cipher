@@ -47,7 +47,27 @@ function folderPackLog(message: string): void {
 export class FolderPackExecutor implements IFolderPackExecutor {
   constructor(private readonly folderPackService: IFolderPackService) {}
 
+  /**
+   * Synchronous wrapper kept for backwards compatibility — runs the agent body
+   * AND awaits Phase 4 before returning. agent-process uses runAgentBody
+   * directly to fire `task:completed` early and queue Phase 4 to the
+   * PostWorkRegistry.
+   */
   public async executeWithAgent(agent: ICipherAgent, options: FolderPackExecuteOptions): Promise<string> {
+    const {finalize, response} = await this.runAgentBody(agent, options)
+    await finalize()
+    return response
+  }
+
+  /**
+   * Run the folder-pack agent body and return the response immediately along
+   * with a finalize thunk that runs the post-curate Phase 4. See
+   * CurateExecutor.runAgentBody for the rationale (ENG-2522).
+   */
+  public async runAgentBody(
+    agent: ICipherAgent,
+    options: FolderPackExecuteOptions,
+  ): Promise<{finalize: () => Promise<void>; response: string}> {
     const {clientCwd, content, folderPath, projectRoot, taskId, worktreeRoot} = options
 
     // Resolve folder path:
@@ -83,31 +103,15 @@ export class FolderPackExecutor implements IFolderPackExecutor {
     })
 
     // Use iterative extraction strategy (inspired by rlm)
-    // Stores packed folder in sandbox environment and lets agent iteratively query/extract
-    // This avoids token limits entirely - works for folders of any size
     const response = await this.executeIterative(agent, packResult, content, absoluteFolderPath, taskId, tempFileDir)
 
-    if (preState) {
-      try {
-        const postState = await snapshotService.getCurrentState(tempFileDir)
-        const changedPaths = diffStates(preState, postState)
-        if (changedPaths.length > 0) {
-          const summaryService = new FileContextTreeSummaryService()
-          const results = await summaryService.propagateStaleness(changedPaths, agent, tempFileDir, taskId)
-
-          if (results.some((result) => result.actionTaken)) {
-            const manifestService = new FileContextTreeManifestService({baseDirectory: tempFileDir})
-            await manifestService.buildManifest(tempFileDir)
-          }
-        }
-      } catch {
-        // Fail-open: summary/manifest errors never block curation
-      }
+    // Build the Phase 4 thunk — captures snapshot/agent state for the detached path.
+    const finalize = async (): Promise<void> => {
+      await this.runFolderPackPostWork({agent, preState, snapshotService, taskId, tempFileDir})
+      await (agent as BackgroundDrainAgent).drainBackgroundWork?.()
     }
 
-    await (agent as BackgroundDrainAgent).drainBackgroundWork?.()
-
-    return response
+    return {finalize, response}
   }
 
   /**
@@ -947,4 +951,31 @@ await tools.curate([{
 
     return response
   }
+
+  private async runFolderPackPostWork(ctx: FolderPackPostWorkContext): Promise<void> {
+    const {agent, preState, snapshotService, taskId, tempFileDir} = ctx
+    if (!preState) return
+    try {
+      const postState = await snapshotService.getCurrentState(tempFileDir)
+      const changedPaths = diffStates(preState, postState)
+      if (changedPaths.length === 0) return
+
+      const summaryService = new FileContextTreeSummaryService()
+      const results = await summaryService.propagateStaleness(changedPaths, agent, tempFileDir, taskId)
+      if (results.some((result) => result.actionTaken)) {
+        const manifestService = new FileContextTreeManifestService({baseDirectory: tempFileDir})
+        await manifestService.buildManifest(tempFileDir)
+      }
+    } catch {
+      // Fail-open: summary/manifest errors never block curation
+    }
+  }
+}
+
+type FolderPackPostWorkContext = {
+  agent: ICipherAgent
+  preState: Map<string, import('../../core/domain/entities/context-tree-snapshot.js').FileState> | undefined
+  snapshotService: FileContextTreeSnapshotService
+  taskId: string
+  tempFileDir: string
 }
