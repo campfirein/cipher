@@ -79,8 +79,7 @@ export class RetryableContentGenerator implements IContentGenerator {
    * @returns Generated content response
    */
   public async generateContent(request: GenerateContentRequest): Promise<GenerateContentResponse> {
-    const maxAttempts = this.policy.maxRetries + 1
-    return this.attemptGenerateContent(request, 1, maxAttempts)
+    return this.attemptGenerateContent(request, 1, 0)
   }
 
   /**
@@ -96,45 +95,43 @@ export class RetryableContentGenerator implements IContentGenerator {
   public async *generateContentStream(
     request: GenerateContentRequest,
   ): AsyncGenerator<GenerateContentChunk> {
-    const maxAttempts = this.policy.maxRetries + 1
-    yield* this.attemptGenerateContentStream(request, 1, maxAttempts)
+    yield* this.attemptGenerateContentStream(request, 1, 0)
   }
 
   /**
    * Attempt to generate content with retry logic.
+   *
+   * @param attempt - 1-based attempt number for the current call
+   * @param rateLimitAttempts - Count of attempts that hit a 429 so far (used
+   *   to enforce policy.maxRetriesOnRateLimit independently of policy.maxRetries)
    */
   private async attemptGenerateContent(
     request: GenerateContentRequest,
     attempt: number,
-    maxAttempts: number,
+    rateLimitAttempts: number,
   ): Promise<GenerateContentResponse> {
     try {
       return await this.inner.generateContent(request)
     } catch (error) {
-      // Check if this is the last attempt
-      if (attempt >= maxAttempts) {
-        this.emitExhausted(attempt, error)
+      const isRateLimit = this.isRateLimitError(error)
+      const decision = this.shouldRetry(error, attempt, rateLimitAttempts, isRateLimit)
+      if (decision.kind === 'stop') {
+        if (decision.exhausted) this.emitExhausted(attempt, error, isRateLimit)
         throw error
       }
 
-      // Check if error is retryable
-      if (!isRetryableError(error, this.policy)) {
-        throw error
-      }
-
-      // For rate-limit errors (429) bypass exponential backoff and use the
-      // delay the provider tells us to wait (Retry-After header, or 65s fallback).
-      // For all other transient errors keep normal exponential backoff.
-      const delayMs = this.isRateLimitError(error)
+      const delayMs = isRateLimit
         ? (extractRateLimitDelay(error) ?? RATE_LIMIT_FALLBACK_DELAY_MS)
         : calculateRetryDelay(attempt, this.policy)
-      this.emitRetry(attempt, maxAttempts, error, delayMs)
+      this.emitRetry(attempt, decision.maxAttempts, error, delayMs, isRateLimit)
 
-      // Wait before retrying
       await this.sleep(delayMs)
 
-      // Recursively attempt again
-      return this.attemptGenerateContent(request, attempt + 1, maxAttempts)
+      return this.attemptGenerateContent(
+        request,
+        attempt + 1,
+        rateLimitAttempts + (isRateLimit ? 1 : 0),
+      )
     }
   }
 
@@ -146,60 +143,66 @@ export class RetryableContentGenerator implements IContentGenerator {
   private async *attemptGenerateContentStream(
     request: GenerateContentRequest,
     attempt: number,
-    maxAttempts: number,
+    rateLimitAttempts: number,
   ): AsyncGenerator<GenerateContentChunk> {
     try {
-      // Yield all chunks from the inner generator
       for await (const chunk of this.inner.generateContentStream(request)) {
         yield chunk
       }
     } catch (error) {
-      // Check if this is the last attempt
-      if (attempt >= maxAttempts) {
-        this.emitExhausted(attempt, error)
+      const isRateLimit = this.isRateLimitError(error)
+      const decision = this.shouldRetry(error, attempt, rateLimitAttempts, isRateLimit)
+      if (decision.kind === 'stop') {
+        if (decision.exhausted) this.emitExhausted(attempt, error, isRateLimit)
         throw error
       }
 
-      // Check if error is retryable
-      if (!isRetryableError(error, this.policy)) {
-        throw error
-      }
-
-      // For rate-limit errors (429) bypass exponential backoff and use the
-      // delay the provider tells us to wait (Retry-After header, or 65s fallback).
-      // For all other transient errors keep normal exponential backoff.
-      const delayMs = this.isRateLimitError(error)
+      const delayMs = isRateLimit
         ? (extractRateLimitDelay(error) ?? RATE_LIMIT_FALLBACK_DELAY_MS)
         : calculateRetryDelay(attempt, this.policy)
-      this.emitRetry(attempt, maxAttempts, error, delayMs)
+      this.emitRetry(attempt, decision.maxAttempts, error, delayMs, isRateLimit)
 
-      // Wait before retrying
       await this.sleep(delayMs)
 
-      // Recursively attempt again
-      yield* this.attemptGenerateContentStream(request, attempt + 1, maxAttempts)
+      yield* this.attemptGenerateContentStream(
+        request,
+        attempt + 1,
+        rateLimitAttempts + (isRateLimit ? 1 : 0),
+      )
     }
   }
 
   /**
-   * Emit an exhausted event when all retries are used.
+   * Emit an exhausted event when all retries are used. Rate-limit
+   * exhaustion is tagged so observability can distinguish it from generic
+   * transient-error exhaustion.
    */
-  private emitExhausted(attempts: number, error: unknown): void {
+  private emitExhausted(attempts: number, error: unknown, isRateLimit: boolean): void {
     const errorMessage = error instanceof Error ? error.message : String(error)
+    const tag = isRateLimit ? '[RATE_LIMIT_EXHAUSTED] ' : ''
 
     this.eventBus?.emit('llmservice:error', {
-      error: `All ${attempts} retry attempts exhausted: ${errorMessage}`,
+      error: `${tag}All ${attempts} retry attempts exhausted: ${errorMessage}`,
     })
   }
 
   /**
-   * Emit a retry event via warning.
+   * Emit a retry event via warning. Rate-limit retries are tagged so they
+   * surface clearly in stdout traces and observability tooling — the
+   * silent-retry-loop hangs we hit on Anthropic were invisible before this.
    */
-  private emitRetry(attempt: number, maxAttempts: number, error: unknown, delayMs: number): void {
+  private emitRetry(
+    attempt: number,
+    maxAttempts: number,
+    error: unknown,
+    delayMs: number,
+    isRateLimit: boolean,
+  ): void {
     const errorMessage = error instanceof Error ? error.message : String(error)
+    const tag = isRateLimit ? '[RATE_LIMIT] ' : ''
 
     this.eventBus?.emit('llmservice:warning', {
-      message: `Retry attempt ${attempt}/${maxAttempts} after ${delayMs}ms: ${errorMessage}`,
+      message: `${tag}Retry attempt ${attempt}/${maxAttempts} after ${delayMs}ms: ${errorMessage}`,
     })
   }
 
@@ -216,6 +219,38 @@ export class RetryableContentGenerator implements IContentGenerator {
     if (status === 429) return true
     const msg = (error instanceof Error ? error.message : String(error)).toLowerCase()
     return msg.includes('rate limit') || msg.includes('rate_limit')
+  }
+
+  /**
+   * Decide whether to retry given the error class, attempt number, and
+   * accumulated rate-limit attempts.
+   *
+   * Rate-limit errors are capped separately by `policy.maxRetriesOnRateLimit`
+   * so a persistent 429 storm doesn't burn the full `policy.maxRetries`
+   * budget at ~65s per attempt.
+   */
+  private shouldRetry(
+    error: unknown,
+    attempt: number,
+    rateLimitAttempts: number,
+    isRateLimit: boolean,
+  ): {exhausted: boolean; kind: 'stop'} | {kind: 'retry'; maxAttempts: number} {
+    const maxAttempts = isRateLimit
+      ? this.policy.maxRetriesOnRateLimit + 1
+      : this.policy.maxRetries + 1
+
+    const usedRateLimitBudget = isRateLimit && rateLimitAttempts >= this.policy.maxRetriesOnRateLimit
+    const usedAttemptBudget = attempt >= maxAttempts
+
+    if (usedRateLimitBudget || usedAttemptBudget) {
+      return {exhausted: true, kind: 'stop'}
+    }
+
+    if (!isRetryableError(error, this.policy)) {
+      return {exhausted: false, kind: 'stop'}
+    }
+
+    return {kind: 'retry', maxAttempts}
   }
 
   /**

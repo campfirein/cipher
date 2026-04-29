@@ -19,6 +19,15 @@ export interface RetryPolicy {
   maxDelayMs: number
   /** Maximum number of retry attempts (0 = no retries) */
   maxRetries: number
+  /**
+   * Maximum number of retry attempts specifically when the error is a
+   * rate-limit (HTTP 429). Caps total wait time on persistent rate limits:
+   * the provider-supplied delay can be ~60s+, so 3 retries × 65s = ~195s
+   * of silent waiting before exhaustion. With this cap set to 1, we retry
+   * once and surface the error so the caller (or user) sees it within
+   * ~30–90s. Defaults to 1.
+   */
+  maxRetriesOnRateLimit: number
   /** Error types/messages that should trigger a retry */
   retryableErrors: string[]
   /** HTTP status codes that should trigger a retry */
@@ -28,7 +37,10 @@ export interface RetryPolicy {
 /**
  * Default retry policy with sensible defaults.
  *
- * - 3 retry attempts
+ * - 3 retry attempts on transient errors
+ * - 1 retry attempt on rate-limit (429) — capped to bound total wait time on
+ *   persistent rate limits (provider delays can be ~60s+, so 3×65s = ~195s
+ *   silent waits before exhaustion otherwise)
  * - Starting at 1 second, max 30 seconds
  * - 2x exponential backoff
  * - 25% jitter
@@ -41,6 +53,7 @@ export const DEFAULT_RETRY_POLICY: RetryPolicy = {
   jitterFactor: 0.25,
   maxDelayMs: 30_000,
   maxRetries: 3,
+  maxRetriesOnRateLimit: 1,
   retryableErrors: [
     'ECONNRESET',
     'ETIMEDOUT',
@@ -72,6 +85,7 @@ export const AGGRESSIVE_RETRY_POLICY: RetryPolicy = {
   jitterFactor: 0.3,
   maxDelayMs: 60_000,
   maxRetries: 5,
+  maxRetriesOnRateLimit: 2,
   retryableErrors: [
     'ECONNRESET',
     'ETIMEDOUT',
@@ -102,6 +116,7 @@ export const MINIMAL_RETRY_POLICY: RetryPolicy = {
   jitterFactor: 0.1,
   maxDelayMs: 2000,
   maxRetries: 1,
+  maxRetriesOnRateLimit: 1,
   retryableErrors: ['rate_limit', 'overloaded'],
   retryableStatusCodes: [429, 503],
 }
@@ -115,6 +130,7 @@ export const NO_RETRY_POLICY: RetryPolicy = {
   jitterFactor: 0,
   maxDelayMs: 0,
   maxRetries: 0,
+  maxRetriesOnRateLimit: 0,
   retryableErrors: [],
   retryableStatusCodes: [],
 }

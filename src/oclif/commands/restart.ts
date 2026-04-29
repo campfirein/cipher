@@ -1,5 +1,6 @@
 import {
   DAEMON_INSTANCE_FILE,
+  ensureDaemonRunning,
   getGlobalDataDir,
   GlobalInstanceManager,
   HEARTBEAT_FILE,
@@ -10,10 +11,20 @@ import {spawnSync} from 'node:child_process'
 import {readdirSync, readFileSync, unlinkSync} from 'node:fs'
 import {dirname, join, resolve} from 'node:path'
 
+import {resolveLocalServerMainPath} from '../../server/utils/server-main-resolver.js'
+
 const KILL_SETTLE_MS = 500
 const KILL_VERIFY_TIMEOUT_MS = 5000
 const KILL_VERIFY_POLL_MS = 100
 const SIGTERM_BUDGET_MS = 8000
+
+/**
+ * Grace period after the new daemon's transport is listening, to give the
+ * agent-pool time to initialize before the next command lands. Doesn't
+ * eliminate the agent-registration race (that's a server-side fix), but
+ * removes most of the window we hit on Anthropic in exp 03 v3.
+ */
+const DAEMON_WARMUP_MS = 1500
 
 export default class Restart extends Command {
   static description = `Restart ByteRover — stop everything and start fresh.
@@ -269,6 +280,30 @@ The daemon will restart automatically on the next brv command.`
     this.cleanupAllDaemonFiles(dataDir)
 
     this.log('All ByteRover processes stopped.')
+
+    // Phase 5: Spawn a fresh daemon and wait for it to be ready BEFORE
+    // returning control. Without this, the next user command (e.g.
+    // `brv curate ...` immediately after `brv restart`) races daemon
+    // spawn + agent-pool initialization and intermittently hits "Agent
+    // disconnected" — observed during exp 03 v3 / exp 04 batch runs on
+    // Anthropic, where the daemon-readiness race surfaced on the two
+    // largest fixtures.
+    this.log('Starting fresh daemon...')
+    const spawnResult = await ensureDaemonRunning({
+      serverPath: resolveLocalServerMainPath(),
+      version: this.config.version,
+    })
+    if (spawnResult.success) {
+      // Brief warmup pause so the agent-pool inside the new daemon has
+      // a head start on initialization before the first user command.
+      await Restart.sleep(DAEMON_WARMUP_MS)
+      this.log('Daemon ready.')
+    } else {
+      // Don't fail restart if respawn didn't succeed — old behavior was
+      // "next command will spawn it." Log the issue and exit anyway.
+      const detail = spawnResult.spawnError ? `: ${spawnResult.spawnError}` : ''
+      this.log(`Note: daemon did not spawn cleanly${detail}. Next brv command will retry.`)
+    }
 
     // Force exit — oclif does not call process.exit() after run() returns,
     // relying on the event loop to drain. Third-party plugin hooks (e.g.
