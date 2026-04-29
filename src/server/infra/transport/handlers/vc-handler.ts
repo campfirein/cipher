@@ -1673,6 +1673,32 @@ export class VcHandler {
   }
 
   /**
+   * Resolve commit author: config values first, then fallback to auth token.
+   * Throws USER_NOT_CONFIGURED only when neither source has name+email.
+   */
+  private async resolveAuthor(config?: IVcGitConfig): Promise<{email: string; name: string}> {
+    if (config?.name && config.email) {
+      return {email: config.email, name: config.name}
+    }
+
+    try {
+      const token = await this.tokenStore.load()
+      if (token?.isValid()) {
+        const email = config?.email ?? token.userEmail
+        const name = config?.name ?? token.userName ?? token.userEmail
+        if (email && name) return {email, name}
+      }
+    } catch {
+      // not logged in
+    }
+
+    throw new VcError(
+      'Commit author not configured. Run: brv vc config user.name <value> and brv vc config user.email <value>.',
+      VcErrorCode.USER_NOT_CONFIGURED,
+    )
+  }
+
+  /**
    * Resolve clone request data into a clean cogit URL + team/space info.
    * Accepts either a URL or explicit teamName/spaceName.
    * Auth is handled by IsomorphicGitService via headers, not URL credentials.
