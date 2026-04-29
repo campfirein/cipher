@@ -10,10 +10,12 @@ import type {
   IFolderPackExecutor,
 } from '../../core/interfaces/executor/i-folder-pack-executor.js'
 
+import {BRV_DIR} from '../../constants.js'
 import {FileContextTreeManifestService} from '../context-tree/file-context-tree-manifest-service.js'
 import {FileContextTreeSnapshotService} from '../context-tree/file-context-tree-snapshot-service.js'
 import {FileContextTreeSummaryService} from '../context-tree/file-context-tree-summary-service.js'
 import {diffStates} from '../context-tree/snapshot-diff.js'
+import {DreamLockService} from '../dream/dream-lock-service.js'
 
 const LOG_PATH = process.env.BRV_SESSION_LOG
 type BackgroundDrainAgent = ICipherAgent & {drainBackgroundWork?: () => Promise<void>}
@@ -952,13 +954,35 @@ await tools.curate([{
     return response
   }
 
+  /**
+   * Phase 4 post-work for folder-pack curation. Mirrors CurateExecutor's
+   * propagateSummariesIfChanged: acquires the DreamLockService PID-lock so
+   * a concurrent dream cannot interleave on `_index.md` / `_manifest.json`.
+   * Skips propagation if the lock is held — dream's own propagateStaleness
+   * covers the same diff and the next curate catches anything residual.
+   */
   private async runFolderPackPostWork(ctx: FolderPackPostWorkContext): Promise<void> {
     const {agent, preState, snapshotService, taskId, tempFileDir} = ctx
     if (!preState) return
+
+    const dreamLockService = new DreamLockService({baseDir: path.join(tempFileDir, BRV_DIR)})
+    let acquireResult: Awaited<ReturnType<DreamLockService['tryAcquire']>>
+    try {
+      acquireResult = await dreamLockService.tryAcquire()
+    } catch {
+      return
+    }
+
+    if (!acquireResult.acquired) return
+
+    let succeeded = false
     try {
       const postState = await snapshotService.getCurrentState(tempFileDir)
       const changedPaths = diffStates(preState, postState)
-      if (changedPaths.length === 0) return
+      if (changedPaths.length === 0) {
+        succeeded = true
+        return
+      }
 
       const summaryService = new FileContextTreeSummaryService()
       const results = await summaryService.propagateStaleness(changedPaths, agent, tempFileDir, taskId)
@@ -966,8 +990,15 @@ await tools.curate([{
         const manifestService = new FileContextTreeManifestService({baseDirectory: tempFileDir})
         await manifestService.buildManifest(tempFileDir)
       }
+
+      succeeded = true
     } catch {
       // Fail-open: summary/manifest errors never block curation
+    } finally {
+      await (succeeded
+        ? dreamLockService.release()
+        : dreamLockService.rollback(acquireResult.priorMtime)
+      ).catch(() => {})
     }
   }
 }

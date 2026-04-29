@@ -10,7 +10,13 @@ type DreamLockServiceOptions = {
 }
 
 /**
- * PID-based lock for dream execution.
+ * PID-based lock for context-tree writers.
+ *
+ * Originally dream-only; since ENG-2522 also held by curate's detached Phase 4
+ * around `propagateStaleness` + `buildManifest` so dream and curate cannot
+ * interleave on `_index.md` / `_manifest.json`. Naming preserved (`dream.lock`
+ * filename + `DreamLockService` class) to avoid churning every call site —
+ * dream is still the dominant caller and the semantics are identical.
  *
  * Lock file contains the owning process PID. Staleness is determined by mtime.
  * Uses write-then-verify to handle race conditions between concurrent acquirers.

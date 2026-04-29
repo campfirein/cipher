@@ -16,6 +16,7 @@ import {FileContextTreeManifestService} from '../context-tree/file-context-tree-
 import {FileContextTreeSnapshotService} from '../context-tree/file-context-tree-snapshot-service.js'
 import {FileContextTreeSummaryService} from '../context-tree/file-context-tree-summary-service.js'
 import {diffStates} from '../context-tree/snapshot-diff.js'
+import {DreamLockService} from '../dream/dream-lock-service.js'
 import {DreamStateService} from '../dream/dream-state-service.js'
 import {PreCompactionService} from './pre-compaction/pre-compaction-service.js'
 
@@ -366,15 +367,39 @@ export class CurateExecutor implements ICurateExecutor {
 
   /**
    * Phase 4a–c: snapshot diff → propagateStaleness → opportunistic manifest rebuild.
-   * Fail-open: any error inside is swallowed so it cannot block curate completion.
+   *
+   * Acquires the DreamLockService PID-lock around the write block so a
+   * concurrent dream (which writes the same `_index.md` / `_manifest.json`)
+   * cannot interleave. Detached Phase 4 made this race reachable: with Phase
+   * 4 inline, the daemon was busy and idle-trigger dream couldn't fire. With
+   * Phase 4 detached, dream and curate's post-work can overlap. If the lock
+   * is held (dream is running), this method skips propagation — dream's own
+   * propagateStaleness covers the same changes, and the next curate catches
+   * any residual diff. Fail-open: any error inside is swallowed so it cannot
+   * block curate completion.
    */
   private async propagateSummariesIfChanged(ctx: PropagateSummariesContext): Promise<void> {
     const {agent, baseDir, preState, snapshotService, taskId} = ctx
     if (!preState) return
+
+    const dreamLockService = new DreamLockService({baseDir: path.join(baseDir, BRV_DIR)})
+    let acquireResult: Awaited<ReturnType<DreamLockService['tryAcquire']>>
+    try {
+      acquireResult = await dreamLockService.tryAcquire()
+    } catch {
+      return
+    }
+
+    if (!acquireResult.acquired) return
+
+    let succeeded = false
     try {
       const postState = await snapshotService.getCurrentState(baseDir)
       const changedPaths = diffStates(preState, postState)
-      if (changedPaths.length === 0) return
+      if (changedPaths.length === 0) {
+        succeeded = true
+        return
+      }
 
       const summaryService = new FileContextTreeSummaryService()
       const results = await summaryService.propagateStaleness(changedPaths, agent, baseDir, taskId)
@@ -382,8 +407,15 @@ export class CurateExecutor implements ICurateExecutor {
         const manifestService = new FileContextTreeManifestService({baseDirectory: baseDir})
         await manifestService.buildManifest(baseDir)
       }
+
+      succeeded = true
     } catch {
       // Fail-open: summary/manifest errors never block curation
+    } finally {
+      await (succeeded
+        ? dreamLockService.release()
+        : dreamLockService.rollback(acquireResult.priorMtime)
+      ).catch(() => {})
     }
   }
 }

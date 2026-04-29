@@ -21,7 +21,19 @@ import {LocalSandbox} from '../../../../src/agent/infra/sandbox/local-sandbox.js
 import {FileContextTreeManifestService} from '../../../../src/server/infra/context-tree/file-context-tree-manifest-service.js'
 import {FileContextTreeSnapshotService} from '../../../../src/server/infra/context-tree/file-context-tree-snapshot-service.js'
 import {FileContextTreeSummaryService} from '../../../../src/server/infra/context-tree/file-context-tree-summary-service.js'
+import {DreamLockService} from '../../../../src/server/infra/dream/dream-lock-service.js'
 import {FolderPackExecutor} from '../../../../src/server/infra/executor/folder-pack-executor.js'
+
+/**
+ * Stub DreamLockService so Phase 4 tests don't hit a real filesystem
+ * `<projectRoot>/.brv/dream.lock`. ENG-2522 added lock coordination around
+ * propagateStaleness/buildManifest in folder-pack post-work.
+ */
+function stubDreamLockServiceDefaults(): void {
+  stub(DreamLockService.prototype, 'tryAcquire').resolves({acquired: true, priorMtime: 0})
+  stub(DreamLockService.prototype, 'release').resolves()
+  stub(DreamLockService.prototype, 'rollback').resolves()
+}
 
 function createMockAgent(): ICipherAgent {
   return {
@@ -99,6 +111,10 @@ describe('FolderPackExecutor', () => {
   })
 
   describe('summary propagation', () => {
+  beforeEach(() => {
+    stubDreamLockServiceDefaults()
+  })
+
   afterEach(() => {
     restore()
   })
