@@ -38,6 +38,13 @@ async function initWithFile(dir: string, file: string, content: string): Promise
 }
 
 type Scenario = {
+  /**
+   * When set, the scenario is expected to produce exactly this tuple at this filepath.
+   * Locks the scenario name to the actual matrix row so a quietly-shifted recipe
+   * (e.g. isomorphic-git encoding change) fails loudly instead of silently classifying
+   * a different tuple under the named scenario.
+   */
+  expectedTuple?: {filepath: string; tuple: [number, number, number]}
   name: string
   setup: (dir: string) => Promise<void>
 }
@@ -57,6 +64,7 @@ const scenarios: Scenario[] = [
     },
   },
   {
+    expectedTuple: {filepath: 'new.md', tuple: [0, 2, 0]},
     name: '[0,2,0] untracked new file',
     async setup(dir) {
       await initWithFile(dir, 'f.md', 'v1')
@@ -64,6 +72,7 @@ const scenarios: Scenario[] = [
     },
   },
   {
+    expectedTuple: {filepath: 'new.md', tuple: [0, 2, 2]},
     name: '[0,2,2] staged new file',
     async setup(dir) {
       await initWithFile(dir, 'f.md', 'v1')
@@ -72,6 +81,7 @@ const scenarios: Scenario[] = [
     },
   },
   {
+    expectedTuple: {filepath: 'new.md', tuple: [0, 2, 3]},
     name: '[0,2,3] partially staged new file',
     async setup(dir) {
       await initWithFile(dir, 'f.md', 'v1')
@@ -81,6 +91,7 @@ const scenarios: Scenario[] = [
     },
   },
   {
+    expectedTuple: {filepath: 'new.md', tuple: [0, 0, 3]},
     name: '[0,0,3] staged add then deleted from disk',
     async setup(dir) {
       await initWithFile(dir, 'f.md', 'v1')
@@ -90,6 +101,7 @@ const scenarios: Scenario[] = [
     },
   },
   {
+    expectedTuple: {filepath: 'f.md', tuple: [1, 0, 0]},
     name: '[1,0,0] staged deletion (git rm)',
     async setup(dir) {
       await initWithFile(dir, 'f.md', 'v1')
@@ -98,22 +110,19 @@ const scenarios: Scenario[] = [
     },
   },
   {
+    expectedTuple: {filepath: 'f.md', tuple: [1, 0, 1]},
     name: '[1,0,1] unstaged deletion (rm without git rm)',
     async setup(dir) {
       await initWithFile(dir, 'f.md', 'v1')
       await unlink(join(dir, 'f.md'))
     },
   },
+  // Note: [1,0,2] is unreachable by the encoding. w=0 means WORKDIR is absent;
+  // s=2 means "INDEX matches WORKDIR" by content, which is impossible when WORKDIR
+  // has no content. The encoding produces s=0 (INDEX absent) or s=3 (differs from both)
+  // in that situation. The scenario for [1,0,3] below covers the realistic recipe.
   {
-    name: '[1,0,2] absent from disk, index differs from HEAD',
-    async setup(dir) {
-      await initWithFile(dir, 'f.md', 'v1')
-      await writeFile(join(dir, 'f.md'), 'v2')
-      await git.add({dir, filepath: 'f.md', fs})
-      await unlink(join(dir, 'f.md'))
-    },
-  },
-  {
+    expectedTuple: {filepath: 'f.md', tuple: [1, 0, 3]},
     name: '[1,0,3] staged modification then deleted from disk',
     async setup(dir) {
       await initWithFile(dir, 'f.md', 'v1')
@@ -124,6 +133,7 @@ const scenarios: Scenario[] = [
     },
   },
   {
+    expectedTuple: {filepath: 'f.md', tuple: [1, 1, 0]},
     name: '[1,1,0] git rm --cached only',
     async setup(dir) {
       await initWithFile(dir, 'f.md', 'v1')
@@ -131,6 +141,7 @@ const scenarios: Scenario[] = [
     },
   },
   {
+    expectedTuple: {filepath: 'f.md', tuple: [1, 2, 0]},
     name: '[1,2,0] git rm --cached then edit workdir',
     async setup(dir) {
       await initWithFile(dir, 'f.md', 'v1')
@@ -139,6 +150,7 @@ const scenarios: Scenario[] = [
     },
   },
   {
+    expectedTuple: {filepath: 'f.md', tuple: [1, 1, 3]},
     name: '[1,1,3] workdir restored to HEAD after add',
     async setup(dir) {
       await initWithFile(dir, 'f.md', 'v1')
@@ -154,13 +166,19 @@ const scenarios: Scenario[] = [
     },
   },
   {
+    expectedTuple: {filepath: 'f.md', tuple: [1, 2, 1]},
     name: '[1,2,1] unstaged modification',
     async setup(dir) {
       await initWithFile(dir, 'f.md', 'v1')
       await writeFile(join(dir, 'f.md'), 'v2')
+      // Same-size payloads share stat info so the index cache reports clean unless
+      // mtime is bumped past the cached value (same workaround as [1,1,3]).
+      const future = new Date(Date.now() + 2000)
+      await utimes(join(dir, 'f.md'), future, future)
     },
   },
   {
+    expectedTuple: {filepath: 'f.md', tuple: [1, 2, 2]},
     name: '[1,2,2] staged modification',
     async setup(dir) {
       await initWithFile(dir, 'f.md', 'v1')
@@ -169,12 +187,16 @@ const scenarios: Scenario[] = [
     },
   },
   {
+    expectedTuple: {filepath: 'f.md', tuple: [1, 2, 3]},
     name: '[1,2,3] partially staged modification',
     async setup(dir) {
       await initWithFile(dir, 'f.md', 'v1')
       await writeFile(join(dir, 'f.md'), 'v2')
       await git.add({dir, filepath: 'f.md', fs})
       await writeFile(join(dir, 'f.md'), 'v3')
+      // Bump mtime so the post-add v3 write is observed despite same byte size.
+      const future = new Date(Date.now() + 2000)
+      await utimes(join(dir, 'f.md'), future, future)
     },
   },
   {
@@ -290,6 +312,13 @@ describe('statusMatrix tuple reachability fuzz (Gap D)', () => {
       try {
         await scenario.setup(dir)
         const matrix = await git.statusMatrix({dir, fs})
+        if (scenario.expectedTuple) {
+          const {filepath, tuple} = scenario.expectedTuple
+          const row = matrix.find((r) => r[0] === filepath)
+          expect(row, `scenario "${scenario.name}" expected ${filepath} present in matrix`).to.not.be.undefined
+          expect(row).to.deep.equal([filepath, ...tuple])
+        }
+
         for (const [filepath, head, workdir, stage] of matrix) {
           const key = `[${head},${workdir},${stage}]`
           observedTuples.add(key)

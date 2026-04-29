@@ -11,6 +11,7 @@ import type {IAuthStateStore} from '../../../../src/server/core/interfaces/state
 import {AuthToken} from '../../../../src/server/core/domain/entities/auth-token.js'
 import {GitAuthError, GitError} from '../../../../src/server/core/domain/errors/git-error.js'
 import {IsomorphicGitService} from '../../../../src/server/infra/git/isomorphic-git-service.js'
+import {classifyTuple} from '../../../../src/server/infra/git/status-row-classifier.js'
 
 const COGIT_BASE = 'https://fake-cgit.example.com'
 
@@ -442,8 +443,8 @@ describe('IsomorphicGitService', () => {
 
     it('status.isClean implies pull dirty-filter sees no rows (cross-property invariant)', async () => {
       // Engineer the [1,1,3] tuple. status() and pull() must agree on cleanliness:
-      // status uses parseMatrix's whitelist; pull uses `row[2] !== 1 || row[3] !== 1`.
-      // The bug is the case where status.isClean is true but pull's filter is non-empty.
+      // both project the matrix through classifyTuple, so the dirty set computed
+      // here must mirror what pull() actually inspects internally.
       const path = join(testDir, 'a.md')
       await writeFile(path, 'v1\n')
       await service.add({directory: testDir, filePaths: ['a.md']})
@@ -458,7 +459,7 @@ describe('IsomorphicGitService', () => {
       const status = await service.status({directory: testDir})
       const matrix = await git.statusMatrix({dir: testDir, fs})
       const pullDirty = matrix
-        .filter((row) => row[2] !== 1 || row[3] !== 1)
+        .filter(([, head, workdir, stage]) => classifyTuple(head, workdir, stage).dirty)
         .map((row) => String(row[0]))
 
       if (status.isClean) {
@@ -1696,5 +1697,4 @@ describe('IsomorphicGitService', () => {
       expect(content).to.equal('v1\n')
     })
   })
-
 })

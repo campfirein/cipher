@@ -53,6 +53,8 @@ function stagedDiffFor(h: number, s: number): StagedDiff {
 function unstagedDiffFor(s: number, w: number): UnstagedDiff {
   if (s === 0) return undefined // INDEX absent: file is either gone or untracked, not a diff
   if (w === 0) return 'deleted' // s>0, WORKDIR absent: INDEX has a blob, disk does not
+  // (s=2,w=0) is unreachable by the encoding (s=2 means INDEX==WORKDIR, so WORKDIR
+  // absent forces INDEX absent => s=0); the w===0 guard above handles it safely either way.
   if (s === 2) return undefined // INDEX matches WORKDIR by definition
   if (s === 1 && w === 1) return undefined // INDEX=HEAD and WORKDIR=HEAD => INDEX=WORKDIR transitively
   return 'modified' // s=1,w=2  or  s=3,w>0
@@ -94,6 +96,9 @@ export function classifyTuple(h: number, w: number, s: number): RowClassificatio
   }
 
   return {
+    // Every tuple except clean [1,1,1]. Note: [0,0,0] (file absent everywhere) would
+    // evaluate true here with files=[], but is unreachable in practice because
+    // statusMatrix won't emit a row for a file absent from HEAD, INDEX, and WORKDIR.
     dirty: !(h === 1 && w === 1 && s === 1),
     files,
     staged: stagedDiff !== undefined,
