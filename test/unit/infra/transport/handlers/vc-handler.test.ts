@@ -1445,7 +1445,9 @@ describe('VcHandler', () => {
       deps.gitService.isInitialized.resolves(true)
       deps.gitService.listRemotes.resolves([{remote: 'origin', url: 'https://example.com/repo.git'}])
       deps.gitService.pull.rejects(
-        new GitError('Local changes would be overwritten by pull. Commit or discard your changes first.'),
+        new GitError(
+          'Your local changes would be overwritten by pull. Please commit or discard your changes before you pull.',
+        ),
       )
       deps.gitService.getTrackingBranch.resolves({remote: 'origin', remoteBranch: 'main'})
       makeVcHandler(deps).setup()
@@ -1458,6 +1460,34 @@ describe('VcHandler', () => {
         if (error instanceof VcError) {
           expect(error.code).to.equal(VcErrorCode.UNCOMMITTED_CHANGES)
           expect(error.message).to.include('would be overwritten')
+        }
+      }
+    })
+
+    it('should surface affected file paths in pull overwrite error', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.listRemotes.resolves([{remote: 'origin', url: 'https://example.com/repo.git'}])
+      deps.gitService.pull.rejects(
+        new GitError(
+          'Your local changes to the following files would be overwritten by pull:\n' +
+            '\ttracked.md\n' +
+            '\tnotes/log.md\n' +
+            'Please commit or discard your changes before you pull.',
+        ),
+      )
+      deps.gitService.getTrackingBranch.resolves({remote: 'origin', remoteBranch: 'main'})
+      makeVcHandler(deps).setup()
+
+      try {
+        await deps.requestHandlers[VcEvents.PULL]({}, CLIENT_ID)
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(VcError)
+        if (error instanceof VcError) {
+          expect(error.code).to.equal(VcErrorCode.UNCOMMITTED_CHANGES)
+          expect(error.message).to.include('tracked.md')
+          expect(error.message).to.include('notes/log.md')
         }
       }
     })
@@ -3020,8 +3050,8 @@ describe('VcHandler', () => {
       deps.gitService.getCurrentBranch.resolves('main')
       deps.gitService.checkout.rejects(
         new GitError(
-          'Your local changes to the following files would be overwritten by checkout. ' +
-            'Commit your changes or stash them before you switch branches.',
+          'Your local changes would be overwritten by checkout. ' +
+            'Please commit or discard your changes before you switch branches.',
         ),
       )
       makeVcHandler(deps).setup()
