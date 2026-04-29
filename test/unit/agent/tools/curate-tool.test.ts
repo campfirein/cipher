@@ -3,7 +3,8 @@ import * as fs from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
-import {createCurateTool} from '../../../../src/agent/infra/tools/implementations/curate-tool.js'
+import {runWithReviewDisabled} from '../../../../src/agent/infra/tools/implementations/curate-tool-task-context.js'
+import {createCurateTool, executeCurate} from '../../../../src/agent/infra/tools/implementations/curate-tool.js'
 
 interface CurateOutput {
   applied: Array<{
@@ -47,6 +48,33 @@ function countByPrefix(items: string[], prefix: string): number {
   }
 
   return count
+}
+
+async function writeBrvConfig(tmpDir: string, reviewDisabled: boolean): Promise<void> {
+  const configPath = join(tmpDir, '.brv', 'config.json')
+  await fs.writeFile(
+    configPath,
+    JSON.stringify({createdAt: '2026-01-01T00:00:00.000Z', cwd: tmpDir, reviewDisabled, version: '0.0.1'}),
+    'utf8',
+  )
+}
+
+async function seedExistingFile(basePath: string): Promise<void> {
+  const tool = createCurateTool()
+  await tool.execute({
+    basePath,
+    operations: [
+      {
+        confidence: 'high',
+        content: {keywords: [], snippets: ['initial content'], tags: []},
+        impact: 'low',
+        path: 'security/auth',
+        reason: 'seed',
+        title: 'JWT Strategy',
+        type: 'ADD',
+      },
+    ],
+  })
 }
 
 describe('Curate Tool', () => {
@@ -1404,6 +1432,184 @@ describe('Curate Tool', () => {
       expect(result.applied[0].status).to.equal('success')
       expect(result.applied[0].confidence).to.equal('high')
       expect(result.applied[0].impact).to.equal('low')
+    })
+  })
+
+  describe('Review backup gating (`brv review --disable`)', () => {
+    it('does NOT create review-backups when reviewDisabled=true (UPDATE on existing file)', async () => {
+      await seedExistingFile(basePath)
+      await writeBrvConfig(tmpDir, true)
+
+      const tool = createCurateTool()
+      const result = (await tool.execute({
+        basePath,
+        operations: [
+          {
+            confidence: 'high',
+            content: {keywords: [], snippets: ['updated content'], tags: []},
+            impact: 'high',
+            path: 'security/auth',
+            reason: 'CRITICAL update',
+            title: 'JWT Strategy',
+            type: 'UPDATE',
+          },
+        ],
+      })) as CurateOutput
+
+      expect(result.applied[0].status).to.equal('success')
+      expect(result.applied[0].needsReview).to.be.true
+
+      const backupsDir = join(tmpDir, '.brv', 'review-backups')
+      expect(await pathExists(backupsDir)).to.equal(false)
+    })
+
+    it('DOES create review-backups when reviewDisabled=false (UPDATE on existing file)', async () => {
+      await seedExistingFile(basePath)
+      await writeBrvConfig(tmpDir, false)
+
+      const tool = createCurateTool()
+      await tool.execute({
+        basePath,
+        operations: [
+          {
+            confidence: 'high',
+            content: {keywords: [], snippets: ['updated content'], tags: []},
+            impact: 'high',
+            path: 'security/auth',
+            reason: 'CRITICAL update',
+            title: 'JWT Strategy',
+            type: 'UPDATE',
+          },
+        ],
+      })
+
+      const backupsDir = join(tmpDir, '.brv', 'review-backups')
+      expect(await pathExists(backupsDir)).to.equal(true)
+    })
+
+    it('skips backups across MULTIPLE ops in one tool call when disabled (snapshot consistency)', async () => {
+      await seedExistingFile(basePath)
+      await writeBrvConfig(tmpDir, true)
+
+      const tool = createCurateTool()
+      // Three updates in a single tool invocation — all should observe the snapshot
+      const result = (await tool.execute({
+        basePath,
+        operations: [
+          {confidence: 'high', content: {keywords: [], snippets: ['v2'], tags: []}, impact: 'high', path: 'security/auth', reason: 'r', title: 'JWT Strategy', type: 'UPDATE'},
+          {confidence: 'high', content: {keywords: [], snippets: ['v3'], tags: []}, impact: 'high', path: 'security/auth', reason: 'r', title: 'JWT Strategy', type: 'UPDATE'},
+          {confidence: 'high', content: {keywords: [], snippets: ['v4'], tags: []}, impact: 'high', path: 'security/auth', reason: 'r', title: 'JWT Strategy', type: 'UPDATE'},
+        ],
+      })) as CurateOutput
+
+      for (const op of result.applied) {
+        expect(op.status).to.equal('success')
+      }
+
+      const backupsDir = join(tmpDir, '.brv', 'review-backups')
+      expect(await pathExists(backupsDir)).to.equal(false)
+    })
+
+    it('treats missing config as enabled (fail-open) — backups still created', async () => {
+      await seedExistingFile(basePath)
+      // Note: no writeBrvConfig — .brv/config.json does not exist
+
+      const tool = createCurateTool()
+      await tool.execute({
+        basePath,
+        operations: [
+          {
+            confidence: 'high',
+            content: {keywords: [], snippets: ['updated'], tags: []},
+            impact: 'high',
+            path: 'security/auth',
+            reason: 'r',
+            title: 'JWT Strategy',
+            type: 'UPDATE',
+          },
+        ],
+      })
+
+      const backupsDir = join(tmpDir, '.brv', 'review-backups')
+      expect(await pathExists(backupsDir)).to.equal(true)
+    })
+
+    it('ALS scope takes precedence over config file — scope=true suppresses backups even when config says false', async () => {
+      await seedExistingFile(basePath)
+      // Config says review is ENABLED
+      await writeBrvConfig(tmpDir, false)
+
+      // Scope (daemon-stamped snapshot) says DISABLED
+      await runWithReviewDisabled(true, async () => {
+        const tool = createCurateTool()
+        await tool.execute({
+          basePath,
+          operations: [
+            {confidence: 'high', content: {keywords: [], snippets: ['scope-test'], tags: []}, impact: 'high', path: 'security/auth', reason: 'r', title: 'JWT Strategy', type: 'UPDATE'},
+          ],
+        })
+      })
+
+      const backupsDir = join(tmpDir, '.brv', 'review-backups')
+      expect(await pathExists(backupsDir)).to.equal(false)
+    })
+
+    it('ALS scope takes precedence over config file — scope=false enables backups even when config says true', async () => {
+      await seedExistingFile(basePath)
+      // Config says review is DISABLED
+      await writeBrvConfig(tmpDir, true)
+
+      // Scope says ENABLED
+      await runWithReviewDisabled(false, async () => {
+        const tool = createCurateTool()
+        await tool.execute({
+          basePath,
+          operations: [
+            {confidence: 'high', content: {keywords: [], snippets: ['scope-test-2'], tags: []}, impact: 'high', path: 'security/auth', reason: 'r', title: 'JWT Strategy', type: 'UPDATE'},
+          ],
+        })
+      })
+
+      const backupsDir = join(tmpDir, '.brv', 'review-backups')
+      expect(await pathExists(backupsDir)).to.equal(true)
+    })
+
+    it('ALS scope honored via executeCurate sandbox path (no _context.taskId) — proves CurateService route picks up the snapshot', async () => {
+      // This is the regression that the Map-based registry missed: CurateService.curate()
+      // calls executeCurate(input, undefined, ...). Without ALS the file read wins on toggle.
+      await seedExistingFile(basePath)
+      // File config says DISABLED — what the CLI would see after a mid-task `brv review --disable`
+      await writeBrvConfig(tmpDir, true)
+
+      // Scope captured the snapshot at task-create (review was ENABLED then)
+      await runWithReviewDisabled(false, async () => {
+        // Mimic CurateService.curate(): executeCurate with _context = undefined
+        await executeCurate({
+          basePath,
+          operations: [
+            {confidence: 'high', content: {keywords: [], snippets: ['als-via-sandbox'], tags: []}, impact: 'high', path: 'security/auth', reason: 'r', title: 'JWT Strategy', type: 'UPDATE'},
+          ],
+        })
+      })
+
+      const backupsDir = join(tmpDir, '.brv', 'review-backups')
+      expect(await pathExists(backupsDir)).to.equal(true)
+    })
+
+    it('outside any ALS scope falls back to config file', async () => {
+      await seedExistingFile(basePath)
+      await writeBrvConfig(tmpDir, true)
+
+      // No runWithReviewDisabled wrapper → ALS returns undefined → fallback reads config = disabled
+      await executeCurate({
+        basePath,
+        operations: [
+          {confidence: 'high', content: {keywords: [], snippets: ['no-scope'], tags: []}, impact: 'high', path: 'security/auth', reason: 'r', title: 'JWT Strategy', type: 'UPDATE'},
+        ],
+      })
+
+      const backupsDir = join(tmpDir, '.brv', 'review-backups')
+      expect(await pathExists(backupsDir)).to.equal(false)
     })
   })
 })

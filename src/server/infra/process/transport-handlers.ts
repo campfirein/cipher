@@ -33,17 +33,19 @@ import type {ITaskLifecycleHook} from '../../core/interfaces/process/i-task-life
 import type {IProjectRegistry} from '../../core/interfaces/project/i-project-registry.js'
 import type {IProjectRouter} from '../../core/interfaces/routing/i-project-router.js'
 import type {ITransportServer} from '../../core/interfaces/transport/i-transport-server.js'
-import type {PreDispatchCheck} from './task-router.js'
+import type {IsReviewDisabledResolver, PreDispatchCheck} from './task-router.js'
 
 import {ConnectionCoordinator} from './connection-coordinator.js'
 import {TaskRouter} from './task-router.js'
 
-export type {PreDispatchCheck, PreDispatchCheckResult} from './task-router.js'
+export type {IsReviewDisabledResolver, PreDispatchCheck, PreDispatchCheckResult} from './task-router.js'
 export type {TaskInfo} from './types.js'
 
 type TransportHandlersOptions = {
   agentPool?: IAgentPool
   clientManager?: IClientManager
+  /** Resolves project's review-disabled flag at task-create. Snapshotted once into TaskInfo + TaskExecute. */
+  isReviewDisabled?: IsReviewDisabledResolver
   /** Lifecycle hooks for task events (e.g. CurateLogHandler). */
   lifecycleHooks?: ITaskLifecycleHook[]
   /** Optional daemon-side gate run before dispatching a task to the agent pool. */
@@ -67,6 +69,7 @@ export class TransportHandlers {
     this.taskRouter = new TaskRouter({
       agentPool: options.agentPool,
       getAgentForProject: (projectPath) => this.connectionCoordinator.getAgentForProject(projectPath),
+      isReviewDisabled: options.isReviewDisabled,
       lifecycleHooks: options.lifecycleHooks,
       preDispatchCheck: options.preDispatchCheck,
       projectRegistry: options.projectRegistry,

@@ -35,6 +35,7 @@ import {FileSystemService} from '../../../agent/infra/file-system/file-system-se
 import {FolderPackService} from '../../../agent/infra/folder-pack/folder-pack-service.js'
 import {SessionMetadataStore} from '../../../agent/infra/session/session-metadata-store.js'
 import {FileKeyStorage} from '../../../agent/infra/storage/file-key-storage.js'
+import {runWithReviewDisabled} from '../../../agent/infra/tools/implementations/curate-tool-task-context.js'
 import {createSearchKnowledgeService} from '../../../agent/infra/tools/implementations/search-knowledge-service.js'
 import {AuthEvents} from '../../../shared/transport/events/auth-events.js'
 import {decodeSearchContent} from '../../../shared/transport/search-content.js'
@@ -435,7 +436,7 @@ async function executeTask(
   storagePath: string,
   runtimeSignalStore: IRuntimeSignalStore,
 ): Promise<void> {
-  const {clientCwd, clientId, content, files, folderPath, force, taskId, trigger, type, worktreeRoot} = task
+  const {clientCwd, clientId, content, files, folderPath, force, reviewDisabled, taskId, trigger, type, worktreeRoot} = task
   if (!transport || !agent) return
 
   // Search tasks are pure BM25 retrieval — no LLM, no provider needed.
@@ -453,7 +454,19 @@ async function executeTask(
 
   activeTaskCount++
 
-  try {
+  // Body of the task — extracted so the daemon-stamped reviewDisabled snapshot can be
+  // opened as an AsyncLocalStorage scope around it. Tools that run inside this task
+  // (curate-tool.executeCurate, including the sandbox `tools.curate(...)` path via
+  // CurateService where _context.taskId is not threaded through) read the snapshot
+  // from the ALS scope instead of re-reading .brv/config.json — that read can race
+  // with mid-task user toggles, which is exactly the inconsistency we are eliminating.
+  // We only open the scope when the daemon stamped a value; otherwise consumers fall
+  // back to the file read, preserving behavior for legacy clients without a stamp.
+  const runTaskBody = async (): Promise<void> => {
+    // Re-narrow inside the closure: TypeScript loses the function-scope narrowing
+    // from the early-return guard above once we hand control to a callback.
+    if (!transport || !agent) return
+
     // Only refresh config and hot-swap provider when this is the first concurrent task.
     // Subsequent concurrent tasks reuse cached config to avoid race conditions
     // on provider hot-swap (which replaces SessionManager).
@@ -575,6 +588,7 @@ async function executeTask(
           const dreamResult = await dreamExecutor.executeWithAgent(agent, {
             priorMtime: eligibility.priorMtime,
             projectRoot: projectPath,
+            ...(reviewDisabled === undefined ? {} : {reviewDisabled}),
             taskId,
             trigger: trigger ?? 'cli',
           })
@@ -637,6 +651,10 @@ async function executeTask(
     } finally {
       cleanupForwarding?.()
     }
+  }
+
+  try {
+    await (reviewDisabled === undefined ? runTaskBody() : runWithReviewDisabled(reviewDisabled, runTaskBody))
   } finally {
     activeTaskCount--
 
