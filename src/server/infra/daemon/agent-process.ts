@@ -536,6 +536,16 @@ async function executeTask(
       // Socket dropped — continue executing so we can still emit task:completed/error when socket reconnects
     }
 
+    // Detached Phase 4 from a prior task on this project may still be writing
+    // `_index.md` / `_manifest.json`. Block new context-tree work until that
+    // drains — `task:completed` no longer implies "tree is free" since
+    // ENG-2522 detached Phase 4. Bounded by the prior task's Phase 4 (~18s
+    // worst case from the ticket); the user is already in the queue, so the
+    // task:started they observe is unaffected.
+    if (type === 'curate' || type === 'curate-folder' || type === 'dream') {
+      await postWorkRegistry.awaitProject(projectPath)
+    }
+
     try {
       let result: string
       let logId: string | undefined
@@ -688,11 +698,20 @@ async function executeTask(
     activeTaskCount--
 
     // Deferred hot-swap: if provider changed while tasks were in-flight,
-    // trigger swap now that all tasks are done
+    // trigger swap now that all tasks are done. Detached Phase 4 means
+    // post-curate work can still be running `propagateStaleness` against
+    // `agent` after activeTaskCount reaches 0; rebuilding the SessionManager
+    // mid-LLM-call would cause Phase 4 to fail silently. Wait on the registry
+    // first so any in-flight Phase 4 finishes before the swap (ENG-2522).
     if (activeTaskCount === 0 && providerConfigDirty && agent && transport) {
-      hotSwapProvider(agent, transport).catch((error) => {
-        agentLog(`deferred hotSwapProvider failed: ${error instanceof Error ? error.message : String(error)}`)
-      })
+      const swapAgent = agent
+      const swapTransport = transport
+      postWorkRegistry
+        .awaitAll()
+        .then(() => hotSwapProvider(swapAgent, swapTransport))
+        .catch((error: unknown) => {
+          agentLog(`deferred hotSwapProvider failed: ${error instanceof Error ? error.message : String(error)}`)
+        })
     }
   }
 }

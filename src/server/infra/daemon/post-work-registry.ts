@@ -21,26 +21,36 @@
 
 export type PostWorkThunk = () => Promise<void>
 
-export interface PostWorkRegistryOptions {
+export type PostWorkRegistryOptions = {
   /** Optional logger called on thunk errors. Stays light to keep the registry test-friendly. */
   onError?: (projectPath: string, error: unknown) => void
 }
 
 export class PostWorkRegistry {
-  /**
-   * In-flight tails across all projects — used by drain() to wait on
-   * everything. We re-derive this from `tails` on demand.
-   */
+  /** Optional logger called when a thunk throws. */
   private readonly onError?: (projectPath: string, error: unknown) => void
-/**
- * Per-project tail promise. Each `submit(project, thunk)` chains the new
- * thunk after the previous tail. The tail is replaced atomically so the
- * next submission picks up the latest one without races.
- */
+  /**
+   * Per-project tail promise. Each `submit(project, thunk)` chains the new
+   * thunk after the previous tail. The tail is replaced atomically so the
+   * next submission picks up the latest one without races.
+   */
   private readonly tails = new Map<string, Promise<void>>()
 
   public constructor(options: PostWorkRegistryOptions = {}) {
     this.onError = options.onError
+  }
+
+  /**
+   * Wait until all currently-queued work across all projects completes. New
+   * submissions arriving during the await are NOT awaited — only the tails
+   * captured at call time. Used by the deferred hot-swap path so the agent
+   * is not rebuilt while a Phase 4 thunk is mid-LLM-call (ENG-2522).
+   */
+  public async awaitAll(): Promise<void> {
+    const tails = [...this.tails.values()]
+    if (tails.length === 0) return
+    // Tails are guaranteed not to reject — submit() swallows errors via onError.
+    await Promise.all(tails)
   }
 
   /**

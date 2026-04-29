@@ -189,6 +189,76 @@ describe('PostWorkRegistry', () => {
     })
   })
 
+  describe('awaitAll', () => {
+    it('resolves immediately when there is no work in any project', async () => {
+      const registry = new PostWorkRegistry()
+      const start = Date.now()
+      await registry.awaitAll()
+      expect(Date.now() - start).to.be.lessThan(50)
+    })
+
+    it('resolves only after every queued tail completes (multi-project)', async () => {
+      const registry = new PostWorkRegistry()
+      const a = deferred<void>()
+      const b = deferred<void>()
+      let done = false
+
+      registry.submit('/projA', async () => {
+        await a.promise
+      })
+      registry.submit('/projB', async () => {
+        await b.promise
+      })
+
+      const awaiting = registry.awaitAll().then(() => {
+        done = true
+      })
+
+      // Neither project finished yet — awaitAll must block.
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 20)
+      })
+      expect(done).to.equal(false)
+
+      a.resolve()
+      // Still waiting on B.
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 20)
+      })
+      expect(done).to.equal(false)
+
+      b.resolve()
+      await awaiting
+      expect(done).to.equal(true)
+    })
+
+    it('does not block on submissions arriving after the call', async () => {
+      // Captures the tail at call time (matches awaitProject semantics) — the
+      // hot-swap path needs deterministic completion against the snapshot, not
+      // an indefinite wait.
+      const registry = new PostWorkRegistry()
+      const a = deferred<void>()
+      registry.submit('/proj', async () => {
+        await a.promise
+      })
+
+      const awaiting = registry.awaitAll()
+      // Submit a fresh, slow thunk AFTER awaitAll started.
+      const b = deferred<void>()
+      registry.submit('/proj', async () => {
+        await b.promise
+      })
+
+      a.resolve()
+      // awaitAll resolves once the snapshot's tail finishes — even though the
+      // chained tail (via b) is still pending.
+      await awaiting
+      // Cleanup: release the lingering thunk so the test exits cleanly.
+      b.resolve()
+      await registry.awaitProject('/proj')
+    })
+  })
+
   describe('drain', () => {
     it('returns when all in-flight work across all projects completes', async () => {
       const registry = new PostWorkRegistry()

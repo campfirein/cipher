@@ -422,4 +422,91 @@ describe('FolderPackExecutor', () => {
       })
     })
   })
+
+describe('runAgentBody / finalize split (ENG-2522)', () => {
+  // Mirrors the curate-executor split coverage. agent-process needs response
+  // BEFORE Phase 4 so it can fire `task:completed` and submit finalize() to
+  // the PostWorkRegistry. Folder-pack has no task-session lifecycle to test.
+
+  beforeEach(() => {
+    stubDreamLockServiceDefaults()
+  })
+
+  afterEach(() => {
+    restore()
+  })
+
+  it('returns the response without running Phase 4 first', async () => {
+    const folderPackService = {
+      generateXml: stub().returns('<packed_folder />'),
+      initialize: stub().resolves(),
+      pack: stub().resolves({fileCount: 0, files: [], totalLines: 0}),
+    } as unknown as IFolderPackService
+
+    const executor = new FolderPackExecutor(folderPackService)
+    stub(
+      executor as unknown as {executeIterative: (...args: unknown[]) => Promise<string>},
+      'executeIterative',
+    ).resolves('curated')
+    stub(FileContextTreeSnapshotService.prototype, 'getCurrentState')
+      .onFirstCall()
+      .resolves(new Map())
+      .onSecondCall()
+      .resolves(new Map([['auth/jwt.md', {hash: 'h', size: 1}]]))
+    const propagateStaleness = stub(FileContextTreeSummaryService.prototype, 'propagateStaleness').resolves([])
+    stub(FileContextTreeManifestService.prototype, 'buildManifest').resolves()
+
+    const drainBackgroundWork = stub().resolves()
+    const agent = {drainBackgroundWork} as unknown as ICipherAgent
+    const {finalize, response} = await executor.runAgentBody(agent, {
+      clientCwd: '/workspace',
+      content: 'curate',
+      folderPath: 'src',
+      taskId: 'fp-split-1',
+    })
+
+    // Phase 4 must NOT have run yet — response was returned immediately.
+    expect(response).to.equal('curated')
+    expect(propagateStaleness.called).to.be.false
+    expect(drainBackgroundWork.called).to.be.false
+
+    await finalize()
+    expect(propagateStaleness.calledOnce).to.be.true
+    expect(drainBackgroundWork.calledOnce).to.be.true
+  })
+
+  it('executeWithAgent (backwards-compat wrapper) still runs Phase 4 inline before returning', async () => {
+    const folderPackService = {
+      generateXml: stub().returns('<packed_folder />'),
+      initialize: stub().resolves(),
+      pack: stub().resolves({fileCount: 0, files: [], totalLines: 0}),
+    } as unknown as IFolderPackService
+
+    const executor = new FolderPackExecutor(folderPackService)
+    stub(
+      executor as unknown as {executeIterative: (...args: unknown[]) => Promise<string>},
+      'executeIterative',
+    ).resolves('curated')
+    stub(FileContextTreeSnapshotService.prototype, 'getCurrentState')
+      .onFirstCall()
+      .resolves(new Map())
+      .onSecondCall()
+      .resolves(new Map([['auth/jwt.md', {hash: 'h', size: 1}]]))
+    const propagateStaleness = stub(FileContextTreeSummaryService.prototype, 'propagateStaleness').resolves([])
+
+    const drainBackgroundWork = stub().resolves()
+    const agent = {drainBackgroundWork} as unknown as ICipherAgent
+    const result = await executor.executeWithAgent(agent, {
+      clientCwd: '/workspace',
+      content: 'curate',
+      folderPath: 'src',
+      taskId: 'fp-split-2',
+    })
+
+    expect(result).to.equal('curated')
+    // Wrapper awaits finalize internally — Phase 4 ran by the time we get here.
+    expect(propagateStaleness.calledOnce).to.be.true
+    expect(drainBackgroundWork.calledOnce).to.be.true
+  })
+})
 })
