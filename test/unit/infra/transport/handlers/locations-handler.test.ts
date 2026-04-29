@@ -85,10 +85,12 @@ describe('LocationsHandler', () => {
   }
 
   describe('setup', () => {
-    it('should register locations:get handler', () => {
+    it('should register locations:get and locations:reveal handlers', () => {
       createHandler()
-      expect(transport.onRequest.calledOnce).to.be.true
-      expect(transport.onRequest.firstCall.args[0]).to.equal(LocationsEvents.GET)
+      expect(transport.onRequest.calledTwice).to.be.true
+      const registeredEvents = transport.onRequest.getCalls().map((call) => call.args[0])
+      expect(registeredEvents).to.include(LocationsEvents.GET)
+      expect(registeredEvents).to.include(LocationsEvents.REVEAL)
     })
   })
 

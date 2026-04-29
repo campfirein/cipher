@@ -7,6 +7,7 @@ import {ListTodo, Plus} from 'lucide-react'
 
 import type {StatusFilter} from '../stores/task-store'
 
+import {TourPointer} from '../../onboarding/components/tour-pointer'
 import {STATUS_LABEL} from './task-list-filter-bar'
 
 export function PlaceholderCard({children, withDots}: {children: ReactNode; withDots?: boolean}) {
@@ -27,7 +28,7 @@ export function LoadingState() {
   return <div className="text-muted-foreground flex h-32 items-center justify-center text-sm">Loading tasks…</div>
 }
 
-export function EmptyState({onNewTask}: {onNewTask: () => void}) {
+export function EmptyState({onNewTask, tourCue}: {onNewTask: () => void; tourCue?: string}) {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-4 p-8 text-center">
       <ListTodo className="text-muted-foreground/70 size-8" />
@@ -38,10 +39,12 @@ export function EmptyState({onNewTask}: {onNewTask: () => void}) {
         </p>
       </div>
       <div className="flex items-center gap-2 pt-1">
-        <Button onClick={onNewTask} size="sm" variant="default">
-          <Plus className="size-4" />
-          New task
-        </Button>
+        <TourPointer active={Boolean(tourCue)} label={tourCue ?? ''} side="top">
+          <Button onClick={onNewTask} size="sm" variant="default">
+            <Plus className="size-4" />
+            New task
+          </Button>
+        </TourPointer>
         <span className="text-muted-foreground/60 ml-2 text-sm">or run from the CLI</span>
       </div>
     </div>

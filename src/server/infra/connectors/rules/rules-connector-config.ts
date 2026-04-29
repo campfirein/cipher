@@ -71,6 +71,10 @@ export const RULES_CONNECTOR_CONFIGS = {
     filePath: '.kiro/steering/agent-context.md',
     writeMode: 'overwrite',
   },
+  OpenClaude: {
+    filePath: 'CLAUDE.md',
+    writeMode: 'append',
+  },
   OpenCode: {
     filePath: 'AGENTS.md',
     writeMode: 'append',

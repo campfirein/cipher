@@ -16,6 +16,9 @@ import {restore, stub} from 'sinon'
 import type {ICipherAgent} from '../../../../src/agent/core/interfaces/i-cipher-agent.js'
 
 import {FileValidationError} from '../../../../src/server/core/domain/errors/task-error.js'
+import {FileContextTreeManifestService} from '../../../../src/server/infra/context-tree/file-context-tree-manifest-service.js'
+import {FileContextTreeSnapshotService} from '../../../../src/server/infra/context-tree/file-context-tree-snapshot-service.js'
+import {FileContextTreeSummaryService} from '../../../../src/server/infra/context-tree/file-context-tree-summary-service.js'
 import {CurateExecutor} from '../../../../src/server/infra/executor/curate-executor.js'
 
 describe('CurateExecutor (regression)', () => {
@@ -202,6 +205,57 @@ describe('CurateExecutor (regression)', () => {
 
       // Post-cutover: response is the formatted DAG result.
       expect(result).to.include('Curate completed via typed-slot DAG')
+    })
+  })
+
+  describe('summary propagation taskId threading (ENG-2100)', () => {
+    it('passes the curate operation taskId to propagateStaleness so summary LLM calls share one billing session', async () => {
+      const agent = {
+        cancel: stub().resolves(false),
+        createTaskSession: stub().resolves('session-id'),
+        deleteSandboxVariable: stub(),
+        deleteSandboxVariableOnSession: stub(),
+        deleteSession: stub().resolves(true),
+        deleteTaskSession: stub().resolves(),
+        execute: stub().resolves(''),
+        executeOnSession: stub().resolves('curated'),
+        generate: stub().resolves({content: '', toolCalls: [], usage: {inputTokens: 0, outputTokens: 0}}),
+        getSessionMetadata: stub().resolves(),
+        getState: stub().returns({currentIteration: 0, executionHistory: [], executionState: 'idle', toolCallsExecuted: 0}),
+        listPersistedSessions: stub().resolves([]),
+        reset: stub(),
+        setSandboxVariable: stub(),
+        setSandboxVariableOnSession: stub(),
+        start: stub().resolves(),
+        stream: stub().resolves({[Symbol.asyncIterator]: () => ({next: () => Promise.resolve({done: true, value: undefined})})}),
+      } as unknown as ICipherAgent
+
+      // pre-state empty, post-state has one new file → diffStates yields one changed path
+      stub(FileContextTreeSnapshotService.prototype, 'getCurrentState')
+        .onFirstCall()
+        .resolves(new Map())
+        .onSecondCall()
+        .resolves(new Map([['auth/jwt.md', {hash: 'h', size: 1}]]))
+      const propagateStalenessStub = stub(
+        FileContextTreeSummaryService.prototype,
+        'propagateStaleness',
+      ).resolves([])
+      stub(FileContextTreeManifestService.prototype, 'buildManifest').resolves()
+
+      const taskId = 'curate-op-uuid-1'
+      const projectRoot = '/projects/myapp'
+      const executor = new CurateExecutor()
+      await executor.executeWithAgent(agent, {
+        clientCwd: projectRoot,
+        content: 'capture auth knowledge',
+        projectRoot,
+        taskId,
+      })
+
+      expect(propagateStalenessStub.calledOnce).to.be.true
+      // 4th arg must be the curate's taskId so the billing service groups
+      // summary regenerations into the same session as the parent operation.
+      expect(propagateStalenessStub.firstCall.args[3]).to.equal(taskId)
     })
   })
 })

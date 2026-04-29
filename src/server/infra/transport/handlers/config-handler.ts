@@ -22,6 +22,7 @@ export class ConfigHandler {
     this.transport.onRequest<void, ConfigGetEnvironmentResponse>(ConfigEvents.GET_ENVIRONMENT, () => {
       const config = getCurrentConfig()
       return {
+        gitRemoteBaseUrl: config.gitRemoteBaseUrl,
         iamBaseUrl: config.iamBaseUrl,
         isDevelopment: isDevelopment(),
         webAppUrl: config.webAppUrl,

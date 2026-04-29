@@ -210,7 +210,7 @@ export class CurateExecutor implements ICurateExecutor {
           const changedPaths = diffStates(preState, postState)
           if (changedPaths.length > 0) {
             const summaryService = new FileContextTreeSummaryService()
-            const results = await summaryService.propagateStaleness(changedPaths, agent, baseDir)
+            const results = await summaryService.propagateStaleness(changedPaths, agent, baseDir, taskId)
 
             // Opportunistic manifest rebuild (pre-warm for next query)
             if (results.some((r) => r.actionTaken)) {
