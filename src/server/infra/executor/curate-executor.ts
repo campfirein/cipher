@@ -4,6 +4,7 @@ import type {ICipherAgent} from '../../../agent/core/interfaces/i-cipher-agent.j
 import type {CurationStatus} from '../../core/domain/entities/curation-status.js'
 import type {CurateExecuteOptions, ICurateExecutor} from '../../core/interfaces/executor/i-curate-executor.js'
 
+import {recon as reconHelper} from '../../../agent/infra/sandbox/curation-helpers.js'
 import {BRV_DIR} from '../../constants.js'
 import {FileValidationError} from '../../core/domain/errors/task-error.js'
 import {
@@ -100,12 +101,25 @@ export class CurateExecutor implements ICurateExecutor {
         type: 'string',
       }
 
-      // Inject context, metadata, empty history, and taskId into the TASK session's sandbox
+      // Pre-pipeline the recon step (deterministic helper) so the agent loop
+      // doesn't spend its first iteration calling tools.curation.recon. The
+      // result is injected as a sandbox variable for code-exec access AND
+      // its key findings are surfaced inline in the prompt so the agent's
+      // first iteration can proceed directly to extraction. exp 04 measured
+      // recon as a universal lift target (38–53% of total LLM calls were
+      // pure orchestration of deterministic helpers; recon was always #1).
+      const initialHistory = {entries: [], totalProcessed: 0}
+      const reconResult = reconHelper(effectiveContext, metadata, initialHistory)
+      const reconVar = `__recon_result_${taskIdSafe}`
+
+      // Inject context, metadata, empty history, taskId, and pre-computed
+      // recon result into the TASK session's sandbox.
       const taskIdVar = `__taskId_${taskIdSafe}`
       agent.setSandboxVariableOnSession(taskSessionId, ctxVar, effectiveContext)
-      agent.setSandboxVariableOnSession(taskSessionId, histVar, {entries: [], totalProcessed: 0})
+      agent.setSandboxVariableOnSession(taskSessionId, histVar, initialHistory)
       agent.setSandboxVariableOnSession(taskSessionId, metaVar, metadata)
       agent.setSandboxVariableOnSession(taskSessionId, taskIdVar, taskId)
+      agent.setSandboxVariableOnSession(taskSessionId, reconVar, reconResult)
 
       // Prompt with curation helpers guidance (tools.curation.* replaces manual infrastructure code)
       const prompt = [
@@ -114,7 +128,8 @@ export class CurateExecutor implements ICurateExecutor {
         `History variable: ${histVar}`,
         `Metadata variable: ${metaVar}`,
         `Task ID variable: ${taskIdVar} (pass as bare variable, not a string)`,
-        `IMPORTANT: Do NOT print raw context. Start with tools.curation.recon(${ctxVar}, ${metaVar}, ${histVar}) to assess.`,
+        `Recon already computed in ${reconVar}: suggestedMode=${reconResult.suggestedMode}, suggestedChunkCount=${reconResult.suggestedChunkCount}, charCount=${reconResult.meta.charCount}, lineCount=${reconResult.meta.lineCount}, messageCount=${reconResult.meta.messageCount}.`,
+        `IMPORTANT: Do NOT print raw context. Do NOT call tools.curation.recon — it has been pre-computed. Proceed directly to extraction.`,
         `For chunked extraction use tools.curation.mapExtract(). Pass taskId: ${taskIdVar} (bare variable).`,
         `IMPORTANT: Any code_exec call containing mapExtract MUST use timeout: 300000 on the code_exec tool call itself (not inside mapExtract options).`,
         `Use tools.curation.groupBySubject() and tools.curation.dedup() to organize extractions.`,
