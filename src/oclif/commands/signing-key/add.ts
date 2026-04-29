@@ -71,7 +71,7 @@ public static flags = {
       )
 
       if (response.action === 'add' && response.key) {
-        this.log('✅ Signing key added successfully')
+        this.log('Signing key added successfully')
         this.log(`   Title:       ${response.key.title}`)
         this.log(`   Fingerprint: ${response.key.fingerprint}`)
         this.log(`   Type:        ${response.key.keyType}`)

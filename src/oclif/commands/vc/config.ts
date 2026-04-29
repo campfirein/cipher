@@ -92,11 +92,11 @@ public static flags = {
       )
 
       if (result.hint) this.log(`  ${result.hint}`)
-      this.log(`✅ Imported signing config from git:`)
+      this.log(`Imported signing config from git:`)
       this.log(`   user.signingkey = ${result.value}`)
 
       // Attempt to register the key automatically
-      this.log(`\n⏳ Attempting to register signing key with ByteRover server...`)
+      this.log(`\nAttempting to register signing key with ByteRover server...`)
       try {
         const keyPath = resolveHome(result.value)
         let publicKey: string
@@ -126,14 +126,14 @@ public static flags = {
         )
 
         if (response.action === 'add' && response.key) {
-          this.log('✅ Signing key registered successfully on server')
+          this.log('Signing key registered successfully on server')
         }
       } catch (error) {
         if (getTransportErrorCode(error) === VcErrorCode.SIGNING_KEY_ALREADY_EXISTS) {
-          this.log('✅ Signing key is already registered on server')
+          this.log('Signing key is already registered on server')
         } else {
           const errMsg = error instanceof Error ? error.message : String(error)
-          this.log(`⚠️  Could not automatically register key: ${errMsg}`)
+          this.log(`Warning: could not automatically register key: ${errMsg}`)
           this.log(`   You may need to run: brv signing-key add --key ${result.value}`)
         }
       }
@@ -141,8 +141,6 @@ public static flags = {
       const msg = error instanceof Error ? error.message : String(error)
       // Provide helpful guidance when no signing key is configured in git
       if (msg.includes('not set') || msg.includes('not found')) {
-        this.log('ℹ️  No SSH signing key found in your git config.')
-        this.log('')
         this.log('To configure SSH signing in git:')
         this.log('  git config user.signingKey ~/.ssh/id_ed25519')
         this.log('  git config gpg.format ssh')
@@ -151,10 +149,10 @@ public static flags = {
         this.log('Or set it directly in brv:')
         this.log('  brv vc config user.signingkey ~/.ssh/id_ed25519')
         this.log('  brv vc config commit.sign true')
-        return
+        this.error('No SSH signing key found in your git config.')
+      } else {
+        this.error(formatConnectionError(error))
       }
-
-      this.error(formatConnectionError(error))
     }
   }
 }

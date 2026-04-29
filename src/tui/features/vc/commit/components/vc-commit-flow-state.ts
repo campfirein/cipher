@@ -58,7 +58,7 @@ export function reduceCommitFlow(
     }
 
     case 'commit-success': {
-      const signed = event.signed ? ' 🔏' : ''
+      const signed = event.signed ? ' (signed)' : ''
       return {
         kind: 'done',
         message: `[${event.sha.slice(0, 7)}] ${event.message}${signed}`,

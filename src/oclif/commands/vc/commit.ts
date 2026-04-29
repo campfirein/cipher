@@ -53,7 +53,7 @@ export default class VcCommit extends Command {
         client.requestWithAck<IVcCommitResponse>(VcEvents.COMMIT, payload),
       )
 
-      const sigIndicator = result.signed ? ' 🔏' : ''
+      const sigIndicator = result.signed ? ' (signed)' : ''
       this.log(`[${result.sha.slice(0, 7)}] ${result.message}${sigIndicator}`)
     } catch (error) {
       // oclif commands run non-interactively. Surface a clear actionable error

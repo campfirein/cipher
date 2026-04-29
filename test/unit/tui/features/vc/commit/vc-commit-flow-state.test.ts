@@ -40,7 +40,7 @@ describe('reduceCommitFlow()', () => {
 
       expect(result.kind).to.equal('done')
       if (result.kind !== 'done') throw new Error('unreachable')
-      expect(result.message).to.equal('[deadbee] signed msg 🔏')
+      expect(result.message).to.equal('[deadbee] signed msg (signed)')
     })
 
     it('commit-error with PASSPHRASE_REQUIRED → awaiting-passphrase(attempt=1)', () => {

@@ -40,7 +40,7 @@ export default class SigningKeyRemove extends Command {
         }),
       )
 
-      this.log(`✅ Signing key removed: ${args.id}`)
+      this.log(`Signing key removed: ${args.id}`)
     } catch (error) {
       this.error(formatConnectionError(error))
     }
