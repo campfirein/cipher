@@ -172,7 +172,11 @@ export class AbstractGenerationQueue {
   }
 
   private async processNext(): Promise<void> {
-    if (!this.generator || this.processing || this.pending.length === 0) {
+    // Capture the generator in a local const so type narrowing survives the
+    // `await` boundary below — TS won't keep `this.generator` narrow across
+    // suspensions because another async path could reassign the property.
+    const {generator} = this
+    if (!generator || this.processing || this.pending.length === 0) {
       this.resolveDrainersIfIdle()
       return
     }
@@ -181,7 +185,12 @@ export class AbstractGenerationQueue {
     this.queueStatusWrite()
 
     // Drain up to BATCH_SIZE_CAP items into a single batch. Items beyond the
-    // cap stay pending for the next cycle.
+    // cap stay pending for the next cycle. Note: `maxAttempts` counts BATCH
+    // attempts for this item, not individual-call attempts — a transient
+    // failure on attempt 1 consumes one retry token for every item in the
+    // batch, including ones whose content was unrelated to the failure.
+    // Acceptable: batches are small (cap=5) and the per-item re-enqueue on
+    // batch failure preserves attempts independently across cycles.
     const batch = this.pending.splice(0, BATCH_SIZE_CAP)
     queueLog(`process:start batchSize=${batch.length} remaining=${this.pending.length} retrying=${this.retrying}`)
 
@@ -196,7 +205,7 @@ export class AbstractGenerationQueue {
 
       const results = await generateFileAbstractsBatch(
         batch.map((it) => ({contextPath: it.contextPath, fullContent: it.fullContent})),
-        this.generator,
+        generator,
       )
 
       // Write all batched outputs in parallel. Empty strings are valid (model

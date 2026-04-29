@@ -88,11 +88,20 @@ function escapeXmlAttr(value: string): string {
   return value.replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
 }
 
+/**
+ * Wrap raw file content in a CDATA section so XML/HTML/JSX/markdown that
+ * mentions `</document>` or `</file>` (perfectly normal for docs that describe
+ * those formats) cannot terminate the envelope and conflate files. The inner
+ * `]]>` escape is the standard CDATA-in-CDATA trick: split the sequence so it
+ * never appears verbatim inside the active section.
+ */
+function wrapCdata(content: string): string {
+  return `<![CDATA[${content.replaceAll(']]>', ']]]]><![CDATA[>')}]]>`
+}
+
 function buildBatchedAbstractPrompt(items: ReadonlyArray<{content: string; contextPath: string;}>): string {
   const filesXml = items.map((it) => `<file path="${escapeXmlAttr(it.contextPath)}">
-<document>
-${it.content}
-</document>
+<document>${wrapCdata(it.content)}</document>
 </file>`).join('\n')
 
   return `For each of the following knowledge documents, produce a ONE-LINE summary (max 80 tokens) that is a complete sentence capturing the core topic and key insight.
@@ -109,9 +118,7 @@ ${filesXml}
 
 function buildBatchedOverviewPrompt(items: ReadonlyArray<{content: string; contextPath: string;}>): string {
   const filesXml = items.map((it) => `<file path="${escapeXmlAttr(it.contextPath)}">
-<document>
-${it.content}
-</document>
+<document>${wrapCdata(it.content)}</document>
 </file>`).join('\n')
 
   return `For each of the following knowledge documents, produce a structured overview (markdown, under 1500 tokens) that includes:
@@ -219,10 +226,22 @@ export async function generateFileAbstractsBatch(
 ): Promise<BatchedAbstractItem[]> {
   if (items.length === 0) return []
 
-  const truncated = items.map((it) => ({
-    content: it.fullContent.slice(0, MAX_BATCHED_CONTENT_CHARS_PER_FILE),
-    contextPath: it.contextPath,
-  }))
+  // Dedup by contextPath, keeping the LAST occurrence's content. The queue is
+  // FIFO so later items carry the most recent fullContent — and the disk file
+  // already reflects that write, so the abstract must summarize the latest
+  // state rather than an intermediate one. Without this dedup, duplicate paths
+  // emit two `<file path>` blocks the model may answer in either order; the
+  // tag parser keys on path and Map-collapses, leaving non-deterministic
+  // results for the duplicates.
+  const byPath = new Map<string, {content: string; contextPath: string}>()
+  for (const it of items) {
+    byPath.set(it.contextPath, {
+      content: it.fullContent.slice(0, MAX_BATCHED_CONTENT_CHARS_PER_FILE),
+      contextPath: it.contextPath,
+    })
+  }
+
+  const truncated = [...byPath.values()]
 
   const [abstractText, overviewText] = await Promise.all([
     streamToText(generator, {
