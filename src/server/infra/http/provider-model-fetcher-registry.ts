@@ -93,7 +93,7 @@ export async function getModelFetcher(providerId: string): Promise<IProviderMode
 
     case 'minimax': {
       fetcher = new ChatBasedModelFetcher(
-        'https://api.minimax.io/v1',
+        'https://api.minimaxi.com/v1',
         'MiniMax',
         ['MiniMax-M2.7', 'MiniMax-M2.6', 'MiniMax-M2.5', 'MiniMax-M2', 'MiniMax-M2-Stable'],
       )

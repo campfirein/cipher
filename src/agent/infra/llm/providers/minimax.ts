@@ -13,12 +13,12 @@ import {AiSdkContentGenerator} from '../generators/ai-sdk-content-generator.js'
 export const minimaxProvider: ProviderModule = {
   apiKeyUrl: 'https://platform.minimax.io',
   authType: 'api-key',
-  baseUrl: 'https://api.minimax.io/v1',
+  baseUrl: 'https://api.minimaxi.com/v1',
   category: 'other',
   createGenerator(config: GeneratorFactoryConfig) {
     const provider = createOpenAICompatible({
       apiKey: config.apiKey!,
-      baseURL: 'https://api.minimax.io/v1',
+      baseURL: 'https://api.minimaxi.com/v1',
       name: 'minimax',
     })
 
