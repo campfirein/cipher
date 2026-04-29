@@ -64,6 +64,7 @@ import {FileCurateLogStore} from '../storage/file-curate-log-store.js'
 import {FileReviewBackupStore} from '../storage/file-review-backup-store.js'
 import {AgentInstanceDiscovery} from '../transport/agent-instance-discovery.js'
 import {createAgentLogger} from './agent-logger.js'
+import {PostWorkRegistry} from './post-work-registry.js'
 import {resolveSessionId} from './session-resolver.js'
 import {validateProviderForTask} from './task-validation.js'
 
@@ -96,6 +97,17 @@ const port = portEnv
 const projectPath = projectPathEnv
 
 const agentLog = createAgentLogger(process.env.BRV_SESSION_LOG, `[agent-process:${projectPath}]`)
+
+/**
+ * Tracks detached post-curate work (Phase 4) so the user-perceived
+ * `task:completed` fires immediately after the agent body finishes
+ * (ENG-2522). Drained on shutdown to avoid truncating partial writes.
+ */
+const postWorkRegistry = new PostWorkRegistry({
+  onError(_projectPath, error) {
+    agentLog(`post-work error: ${error instanceof Error ? error.message : String(error)}`)
+  },
+})
 
 /**
  * Persist a brand-new session's metadata and set it as active.
@@ -527,9 +539,14 @@ async function executeTask(
     try {
       let result: string
       let logId: string | undefined
+      // Detached post-curate work (Phase 4). Captured during the curate /
+      // curate-folder cases and submitted to the PostWorkRegistry AFTER
+      // task:completed fires, so the user does not wait on summary regen
+      // and manifest rebuild (ENG-2522).
+      let postWork: (() => Promise<void>) | undefined
       switch (type) {
         case 'curate': {
-          result = await curateExecutor.executeWithAgent(agent, {
+          const curateResult = await curateExecutor.runAgentBody(agent, {
             clientCwd,
             content,
             files,
@@ -537,12 +554,14 @@ async function executeTask(
             taskId,
             worktreeRoot,
           })
+          result = curateResult.response
+          postWork = curateResult.finalize
 
           break
         }
 
         case 'curate-folder': {
-          result = await folderPackExecutor.executeWithAgent(agent, {
+          const folderResult = await folderPackExecutor.runAgentBody(agent, {
             clientCwd,
             content,
             folderPath: folderPath!,
@@ -550,6 +569,8 @@ async function executeTask(
             taskId,
             worktreeRoot,
           })
+          result = folderResult.response
+          postWork = folderResult.finalize
 
           break
         }
@@ -628,7 +649,8 @@ async function executeTask(
         }
       }
 
-      // Emit task:completed
+      // Emit task:completed BEFORE running detached Phase 4 — user sees the
+      // response as soon as the agent body finishes (ENG-2522).
       agentLog(`task:completed taskId=${taskId}`)
       try {
         transport.request(TransportTaskEventNames.COMPLETED, {clientId, ...(logId ? {logId} : {}), projectPath, result, taskId})
@@ -636,6 +658,13 @@ async function executeTask(
         agentLog(
           `task:completed send failed taskId=${taskId}: ${error instanceof Error ? error.message : String(error)}`,
         )
+      }
+
+      // Submit detached post-curate work to the registry. Mutex'd per project
+      // and drained on shutdown so SIGTERM mid-work cannot truncate `_index.md`.
+      if (postWork) {
+        agentLog(`post-work queued taskId=${taskId}`)
+        postWorkRegistry.submit(projectPath, postWork)
       }
     } catch (error) {
       // Emit task:error
@@ -818,6 +847,20 @@ async function hotSwapProvider(
 
 async function shutdown(): Promise<void> {
   agentLog('Shutting down...')
+
+  // Drain any in-flight detached post-curate work BEFORE stopping the agent
+  // and disconnecting transport. propagateStaleness mid-write would otherwise
+  // leave `_index.md` truncated on SIGTERM. 30s + 5s grace mirrors the
+  // hardening committed to in the ENG-2522 plan.
+  try {
+    const drainStart = Date.now()
+    const drainResult = await postWorkRegistry.drain(30_000)
+    agentLog(
+      `post-work drain (${Date.now() - drainStart}ms): drained=${drainResult.drained} abandoned=${drainResult.abandoned}`,
+    )
+  } catch (error) {
+    agentLog(`post-work drain failed: ${error instanceof Error ? error.message : String(error)}`)
+  }
 
   try {
     if (agent) {
