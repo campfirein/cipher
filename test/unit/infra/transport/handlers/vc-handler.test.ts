@@ -2078,20 +2078,27 @@ describe('VcHandler', () => {
       expect(cloneArgs.url).to.equal('https://byterover.dev/acme/my-space-v2-0.git')
     })
 
-    it('should throw NotAuthenticatedError when URL clone without auth (name resolution)', async () => {
+    it('anonymous URL clone proceeds with slug-built URL and skips space-config persistence', async () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.isInitialized.resolves(false)
       deps.tokenStore.load.resolves()
       makeVcHandler(deps).setup()
 
-      try {
-        await invoke(deps, VcEvents.CLONE, {
-          url: 'https://byterover.dev/TeamName/space-name.git',
-        })
-        expect.fail('Expected error')
-      } catch (error) {
-        expect(error).to.be.instanceOf(NotAuthenticatedError)
-      }
+      await invoke(deps, VcEvents.CLONE, {
+        url: 'https://byterover.dev/teamname/space-name.git',
+      })
+
+      // Team/space API not consulted when there is no token
+      expect(deps.teamService.getTeams.notCalled).to.be.true
+      expect(deps.spaceService.getSpaces.notCalled).to.be.true
+
+      // Clone hits the slug-built URL (server is the access authority)
+      expect(deps.gitService.clone.calledOnce).to.be.true
+      const cloneArgs = deps.gitService.clone.firstCall.args[0]
+      expect(cloneArgs.url).to.equal('https://byterover.dev/teamname/space-name.git')
+
+      // No team/space IDs known — config is NOT persisted
+      expect(deps.projectConfigStore.write.notCalled).to.be.true
     })
 
     it('should clone with spaceId/teamId (legacy space-picker flow)', async () => {
@@ -2369,22 +2376,36 @@ describe('VcHandler', () => {
       expect(storedUrl).to.equal('https://byterover.dev/acme/project.git')
     })
 
-    it('should throw NotAuthenticatedError when adding remote without auth (name resolution)', async () => {
+    it('anonymous remote add proceeds with slug-built URL and skips space-config persistence', async () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.isInitialized.resolves(true)
       deps.gitService.getRemoteUrl.resolves()
       deps.tokenStore.load.resolves()
       makeVcHandler(deps).setup()
 
-      try {
-        await deps.requestHandlers[VcEvents.REMOTE](
-          {subcommand: 'add', url: 'https://byterover.dev/TeamName/space-name.git'},
-          CLIENT_ID,
-        )
-        expect.fail('Expected error')
-      } catch (error) {
-        expect(error).to.be.instanceOf(NotAuthenticatedError)
-      }
+      const result = await invoke<{action: string; url: string}>(
+        deps,
+        VcEvents.REMOTE,
+        {subcommand: 'add', url: 'https://byterover.dev/teamname/space-name.git'},
+        CLIENT_ID,
+      )
+
+      expect(result.action).to.equal('add')
+      expect(result.url).to.equal('https://byterover.dev/teamname/space-name.git')
+
+      // Team/space API not consulted when there is no token
+      expect(deps.teamService.getTeams.notCalled).to.be.true
+      expect(deps.spaceService.getSpaces.notCalled).to.be.true
+
+      // Remote written with the slug-built URL
+      expect(deps.gitService.addRemote.calledOnce).to.be.true
+      expect(deps.gitService.addRemote.firstCall.args[0]).to.include({
+        remote: 'origin',
+        url: 'https://byterover.dev/teamname/space-name.git',
+      })
+
+      // No team/space IDs known — config is NOT persisted
+      expect(deps.projectConfigStore.write.notCalled).to.be.true
     })
 
     it('should throw REMOTE_ALREADY_EXISTS when adding duplicate remote', async () => {

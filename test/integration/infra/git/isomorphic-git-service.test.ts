@@ -1,5 +1,6 @@
 import {expect} from 'chai'
 import * as git from 'isomorphic-git'
+import nock from 'nock'
 import fs, {existsSync} from 'node:fs'
 import {mkdir, readFile, rm, unlink, utimes, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
@@ -49,6 +50,12 @@ async function initWithCommit(
   await svc.add({directory: dir, filePaths: [filename]})
   const commit = await svc.commit({directory: dir, message})
   return commit.sha
+}
+
+async function seedRepoWithRemote(svc: IsomorphicGitService, dir: string, url: string): Promise<void> {
+  await svc.init({directory: dir})
+  await initWithCommit(svc, dir, 'a.md', 'hello\n', 'init')
+  await svc.addRemote({directory: dir, remote: 'origin', url})
 }
 
 describe('IsomorphicGitService', () => {
@@ -1140,23 +1147,8 @@ describe('IsomorphicGitService', () => {
       }
     })
 
-    it('throws GitAuthError when pushing without a token', async () => {
-      const noAuthService = new IsomorphicGitService(makeAuth({noAuth: true}))
-
-      await service.init({directory: testDir})
-      // Remote is required — onAuth is only invoked when isomorphic-git has a URL to connect to
-      await service.addRemote({directory: testDir, remote: 'origin', url: `${COGIT_BASE}/team-1/space-1.git`})
-      await writeFile(join(testDir, 'f.md'), 'x')
-      await service.add({directory: testDir, filePaths: ['f.md']})
-      await service.commit({directory: testDir, message: 'init'})
-
-      try {
-        await noAuthService.push({directory: testDir})
-        expect.fail('should have thrown')
-      } catch (error) {
-        expect(error).to.be.instanceOf(GitAuthError)
-      }
-    })
+    // Auth-gate behaviour for clone/fetch/pull/push lives in the
+    // 'remote auth headers' suite below, where nock intercepts the HTTP layer.
   })
 
   // ---- getTrackingBranch() / setTrackingBranch() ----
@@ -1695,6 +1687,303 @@ describe('IsomorphicGitService', () => {
 
       const content = await service.getBlobContent({directory: testDir, path: 'a.md', ref: {commitish: sha1}})
       expect(content).to.equal('v1\n')
+    })
+  })
+
+  // ---- remote auth headers (clone / fetch / pull / push) ----
+  //
+  // These tests verify that:
+  //   - When the auth store has a token, requests carry `Authorization: Basic ...`.
+  //   - When the auth store is empty, requests carry NO Authorization header
+  //     (the local pre-check is gone — server is the sole authority on access).
+  //   - 401 responses still surface as `GitAuthError` via `onAuth` / `onAuthFailure`,
+  //     with the same user-facing messages as before.
+  //
+  // We use nock to intercept the very first HTTP call of each git operation
+  // (`info/refs?service=git-{upload,receive}-pack`). nock's `.matchHeader` makes
+  // the route match conditional on the Authorization header — if the request
+  // arrives without the expected header, the route does not match, the request
+  // hits the disabled real network, and the test fails with a connect error.
+  // We do not try to make the full git operation succeed; for header-presence
+  // tests we accept any non-`GitAuthError` failure downstream of the matched call.
+  describe('remote auth headers (clone/fetch/pull/push)', () => {
+    const PUBLIC_URL = `${COGIT_BASE}/team-1/public.git`
+    const PRIVATE_URL = `${COGIT_BASE}/team-1/private.git`
+
+    beforeEach(() => {
+      nock.disableNetConnect()
+    })
+
+    afterEach(() => {
+      nock.cleanAll()
+      nock.enableNetConnect()
+    })
+
+    // We always seed with the authed outer `service`. Seeding calls `commit`,
+    // which calls `getAuthor()` — that path still legitimately requires a token
+    // (out of scope for this ticket). The instance under test (authed or anon)
+    // is then used only for the actual fetch/pull/push call.
+
+    describe('clone()', () => {
+      it('anonymous: sends no Authorization header', async () => {
+        const anon = new IsomorphicGitService(makeAuth({noAuth: true}))
+        const scope = nock(COGIT_BASE)
+          .get(/info\/refs/)
+          .matchHeader('authorization', (val) => val === undefined)
+          .reply(200, '')
+
+        try {
+          await anon.clone({directory: testDir, url: PUBLIC_URL})
+        } catch (error) {
+          expect(error).to.not.be.instanceOf(GitAuthError)
+        }
+
+        expect(scope.isDone()).to.be.true
+      })
+
+      it('authed: sends Authorization: Basic header', async () => {
+        const scope = nock(COGIT_BASE)
+          .get(/info\/refs/)
+          .matchHeader('authorization', /^Basic /)
+          .reply(200, '')
+
+        try {
+          await service.clone({directory: testDir, url: `${COGIT_BASE}/team-1/space-1.git`})
+        } catch (error) {
+          expect(error).to.not.be.instanceOf(GitAuthError)
+        }
+
+        expect(scope.isDone()).to.be.true
+      })
+
+      it('anonymous against private (401): throws GitAuthError', async () => {
+        const anon = new IsomorphicGitService(makeAuth({noAuth: true}))
+        nock(COGIT_BASE).get(/info\/refs/).reply(401, '', {'WWW-Authenticate': 'Basic'})
+
+        let caught: unknown
+        try {
+          await anon.clone({directory: testDir, url: PRIVATE_URL})
+        } catch (error) {
+          caught = error
+        }
+
+        expect(caught).to.be.instanceOf(GitAuthError)
+      })
+
+      it('authed with bad token (401): throws GitAuthError("Authentication failed...")', async () => {
+        nock(COGIT_BASE).get(/info\/refs/).twice().reply(401, '', {'WWW-Authenticate': 'Basic'})
+
+        let caught: Error | undefined
+        try {
+          await service.clone({directory: testDir, url: `${COGIT_BASE}/team-1/space-1.git`})
+        } catch (error) {
+          caught = error as Error
+        }
+
+        expect(caught).to.be.instanceOf(GitAuthError)
+        expect(caught?.message).to.contain('Authentication failed')
+      })
+    })
+
+    describe('fetch()', () => {
+      it('anonymous: sends no Authorization header', async () => {
+        const anon = new IsomorphicGitService(makeAuth({noAuth: true}))
+        await seedRepoWithRemote(service, testDir, PUBLIC_URL)
+
+        const scope = nock(COGIT_BASE)
+          .get(/info\/refs/)
+          .matchHeader('authorization', (val) => val === undefined)
+          .reply(200, '')
+
+        try {
+          await anon.fetch({directory: testDir, remote: 'origin'})
+        } catch (error) {
+          expect(error).to.not.be.instanceOf(GitAuthError)
+        }
+
+        expect(scope.isDone()).to.be.true
+      })
+
+      it('authed: sends Authorization: Basic header', async () => {
+        await seedRepoWithRemote(service, testDir, `${COGIT_BASE}/team-1/space-1.git`)
+
+        const scope = nock(COGIT_BASE)
+          .get(/info\/refs/)
+          .matchHeader('authorization', /^Basic /)
+          .reply(200, '')
+
+        try {
+          await service.fetch({directory: testDir, remote: 'origin'})
+        } catch (error) {
+          expect(error).to.not.be.instanceOf(GitAuthError)
+        }
+
+        expect(scope.isDone()).to.be.true
+      })
+
+      it('anonymous against private (401): throws GitAuthError', async () => {
+        const anon = new IsomorphicGitService(makeAuth({noAuth: true}))
+        await seedRepoWithRemote(service, testDir, PRIVATE_URL)
+        nock(COGIT_BASE).get(/info\/refs/).reply(401, '', {'WWW-Authenticate': 'Basic'})
+
+        let caught: unknown
+        try {
+          await anon.fetch({directory: testDir, remote: 'origin'})
+        } catch (error) {
+          caught = error
+        }
+
+        expect(caught).to.be.instanceOf(GitAuthError)
+      })
+
+      it('authed with bad token (401): throws GitAuthError("Authentication failed...")', async () => {
+        await seedRepoWithRemote(service, testDir, `${COGIT_BASE}/team-1/space-1.git`)
+        nock(COGIT_BASE).get(/info\/refs/).twice().reply(401, '', {'WWW-Authenticate': 'Basic'})
+
+        let caught: Error | undefined
+        try {
+          await service.fetch({directory: testDir, remote: 'origin'})
+        } catch (error) {
+          caught = error as Error
+        }
+
+        expect(caught).to.be.instanceOf(GitAuthError)
+        expect(caught?.message).to.contain('Authentication failed')
+      })
+    })
+
+    describe('pull()', () => {
+      it('anonymous: sends no Authorization header', async () => {
+        const anon = new IsomorphicGitService(makeAuth({noAuth: true}))
+        await seedRepoWithRemote(service, testDir, PUBLIC_URL)
+
+        const scope = nock(COGIT_BASE)
+          .get(/info\/refs/)
+          .matchHeader('authorization', (val) => val === undefined)
+          .reply(200, '')
+
+        try {
+          await anon.pull({branch: 'main', directory: testDir, remote: 'origin'})
+        } catch (error) {
+          expect(error).to.not.be.instanceOf(GitAuthError)
+        }
+
+        expect(scope.isDone()).to.be.true
+      })
+
+      it('authed: sends Authorization: Basic header', async () => {
+        await seedRepoWithRemote(service, testDir, `${COGIT_BASE}/team-1/space-1.git`)
+
+        const scope = nock(COGIT_BASE)
+          .get(/info\/refs/)
+          .matchHeader('authorization', /^Basic /)
+          .reply(200, '')
+
+        try {
+          await service.pull({branch: 'main', directory: testDir, remote: 'origin'})
+        } catch (error) {
+          expect(error).to.not.be.instanceOf(GitAuthError)
+        }
+
+        expect(scope.isDone()).to.be.true
+      })
+
+      it('anonymous against private (401): throws GitAuthError', async () => {
+        const anon = new IsomorphicGitService(makeAuth({noAuth: true}))
+        await seedRepoWithRemote(service, testDir, PRIVATE_URL)
+        nock(COGIT_BASE).get(/info\/refs/).reply(401, '', {'WWW-Authenticate': 'Basic'})
+
+        let caught: unknown
+        try {
+          await anon.pull({branch: 'main', directory: testDir, remote: 'origin'})
+        } catch (error) {
+          caught = error
+        }
+
+        expect(caught).to.be.instanceOf(GitAuthError)
+      })
+
+      it('authed with bad token (401): throws GitAuthError("Authentication failed...")', async () => {
+        await seedRepoWithRemote(service, testDir, `${COGIT_BASE}/team-1/space-1.git`)
+        nock(COGIT_BASE).get(/info\/refs/).twice().reply(401, '', {'WWW-Authenticate': 'Basic'})
+
+        let caught: Error | undefined
+        try {
+          await service.pull({branch: 'main', directory: testDir, remote: 'origin'})
+        } catch (error) {
+          caught = error as Error
+        }
+
+        expect(caught).to.be.instanceOf(GitAuthError)
+        expect(caught?.message).to.contain('Authentication failed')
+      })
+    })
+
+    describe('push()', () => {
+      it('anonymous: sends no Authorization header', async () => {
+        const anon = new IsomorphicGitService(makeAuth({noAuth: true}))
+        await seedRepoWithRemote(service, testDir, PUBLIC_URL)
+
+        const scope = nock(COGIT_BASE)
+          .get(/info\/refs/)
+          .matchHeader('authorization', (val) => val === undefined)
+          .reply(200, '')
+
+        try {
+          await anon.push({directory: testDir, remote: 'origin'})
+        } catch (error) {
+          expect(error).to.not.be.instanceOf(GitAuthError)
+        }
+
+        expect(scope.isDone()).to.be.true
+      })
+
+      it('authed: sends Authorization: Basic header', async () => {
+        await seedRepoWithRemote(service, testDir, `${COGIT_BASE}/team-1/space-1.git`)
+
+        const scope = nock(COGIT_BASE)
+          .get(/info\/refs/)
+          .matchHeader('authorization', /^Basic /)
+          .reply(200, '')
+
+        try {
+          await service.push({directory: testDir, remote: 'origin'})
+        } catch (error) {
+          expect(error).to.not.be.instanceOf(GitAuthError)
+        }
+
+        expect(scope.isDone()).to.be.true
+      })
+
+      it('anonymous against private (401): throws GitAuthError', async () => {
+        const anon = new IsomorphicGitService(makeAuth({noAuth: true}))
+        await seedRepoWithRemote(service, testDir, PRIVATE_URL)
+        nock(COGIT_BASE).get(/info\/refs/).reply(401, '', {'WWW-Authenticate': 'Basic'})
+
+        let caught: unknown
+        try {
+          await anon.push({directory: testDir, remote: 'origin'})
+        } catch (error) {
+          caught = error
+        }
+
+        expect(caught).to.be.instanceOf(GitAuthError)
+      })
+
+      it('authed with bad token (401): throws GitAuthError("Authentication failed...")', async () => {
+        await seedRepoWithRemote(service, testDir, `${COGIT_BASE}/team-1/space-1.git`)
+        nock(COGIT_BASE).get(/info\/refs/).twice().reply(401, '', {'WWW-Authenticate': 'Basic'})
+
+        let caught: Error | undefined
+        try {
+          await service.push({directory: testDir, remote: 'origin'})
+        } catch (error) {
+          caught = error as Error
+        }
+
+        expect(caught).to.be.instanceOf(GitAuthError)
+        expect(caught?.message).to.contain('Authentication failed')
+      })
     })
   })
 })
