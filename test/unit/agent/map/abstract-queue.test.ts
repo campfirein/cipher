@@ -231,6 +231,32 @@ describe('AbstractGenerationQueue', () => {
       expect(written.pending).to.equal(1)
     })
 
+    it('status file reflects retrying items in pending count', async () => {
+      const {generator, rejectNextCall} = makeControlledGenerator(sandbox)
+      const q = new AbstractGenerationQueue(tmpDir, 2)
+
+      q.setGenerator(generator)
+      q.enqueue({contextPath: join(tmpDir, 'file.md'), fullContent: 'content'})
+
+      await new Promise<void>((r) => { setImmediate(r) })
+      rejectNextCall(new Error('fail'))
+      await new Promise<void>((r) => { setImmediate(r) })
+      await new Promise<void>((r) => { setImmediate(r) })
+
+      // Status file is written during retrying++ branch — wait for disk I/O to flush
+      await new Promise<void>((r) => { setTimeout(r, 50) })
+
+      const statusPath = join(tmpDir, '.brv', '_queue_status.json')
+      const raw = await fs.readFile(statusPath, 'utf8')
+      const written = JSON.parse(raw) as {pending: number; processing: boolean}
+      expect(written.pending).to.equal(1) // retrying item must appear in status file
+      expect(written.processing).to.equal(false)
+    })
+  })
+
+  // ── batching behaviour ─────────────────────────────────────────────────────
+
+  describe('batching behaviour', () => {
     it('buffers items below BATCH_SIZE_CAP without firing LLM calls', async () => {
       const successfulGenerator = makeSuccessfulGenerator(sandbox)
       const q = new AbstractGenerationQueue(tmpDir)
@@ -302,28 +328,6 @@ describe('AbstractGenerationQueue', () => {
       // 2 batches × 2 LLM calls each = 4 stream calls
       expect(stub.callCount).to.equal(4, 'Expected 4 stream calls for 7 items split into batches of 5+2')
       expect(q.getStatus().processed).to.equal(N)
-    })
-
-    it('status file reflects retrying items in pending count', async () => {
-      const {generator, rejectNextCall} = makeControlledGenerator(sandbox)
-      const q = new AbstractGenerationQueue(tmpDir, 2)
-
-      q.setGenerator(generator)
-      q.enqueue({contextPath: join(tmpDir, 'file.md'), fullContent: 'content'})
-
-      await new Promise<void>((r) => { setImmediate(r) })
-      rejectNextCall(new Error('fail'))
-      await new Promise<void>((r) => { setImmediate(r) })
-      await new Promise<void>((r) => { setImmediate(r) })
-
-      // Status file is written during retrying++ branch — wait for disk I/O to flush
-      await new Promise<void>((r) => { setTimeout(r, 50) })
-
-      const statusPath = join(tmpDir, '.brv', '_queue_status.json')
-      const raw = await fs.readFile(statusPath, 'utf8')
-      const written = JSON.parse(raw) as {pending: number; processing: boolean}
-      expect(written.pending).to.equal(1) // retrying item must appear in status file
-      expect(written.processing).to.equal(false)
     })
   })
 })

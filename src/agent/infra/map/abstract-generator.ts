@@ -144,21 +144,35 @@ ${filesXml}
  * Extract <abstract>...</abstract> per <file path="..."> from the model output.
  * Tolerant: ignores extra whitespace, supports nested newlines inside the inner
  * tag. Returns a Map keyed by path. Paths that don't appear are absent.
+ *
+ * Anchored on `<file path="...">` openers (not `</file>` closers) so a model
+ * overview that mentions `</file>` literally in prose — perfectly normal for
+ * docs about XML, JSX, or build systems — cannot prematurely terminate the
+ * outer match and orphan the inner tag. Each opener owns the response slice
+ * up to the next opener (or end-of-string), and the inner regex extracts
+ * the payload from that slice.
  */
 function parseBatchedTags(response: string, innerTag: 'abstract' | 'overview'): Map<string, string> {
   const result = new Map<string, string>()
-  // Match <file path="X">...<innerTag>BODY</innerTag>...</file>; lazy on body so
-  // multiple <file> blocks don't bleed into one. The `.` flag-less regex relies
-  // on the s-flag (dotAll) to span newlines.
-  const fileRe = /<file\s+path="([^"]*)"[^>]*>([\s\S]*?)<\/file>/g
+  const fileOpenerRe = /<file\s+path="([^"]*)"[^>]*>/g
   const innerRe = new RegExp(`<${innerTag}>([\\s\\S]*?)<\\/${innerTag}>`)
 
+  const openers: Array<{bodyStart: number; rawPath: string}> = []
   let m: null | RegExpExecArray
-  while ((m = fileRe.exec(response)) !== null) {
-    const [, rawPath, innerXml] = m
-    const path = rawPath.replaceAll('&amp;', '&').replaceAll('&quot;', '"').replaceAll('&lt;', '<').replaceAll('&gt;', '>')
-    const inner = innerRe.exec(innerXml)
+  while ((m = fileOpenerRe.exec(response)) !== null) {
+    openers.push({bodyStart: fileOpenerRe.lastIndex, rawPath: m[1]})
+  }
+
+  for (const [i, opener] of openers.entries()) {
+    // Each opener's slice runs from its end to the start of the next opener
+    // (or end-of-string). Within that slice, the inner regex picks up the
+    // payload. A literal `</file>` in prose has no special meaning here.
+    const sliceEnd = i + 1 < openers.length ? openers[i + 1].bodyStart : response.length
+    const slice = response.slice(opener.bodyStart, sliceEnd)
+    const inner = innerRe.exec(slice)
     if (inner) {
+      const path = opener.rawPath
+        .replaceAll('&amp;', '&').replaceAll('&quot;', '"').replaceAll('&lt;', '<').replaceAll('&gt;', '>')
       result.set(path, inner[1].trim())
     }
   }

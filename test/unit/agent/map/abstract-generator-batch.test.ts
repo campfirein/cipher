@@ -160,7 +160,11 @@ describe('generateFileAbstractsBatch', () => {
   })
 
   it('CDATA-wraps file content so XML/HTML markers in the body cannot break the envelope', async () => {
-    let capturedPrompt = ''
+    // Capture BOTH the L0 and L1 prompts so we assert the wrap is applied to
+    // each independent builder. Without separate captures, we'd only validate
+    // the last call's prompt — a future refactor that forgot wrapCdata in one
+    // builder would slip past.
+    const capturedPrompts: {abstract?: string; overview?: string} = {}
     const generator: IContentGenerator = {
       estimateTokensSync: () => 10,
       generateContent: sandbox.stub().rejects(new Error('n/a')),
@@ -168,8 +172,9 @@ describe('generateFileAbstractsBatch', () => {
         contents?: Array<{content?: string}>
         systemPrompt?: string
       }) {
-        capturedPrompt = req.contents?.[0]?.content ?? ''
         const isAbstract = (req.systemPrompt ?? '').includes('one-line')
+        if (isAbstract) capturedPrompts.abstract = req.contents?.[0]?.content ?? ''
+        else capturedPrompts.overview = req.contents?.[0]?.content ?? ''
         const innerTag = isAbstract ? 'abstract' : 'overview'
         yield {content: `<file path="docs/xml.md"><${innerTag}>OK</${innerTag}></file>`, isComplete: false}
         yield {isComplete: true}
@@ -185,18 +190,46 @@ describe('generateFileAbstractsBatch', () => {
       generator,
     )
 
-    // The raw treacherous text must appear inside a CDATA section, not as
-    // bare nested elements, so the model parses one document and one file.
-    expect(capturedPrompt).to.include('<![CDATA[')
-    expect(capturedPrompt).to.include(']]>')
-    // The prompt has exactly one <document> opener and exactly one closing
-    // </document> at the structural level (the body's </document> is now
-    // inert inside CDATA).
-    const docOpen = (capturedPrompt.match(/<document>/g) ?? []).length
-    expect(docOpen).to.equal(1, 'exactly one <document> envelope per file')
+    // Both prompts (L0 and L1) must independently wrap content in CDATA.
+    for (const [label, prompt] of [['abstract', capturedPrompts.abstract], ['overview', capturedPrompts.overview]] as const) {
+      expect(prompt, `${label} prompt was captured`).to.be.a('string')
+      const promptText = prompt ?? ''
+      expect(promptText, `${label} prompt opens CDATA`).to.include('<![CDATA[')
+      expect(promptText, `${label} prompt closes CDATA`).to.include(']]>')
+      // Exactly one structural <document> opener per file (the body's literal
+      // </document> is now inert inside CDATA).
+      const docOpen = (promptText.match(/<document>/g) ?? []).length
+      expect(docOpen, `${label} prompt has exactly one <document> envelope`).to.equal(1)
+    }
 
     // Result still parses cleanly.
     expect(result[0].abstractContent).to.equal('OK')
+  })
+
+  it('parser is robust to a literal </file> appearing inside the model overview prose', async () => {
+    // The model output is plain text (NOT CDATA-wrapped). A document about
+    // build systems / XML / JSX may legitimately produce overview prose like
+    // "the </file> closing tag in Ant build files…" — a closer-anchored
+    // parser would stop at the premature </file> and orphan the inner tag.
+    const l0Response = '<file path="ant.md"><abstract>Ant build files use a closing </file> tag.</abstract></file>'
+    const l1Response = `<file path="ant.md"><overview>
+- Mentions the </file> closing tag in build prose
+- Still must round-trip cleanly
+</overview></file>`
+
+    const generator = makeScriptedGenerator(sandbox, [l0Response, l1Response])
+    const result = await generateFileAbstractsBatch(
+      [{contextPath: 'ant.md', fullContent: 'Ant build files'}],
+      generator,
+    )
+
+    // Both fields are populated despite the literal </file> in the body —
+    // the parser anchors on `<file path>` openers, not `</file>` closers.
+    expect(result).to.have.lengthOf(1)
+    expect(result[0].abstractContent).to.include('Ant build files')
+    expect(result[0].abstractContent).to.include('</file>')
+    expect(result[0].overviewContent).to.include('Mentions the </file>')
+    expect(result[0].overviewContent).to.include('Still must round-trip cleanly')
   })
 
   it('escapes nested CDATA terminators in content so the wrap stays valid', async () => {
