@@ -99,6 +99,28 @@ describe('ProviderHandler', () => {
     return handler
   }
 
+  function createHandlerWithValidator(
+    validateOpenAICompatibleEndpoint: (params: {apiKey: string; baseUrl: string}) => Promise<{
+      error?: string
+      isValid: boolean
+    }>,
+  ): ProviderHandler {
+    const handler = new ProviderHandler({
+      authStateStore,
+      browserLauncher,
+      createCallbackServer: () => mockCallbackServer as unknown as ProviderCallbackServer,
+      exchangeCodeForTokens: exchangeCodeStub,
+      generatePkce: generatePkceStub,
+      providerConfigStore,
+      providerKeychainStore,
+      providerOAuthTokenStore,
+      transport,
+      validateOpenAICompatibleEndpoint,
+    })
+    handler.setup()
+    return handler
+  }
+
   describe('setup', () => {
     it('should register all provider event handlers', () => {
       createHandler()
@@ -159,6 +181,191 @@ describe('ProviderHandler', () => {
       await handler!({providerId: 'byterover'}, 'client-1')
 
       expect(providerConfigStore.connectProvider.calledBefore(transport.broadcast)).to.be.true
+    })
+
+    describe('openai-compatible URL validation', () => {
+      beforeEach(() => {
+        // setupConnect now reads existing config to fall back on stored
+        // baseUrl/apiKey when the request omits them — give the mock a
+        // sensible default so each test doesn't have to wire it up.
+        providerConfigStore.read.resolves(ProviderConfig.createDefault())
+      })
+
+      it('should validate base URL via injected validator before persisting anything', async () => {
+        const validateStub = stub<
+          [{apiKey: string; baseUrl: string}],
+          Promise<{error?: string; isValid: boolean}>
+        >().resolves({isValid: true})
+        createHandlerWithValidator(validateStub)
+
+        const connectHandler = transport._handlers.get(ProviderEvents.CONNECT)
+        const result = await connectHandler!(
+          {apiKey: 'test-key', baseUrl: 'http://localhost:11434/v1', providerId: 'openai-compatible'},
+          'client-1',
+        )
+
+        expect(result).to.deep.equal({success: true})
+        expect(validateStub.calledOnce).to.be.true
+        expect(validateStub.firstCall.args[0]).to.deep.equal({
+          apiKey: 'test-key',
+          baseUrl: 'http://localhost:11434/v1',
+        })
+        expect(validateStub.calledBefore(providerKeychainStore.setApiKey)).to.be.true
+        expect(validateStub.calledBefore(providerConfigStore.connectProvider)).to.be.true
+      })
+
+      it('should return error and persist nothing when endpoint validation fails', async () => {
+        const validateStub = stub<
+          [{apiKey: string; baseUrl: string}],
+          Promise<{error?: string; isValid: boolean}>
+        >().resolves({error: 'connect ECONNREFUSED', isValid: false})
+        createHandlerWithValidator(validateStub)
+
+        const connectHandler = transport._handlers.get(ProviderEvents.CONNECT)
+        const result = await connectHandler!(
+          {apiKey: 'test-key', baseUrl: 'http://nope', providerId: 'openai-compatible'},
+          'client-1',
+        )
+
+        expect(result.success).to.be.false
+        expect(result.error).to.include('http://nope')
+        expect(result.error).to.include('connect ECONNREFUSED')
+        expect(providerKeychainStore.setApiKey.notCalled).to.be.true
+        expect(providerConfigStore.connectProvider.notCalled).to.be.true
+        expect(transport.broadcast.notCalled).to.be.true
+      })
+
+      it('should not pre-write activeModel for openai-compatible', async () => {
+        const validateStub = stub<
+          [{apiKey: string; baseUrl: string}],
+          Promise<{error?: string; isValid: boolean}>
+        >().resolves({isValid: true})
+        createHandlerWithValidator(validateStub)
+
+        const connectHandler = transport._handlers.get(ProviderEvents.CONNECT)
+        await connectHandler!(
+          {baseUrl: 'http://localhost:11434/v1', providerId: 'openai-compatible'},
+          'client-1',
+        )
+
+        const connectArgs = providerConfigStore.connectProvider.firstCall.args[1] as Record<string, unknown>
+        expect(connectArgs.activeModel).to.be.undefined
+        expect(connectArgs.baseUrl).to.equal('http://localhost:11434/v1')
+      })
+
+      it('should reject with friendly error when no baseUrl is provided and none is stored', async () => {
+        const validateStub = stub<
+          [{apiKey: string; baseUrl: string}],
+          Promise<{error?: string; isValid: boolean}>
+        >().resolves({isValid: true})
+        providerConfigStore.read.resolves(ProviderConfig.createDefault())
+        createHandlerWithValidator(validateStub)
+
+        const connectHandler = transport._handlers.get(ProviderEvents.CONNECT)
+        const result = await connectHandler!({providerId: 'openai-compatible'}, 'client-1')
+
+        expect(result.success).to.be.false
+        expect(result.error).to.include('base URL is required')
+        expect(validateStub.notCalled).to.be.true
+        expect(providerConfigStore.connectProvider.notCalled).to.be.true
+      })
+
+      it('should validate with the stored baseUrl when the request omits it', async () => {
+        const validateStub = stub<
+          [{apiKey: string; baseUrl: string}],
+          Promise<{error?: string; isValid: boolean}>
+        >().resolves({isValid: true})
+        const stored = ProviderConfig.createDefault().withProviderConnected('openai-compatible', {
+          baseUrl: 'http://stored:11434/v1',
+        })
+        providerConfigStore.read.resolves(stored)
+        createHandlerWithValidator(validateStub)
+
+        const connectHandler = transport._handlers.get(ProviderEvents.CONNECT)
+        const result = await connectHandler!({providerId: 'openai-compatible'}, 'client-1')
+
+        expect(result).to.deep.equal({success: true})
+        expect(validateStub.firstCall.args[0]).to.deep.include({baseUrl: 'http://stored:11434/v1'})
+      })
+
+      it('should validate with the stored API key when the request omits it', async () => {
+        const validateStub = stub<
+          [{apiKey: string; baseUrl: string}],
+          Promise<{error?: string; isValid: boolean}>
+        >().resolves({isValid: true})
+        providerKeychainStore.getApiKey.withArgs('openai-compatible').resolves('stored-key')
+        createHandlerWithValidator(validateStub)
+
+        const connectHandler = transport._handlers.get(ProviderEvents.CONNECT)
+        await connectHandler!(
+          {baseUrl: 'http://localhost:11434/v1', providerId: 'openai-compatible'},
+          'client-1',
+        )
+
+        expect(validateStub.firstCall.args[0]).to.deep.equal({
+          apiKey: 'stored-key',
+          baseUrl: 'http://localhost:11434/v1',
+        })
+      })
+
+      it('should not validate non-openai-compatible providers', async () => {
+        const validateStub = stub<
+          [{apiKey: string; baseUrl: string}],
+          Promise<{error?: string; isValid: boolean}>
+        >().resolves({isValid: true})
+        createHandlerWithValidator(validateStub)
+
+        const connectHandler = transport._handlers.get(ProviderEvents.CONNECT)
+        await connectHandler!({apiKey: 'test-key', providerId: 'openrouter'}, 'client-1')
+
+        expect(validateStub.notCalled).to.be.true
+      })
+
+      it('should not activate openai-compatible when no active model will be set', async () => {
+        const validateStub = stub<
+          [{apiKey: string; baseUrl: string}],
+          Promise<{error?: string; isValid: boolean}>
+        >().resolves({isValid: true})
+        providerConfigStore.getActiveModel.withArgs('openai-compatible').resolves()
+        createHandlerWithValidator(validateStub)
+
+        const connectHandler = transport._handlers.get(ProviderEvents.CONNECT)
+        await connectHandler!(
+          {baseUrl: 'http://localhost:11434/v1', providerId: 'openai-compatible'},
+          'client-1',
+        )
+
+        const connectArgs = providerConfigStore.connectProvider.firstCall.args[1] as Record<string, unknown>
+        expect(connectArgs.setAsActive).to.equal(false)
+      })
+
+      it('should activate openai-compatible when an existing active model will be preserved', async () => {
+        const validateStub = stub<
+          [{apiKey: string; baseUrl: string}],
+          Promise<{error?: string; isValid: boolean}>
+        >().resolves({isValid: true})
+        providerConfigStore.getActiveModel.withArgs('openai-compatible').resolves('qwen3.5-9b')
+        createHandlerWithValidator(validateStub)
+
+        const connectHandler = transport._handlers.get(ProviderEvents.CONNECT)
+        await connectHandler!(
+          {baseUrl: 'http://localhost:11434/v1', providerId: 'openai-compatible'},
+          'client-1',
+        )
+
+        const connectArgs = providerConfigStore.connectProvider.firstCall.args[1] as Record<string, unknown>
+        expect(connectArgs.setAsActive).to.equal(true)
+      })
+    })
+
+    it('should activate non-openai-compatible providers (registry has a defaultModel)', async () => {
+      createHandler()
+
+      const handler = transport._handlers.get(ProviderEvents.CONNECT)
+      await handler!({apiKey: 'test-key', providerId: 'openrouter'}, 'client-1')
+
+      const connectArgs = providerConfigStore.connectProvider.firstCall.args[1] as Record<string, unknown>
+      expect(connectArgs.setAsActive).to.equal(true)
     })
   })
 
@@ -709,6 +916,22 @@ describe('ProviderHandler', () => {
       const openaiProvider = result.providers.find((p: {id: string}) => p.id === 'openai')
       expect(openaiProvider?.authMethod).to.equal('oauth')
       expect(openaiProvider?.requiresApiKey).to.be.false
+    })
+
+    it('should expose activeModel as undefined for openai-compatible connected without a model', async () => {
+      const config = ProviderConfig.createDefault().withProviderConnected('openai-compatible', {
+        baseUrl: 'http://localhost:11434/v1',
+      })
+      providerConfigStore.read.resolves(config)
+      providerConfigStore.isProviderConnected.withArgs('openai-compatible').resolves(true)
+      createHandler()
+
+      const handler = transport._handlers.get(ProviderEvents.LIST)
+      const result = await handler!(undefined, 'client-1')
+
+      const openaiCompat = result.providers.find((p: {id: string}) => p.id === 'openai-compatible')
+      expect(openaiCompat?.isConnected).to.be.true
+      expect(openaiCompat?.activeModel).to.be.undefined
     })
   })
 
