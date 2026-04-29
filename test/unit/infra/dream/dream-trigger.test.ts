@@ -11,6 +11,7 @@ function makeState(overrides: Partial<DreamState> = {}): DreamState {
     lastDreamAt: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
     lastDreamLogId: null,
     pendingMerges: [],
+    staleSummaryPaths: [],
     totalDreams: 0,
     version: 1,
     ...overrides,
@@ -68,6 +69,37 @@ describe('DreamTrigger', () => {
     it('should fail when activity gate fails (not enough curations)', async () => {
       const deps = makeDeps({
         state: makeState({curationsSinceDream: 1}),
+      })
+      const trigger = new DreamTrigger(deps)
+
+      const result = await trigger.tryStartDream('/project')
+      expect(result.eligible).to.be.false
+      if (!result.eligible) {
+        expect(result.reason).to.include('activity')
+      }
+    })
+
+    it('should bypass activity gate when stale-summary queue has work', async () => {
+      // ENG-2485: deferred summary cascade lives in staleSummaryPaths. If a
+      // low-activity project (1-2 curates) accumulates queued paths and the
+      // activity gate kept blocking, _index.md regeneration would never run.
+      const deps = makeDeps({
+        state: makeState({
+          curationsSinceDream: 1,
+          staleSummaryPaths: [{enqueuedAt: Date.now(), path: 'auth/jwt.md'}],
+        }),
+      })
+      const trigger = new DreamTrigger(deps)
+
+      const result = await trigger.tryStartDream('/project')
+      expect(result.eligible).to.be.true
+    })
+
+    it('should still fail activity gate when both curations AND queue are empty', async () => {
+      // Negative case for the bypass: empty queue + low activity means the
+      // activity gate should still block (nothing to drain, no work to do).
+      const deps = makeDeps({
+        state: makeState({curationsSinceDream: 1, staleSummaryPaths: []}),
       })
       const trigger = new DreamTrigger(deps)
 
@@ -262,6 +294,22 @@ describe('DreamTrigger', () => {
       if (!result.eligible) {
         expect(result.reason).to.include('activity')
       }
+    })
+
+    it('should bypass activity gate when stale-summary queue has work', async () => {
+      // Symmetry with the tryStartDream bypass test — both methods delegate
+      // to checkGates1to3, so a future refactor of the shared path must keep
+      // this invariant on both call sites.
+      const deps = makeDeps({
+        state: makeState({
+          curationsSinceDream: 1,
+          staleSummaryPaths: [{enqueuedAt: Date.now(), path: 'auth/jwt.md'}],
+        }),
+      })
+      const trigger = new DreamTrigger(deps)
+
+      const result = await trigger.checkEligibility('/project')
+      expect(result.eligible).to.be.true
     })
 
     it('should fail when queue is not empty', async () => {

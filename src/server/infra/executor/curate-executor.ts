@@ -14,7 +14,6 @@ import {
 import {validateFileForCurate} from '../../utils/file-validator.js'
 import {FileContextTreeManifestService} from '../context-tree/file-context-tree-manifest-service.js'
 import {FileContextTreeSnapshotService} from '../context-tree/file-context-tree-snapshot-service.js'
-import {FileContextTreeSummaryService} from '../context-tree/file-context-tree-summary-service.js'
 import {diffStates} from '../context-tree/snapshot-diff.js'
 import {DreamStateService} from '../dream/dream-state-service.js'
 import {PreCompactionService} from './pre-compaction/pre-compaction-service.js'
@@ -132,29 +131,52 @@ export class CurateExecutor implements ICurateExecutor {
       // Parse curation status from agent response for status tracking
       this.lastStatus = this.parseCurationStatus(taskId, response)
 
-      // --- Phase 4: Post-curation summary propagation (fail-open) ---
+      // Summary cascade regeneration (the LLM-driven `propagateStaleness` walk)
+      // is deferred to the next dream cycle to keep curate's hot path free of
+      // LLM calls. The manifest is rebuilt inline because it is a pure file
+      // scan (no LLM) and keeps newly-curated leaf files immediately
+      // discoverable via manifest-driven retrieval.
+      // Hoisted: both blocks below construct a DreamStateService against the
+      // same project. They share the module-level mutex via `getStateMutex`,
+      // so a single instance is sufficient and avoids duplicate construction.
+      const dreamStateService = new DreamStateService({baseDir: path.join(baseDir, BRV_DIR)})
+
+      // Two independent fail-open concerns: (a) enqueue the deferred
+      // summary-cascade work to dream's queue; (b) rebuild the search
+      // manifest. They share `changedPaths` but otherwise are unrelated —
+      // a transient disk error on the dream-state write must not skip the
+      // pure-filesystem manifest scan that keeps newly-curated leaf files
+      // immediately discoverable. Each runs in its own try block so one
+      // failure cannot mask the other's work.
+      let changedPaths: string[] = []
       if (preState) {
         try {
           const postState = await snapshotService.getCurrentState(baseDir)
-          const changedPaths = diffStates(preState, postState)
-          if (changedPaths.length > 0) {
-            const summaryService = new FileContextTreeSummaryService()
-            const results = await summaryService.propagateStaleness(changedPaths, agent, baseDir, taskId)
-
-            // Opportunistic manifest rebuild (pre-warm for next query)
-            if (results.some((r) => r.actionTaken)) {
-              const manifestService = new FileContextTreeManifestService({baseDirectory: baseDir})
-              await manifestService.buildManifest(baseDir)
-            }
-          }
+          changedPaths = diffStates(preState, postState)
         } catch {
-          // Fail-open: summary/manifest errors never block curation
+          // Fail-open: snapshot errors leave changedPaths empty → no enqueue,
+          // no manifest rebuild. Next curate's snapshot will pick up the diff.
+        }
+
+        if (changedPaths.length > 0) {
+          try {
+            await dreamStateService.enqueueStaleSummaryPaths(changedPaths)
+          } catch {
+            // Fail-open: queue write errors never block curation. The next
+            // curate's enqueue will still capture the same paths via diffStates.
+          }
+
+          try {
+            const manifestService = new FileContextTreeManifestService({baseDirectory: baseDir})
+            await manifestService.buildManifest(baseDir)
+          } catch {
+            // Fail-open: manifest rebuild is best-effort pre-warming.
+          }
         }
       }
 
       // Increment dream curation counter (fail-open: non-critical for curation)
       try {
-        const dreamStateService = new DreamStateService({baseDir: path.join(baseDir, BRV_DIR)})
         await dreamStateService.incrementCurationCount()
       } catch {
         // Dream state tracking is non-critical — don't block curation
