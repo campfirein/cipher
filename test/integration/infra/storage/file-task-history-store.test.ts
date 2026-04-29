@@ -54,220 +54,210 @@ describe('FileTaskHistoryStore', () => {
   })
 
   afterEach(async () => {
-    // Drain any in-flight prune/compaction so the rm below doesn't race with
-    // a pending writeFile / rename and trip ENOTEMPTY. The C1 fix's pre-rename
-    // recovery scan reads every data file, which extends the prune duration
-    // past the test body's await chain in some cases.
-    for (let i = 0; i < 30; i++) {
-      // eslint-disable-next-line no-await-in-loop
-      await new Promise<void>((r) => {
-        setTimeout(() => r(), 10)
-      })
-      // eslint-disable-next-line no-await-in-loop
-      const ok = await rm(tempDir, {force: true, recursive: true}).then(
-        () => true,
-        () => false,
-      )
-      if (ok) return
-    }
-
+    // Deterministic flush of the current outer store's pending prune/compaction
+    // before we delete tempDir. Sub-tests that use a private `raceStore` are
+    // responsible for flushing it themselves (see C1/B2 tests).
+    await store.flushPendingOperations()
     await rm(tempDir, {force: true, recursive: true})
   })
 
   describe('basic', () => {
-  it('save writes data file then appends index line', async () => {
-    const entry = makeEntry({taskId: 'abc'})
-    await store.save(entry)
+    it('save writes data file then appends index line', async () => {
+      const entry = makeEntry({taskId: 'abc'})
+      await store.save(entry)
 
-    const dataPath = join(dataDir, 'tsk-abc.json')
-    const dataRaw = await readFile(dataPath, 'utf8')
-    expect(JSON.parse(dataRaw)).to.deep.equal(entry)
+      const dataPath = join(dataDir, 'tsk-abc.json')
+      const dataRaw = await readFile(dataPath, 'utf8')
+      expect(JSON.parse(dataRaw)).to.deep.equal(entry)
 
-    const indexRaw = await readFile(indexPath, 'utf8')
-    const lines = indexRaw.split('\n').filter(Boolean)
-    expect(lines).to.have.lengthOf(1)
-    const parsedLine = JSON.parse(lines[0])
-    expect(parsedLine).to.include({
-      content: entry.content,
-      createdAt: entry.createdAt,
-      projectPath: '/p',
-      schemaVersion: 1,
-      status: 'created',
-      taskId: 'abc',
-      type: 'curate',
+      const indexRaw = await readFile(indexPath, 'utf8')
+      const lines = indexRaw.split('\n').filter(Boolean)
+      expect(lines).to.have.lengthOf(1)
+      const parsedLine = JSON.parse(lines[0])
+      expect(parsedLine).to.include({
+        content: entry.content,
+        createdAt: entry.createdAt,
+        projectPath: '/p',
+        schemaVersion: 1,
+        status: 'created',
+        taskId: 'abc',
+        type: 'curate',
+      })
     })
-  })
 
-  it('save rejects entry that fails Zod validation', async () => {
-    // status: 'completed' without completedAt — fails the discriminated union branch
-    const invalid = {
-      content: 'x',
-      createdAt: 1,
-      id: 'tsk-z',
-      projectPath: '/p',
-      result: 'done',
-      schemaVersion: 1,
-      status: 'completed',
-      taskId: 'z',
-      type: 'curate',
-    } as unknown as TaskHistoryEntry
+    it('save rejects entry that fails Zod validation', async () => {
+      // status: 'completed' without completedAt — fails the discriminated union branch
+      const invalid = {
+        content: 'x',
+        createdAt: 1,
+        id: 'tsk-z',
+        projectPath: '/p',
+        result: 'done',
+        schemaVersion: 1,
+        status: 'completed',
+        taskId: 'z',
+        type: 'curate',
+      } as unknown as TaskHistoryEntry
 
-    let thrown: unknown
-    try {
-      await store.save(invalid)
-    } catch (error) {
-      thrown = error
-    }
+      let thrown: unknown
+      try {
+        await store.save(invalid)
+      } catch (error) {
+        thrown = error
+      }
 
-    expect(thrown).to.exist
-    expect(thrown).to.be.an.instanceOf(Error)
-  })
-
-  it('getById returns full TaskHistoryEntry from data file', async () => {
-    const entry = makeEntry({
-      completedAt: 1_745_432_002_000,
-      reasoningContents: [{content: 'hmm', isThinking: false, timestamp: 1}],
-      responseContent: 'response text',
-      result: 'done',
-      sessionId: 'sess',
-      startedAt: 1_745_432_001_000,
-      status: 'completed',
-      taskId: 'full',
-      toolCalls: [
-        {args: {x: 1}, callId: 'c1', sessionId: 'sess', status: 'completed', timestamp: 1, toolName: 'read'},
-      ],
+      expect(thrown).to.exist
+      expect(thrown).to.be.an.instanceOf(Error)
     })
-    await store.save(entry)
 
-    const fetched = await store.getById('full')
-    expect(fetched).to.deep.equal(entry)
-  })
+    it('getById returns full TaskHistoryEntry from data file', async () => {
+      const entry = makeEntry({
+        completedAt: 1_745_432_002_000,
+        reasoningContents: [{content: 'hmm', isThinking: false, timestamp: 1}],
+        responseContent: 'response text',
+        result: 'done',
+        sessionId: 'sess',
+        startedAt: 1_745_432_001_000,
+        status: 'completed',
+        taskId: 'full',
+        toolCalls: [
+          {args: {x: 1}, callId: 'c1', sessionId: 'sess', status: 'completed', timestamp: 1, toolName: 'read'},
+        ],
+      })
+      await store.save(entry)
 
-  it('getById returns undefined for missing taskId', async () => {
-    const result = await store.getById('never-saved')
-    expect(result).to.equal(undefined)
-  })
-
-  it('getById returns undefined for corrupt data file', async () => {
-    await mkdir(dataDir, {recursive: true})
-    await writeFile(join(dataDir, 'tsk-bad.json'), '{not-valid-json', 'utf8')
-
-    const result = await store.getById('bad')
-    expect(result).to.equal(undefined)
-  })
-
-  it('list dedupes by taskId keeping the LAST line', async () => {
-    await store.save(makeEntry({createdAt: 1, status: 'created', taskId: 'one'}))
-    await store.save(makeEntry({createdAt: 1, startedAt: 2, status: 'started', taskId: 'one'}))
-    await store.save(
-      makeEntry({completedAt: 3, createdAt: 1, result: 'ok', startedAt: 2, status: 'completed', taskId: 'one'}),
-    )
-
-    const result = await store.list()
-    expect(result).to.have.lengthOf(1)
-    expect(result[0]).to.include({status: 'completed', taskId: 'one'})
-  })
-
-  it('list skips taskIds whose final line is _deleted: true', async () => {
-    await store.save(makeEntry({taskId: 'keep'}))
-    await store.save(makeEntry({taskId: 'gone'}))
-    // Manually append a tombstone for 'gone' (M2.05 will write these)
-    await appendFile(indexPath, JSON.stringify({_deleted: true, taskId: 'gone'}) + '\n', 'utf8')
-
-    const result = await store.list()
-    const ids = result.map((r) => r.taskId)
-    expect(ids).to.include('keep')
-    expect(ids).to.not.include('gone')
-  })
-
-  it('list filters by projectPath / status / type / createdAt range', async () => {
-    await store.save(makeEntry({createdAt: 100, projectPath: '/a', status: 'created', taskId: 't1', type: 'curate'}))
-    await store.save(makeEntry({createdAt: 200, projectPath: '/b', status: 'created', taskId: 't2', type: 'curate'}))
-    await store.save(
-      makeEntry({completedAt: 350, createdAt: 300, projectPath: '/a', status: 'completed', taskId: 't3', type: 'query'}),
-    )
-    await store.save(makeEntry({createdAt: 400, projectPath: '/a', status: 'created', taskId: 't4', type: 'curate'}))
-
-    const byProject = await store.list({projectPath: '/a'})
-    expect(byProject.map((r) => r.taskId).sort()).to.deep.equal(['t1', 't3', 't4'])
-
-    const byStatus = await store.list({status: ['completed']})
-    expect(byStatus.map((r) => r.taskId)).to.deep.equal(['t3'])
-
-    const byType = await store.list({type: ['query']})
-    expect(byType.map((r) => r.taskId)).to.deep.equal(['t3'])
-
-    const byRange = await store.list({after: 150, before: 350})
-    expect(byRange.map((r) => r.taskId).sort()).to.deep.equal(['t2', 't3'])
-  })
-
-  it('list returns newest-first by createdAt', async () => {
-    await store.save(makeEntry({createdAt: 300, taskId: 'mid'}))
-    await store.save(makeEntry({createdAt: 100, taskId: 'old'}))
-    await store.save(makeEntry({createdAt: 500, taskId: 'new'}))
-
-    const result = await store.list()
-    expect(result.map((r) => r.taskId)).to.deep.equal(['new', 'mid', 'old'])
-  })
-
-  it('list slices to limit AFTER sort + filter', async () => {
-    for (let i = 0; i < 5; i++) {
-      // eslint-disable-next-line no-await-in-loop
-      await store.save(makeEntry({createdAt: 100 * (i + 1), taskId: `id-${i}`}))
-    }
-
-    const result = await store.list({limit: 2})
-    expect(result.map((r) => r.taskId)).to.deep.equal(['id-4', 'id-3'])
-  })
-
-  it('list returns TaskListItem shape (no detail leak)', async () => {
-    const entry = makeEntry({
-      reasoningContents: [{content: 'why', timestamp: 1}],
-      responseContent: 'big response',
-      sessionId: 'sess',
-      taskId: 'detailed',
-      toolCalls: [
-        {args: {}, callId: 'c1', sessionId: 'sess', status: 'completed', timestamp: 1, toolName: 'read'},
-      ],
+      const fetched = await store.getById('full')
+      expect(fetched).to.deep.equal(entry)
     })
-    await store.save(entry)
 
-    const result = await store.list()
-    expect(result).to.have.lengthOf(1)
-    const item = result[0]
-    expect(item).to.not.have.property('responseContent')
-    expect(item).to.not.have.property('toolCalls')
-    expect(item).to.not.have.property('reasoningContents')
-    expect(item).to.not.have.property('sessionId')
-    expect(item).to.not.have.property('schemaVersion')
-    expect(item).to.not.have.property('id')
-  })
+    it('getById returns undefined for missing taskId', async () => {
+      const result = await store.getById('never-saved')
+      expect(result).to.equal(undefined)
+    })
 
-  it('atomic data write — no .tmp.* files remain', async () => {
-    await store.save(makeEntry({taskId: 'atomic'}))
+    it('getById returns undefined for corrupt data file', async () => {
+      await mkdir(dataDir, {recursive: true})
+      await writeFile(join(dataDir, 'tsk-bad.json'), '{not-valid-json', 'utf8')
 
-    const files = await readdir(dataDir)
-    const tmpFiles = files.filter((f) => f.includes('.tmp'))
-    expect(tmpFiles).to.have.lengthOf(0)
-    expect(files).to.have.lengthOf(1)
-    expect(files[0]).to.equal('tsk-atomic.json')
-  })
+      const result = await store.getById('bad')
+      expect(result).to.equal(undefined)
+    })
 
-  it('same taskId saved 3 times — single data file, 3 index lines', async () => {
-    await store.save(makeEntry({taskId: 'repeat'}))
-    await store.save(makeEntry({startedAt: 2, status: 'started', taskId: 'repeat'}))
-    await store.save(
-      makeEntry({completedAt: 3, result: 'r', startedAt: 2, status: 'completed', taskId: 'repeat'}),
-    )
+    it('list dedupes by taskId keeping the LAST line', async () => {
+      await store.save(makeEntry({createdAt: 1, status: 'created', taskId: 'one'}))
+      await store.save(makeEntry({createdAt: 1, startedAt: 2, status: 'started', taskId: 'one'}))
+      await store.save(
+        makeEntry({completedAt: 3, createdAt: 1, result: 'ok', startedAt: 2, status: 'completed', taskId: 'one'}),
+      )
 
-    const files = await readdir(dataDir)
-    expect(files).to.have.lengthOf(1)
-    expect(files[0]).to.equal('tsk-repeat.json')
+      const result = await store.list()
+      expect(result).to.have.lengthOf(1)
+      expect(result[0]).to.include({status: 'completed', taskId: 'one'})
+    })
 
-    const indexRaw = await readFile(indexPath, 'utf8')
-    const lines = indexRaw.split('\n').filter(Boolean)
-    expect(lines).to.have.lengthOf(3)
-  })
+    it('list skips taskIds whose final line is _deleted: true', async () => {
+      await store.save(makeEntry({taskId: 'keep'}))
+      await store.save(makeEntry({taskId: 'gone'}))
+      // Manually append a tombstone for 'gone' (M2.05 will write these)
+      await appendFile(indexPath, JSON.stringify({_deleted: true, taskId: 'gone'}) + '\n', 'utf8')
+
+      const result = await store.list()
+      const ids = result.map((r) => r.taskId)
+      expect(ids).to.include('keep')
+      expect(ids).to.not.include('gone')
+    })
+
+    it('list filters by projectPath / status / type / createdAt range', async () => {
+      await store.save(makeEntry({createdAt: 100, projectPath: '/a', status: 'created', taskId: 't1', type: 'curate'}))
+      await store.save(makeEntry({createdAt: 200, projectPath: '/b', status: 'created', taskId: 't2', type: 'curate'}))
+      await store.save(
+        makeEntry({
+          completedAt: 350,
+          createdAt: 300,
+          projectPath: '/a',
+          status: 'completed',
+          taskId: 't3',
+          type: 'query',
+        }),
+      )
+      await store.save(makeEntry({createdAt: 400, projectPath: '/a', status: 'created', taskId: 't4', type: 'curate'}))
+
+      const byProject = await store.list({projectPath: '/a'})
+      expect(byProject.map((r) => r.taskId).sort()).to.deep.equal(['t1', 't3', 't4'])
+
+      const byStatus = await store.list({status: ['completed']})
+      expect(byStatus.map((r) => r.taskId)).to.deep.equal(['t3'])
+
+      const byType = await store.list({type: ['query']})
+      expect(byType.map((r) => r.taskId)).to.deep.equal(['t3'])
+
+      const byRange = await store.list({after: 150, before: 350})
+      expect(byRange.map((r) => r.taskId).sort()).to.deep.equal(['t2', 't3'])
+    })
+
+    it('list returns newest-first by createdAt', async () => {
+      await store.save(makeEntry({createdAt: 300, taskId: 'mid'}))
+      await store.save(makeEntry({createdAt: 100, taskId: 'old'}))
+      await store.save(makeEntry({createdAt: 500, taskId: 'new'}))
+
+      const result = await store.list()
+      expect(result.map((r) => r.taskId)).to.deep.equal(['new', 'mid', 'old'])
+    })
+
+    it('list slices to limit AFTER sort + filter', async () => {
+      for (let i = 0; i < 5; i++) {
+        // eslint-disable-next-line no-await-in-loop
+        await store.save(makeEntry({createdAt: 100 * (i + 1), taskId: `id-${i}`}))
+      }
+
+      const result = await store.list({limit: 2})
+      expect(result.map((r) => r.taskId)).to.deep.equal(['id-4', 'id-3'])
+    })
+
+    it('list returns TaskListItem shape (no detail leak)', async () => {
+      const entry = makeEntry({
+        reasoningContents: [{content: 'why', timestamp: 1}],
+        responseContent: 'big response',
+        sessionId: 'sess',
+        taskId: 'detailed',
+        toolCalls: [{args: {}, callId: 'c1', sessionId: 'sess', status: 'completed', timestamp: 1, toolName: 'read'}],
+      })
+      await store.save(entry)
+
+      const result = await store.list()
+      expect(result).to.have.lengthOf(1)
+      const item = result[0]
+      expect(item).to.not.have.property('responseContent')
+      expect(item).to.not.have.property('toolCalls')
+      expect(item).to.not.have.property('reasoningContents')
+      expect(item).to.not.have.property('sessionId')
+      expect(item).to.not.have.property('schemaVersion')
+      expect(item).to.not.have.property('id')
+    })
+
+    it('atomic data write — no .tmp.* files remain', async () => {
+      await store.save(makeEntry({taskId: 'atomic'}))
+
+      const files = await readdir(dataDir)
+      const tmpFiles = files.filter((f) => f.includes('.tmp'))
+      expect(tmpFiles).to.have.lengthOf(0)
+      expect(files).to.have.lengthOf(1)
+      expect(files[0]).to.equal('tsk-atomic.json')
+    })
+
+    it('same taskId saved 3 times — single data file, 3 index lines', async () => {
+      await store.save(makeEntry({taskId: 'repeat'}))
+      await store.save(makeEntry({startedAt: 2, status: 'started', taskId: 'repeat'}))
+      await store.save(makeEntry({completedAt: 3, result: 'r', startedAt: 2, status: 'completed', taskId: 'repeat'}))
+
+      const files = await readdir(dataDir)
+      expect(files).to.have.lengthOf(1)
+      expect(files[0]).to.equal('tsk-repeat.json')
+
+      const indexRaw = await readFile(indexPath, 'utf8')
+      const lines = indexRaw.split('\n').filter(Boolean)
+      expect(lines).to.have.lengthOf(3)
+    })
   })
 
   describe('delete + clear', () => {
@@ -365,9 +355,7 @@ describe('FileTaskHistoryStore', () => {
           taskId: 'error-1',
         }),
       )
-      await store.save(
-        makeEntry({completedAt: 2, startedAt: 1, status: 'cancelled', taskId: 'cancelled-1'}),
-      )
+      await store.save(makeEntry({completedAt: 2, startedAt: 1, status: 'cancelled', taskId: 'cancelled-1'}))
 
       const result = await store.clear()
       expect(result.deletedCount).to.equal(3)
@@ -641,10 +629,7 @@ describe('FileTaskHistoryStore', () => {
 
       // Sequential: writeAtomic fails first → return BEFORE appendFile → no new line.
       const indexAfter = await readFile(indexPath, 'utf8')
-      expect(
-        indexAfter,
-        'index gained an orphan recovery line despite data-file write failure',
-      ).to.equal(indexBefore)
+      expect(indexAfter, 'index gained an orphan recovery line despite data-file write failure').to.equal(indexBefore)
     })
 
     it('recovery line carries schemaVersion: 1', async () => {
@@ -880,36 +865,6 @@ describe('FileTaskHistoryStore', () => {
       return raw.split('\n').filter(Boolean).length
     }
 
-    async function waitForPruneToSettle(): Promise<void> {
-      // Initial wait to let the first scheduled prune timer fire — without
-      // this, polling can return immediately if it samples BEFORE the timer.
-      await new Promise<void>((r) => {
-        setTimeout(() => r(), 15)
-      })
-
-      // Require N consecutive stable checks — catches multi-pass prune cycles
-      // where line count plateaus briefly between phase 1 (tombstone) and
-      // phase 2 (cascading compaction or pruneRequested follow-up).
-      let stableChecks = 0
-      let prev = await countIndexLines()
-      for (let i = 0; i < 80; i++) {
-        // eslint-disable-next-line no-await-in-loop
-        await new Promise((r) => {
-          setTimeout(r, 4)
-        })
-        // eslint-disable-next-line no-await-in-loop
-        const cur = await countIndexLines()
-        if (cur === prev) {
-          stableChecks++
-          if (stableChecks >= 4) return
-        } else {
-          stableChecks = 0
-        }
-
-        prev = cur
-      }
-    }
-
     describe('age prune', () => {
       it('entries older than maxAgeDays appended as _deleted, data files unlinked', async () => {
         store = new FileTaskHistoryStore({
@@ -922,12 +877,17 @@ describe('FileTaskHistoryStore', () => {
 
         const now = Date.now()
         await store.save(
-          makeEntry({completedAt: now - 2 * ONE_DAY_MS, createdAt: now - 2 * ONE_DAY_MS, status: 'completed', taskId: 'old'}),
+          makeEntry({
+            completedAt: now - 2 * ONE_DAY_MS,
+            createdAt: now - 2 * ONE_DAY_MS,
+            status: 'completed',
+            taskId: 'old',
+          }),
         )
         // Trigger prune via a fresh save (within threshold).
         await store.save(makeEntry({completedAt: now, createdAt: now, status: 'completed', taskId: 'fresh'}))
 
-        await waitForPruneToSettle()
+        await store.flushPendingOperations()
 
         // Old data file is gone
         const dataFiles = await readdir(dataDir).catch(() => [])
@@ -957,7 +917,7 @@ describe('FileTaskHistoryStore', () => {
         await store.save(makeEntry({completedAt: now, createdAt: now, status: 'completed', taskId: 'recent'}))
         await store.save(makeEntry({completedAt: now, createdAt: now, status: 'completed', taskId: 'recent2'}))
 
-        await waitForPruneToSettle()
+        await store.flushPendingOperations()
 
         const result = await store.list()
         expect(result.map((r) => r.taskId).sort()).to.deep.equal(['recent', 'recent2'])
@@ -967,7 +927,7 @@ describe('FileTaskHistoryStore', () => {
         // Outer beforeEach already constructs store with maxAgeDays: 0.
         // Save an ancient entry; assert it's still in the live list after settle.
         await store.save(makeEntry({completedAt: 2, createdAt: 1, status: 'completed', taskId: 'ancient'}))
-        await waitForPruneToSettle()
+        await store.flushPendingOperations()
 
         const result = await store.list()
         expect(result.map((r) => r.taskId)).to.include('ancient')
@@ -987,12 +947,10 @@ describe('FileTaskHistoryStore', () => {
         const now = Date.now()
         for (let i = 0; i < 4; i++) {
           // eslint-disable-next-line no-await-in-loop
-          await store.save(
-            makeEntry({completedAt: now + i, createdAt: now + i, status: 'completed', taskId: `c${i}`}),
-          )
+          await store.save(makeEntry({completedAt: now + i, createdAt: now + i, status: 'completed', taskId: `c${i}`}))
         }
 
-        await waitForPruneToSettle()
+        await store.flushPendingOperations()
 
         const result = await store.list()
         // newest 2 survive
@@ -1017,7 +975,7 @@ describe('FileTaskHistoryStore', () => {
         // Save more entries — should NOT be pruned because live count is now 3 (b, c, d), under the 3 cap.
         await store.save(makeEntry({completedAt: now, createdAt: now, status: 'completed', taskId: 'd'}))
 
-        await waitForPruneToSettle()
+        await store.flushPendingOperations()
 
         const result = await store.list()
         expect(result.map((r) => r.taskId).sort()).to.deep.equal(['b', 'c', 'd'])
@@ -1037,10 +995,12 @@ describe('FileTaskHistoryStore', () => {
         // Save same taskId 4 times — index has 4 lines, 1 live → ratio 4.0.
         for (let i = 0; i < 4; i++) {
           // eslint-disable-next-line no-await-in-loop
-          await store.save(makeEntry({completedAt: Date.now(), createdAt: Date.now(), status: 'completed', taskId: 'spam'}))
+          await store.save(
+            makeEntry({completedAt: Date.now(), createdAt: Date.now(), status: 'completed', taskId: 'spam'}),
+          )
         }
 
-        await waitForPruneToSettle()
+        await store.flushPendingOperations()
 
         const lineCount = await countIndexLines()
         expect(lineCount).to.equal(1)
@@ -1065,7 +1025,7 @@ describe('FileTaskHistoryStore', () => {
         await store.save(makeEntry({completedAt: 4, createdAt: 4, status: 'completed', taskId: 'b'}))
         await store.save(makeEntry({completedAt: 5, createdAt: 5, status: 'completed', taskId: 'b'}))
 
-        await waitForPruneToSettle()
+        await store.flushPendingOperations()
 
         const indexRaw = await readFile(indexPath, 'utf8')
         const lines = indexRaw.split('\n').filter(Boolean)
@@ -1084,10 +1044,12 @@ describe('FileTaskHistoryStore', () => {
 
         for (let i = 0; i < 4; i++) {
           // eslint-disable-next-line no-await-in-loop
-          await store.save(makeEntry({completedAt: Date.now(), createdAt: Date.now(), status: 'completed', taskId: 'bak'}))
+          await store.save(
+            makeEntry({completedAt: Date.now(), createdAt: Date.now(), status: 'completed', taskId: 'bak'}),
+          )
         }
 
-        await waitForPruneToSettle()
+        await store.flushPendingOperations()
 
         const bakPath = join(storeDir, '_index.jsonl.bak')
         const bakRaw = await readFile(bakPath, 'utf8')
@@ -1112,10 +1074,12 @@ describe('FileTaskHistoryStore', () => {
         // Trigger compaction by saving same taskId multiple times.
         for (let i = 0; i < 4; i++) {
           // eslint-disable-next-line no-await-in-loop
-          await store.save(makeEntry({completedAt: Date.now(), createdAt: Date.now(), status: 'completed', taskId: 'live'}))
+          await store.save(
+            makeEntry({completedAt: Date.now(), createdAt: Date.now(), status: 'completed', taskId: 'live'}),
+          )
         }
 
-        await waitForPruneToSettle()
+        await store.flushPendingOperations()
 
         const dataFiles = await readdir(dataDir)
         expect(dataFiles).to.not.include('tsk-orphan.json')
@@ -1151,11 +1115,7 @@ describe('FileTaskHistoryStore', () => {
 
         // Plant the orphan: data file present, NO index line.
         await mkdir(dataDir, {recursive: true})
-        await writeFile(
-          join(dataDir, 'tsk-phantom-revival.json'),
-          JSON.stringify(orphanEntry, null, 2),
-          'utf8',
-        )
+        await writeFile(join(dataDir, 'tsk-phantom-revival.json'), JSON.stringify(orphanEntry, null, 2), 'utf8')
 
         // Drive compaction so recoverPreRenameSaves runs and encounters the orphan.
         // Repeated saves on the same taskId inflate the bloat ratio past 1.5.
@@ -1166,7 +1126,7 @@ describe('FileTaskHistoryStore', () => {
           )
         }
 
-        await waitForPruneToSettle()
+        await store.flushPendingOperations()
 
         // After compaction, the orphan is reachable via list() (recoverPreRenameSaves
         // re-appended its index line). The fix requires that re-appended line to
@@ -1174,10 +1134,7 @@ describe('FileTaskHistoryStore', () => {
         const list = await store.list()
         const phantom = list.find((t) => t.taskId === 'phantom-revival')
         expect(phantom, 'orphan never reached list — recoverPreRenameSaves dropped it').to.exist
-        expect(
-          phantom!.status,
-          'N2: orphan was resurrected as live instead of recovered to error',
-        ).to.equal('error')
+        expect(phantom!.status, 'N2: orphan was resurrected as live instead of recovered to error').to.equal('error')
 
         // getById must agree.
         const fetched = await store.getById('phantom-revival')
@@ -1196,10 +1153,12 @@ describe('FileTaskHistoryStore', () => {
 
         for (let i = 0; i < 4; i++) {
           // eslint-disable-next-line no-await-in-loop
-          await store.save(makeEntry({completedAt: Date.now(), createdAt: Date.now(), status: 'completed', taskId: 'atomic'}))
+          await store.save(
+            makeEntry({completedAt: Date.now(), createdAt: Date.now(), status: 'completed', taskId: 'atomic'}),
+          )
         }
 
-        await waitForPruneToSettle()
+        await store.flushPendingOperations()
 
         const allFiles = await readdir(storeDir)
         expect(allFiles).to.not.include('_index.jsonl.tmp')
@@ -1227,7 +1186,7 @@ describe('FileTaskHistoryStore', () => {
           store.save(makeEntry({completedAt: now + 5, createdAt: now + 5, status: 'completed', taskId: 'b5'})),
         ])
 
-        await waitForPruneToSettle()
+        await store.flushPendingOperations()
 
         // Only the newest 2 should survive after a single prune pass.
         const result = await store.list()
@@ -1246,14 +1205,18 @@ describe('FileTaskHistoryStore', () => {
         // Pre-load 5 entries to make prune work non-trivial
         for (let i = 0; i < 5; i++) {
           // eslint-disable-next-line no-await-in-loop
-          await store.save(makeEntry({completedAt: Date.now() + i, createdAt: Date.now() + i, status: 'completed', taskId: `pre${i}`}))
+          await store.save(
+            makeEntry({completedAt: Date.now() + i, createdAt: Date.now() + i, status: 'completed', taskId: `pre${i}`}),
+          )
         }
 
-        await waitForPruneToSettle()
+        await store.flushPendingOperations()
 
         // Time a single save; assert it doesn't block on heavy prune work.
         const t0 = Date.now()
-        await store.save(makeEntry({completedAt: Date.now(), createdAt: Date.now(), status: 'completed', taskId: 'fast'}))
+        await store.save(
+          makeEntry({completedAt: Date.now(), createdAt: Date.now(), status: 'completed', taskId: 'fast'}),
+        )
         const elapsed = Date.now() - t0
 
         // Save should complete well under typical prune-pass time (<100ms generous bound).
@@ -1300,11 +1263,7 @@ describe('FileTaskHistoryStore', () => {
         await raceStore.deleteMany(seedIds) // triggers compaction
         await Promise.all(racingSaves)
 
-        await waitForPruneToSettle()
-        // Allow any cascaded prune to fully drain before assertion.
-        await new Promise<void>((r) => {
-          setTimeout(() => r(), 50)
-        })
+        await raceStore.flushPendingOperations()
 
         // Every racing taskId must still be retrievable: index has its line AND
         // data file is intact. With the old code, ~5-15% of race-N would be lost.
@@ -1383,13 +1342,11 @@ describe('FileTaskHistoryStore', () => {
           // eslint-disable-next-line no-await-in-loop
           await Promise.all(ops)
           // eslint-disable-next-line no-await-in-loop
-          await waitForPruneToSettle()
+          await raceStore.flushPendingOperations()
         }
 
         // Drain any final cascaded prune.
-        await new Promise<void>((r) => {
-          setTimeout(() => r(), 50)
-        })
+        await raceStore.flushPendingOperations()
 
         // Assertion: NO doomed taskId is reachable, NONE appears in list().
         const list = await raceStore.list()
@@ -1402,10 +1359,7 @@ describe('FileTaskHistoryStore', () => {
         for (const id of allSeedIds) {
           // eslint-disable-next-line no-await-in-loop
           const fetched = await raceStore.getById(id)
-          expect(
-            fetched,
-            `B2 phantom — getById(${id}) succeeded after delete+compaction race`,
-          ).to.be.undefined
+          expect(fetched, `B2 phantom — getById(${id}) succeeded after delete+compaction race`).to.be.undefined
         }
       })
 
@@ -1427,8 +1381,10 @@ describe('FileTaskHistoryStore', () => {
         // Trigger prune via a fresh save.
         let threw = false
         try {
-          await store.save(makeEntry({completedAt: Date.now(), createdAt: Date.now(), status: 'completed', taskId: 'trigger'}))
-          await waitForPruneToSettle()
+          await store.save(
+            makeEntry({completedAt: Date.now(), createdAt: Date.now(), status: 'completed', taskId: 'trigger'}),
+          )
+          await store.flushPendingOperations()
         } catch {
           threw = true
         }

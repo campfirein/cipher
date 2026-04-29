@@ -145,7 +145,7 @@ describe('TaskRouter — extended handlers', () => {
     projectRouter = makeStubProjectRouter(sandbox)
     getAgentForProject = sandbox.stub().returns('agent-1')
 
-    tempDir = join(tmpdir(), `brv-task-router-ext-${Date.now()}-${Math.random().toString(36).slice(2)}`)
+    tempDir = join(tmpdir(), `brv-task-router-ext-${Date.now()}-${randomUUID()}`)
     await mkdir(tempDir, {recursive: true})
 
     // Disable stale recovery + prune + compaction in default fixture so legacy

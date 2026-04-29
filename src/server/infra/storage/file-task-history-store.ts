@@ -95,6 +95,41 @@ const INDEX_FILE = '_index.jsonl'
 const DATA_DIR = 'data'
 const FILENAME_PREFIX = 'tsk-'
 
+/**
+ * Per-`appendFile`-call byte ceiling. 3.5 KB leaves comfortable headroom under
+ * the historical 4 KB PIPE_BUF threshold that most kernels still honor for
+ * single-syscall write atomicity to regular files in append mode.
+ */
+const MAX_APPEND_CHUNK_BYTES = 3584
+
+/**
+ * Group a list of pre-serialized index lines into batches whose total UTF-8
+ * byte length stays under `maxBytes`. A single line larger than `maxBytes` is
+ * emitted as its own batch (we never split a line — the caller relies on
+ * line-level atomicity).
+ *
+ * Exported for direct unit-testing of the chunk boundaries.
+ */
+export function chunkLinesByBytes(lines: readonly string[], maxBytes: number): readonly (readonly string[])[] {
+  const chunks: string[][] = []
+  let current: string[] = []
+  let currentBytes = 0
+  for (const line of lines) {
+    const lineBytes = Buffer.byteLength(line, 'utf8')
+    if (current.length > 0 && currentBytes + lineBytes > maxBytes) {
+      chunks.push(current)
+      current = []
+      currentBytes = 0
+    }
+
+    current.push(line)
+    currentBytes += lineBytes
+  }
+
+  if (current.length > 0) chunks.push(current)
+  return chunks
+}
+
 type FileTaskHistoryStoreOptions = {
   baseDir: string
   /**
@@ -153,6 +188,18 @@ export class FileTaskHistoryStore implements ITaskHistoryStore {
    * same taskId.
    */
   private indexDedupInFlight: Promise<Map<string, IndexLine>> | undefined
+  /**
+   * Monotonic counter bumped on every write to the index (save / tombstone /
+   * recovery / compaction). `doReadIndexDedup` samples it at start and at
+   * end of its pass; if the epoch advanced during the pass, the snapshot
+   * the pass built is stale relative to disk and MUST NOT replace the
+   * `indexCache`. Without this guard, a `firePrune` pass that began before
+   * a concurrent `save()` can finish AFTER that save's cache invalidation
+   * and overwrite the invalidation with a snapshot missing the just-saved
+   * row — visible to callers as "list() returns N-1 entries after N awaited
+   * saves" (the Category B race).
+   */
+  private indexEpoch = 0
   private readonly indexPath: string
   private readonly maxAgeDays: number
   private readonly maxEntries: number
@@ -168,6 +215,15 @@ export class FileTaskHistoryStore implements ITaskHistoryStore {
    * the C1 fix recovers from the data dir if the index line is wiped.
    */
   private operationLock: Promise<void> = Promise.resolve()
+  /**
+   * Promise of the most recently scheduled prune+compaction pass. Each
+   * `firePrune()` call wraps its `setTimeout` in a promise and assigns it
+   * here; re-entrance via `pruneRequested` extends the chain through the
+   * tail-recursive `firePrune()` in the `.finally`. Tests await on this via
+   * `flushPendingOperations()` to drain pending work deterministically
+   * instead of polling.
+   */
+  private pruneChain: Promise<void> = Promise.resolve()
   /** Dedupes concurrent prune passes — only one runs at a time. */
   private pruneInFlight = false
   /** Set when a save fires while a prune is in flight; triggers a re-run after current pass. */
@@ -230,6 +286,28 @@ export class FileTaskHistoryStore implements ITaskHistoryStore {
 
     if (live.length > 0) await this.tombstoneAndUnlink(live)
     return live
+  }
+
+  /**
+   * Deterministically wait for all in-flight prune/compaction work to drain.
+   * Loops because each prune pass may schedule the next via `pruneRequested`,
+   * which `firePrune()` reschedules at the tail of `pruneChain`. Also drains
+   * `operationLock` so any compaction/tombstone serializer queued behind a
+   * prune has finished its writes before the caller proceeds.
+   *
+   * Test-only contract: production daemon never calls this — saves are
+   * fire-and-forget by design.
+   */
+  async flushPendingOperations(): Promise<void> {
+    let last = this.pruneChain
+    await last
+    while (last !== this.pruneChain) {
+      last = this.pruneChain
+      // eslint-disable-next-line no-await-in-loop
+      await last
+    }
+
+    await this.operationLock
   }
 
   // ── M2.02 scope ────────────────────────────────────────────────────────────
@@ -304,7 +382,7 @@ export class FileTaskHistoryStore implements ITaskHistoryStore {
     const summary: IndexDataLine = {...projectToIndexLine(validated), lastSavedAt: Date.now()}
     await appendFile(this.indexPath, JSON.stringify(summary) + '\n', 'utf8')
 
-    this.indexCache = undefined
+    this.invalidateIndexCaches()
 
     // Step 3: schedule prune+compaction in background (fire-and-forget, dedup'd).
     this.firePrune()
@@ -332,14 +410,21 @@ export class FileTaskHistoryStore implements ITaskHistoryStore {
   }
 
   private async doReadIndexDedup(): Promise<Map<string, IndexLine>> {
+    // Capture the index epoch BEFORE any I/O. If the epoch advances during
+    // this pass (concurrent save/tombstone/recovery write), the snapshot we
+    // build is stale relative to disk and MUST NOT be cached — caching it
+    // would silently overwrite the writer's `indexCache = undefined` and
+    // make the just-written row invisible to the next reader.
+    const startEpoch = this.indexEpoch
+
     const map = new Map<string, IndexLine>()
 
     let raw: string
     try {
       raw = await readFile(this.indexPath, 'utf8')
     } catch {
-      // No index yet — return empty map and cache it.
-      this.indexCache = map
+      // No index yet — return empty map and cache it (only if no concurrent write).
+      if (this.indexEpoch === startEpoch) this.indexCache = map
       return map
     }
 
@@ -378,7 +463,11 @@ export class FileTaskHistoryStore implements ITaskHistoryStore {
       if (recovered !== undefined) map.set(taskId, recovered)
     }
 
-    this.indexCache = map
+    // Only cache when no concurrent writer bumped the epoch during this pass.
+    // Recovery itself bumps `indexEpoch` (see `persistRecovery`), so a pass
+    // that triggered recovery will fall through to `return map` without
+    // caching — the next call re-reads the freshly-rewritten index.
+    if (this.indexEpoch === startEpoch) this.indexCache = map
     return map
   }
 
@@ -401,23 +490,41 @@ export class FileTaskHistoryStore implements ITaskHistoryStore {
 
     this.pruneInFlight = true
     this.pruneRequested = false
-    const timer = setTimeout(() => {
-      this.pruneAndCompact()
-        .catch((error: unknown) => {
-          transportLog(
-            `task-history: prune+compaction failed: ${error instanceof Error ? error.message : String(error)}`,
-          )
-        })
-        .finally(() => {
-          this.pruneInFlight = false
-          if (this.pruneRequested) {
-            this.pruneRequested = false
-            this.firePrune()
-          }
-        })
-    }, 0)
-    // Don't keep the event loop alive for a pending prune at process exit.
-    timer.unref?.()
+    this.pruneChain = new Promise<void>((resolve) => {
+      const timer = setTimeout(() => {
+        this.pruneAndCompact()
+          .catch((error: unknown) => {
+            transportLog(
+              `task-history: prune+compaction failed: ${error instanceof Error ? error.message : String(error)}`,
+            )
+          })
+          .finally(() => {
+            this.pruneInFlight = false
+            if (this.pruneRequested) {
+              this.pruneRequested = false
+              this.firePrune()
+            }
+
+            resolve()
+          })
+      }, 0)
+      // Don't keep the event loop alive for a pending prune at process exit.
+      timer.unref?.()
+    })
+  }
+
+  /**
+   * Drop all cached/in-flight reads of the index AND bump `indexEpoch` so any
+   * concurrent `doReadIndexDedup` pass that sampled the old epoch will skip
+   * its setCache step. Called by every write path (save / tombstone /
+   * recovery / compaction). Both layers must clear together — leaving
+   * `indexDedupInFlight` set after a write would let a list() call hit the
+   * pre-write promise and silently return the stale snapshot.
+   */
+  private invalidateIndexCaches(): void {
+    this.indexCache = undefined
+    this.indexDedupInFlight = undefined
+    this.indexEpoch++
   }
 
   private isStale(status: TaskHistoryStatus, createdAt: number, now: number): boolean {
@@ -530,7 +637,7 @@ export class FileTaskHistoryStore implements ITaskHistoryStore {
       await this.recoverPreRenameSaves(postRewriteLiveIds, postRewriteTombstones)
 
       await this.sweepOrphanData(postRewriteLiveIds)
-      this.indexCache = undefined
+      this.invalidateIndexCaches()
     })
   }
 
@@ -565,7 +672,7 @@ export class FileTaskHistoryStore implements ITaskHistoryStore {
       // recovered projection without re-writing.
     }
 
-    this.indexCache = undefined
+    this.invalidateIndexCaches()
   }
 
   /**
@@ -608,7 +715,7 @@ export class FileTaskHistoryStore implements ITaskHistoryStore {
     // Always invalidate the cache after a pass so subsequent reads re-read
     // disk — protects against external writes (e.g. tests appending tombstones
     // out-of-band) that happen between prune phases.
-    this.indexCache = undefined
+    this.invalidateIndexCaches()
   }
 
   private async readIndexDedup(): Promise<Map<string, IndexLine>> {
@@ -643,10 +750,7 @@ export class FileTaskHistoryStore implements ITaskHistoryStore {
    * Recent saves (createdAt within `staleThresholdMs`) fall through to the
    * C1 branch; old `'created'`/`'started'` orphans take the N2 branch.
    */
-  private async recoverPreRenameSaves(
-    liveIds: Set<string>,
-    tombstones: Set<string>,
-  ): Promise<void> {
+  private async recoverPreRenameSaves(liveIds: Set<string>, tombstones: Set<string>): Promise<void> {
     let dataFilenames: string[]
     try {
       dataFilenames = await readdir(this.dataDir)
@@ -788,45 +892,49 @@ export class FileTaskHistoryStore implements ITaskHistoryStore {
       if (!liveTaskIds.has(taskId)) toUnlink.push(filename)
     }
 
-    await Promise.all(
-      toUnlink.map((filename) => rm(join(this.dataDir, filename), {force: true}).catch(() => {})),
-    )
+    await Promise.all(toUnlink.map((filename) => rm(join(this.dataDir, filename), {force: true}).catch(() => {})))
   }
 
   /**
-   * Tombstone the given taskIds in a single index-append, then unlink each data file
-   * in parallel. Order matters: tombstone first so list/getById skip the entry even
-   * if the unlink fails (orphan data files are swept by M2.03 compaction). Reverse
-   * order would leave the row visible to list while getById returns undefined.
+   * Tombstone the given taskIds, then unlink each data file in parallel. Order
+   * matters: tombstone first so list/getById skip the entry even if the unlink
+   * fails (orphan data files are swept by M2.03 compaction). Reverse order
+   * would leave the row visible to list while getById returns undefined.
    *
-   * Atomicity: a single `appendFile` is POSIX-atomic up to ~4 KB (PIPE_BUF). One
-   * tombstone is ~80 bytes, so this is safe up to ~50 ids per call. For larger
-   * batches concurrent saves could interleave; M2.03 (compaction) is the right
-   * place to add chunking if real workloads need it.
+   * Tombstones are appended in size-bounded chunks (each <`MAX_APPEND_CHUNK_BYTES`).
+   * POSIX guarantees nothing about regular-file write atomicity beyond pipes
+   * (PIPE_BUF applies to FIFOs/sockets only). Linux ext4 / macOS APFS happen
+   * to serialize appends per inode, but other filesystems may interleave a
+   * concurrent unlocked `save()` into the middle of a large multi-line write,
+   * corrupting a tombstone JSON line. Keeping every individual `appendFile`
+   * call comfortably under 4 KB lets the kernel page-cache write path treat
+   * each call as a single sector-level write, which most filesystems handle
+   * atomically.
    *
    * Locked against `maybeCompact` via `operationLock` (B2): if our appendFile
    * landed mid-rewrite the tombstone would be wiped by `rename`, and our
-   * subsequent unlink would orphan the index entry recoverPreRenameSaves
-   * cannot detect (data file gone). Holding the lock for the entire append +
-   * unlink sequence guarantees both are durable before any compaction
-   * consumes the snapshot.
+   * subsequent unlink would orphan the index entry `recoverPreRenameSaves`
+   * cannot detect (data file gone). The lock spans the entire chunked append
+   * + unlink sequence so all tombstones and unlinks are durable before any
+   * compaction consumes the snapshot.
    */
   private async tombstoneAndUnlink(taskIds: readonly string[]): Promise<void> {
     if (taskIds.length === 0) return
 
     await this.withOperationLock(async () => {
       const now = Date.now()
-      const lines = taskIds
-        .map((taskId) =>
+      const lines = taskIds.map(
+        (taskId) =>
           JSON.stringify({_deleted: true, deletedAt: now, schemaVersion: TASK_HISTORY_SCHEMA_VERSION, taskId}) + '\n',
-        )
-        .join('')
-
-      await appendFile(this.indexPath, lines, 'utf8')
-      await Promise.all(
-        taskIds.map((id) => rm(this.dataPath(id), {force: true}).catch(() => {})),
       )
-      this.indexCache = undefined
+
+      for (const chunk of chunkLinesByBytes(lines, MAX_APPEND_CHUNK_BYTES)) {
+        // eslint-disable-next-line no-await-in-loop -- sequential is intentional (atomicity)
+        await appendFile(this.indexPath, chunk.join(''), 'utf8')
+      }
+
+      await Promise.all(taskIds.map((id) => rm(this.dataPath(id), {force: true}).catch(() => {})))
+      this.invalidateIndexCaches()
     })
   }
 

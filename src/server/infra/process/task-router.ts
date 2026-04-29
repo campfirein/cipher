@@ -190,7 +190,8 @@ function matchesListFilters(
 // the same builder, so the two no longer drift.
 
 function toListItem(task: TaskInfo): TaskListItem {
-  const status: TaskListItemStatus = task.status ?? (task.completedAt ? 'completed' : task.startedAt ? 'started' : 'created')
+  const status: TaskListItemStatus =
+    task.status ?? (task.completedAt ? 'completed' : task.startedAt ? 'started' : 'created')
   return {
     ...(task.completedAt ? {completedAt: task.completedAt} : {}),
     content: task.content,
@@ -447,10 +448,7 @@ export class TaskRouter {
         const items = task.reasoningContents ?? []
         const last = items.at(-1)
         if (last?.isThinking === true) return
-        const nextItems: ReasoningContentItem[] = [
-          ...items,
-          {content: '', isThinking: true, timestamp: Date.now()},
-        ]
+        const nextItems: ReasoningContentItem[] = [...items, {content: '', isThinking: true, timestamp: Date.now()}]
         this.tasks.set(taskId, {...task, reasoningContents: nextItems})
         this.markDirty(taskId)
         return
@@ -499,7 +497,7 @@ export class TaskRouter {
 
       // ERROR + UNSUPPORTED_INPUT: ignored — terminal lifecycle hook captures failure.
       default:
-        // No mutation; fall through.
+      // No mutation; fall through.
     }
   }
 
@@ -511,13 +509,9 @@ export class TaskRouter {
    */
   private broadcastTaskDeleted(projectPath: string | undefined, taskId: string): void {
     if (projectPath === undefined) return
-    broadcastToProjectRoom(
-      this.projectRegistry,
-      this.projectRouter,
-      projectPath,
-      TransportTaskEventNames.DELETED,
-      {taskId},
-    )
+    broadcastToProjectRoom(this.projectRegistry, this.projectRouter, projectPath, TransportTaskEventNames.DELETED, {
+      taskId,
+    })
   }
 
   /**
@@ -817,9 +811,7 @@ export class TaskRouter {
     // an unconditional await would yield a microtask even on an immediately-
     // resolved Promise, breaking tests that assert on broadcasts without
     // awaiting the handler.
-    const {model, provider} = this.resolveActiveProvider
-      ? await this.safeResolveActiveProvider()
-      : {}
+    const {model, provider} = this.resolveActiveProvider ? await this.safeResolveActiveProvider() : {}
 
     this.tasks.set(taskId, {
       clientId,
@@ -1032,10 +1024,7 @@ export class TaskRouter {
     return {removed, success: true}
   }
 
-  private async handleTaskDeleteBulk(
-    data: TaskDeleteBulkRequest,
-    clientId: string,
-  ): Promise<TaskDeleteBulkResponse> {
+  private async handleTaskDeleteBulk(data: TaskDeleteBulkRequest, clientId: string): Promise<TaskDeleteBulkResponse> {
     // N3: batch store.deleteMany per project instead of N×handleTaskDelete.
     // Per-id work splits into (a) liveness/refusal checks + in-memory cleanup
     // (cheap, sequential) and (b) the actual store mutation (expensive,
@@ -1190,8 +1179,7 @@ export class TaskRouter {
     // A client that hasn't registered a project shouldn't see other projects' work.
     if (projectFilter === undefined) return {tasks: []}
 
-    const matches = (taskProject?: string): boolean =>
-      taskProject === projectFilter || taskProject === undefined
+    const matches = (taskProject?: string): boolean => taskProject === projectFilter || taskProject === undefined
 
     const limit = data.limit ?? DEFAULT_TASK_LIST_LIMIT
     const {before, beforeTaskId, status: statusFilter, type: typeFilter} = data
@@ -1212,9 +1200,7 @@ export class TaskRouter {
           ...(typeFilter === undefined ? {} : {type: typeFilter}),
         })
       } catch (error) {
-        transportLog(
-          `handleTaskList: store.list failed: ${error instanceof Error ? error.message : String(error)}`,
-        )
+        transportLog(`handleTaskList: store.list failed: ${error instanceof Error ? error.message : String(error)}`)
       }
     }
 
