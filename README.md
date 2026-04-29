@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/campfirein-byterover-cli-badge.png)](https://mseep.ai/app/campfirein-byterover-cli)
+
 # ByteRover CLI
 
 <div align="center">
