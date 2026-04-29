@@ -296,6 +296,22 @@ describe('DreamTrigger', () => {
       }
     })
 
+    it('should bypass activity gate when stale-summary queue has work', async () => {
+      // Symmetry with the tryStartDream bypass test — both methods delegate
+      // to checkGates1to3, so a future refactor of the shared path must keep
+      // this invariant on both call sites.
+      const deps = makeDeps({
+        state: makeState({
+          curationsSinceDream: 1,
+          staleSummaryPaths: [{enqueuedAt: Date.now(), path: 'auth/jwt.md'}],
+        }),
+      })
+      const trigger = new DreamTrigger(deps)
+
+      const result = await trigger.checkEligibility('/project')
+      expect(result.eligible).to.be.true
+    })
+
     it('should fail when queue is not empty', async () => {
       const deps = makeDeps({queueLength: 3})
       const trigger = new DreamTrigger(deps)

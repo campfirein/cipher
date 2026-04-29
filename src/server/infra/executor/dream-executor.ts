@@ -129,11 +129,12 @@ export class DreamExecutor {
       try {
         preState = await snapshotService.getCurrentState(projectRoot)
       } catch {
-        // Fail-open: if snapshot fails, the entire step 5 block (propagation +
-        // queue drain) is skipped — the stale-summary queue is not consumed in
-        // this dream cycle and accumulates until the next successful run.
-        // Drain-skip is preferable to drain-and-lose because atomic drain
-        // already removed entries before any propagation could re-enqueue them.
+        // Fail-open: leaving preState undefined skips the entire step 5 block
+        // (queue drain + propagation), so the stale-summary queue is left
+        // intact for the next successful dream cycle. Skipping drain here is
+        // safer than drain-then-fail: the atomic-drain design clears entries
+        // synchronously inside the RMW, so if we drained and then threw
+        // before reaching the catch's re-enqueue, the snapshot would be lost.
       }
 
       // Step 2: Load dream state
