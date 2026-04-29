@@ -279,6 +279,11 @@ export class DreamExecutor {
     }
   }
 
+  /**
+   * Runs the three dream operations sequentially, pushing results into `out` after
+   * each step. Extracted so the executor can preserve partial work when a later step
+   * throws — and so tests can inject controlled ops without a full LLM round-trip.
+   */
   protected async runOperations(args: {
     agent: ICipherAgent
     changedFiles: Set<string>
@@ -333,11 +338,6 @@ export class DreamExecutor {
     )
   }
 
-  /**
-   * Runs the three dream operations sequentially, pushing results into `out` after
-   * each step. Extracted so the executor can preserve partial work when a later step
-   * throws — and so tests can inject controlled ops without a full LLM round-trip.
-   */
   /**
    * Regenerate parent `_index.md` files for the given paths and rebuild the
    * manifest. Extracted as a seam so tests can override and assert which

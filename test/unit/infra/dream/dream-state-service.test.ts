@@ -283,6 +283,17 @@ describe('DreamStateService', () => {
       expect(state.staleSummaryPaths).to.deep.equal([])
     })
 
+    it('dedups within-batch duplicates so a single call cannot insert the same path twice', async () => {
+      // The contract is "dedup by path". A caller passing a non-unique array
+      // (e.g. multiple changedPaths within a single curate that round-trip
+      // through the same parent dir) must NOT produce duplicate queue entries.
+      await service.enqueueStaleSummaryPaths(['auth/jwt.md', 'auth/jwt.md', 'auth/jwt.md'])
+
+      const state = await service.read()
+      expect(state.staleSummaryPaths).to.have.lengthOf(1)
+      expect(state.staleSummaryPaths[0].path).to.equal('auth/jwt.md')
+    })
+
     it('does not lose entries when 10 enqueues run concurrently', async () => {
       const paths = Array.from({length: 10}, (_, i) => `domain/topic-${i}.md`)
       await Promise.all(paths.map((p) => service.enqueueStaleSummaryPaths([p])))

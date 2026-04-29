@@ -79,6 +79,37 @@ describe('DreamTrigger', () => {
       }
     })
 
+    it('should bypass activity gate when stale-summary queue has work', async () => {
+      // ENG-2485: deferred summary cascade lives in staleSummaryPaths. If a
+      // low-activity project (1-2 curates) accumulates queued paths and the
+      // activity gate kept blocking, _index.md regeneration would never run.
+      const deps = makeDeps({
+        state: makeState({
+          curationsSinceDream: 1,
+          staleSummaryPaths: [{enqueuedAt: Date.now(), path: 'auth/jwt.md'}],
+        }),
+      })
+      const trigger = new DreamTrigger(deps)
+
+      const result = await trigger.tryStartDream('/project')
+      expect(result.eligible).to.be.true
+    })
+
+    it('should still fail activity gate when both curations AND queue are empty', async () => {
+      // Negative case for the bypass: empty queue + low activity means the
+      // activity gate should still block (nothing to drain, no work to do).
+      const deps = makeDeps({
+        state: makeState({curationsSinceDream: 1, staleSummaryPaths: []}),
+      })
+      const trigger = new DreamTrigger(deps)
+
+      const result = await trigger.tryStartDream('/project')
+      expect(result.eligible).to.be.false
+      if (!result.eligible) {
+        expect(result.reason).to.include('activity')
+      }
+    })
+
     it('should fail when queue is not empty', async () => {
       const deps = makeDeps({queueLength: 3})
       const trigger = new DreamTrigger(deps)

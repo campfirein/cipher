@@ -15,7 +15,10 @@ export const PendingMergeSchema = z.object({
  */
 export const StaleSummaryEntrySchema = z.object({
   enqueuedAt: z.number().int().nonnegative(),
-  path: z.string(),
+  // Empty paths indicate a bug at the call site (a malformed diff entry would
+  // resolve to an empty parent dir); reject them at the schema boundary so
+  // garbage cannot persist into dream-state.json.
+  path: z.string().min(1),
 })
 
 export const DreamStateSchema = z.object({

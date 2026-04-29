@@ -81,10 +81,14 @@ export class DreamStateService {
    */
   async enqueueStaleSummaryPaths(paths: string[]): Promise<void> {
     if (paths.length === 0) return
+    // Dedup the input itself before checking against the queue — callers may
+    // pass non-unique arrays (e.g. multiple changed paths within a single
+    // curate that round-trip through the same parent dir).
+    const incoming = [...new Set(paths)]
     const enqueuedAt = Date.now()
     await this.update((state) => {
       const existing = new Set(state.staleSummaryPaths.map((e) => e.path))
-      const additions = paths
+      const additions = incoming
         .filter((p) => !existing.has(p))
         .map((p) => ({enqueuedAt, path: p}))
       if (additions.length === 0) return state

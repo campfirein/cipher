@@ -141,18 +141,37 @@ export class CurateExecutor implements ICurateExecutor {
       // so a single instance is sufficient and avoids duplicate construction.
       const dreamStateService = new DreamStateService({baseDir: path.join(baseDir, BRV_DIR)})
 
+      // Two independent fail-open concerns: (a) enqueue the deferred
+      // summary-cascade work to dream's queue; (b) rebuild the search
+      // manifest. They share `changedPaths` but otherwise are unrelated —
+      // a transient disk error on the dream-state write must not skip the
+      // pure-filesystem manifest scan that keeps newly-curated leaf files
+      // immediately discoverable. Each runs in its own try block so one
+      // failure cannot mask the other's work.
+      let changedPaths: string[] = []
       if (preState) {
         try {
           const postState = await snapshotService.getCurrentState(baseDir)
-          const changedPaths = diffStates(preState, postState)
-          if (changedPaths.length > 0) {
-            await dreamStateService.enqueueStaleSummaryPaths(changedPaths)
+          changedPaths = diffStates(preState, postState)
+        } catch {
+          // Fail-open: snapshot errors leave changedPaths empty → no enqueue,
+          // no manifest rebuild. Next curate's snapshot will pick up the diff.
+        }
 
+        if (changedPaths.length > 0) {
+          try {
+            await dreamStateService.enqueueStaleSummaryPaths(changedPaths)
+          } catch {
+            // Fail-open: queue write errors never block curation. The next
+            // curate's enqueue will still capture the same paths via diffStates.
+          }
+
+          try {
             const manifestService = new FileContextTreeManifestService({baseDirectory: baseDir})
             await manifestService.buildManifest(baseDir)
+          } catch {
+            // Fail-open: manifest rebuild is best-effort pre-warming.
           }
-        } catch {
-          // Fail-open: queue/manifest errors never block curation
         }
       }
 
