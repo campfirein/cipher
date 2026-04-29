@@ -3,7 +3,6 @@ import {ArrowRight, Check} from 'lucide-react'
 
 import type {StoredTask} from '../../tasks/types/stored-task'
 
-import {isTerminalStatus} from '../../tasks/utils/task-status'
 import {useOnboardingStore} from '../stores/onboarding-store'
 import {TourStepBadge} from './tour-step-badge'
 
@@ -38,6 +37,13 @@ function useActiveTourTask(task: StoredTask) {
   return isMatch ? (tourStep as 'curate' | 'query') : null
 }
 
+function bannerHint(status: StoredTask['status'], step: 'curate' | 'query'): string {
+  if (status === 'completed') return 'Task done. Scroll for the Continue button.'
+  if (status === 'error') return 'Task failed. Use Try again below or fix the provider config.'
+  if (status === 'cancelled') return 'Task cancelled. Use Try again below to retry.'
+  return RUNNING_HINT[step]
+}
+
 /**
  * Top-of-detail banner. Pins the tour step pill + a brief running hint above
  * the task content so the user knows they're still in the tour.
@@ -49,21 +55,20 @@ export function TourTaskBanner({task}: {task: StoredTask}) {
   return (
     <div className="border-primary-foreground/30 bg-primary/8 flex items-center gap-3 rounded-lg border px-4 py-2.5">
       <TourStepBadge label={STEP_LABEL[step]} />
-      <span className="text-muted-foreground text-sm">
-        {isTerminalStatus(task.status) ? 'Task done. Scroll for the Continue button.' : RUNNING_HINT[step]}
-      </span>
+      <span className="text-muted-foreground text-sm">{bannerHint(task.status, step)}</span>
     </div>
   )
 }
 
 /**
- * Bottom-of-detail CTA. Only renders once the task reaches a terminal state —
- * the user has had a chance to scroll through events and see the result.
+ * Bottom-of-detail CTA. Only renders on a successful completion — failed and
+ * cancelled tasks need to be retried before the tour can advance, so we let
+ * the ErrorSection's "Try again" CTA carry the action and stay silent here.
  */
 export function TourTaskContinueCta({task}: {task: StoredTask}) {
   const advanceTour = useOnboardingStore((s) => s.advanceTour)
   const step = useActiveTourTask(task)
-  if (!step || !isTerminalStatus(task.status)) return null
+  if (!step || task.status !== 'completed') return null
 
   return (
     <div className="border-primary-foreground/40 bg-primary/12 flex items-center gap-4 rounded-lg border px-4 py-3.5">

@@ -7,7 +7,7 @@ import {
   DropdownMenuTrigger,
 } from '@campfirein/byterover-packages/components/dropdown-menu'
 import {cn} from '@campfirein/byterover-packages/lib/utils'
-import {BookOpen, Bug, HelpCircle, PlayCircle} from 'lucide-react'
+import {BookOpen, Bug, LifeBuoy, PlayCircle} from 'lucide-react'
 
 import {useOnboardingStore} from '../stores/onboarding-store'
 
@@ -25,7 +25,7 @@ export function HelpMenu() {
       <DropdownMenuTrigger
         render={
           <Button size="sm" variant="ghost">
-            <HelpCircle className="size-4" />
+            <LifeBuoy className="size-4 mr-1" />
             Help
             {showHint && <span aria-hidden className={cn('size-1.5 rounded-full bg-orange-500')} />}
           </Button>

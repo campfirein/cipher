@@ -57,6 +57,7 @@ interface TaskActions {
     type: 'reasoning' | 'text'
   }) => void
   clearCompleted: () => void
+  markLlmServiceError: (taskId: string) => void
   mergeTasks: (incoming: TaskListItem[]) => void
   removeTask: (taskId: string) => void
   reset: () => void
@@ -109,6 +110,9 @@ export const useTaskStore = create<TaskActions & TaskState>()(
         ),
 
       clearCompleted: () => set((state) => ({tasks: state.tasks.filter((task) => !isTerminalStatus(task.status))})),
+
+      markLlmServiceError: (taskId) =>
+        set((state) => applyToTask(state, taskId, (task) => ({...task, hadLlmServiceError: true})) ?? {}),
 
       mergeTasks: (incoming) => set((state) => ({tasks: mergeTaskList(state.tasks, incoming)})),
 

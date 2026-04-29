@@ -1,3 +1,5 @@
+import {VcErrorCode} from '../../shared/transport/events/vc-events'
+
 export interface ErrorContext {
   projectPath?: string
 }
@@ -8,23 +10,21 @@ type OverrideValue = ((ctx: ErrorContext) => string) | string
 const OVERRIDES: Record<string, OverrideValue> = {
   // Auth / providers
   ERR_NOT_AUTHENTICATED: 'Please sign in to continue.',
-
   ERR_PROVIDER_NOT_CONFIGURED: 'No provider is connected, or its credentials are missing or expired.',
+
   // Version control
-  ERR_VC_ALREADY_INITIALIZED: 'Version control is already initialized for this project.',
-  ERR_VC_AUTH_FAILED: 'Authentication failed. Please sign in and try again.',
-  ERR_VC_BRANCH_NOT_FOUND: "Branch not found. You can create a new branch if needed.",
-  ERR_VC_NO_COMMITS: 'Make at least one commit before continuing.',
-  ERR_VC_NO_REMOTE: 'No remote is configured yet. Set one up before using pull, push, or fetch.',
-  ERR_VC_NO_UPSTREAM:
-    "This branch has no upstream configured yet. Use the Push button to publish it and set upstream in one step.",
-  ERR_VC_NON_FAST_FORWARD: 'The remote has changes. Pull first, then try again.',
-  ERR_VC_NOTHING_TO_PUSH: 'Nothing to push — stage and commit your changes first.',
-  ERR_VC_REMOTE_ALREADY_EXISTS: "A remote named 'origin' already exists. Remove or rename it before adding a new one.",
-  ERR_VC_USER_NOT_CONFIGURED: ({projectPath}) =>
-    projectPath
-      ? `Please run \`brv vc config\` in "${projectPath}" to set your commit author before committing.`
-      : 'Please run `brv vc config` inside your project to set commit author before committing.',
+  [VcErrorCode.ALREADY_INITIALIZED]: 'Version control is already initialized for this project.',
+  [VcErrorCode.AUTH_FAILED]: 'Authentication failed. Please sign in and try again.',
+  [VcErrorCode.BRANCH_NOT_FOUND]: 'Branch not found. You can create a new branch if needed.',
+  [VcErrorCode.NO_COMMITS]: 'Make at least one commit before continuing.',
+  [VcErrorCode.NO_REMOTE]: 'No remote configured for this project.',
+  [VcErrorCode.NO_UPSTREAM]:
+    'This branch has no upstream configured yet. Use the Push button to publish it and set upstream in one step.',
+  [VcErrorCode.NON_FAST_FORWARD]: 'The remote has changes. Pull first, then try again.',
+  [VcErrorCode.NOTHING_TO_PUSH]: 'Nothing to push — stage and commit your changes first.',
+  [VcErrorCode.REMOTE_ALREADY_EXISTS]:
+    "A remote named 'origin' already exists. Remove or rename it before adding a new one.",
+  [VcErrorCode.USER_NOT_CONFIGURED]: 'Commit author is not configured.',
 }
 
 const DEFAULT_FALLBACK = 'Something went wrong'

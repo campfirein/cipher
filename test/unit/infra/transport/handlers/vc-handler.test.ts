@@ -98,12 +98,15 @@ function makeDeps(sandbox: SinonSandbox, projectPath: string): TestDeps {
     getCurrentBranch: sandbox.stub().resolves('main'),
     getFilesWithConflictMarkers: sandbox.stub().resolves([]),
     getRemoteUrl: sandbox.stub().resolves(),
+    getTextBlob: sandbox.stub().resolves(),
     getTrackingBranch: sandbox.stub().resolves(),
+    hashBlob: sandbox.stub().resolves('0000000'),
     init: sandbox.stub().resolves(),
     isAncestor: sandbox.stub().resolves(true),
     isEmptyRepository: sandbox.stub().resolves(false),
     isInitialized: sandbox.stub().resolves(true),
     listBranches: sandbox.stub().resolves([]),
+    listChangedFiles: sandbox.stub().resolves([]),
     listRemotes: sandbox.stub().resolves([{remote: 'origin', url: 'https://example.com/repo.git'}]),
     log: sandbox.stub().resolves([]),
     merge: sandbox.stub().resolves({success: true}),
@@ -209,11 +212,23 @@ function makeVcHandler(deps: TestDeps, signingKeyCache?: SigningKeyCache): VcHan
 
 function stubDefaultTeamSpace(deps: TestDeps): void {
   deps.teamService.getTeams.resolves({
-    teams: [{displayName: 'Teambao1', id: 'tid-1', isActive: true, isDefault: false, name: 'teambao1', slug: 'teambao1'}],
+    teams: [
+      {displayName: 'Teambao1', id: 'tid-1', isActive: true, isDefault: false, name: 'teambao1', slug: 'teambao1'},
+    ],
     total: 1,
   })
   deps.spaceService.getSpaces.resolves({
-    spaces: [{id: 'sid-1', isDefault: false, name: 'test-space', slug: 'test-space', teamId: 'tid-1', teamName: 'teambao1', teamSlug: 'teambao1'}],
+    spaces: [
+      {
+        id: 'sid-1',
+        isDefault: false,
+        name: 'test-space',
+        slug: 'test-space',
+        teamId: 'tid-1',
+        teamName: 'teambao1',
+        teamSlug: 'teambao1',
+      },
+    ],
     total: 1,
   })
 }
@@ -382,7 +397,6 @@ describe('VcHandler', () => {
         reinitialized: true,
       })
     })
-
   })
 
   describe('project path resolution', () => {
@@ -2154,9 +2168,7 @@ BgiWuHXbhM5iNo3PGM1CAAAAEHRlc3RAZXhhbXBsZS5jb20BAgMEBQ==
       expect(result.gitDir).to.include('.git')
       expect(deps.gitService.clone.calledOnce).to.be.true
       const cloneArgs = deps.gitService.clone.firstCall.args[0]
-      expect(cloneArgs.url).to.equal(
-        'https://byterover.dev/teambao1/test-space.git',
-      )
+      expect(cloneArgs.url).to.equal('https://byterover.dev/teambao1/test-space.git')
     })
 
     it('should strip credentials from URL when cloning', async () => {
@@ -2166,15 +2178,12 @@ BgiWuHXbhM5iNo3PGM1CAAAAEHRlc3RAZXhhbXBsZS5jb20BAgMEBQ==
       stubDefaultTeamSpace(deps)
       makeVcHandler(deps).setup()
 
-      const fullUrl =
-        'https://uid:key@byterover.dev/teambao1/test-space.git'
+      const fullUrl = 'https://uid:key@byterover.dev/teambao1/test-space.git'
       await invoke(deps, VcEvents.CLONE, {url: fullUrl})
 
       // Credentials stripped — clean URL used for clone (auth via headers)
       const cloneArgs = deps.gitService.clone.firstCall.args[0]
-      expect(cloneArgs.url).to.equal(
-        'https://byterover.dev/teambao1/test-space.git',
-      )
+      expect(cloneArgs.url).to.equal('https://byterover.dev/teambao1/test-space.git')
     })
 
     it('should clone with names in URL by resolving team/space names', async () => {
@@ -2182,11 +2191,23 @@ BgiWuHXbhM5iNo3PGM1CAAAAEHRlc3RAZXhhbXBsZS5jb20BAgMEBQ==
       deps.gitService.isInitialized.resolves(false)
       deps.tokenStore.load.resolves(validToken)
       deps.teamService.getTeams.resolves({
-        teams: [{displayName: 'Teambao1', id: 'tid-1', isActive: true, isDefault: false, name: 'Teambao1', slug: 'teambao1'}],
+        teams: [
+          {displayName: 'Teambao1', id: 'tid-1', isActive: true, isDefault: false, name: 'Teambao1', slug: 'teambao1'},
+        ],
         total: 1,
       })
       deps.spaceService.getSpaces.resolves({
-        spaces: [{id: 'sid-1', isDefault: false, name: 'test-git', slug: 'test-git', teamId: 'tid-1', teamName: 'Teambao1', teamSlug: 'teambao1'}],
+        spaces: [
+          {
+            id: 'sid-1',
+            isDefault: false,
+            name: 'test-git',
+            slug: 'test-git',
+            teamId: 'tid-1',
+            teamName: 'Teambao1',
+            teamSlug: 'teambao1',
+          },
+        ],
         total: 1,
       })
       makeVcHandler(deps).setup()
@@ -2211,7 +2232,17 @@ BgiWuHXbhM5iNo3PGM1CAAAAEHRlc3RAZXhhbXBsZS5jb20BAgMEBQ==
         total: 1,
       })
       deps.spaceService.getSpaces.resolves({
-        spaces: [{id: 'sid-1', isDefault: false, name: 'project', slug: 'project', teamId: 'tid-1', teamName: 'acme', teamSlug: 'acme'}],
+        spaces: [
+          {
+            id: 'sid-1',
+            isDefault: false,
+            name: 'project',
+            slug: 'project',
+            teamId: 'tid-1',
+            teamName: 'acme',
+            teamSlug: 'acme',
+          },
+        ],
         total: 1,
       })
       makeVcHandler(deps).setup()
@@ -2232,11 +2263,23 @@ BgiWuHXbhM5iNo3PGM1CAAAAEHRlc3RAZXhhbXBsZS5jb20BAgMEBQ==
       deps.gitService.isInitialized.resolves(false)
       deps.tokenStore.load.resolves(validToken)
       deps.teamService.getTeams.resolves({
-        teams: [{displayName: 'Teambao1', id: 'tid-1', isActive: true, isDefault: false, name: 'Teambao1', slug: 'teambao1'}],
+        teams: [
+          {displayName: 'Teambao1', id: 'tid-1', isActive: true, isDefault: false, name: 'Teambao1', slug: 'teambao1'},
+        ],
         total: 1,
       })
       deps.spaceService.getSpaces.resolves({
-        spaces: [{id: 'sid-1', isDefault: false, name: 'test-git', slug: 'test-git', teamId: 'tid-1', teamName: 'Teambao1', teamSlug: 'teambao1'}],
+        spaces: [
+          {
+            id: 'sid-1',
+            isDefault: false,
+            name: 'test-git',
+            slug: 'test-git',
+            teamId: 'tid-1',
+            teamName: 'Teambao1',
+            teamSlug: 'teambao1',
+          },
+        ],
         total: 1,
       })
       makeVcHandler(deps).setup()
@@ -2258,7 +2301,17 @@ BgiWuHXbhM5iNo3PGM1CAAAAEHRlc3RAZXhhbXBsZS5jb20BAgMEBQ==
         total: 1,
       })
       deps.spaceService.getSpaces.resolves({
-        spaces: [{id: 'sid-1', isDefault: false, name: 'project', slug: 'project', teamId: 'tid-1', teamName: 'acme', teamSlug: 'acme'}],
+        spaces: [
+          {
+            id: 'sid-1',
+            isDefault: false,
+            name: 'project',
+            slug: 'project',
+            teamId: 'tid-1',
+            teamName: 'acme',
+            teamSlug: 'acme',
+          },
+        ],
         total: 1,
       })
       makeVcHandler(deps).setup()
@@ -2318,11 +2371,30 @@ BgiWuHXbhM5iNo3PGM1CAAAAEHRlc3RAZXhhbXBsZS5jb20BAgMEBQ==
       deps.gitService.isInitialized.resolves(false)
       deps.tokenStore.load.resolves(validToken)
       deps.teamService.getTeams.resolves({
-        teams: [{displayName: 'Test Release 2.0.0', id: 'tid-1', isActive: true, isDefault: false, name: 'test-release-2.0.0', slug: 'test-release-2-0-0'}],
+        teams: [
+          {
+            displayName: 'Test Release 2.0.0',
+            id: 'tid-1',
+            isActive: true,
+            isDefault: false,
+            name: 'test-release-2.0.0',
+            slug: 'test-release-2-0-0',
+          },
+        ],
         total: 1,
       })
       deps.spaceService.getSpaces.resolves({
-        spaces: [{id: 'sid-1', isDefault: false, name: 'normal-space', slug: 'normal-space', teamId: 'tid-1', teamName: 'test-release-2.0.0', teamSlug: 'test-release-2-0-0'}],
+        spaces: [
+          {
+            id: 'sid-1',
+            isDefault: false,
+            name: 'normal-space',
+            slug: 'normal-space',
+            teamId: 'tid-1',
+            teamName: 'test-release-2.0.0',
+            teamSlug: 'test-release-2-0-0',
+          },
+        ],
         total: 1,
       })
       makeVcHandler(deps).setup()
@@ -2346,7 +2418,17 @@ BgiWuHXbhM5iNo3PGM1CAAAAEHRlc3RAZXhhbXBsZS5jb20BAgMEBQ==
         total: 1,
       })
       deps.spaceService.getSpaces.resolves({
-        spaces: [{id: 'sid-1', isDefault: false, name: 'my-space-v2.0', slug: 'my-space-v2-0', teamId: 'tid-1', teamName: 'acme', teamSlug: 'acme'}],
+        spaces: [
+          {
+            id: 'sid-1',
+            isDefault: false,
+            name: 'my-space-v2.0',
+            slug: 'my-space-v2-0',
+            teamId: 'tid-1',
+            teamName: 'acme',
+            teamSlug: 'acme',
+          },
+        ],
         total: 1,
       })
       makeVcHandler(deps).setup()
@@ -2566,10 +2648,8 @@ BgiWuHXbhM5iNo3PGM1CAAAAEHRlc3RAZXhhbXBsZS5jb20BAgMEBQ==
       stubDefaultTeamSpace(deps)
       makeVcHandler(deps).setup()
 
-      const url =
-        'https://user:token@byterover.dev/teambao1/test-space.git'
-      const expectedCleanUrl =
-        'https://byterover.dev/teambao1/test-space.git'
+      const url = 'https://user:token@byterover.dev/teambao1/test-space.git'
+      const expectedCleanUrl = 'https://byterover.dev/teambao1/test-space.git'
       const result = await deps.requestHandlers[VcEvents.REMOTE]({subcommand: 'add', url}, CLIENT_ID)
       expect(result).to.deep.equal({action: 'add', url: expectedCleanUrl})
       expect(deps.gitService.addRemote.calledOnce).to.be.true
@@ -2592,8 +2672,7 @@ BgiWuHXbhM5iNo3PGM1CAAAAEHRlc3RAZXhhbXBsZS5jb20BAgMEBQ==
       stubDefaultTeamSpace(deps)
       makeVcHandler(deps).setup()
 
-      const cleanUrl =
-        'https://byterover.dev/teambao1/test-space.git'
+      const cleanUrl = 'https://byterover.dev/teambao1/test-space.git'
       const result = await invoke<{action: string; url: string}>(
         deps,
         VcEvents.REMOTE,
@@ -2627,7 +2706,17 @@ BgiWuHXbhM5iNo3PGM1CAAAAEHRlc3RAZXhhbXBsZS5jb20BAgMEBQ==
         total: 1,
       })
       deps.spaceService.getSpaces.resolves({
-        spaces: [{id: 'sid-1', isDefault: false, name: 'project', slug: 'project', teamId: 'tid-1', teamName: 'acme', teamSlug: 'acme'}],
+        spaces: [
+          {
+            id: 'sid-1',
+            isDefault: false,
+            name: 'project',
+            slug: 'project',
+            teamId: 'tid-1',
+            teamName: 'acme',
+            teamSlug: 'acme',
+          },
+        ],
         total: 1,
       })
       makeVcHandler(deps).setup()
@@ -2709,8 +2798,7 @@ BgiWuHXbhM5iNo3PGM1CAAAAEHRlc3RAZXhhbXBsZS5jb20BAgMEBQ==
       stubDefaultTeamSpace(deps)
       makeVcHandler(deps).setup()
 
-      const url =
-        'https://byterover.dev/teambao1/test-space.git'
+      const url = 'https://byterover.dev/teambao1/test-space.git'
       const result = await deps.requestHandlers[VcEvents.REMOTE]({subcommand: 'set-url', url}, CLIENT_ID)
       expect(result).to.deep.equal({action: 'set-url', url})
       expect(deps.gitService.removeRemote.calledOnce).to.be.true
@@ -2769,7 +2857,17 @@ BgiWuHXbhM5iNo3PGM1CAAAAEHRlc3RAZXhhbXBsZS5jb20BAgMEBQ==
         total: 1,
       })
       deps.spaceService.getSpaces.resolves({
-        spaces: [{id: 'sid-1', isDefault: false, name: 'project', slug: 'project', teamId: 'tid-1', teamName: 'acme', teamSlug: 'acme'}],
+        spaces: [
+          {
+            id: 'sid-1',
+            isDefault: false,
+            name: 'project',
+            slug: 'project',
+            teamId: 'tid-1',
+            teamName: 'acme',
+            teamSlug: 'acme',
+          },
+        ],
         total: 1,
       })
       makeVcHandler(deps).setup()
@@ -2804,7 +2902,17 @@ BgiWuHXbhM5iNo3PGM1CAAAAEHRlc3RAZXhhbXBsZS5jb20BAgMEBQ==
         total: 1,
       })
       deps.spaceService.getSpaces.resolves({
-        spaces: [{id: 'sid-1', isDefault: false, name: 'project', slug: 'project', teamId: 'tid-1', teamName: 'acme', teamSlug: 'acme'}],
+        spaces: [
+          {
+            id: 'sid-1',
+            isDefault: false,
+            name: 'project',
+            slug: 'project',
+            teamId: 'tid-1',
+            teamName: 'acme',
+            teamSlug: 'acme',
+          },
+        ],
         total: 1,
       })
       makeVcHandler(deps).setup()
@@ -2822,6 +2930,181 @@ BgiWuHXbhM5iNo3PGM1CAAAAEHRlc3RAZXhhbXBsZS5jb20BAgMEBQ==
       expect(writtenConfig.teamName).to.equal('acme')
     })
 
+    it('should call gitService.removeRemote and return {action: remove} when remote exists', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.getRemoteUrl.resolves('https://byterover.dev/acme/project.git')
+      makeVcHandler(deps).setup()
+
+      const result = await deps.requestHandlers[VcEvents.REMOTE]({subcommand: 'remove'}, CLIENT_ID)
+      expect(result).to.deep.equal({action: 'remove'})
+      expect(deps.gitService.removeRemote.calledOnce).to.be.true
+      expect(deps.gitService.removeRemote.firstCall.args[0]).to.include({remote: 'origin'})
+    })
+
+    it('should clear space fields from config.json via withoutSpace() on remove', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.getRemoteUrl.resolves('https://byterover.dev/acme/project.git')
+      const boundConfig = new BrvConfig({
+        createdAt: '2025-01-01T00:00:00.000Z',
+        cwd: projectPath,
+        spaceId: 'sid-1',
+        spaceName: 'project',
+        teamId: 'tid-1',
+        teamName: 'acme',
+        version: '1.0.0',
+      })
+      deps.projectConfigStore.read.resolves(boundConfig)
+      makeVcHandler(deps).setup()
+
+      await deps.requestHandlers[VcEvents.REMOTE]({subcommand: 'remove'}, CLIENT_ID)
+
+      expect(deps.projectConfigStore.write.calledOnce).to.be.true
+      const writtenConfig: BrvConfig = deps.projectConfigStore.write.firstCall.args[0]
+      expect(writtenConfig.spaceId).to.be.undefined
+      expect(writtenConfig.spaceName).to.be.undefined
+      expect(writtenConfig.teamId).to.be.undefined
+      expect(writtenConfig.teamName).to.be.undefined
+      expect(writtenConfig.cwd).to.equal(projectPath)
+    })
+
+    it('should clear orphaned space fields even when config is not fully cloud-connected', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.getRemoteUrl.resolves('https://byterover.dev/acme/project.git')
+      const partialConfig = new BrvConfig({
+        createdAt: '2025-01-01T00:00:00.000Z',
+        cwd: projectPath,
+        spaceId: 'orphaned-sid',
+        version: '1.0.0',
+      })
+      deps.projectConfigStore.read.resolves(partialConfig)
+      makeVcHandler(deps).setup()
+
+      await deps.requestHandlers[VcEvents.REMOTE]({subcommand: 'remove'}, CLIENT_ID)
+
+      expect(deps.projectConfigStore.write.calledOnce).to.be.true
+      const writtenConfig: BrvConfig = deps.projectConfigStore.write.firstCall.args[0]
+      expect(writtenConfig.spaceId).to.be.undefined
+      expect(writtenConfig.cwd).to.equal(projectPath)
+    })
+
+    it('should skip config-store write when config does not exist', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.getRemoteUrl.resolves('https://byterover.dev/acme/project.git')
+      deps.projectConfigStore.read.resolves()
+      makeVcHandler(deps).setup()
+
+      await deps.requestHandlers[VcEvents.REMOTE]({subcommand: 'remove'}, CLIENT_ID)
+
+      expect(deps.gitService.removeRemote.calledOnce).to.be.true
+      expect(deps.projectConfigStore.write.called).to.be.false
+    })
+
+    it('should throw NO_REMOTE when remove is called with no remote configured', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.getRemoteUrl.resolves()
+      makeVcHandler(deps).setup()
+
+      try {
+        await deps.requestHandlers[VcEvents.REMOTE]({subcommand: 'remove'}, CLIENT_ID)
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(VcError)
+        if (error instanceof VcError) {
+          expect(error.code).to.equal(VcErrorCode.NO_REMOTE)
+        }
+      }
+
+      expect(deps.gitService.removeRemote.called).to.be.false
+      expect(deps.projectConfigStore.write.called).to.be.false
+    })
+
+    it('should throw GIT_NOT_INITIALIZED when remove is called on uninitialized repo', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(false)
+      makeVcHandler(deps).setup()
+
+      try {
+        await deps.requestHandlers[VcEvents.REMOTE]({subcommand: 'remove'}, CLIENT_ID)
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(VcError)
+        if (error instanceof VcError) {
+          expect(error.code).to.equal(VcErrorCode.GIT_NOT_INITIALIZED)
+        }
+      }
+    })
+
+    it('should write cleared config before calling removeRemote (idempotent retry on partial failure)', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.getRemoteUrl.resolves('https://byterover.dev/acme/project.git')
+      const boundConfig = new BrvConfig({
+        createdAt: '2025-01-01T00:00:00.000Z',
+        cwd: projectPath,
+        spaceId: 'sid-1',
+        spaceName: 'project',
+        teamId: 'tid-1',
+        teamName: 'acme',
+        version: '1.0.0',
+      })
+      deps.projectConfigStore.read.resolves(boundConfig)
+      makeVcHandler(deps).setup()
+
+      await deps.requestHandlers[VcEvents.REMOTE]({subcommand: 'remove'}, CLIENT_ID)
+
+      expect(deps.projectConfigStore.write.calledBefore(deps.gitService.removeRemote)).to.be.true
+    })
+
+    it('should leave config cleared when removeRemote fails after config write', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.getRemoteUrl.resolves('https://byterover.dev/acme/project.git')
+      const boundConfig = new BrvConfig({
+        createdAt: '2025-01-01T00:00:00.000Z',
+        cwd: projectPath,
+        spaceId: 'sid-1',
+        spaceName: 'project',
+        teamId: 'tid-1',
+        teamName: 'acme',
+        version: '1.0.0',
+      })
+      deps.projectConfigStore.read.resolves(boundConfig)
+      deps.gitService.removeRemote.rejects(new Error('simulated git failure'))
+      makeVcHandler(deps).setup()
+
+      try {
+        await deps.requestHandlers[VcEvents.REMOTE]({subcommand: 'remove'}, CLIENT_ID)
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(Error)
+      }
+
+      expect(deps.projectConfigStore.write.calledOnce).to.be.true
+      const writtenConfig: BrvConfig = deps.projectConfigStore.write.firstCall.args[0]
+      expect(writtenConfig.spaceId).to.be.undefined
+      expect(writtenConfig.teamId).to.be.undefined
+    })
+
+    it('should throw INVALID_ACTION when subcommand is unknown', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      makeVcHandler(deps).setup()
+
+      try {
+        await deps.requestHandlers[VcEvents.REMOTE]({subcommand: 'bogus'}, CLIENT_ID)
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(VcError)
+        if (error instanceof VcError) {
+          expect(error.code).to.equal(VcErrorCode.INVALID_ACTION)
+        }
+      }
+    })
   })
 
   // ---- handleBranch ----
@@ -3220,10 +3503,7 @@ BgiWuHXbhM5iNo3PGM1CAAAAEHRlc3RAZXhhbXBsZS5jb20BAgMEBQ==
       makeVcHandler(deps).setup()
 
       try {
-        await deps.requestHandlers[VcEvents.CHECKOUT](
-          {branch: 'feat/x', startPoint: 'origin/feat/x'},
-          CLIENT_ID,
-        )
+        await deps.requestHandlers[VcEvents.CHECKOUT]({branch: 'feat/x', startPoint: 'origin/feat/x'}, CLIENT_ID)
         expect.fail('Expected error')
       } catch (error) {
         expect(error).to.be.instanceOf(VcError)
@@ -4351,18 +4631,17 @@ BgiWuHXbhM5iNo3PGM1CAAAAEHRlc3RAZXhhbXBsZS5jb20BAgMEBQ==
       const deps = makeDiffDeps(sandbox)
       try {
         deps.gitService.getBlobContent
-          .withArgs({directory: deps.tmpDir, path: 'foo.md', ref: 'HEAD'})
+          .withArgs({directory: deps.tmpDir, path: 'foo.md', ref: {commitish: 'HEAD'}})
           .resolves('old content')
         deps.gitService.getBlobContent
           .withArgs({directory: deps.tmpDir, path: 'foo.md', ref: 'STAGE'})
           .resolves('new content')
         makeVcHandler(deps).setup()
 
-        const result = await invoke<{newContent: string; oldContent: string; path: string}>(
-          deps,
-          VcEvents.DIFF,
-          {path: 'foo.md', side: 'staged'},
-        )
+        const result = await invoke<{newContent: string; oldContent: string; path: string}>(deps, VcEvents.DIFF, {
+          path: 'foo.md',
+          side: 'staged',
+        })
 
         expect(result.path).to.equal('foo.md')
         expect(result.oldContent).to.equal('old content')
@@ -4381,11 +4660,10 @@ BgiWuHXbhM5iNo3PGM1CAAAAEHRlc3RAZXhhbXBsZS5jb20BAgMEBQ==
           .resolves('staged content')
         makeVcHandler(deps).setup()
 
-        const result = await invoke<{newContent: string; oldContent: string; path: string}>(
-          deps,
-          VcEvents.DIFF,
-          {path: 'foo.md', side: 'unstaged'},
-        )
+        const result = await invoke<{newContent: string; oldContent: string; path: string}>(deps, VcEvents.DIFF, {
+          path: 'foo.md',
+          side: 'unstaged',
+        })
 
         expect(result.oldContent).to.equal('staged content')
         expect(result.newContent).to.equal('working tree content')
@@ -4402,11 +4680,10 @@ BgiWuHXbhM5iNo3PGM1CAAAAEHRlc3RAZXhhbXBsZS5jb20BAgMEBQ==
         deps.gitService.getBlobContent.resolves()
         makeVcHandler(deps).setup()
 
-        const result = await invoke<{newContent: string; oldContent: string; path: string}>(
-          deps,
-          VcEvents.DIFF,
-          {path: 'new-file.md', side: 'unstaged'},
-        )
+        const result = await invoke<{newContent: string; oldContent: string; path: string}>(deps, VcEvents.DIFF, {
+          path: 'new-file.md',
+          side: 'unstaged',
+        })
 
         expect(result.oldContent).to.equal('')
         expect(result.newContent).to.equal('brand new')
@@ -4424,11 +4701,10 @@ BgiWuHXbhM5iNo3PGM1CAAAAEHRlc3RAZXhhbXBsZS5jb20BAgMEBQ==
           .resolves('old content')
         makeVcHandler(deps).setup()
 
-        const result = await invoke<{newContent: string; oldContent: string; path: string}>(
-          deps,
-          VcEvents.DIFF,
-          {path: 'gone.md', side: 'unstaged'},
-        )
+        const result = await invoke<{newContent: string; oldContent: string; path: string}>(deps, VcEvents.DIFF, {
+          path: 'gone.md',
+          side: 'unstaged',
+        })
 
         expect(result.oldContent).to.equal('old content')
         expect(result.newContent).to.equal('')
@@ -4441,18 +4717,17 @@ BgiWuHXbhM5iNo3PGM1CAAAAEHRlc3RAZXhhbXBsZS5jb20BAgMEBQ==
       const deps = makeDiffDeps(sandbox)
       try {
         deps.gitService.getBlobContent
-          .withArgs({directory: deps.tmpDir, path: 'new.md', ref: 'HEAD'})
+          .withArgs({directory: deps.tmpDir, path: 'new.md', ref: {commitish: 'HEAD'}})
           .resolves()
         deps.gitService.getBlobContent
           .withArgs({directory: deps.tmpDir, path: 'new.md', ref: 'STAGE'})
           .resolves('new staged content')
         makeVcHandler(deps).setup()
 
-        const result = await invoke<{newContent: string; oldContent: string; path: string}>(
-          deps,
-          VcEvents.DIFF,
-          {path: 'new.md', side: 'staged'},
-        )
+        const result = await invoke<{newContent: string; oldContent: string; path: string}>(deps, VcEvents.DIFF, {
+          path: 'new.md',
+          side: 'staged',
+        })
 
         expect(result.oldContent).to.equal('')
         expect(result.newContent).to.equal('new staged content')
@@ -4464,7 +4739,9 @@ BgiWuHXbhM5iNo3PGM1CAAAAEHRlc3RAZXhhbXBsZS5jb20BAgMEBQ==
 
   describe('handleDiscard', () => {
     // eslint-disable-next-line unicorn/consistent-function-scoping
-    function makeDiscardDeps(sb: SinonSandbox): TestDeps & {tmpDir: string; unlinkStub: SinonStub; writeFileStub: SinonStub} {
+    function makeDiscardDeps(
+      sb: SinonSandbox,
+    ): TestDeps & {tmpDir: string; unlinkStub: SinonStub; writeFileStub: SinonStub} {
       const tmpDir = join(tmpdir(), `brv-vc-discard-test-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`)
       mkdirSync(tmpDir, {recursive: true})
       const deps = makeDeps(sb, projectPath)
@@ -4528,7 +4805,7 @@ BgiWuHXbhM5iNo3PGM1CAAAAEHRlc3RAZXhhbXBsZS5jb20BAgMEBQ==
           .withArgs({directory: deps.tmpDir, paths: ['foo.md'], ref: 'STAGE'})
           .resolves({'foo.md': undefined})
         deps.gitService.getBlobContents
-          .withArgs({directory: deps.tmpDir, paths: ['foo.md'], ref: 'HEAD'})
+          .withArgs({directory: deps.tmpDir, paths: ['foo.md'], ref: {commitish: 'HEAD'}})
           .resolves({'foo.md': 'head content'})
         makeVcHandler(deps).setup()
 
@@ -4682,7 +4959,7 @@ BgiWuHXbhM5iNo3PGM1CAAAAEHRlc3RAZXhhbXBsZS5jb20BAgMEBQ==
       const deps = makeDiffsDeps(sandbox)
       try {
         deps.gitService.getBlobContents
-          .withArgs({directory: deps.tmpDir, paths: ['a.md', 'b.md'], ref: 'HEAD'})
+          .withArgs({directory: deps.tmpDir, paths: ['a.md', 'b.md'], ref: {commitish: 'HEAD'}})
           .resolves({'a.md': 'a head', 'b.md': 'b head'})
         deps.gitService.getBlobContents
           .withArgs({directory: deps.tmpDir, paths: ['a.md', 'b.md'], ref: 'STAGE'})
@@ -4696,8 +4973,42 @@ BgiWuHXbhM5iNo3PGM1CAAAAEHRlc3RAZXhhbXBsZS5jb20BAgMEBQ==
         )
 
         expect(result.diffs).to.have.length(2)
-        expect(result.diffs[0]).to.deep.equal({newContent: 'a stage', oldContent: 'a head', path: 'a.md'})
-        expect(result.diffs[1]).to.deep.equal({newContent: 'b stage', oldContent: 'b head', path: 'b.md'})
+        expect(result.diffs[0]).to.deep.equal({
+          newContent: 'a stage',
+          oldContent: 'a head',
+          path: 'a.md',
+          status: 'modified',
+        })
+        expect(result.diffs[1]).to.deep.equal({
+          newContent: 'b stage',
+          oldContent: 'b head',
+          path: 'b.md',
+          status: 'modified',
+        })
+      } finally {
+        cleanupDir(deps.tmpDir)
+      }
+    })
+
+    it('staged: reports `modified` (not `added`) when HEAD blob is empty but STAGE has content', async () => {
+      const deps = makeDiffsDeps(sandbox)
+      try {
+        deps.gitService.getBlobContents
+          .withArgs({directory: deps.tmpDir, paths: ['empty.md'], ref: {commitish: 'HEAD'}})
+          .resolves({'empty.md': ''})
+        deps.gitService.getBlobContents
+          .withArgs({directory: deps.tmpDir, paths: ['empty.md'], ref: 'STAGE'})
+          .resolves({'empty.md': 'now has content\n'})
+        makeVcHandler(deps).setup()
+
+        const result = await invoke<{
+          diffs: Array<{newContent: string; oldContent: string; path: string; status: string}>
+        }>(deps, VcEvents.DIFFS, {paths: ['empty.md'], side: 'staged'})
+
+        expect(result.diffs).to.have.length(1)
+        expect(result.diffs[0].status).to.equal('modified')
+        expect(result.diffs[0].oldContent).to.equal('')
+        expect(result.diffs[0].newContent).to.equal('now has content\n')
       } finally {
         cleanupDir(deps.tmpDir)
       }
@@ -4720,8 +5031,18 @@ BgiWuHXbhM5iNo3PGM1CAAAAEHRlc3RAZXhhbXBsZS5jb20BAgMEBQ==
         )
 
         expect(result.diffs).to.have.length(2)
-        expect(result.diffs[0]).to.deep.equal({newContent: 'foo working', oldContent: 'foo stage', path: 'foo.md'})
-        expect(result.diffs[1]).to.deep.equal({newContent: 'bar working', oldContent: 'bar stage', path: 'bar.md'})
+        expect(result.diffs[0]).to.deep.equal({
+          newContent: 'foo working',
+          oldContent: 'foo stage',
+          path: 'foo.md',
+          status: 'modified',
+        })
+        expect(result.diffs[1]).to.deep.equal({
+          newContent: 'bar working',
+          oldContent: 'bar stage',
+          path: 'bar.md',
+          status: 'modified',
+        })
       } finally {
         cleanupDir(deps.tmpDir)
       }

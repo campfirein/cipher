@@ -17,7 +17,10 @@ export const getVcDiffs = (request: IVcDiffsRequest): Promise<IVcDiffsResponse> 
   return apiClient.request<IVcDiffsResponse, IVcDiffsRequest>(VcEvents.DIFFS, request)
 }
 
-export const getVcDiffsQueryOptions = (request: IVcDiffsRequest) =>
+// WebUI only uses the {paths, side} variant of IVcDiffsRequest (mode is CLI/TUI only).
+type VcDiffsPathsRequest = Extract<IVcDiffsRequest, {paths: string[]}>
+
+export const getVcDiffsQueryOptions = (request: VcDiffsPathsRequest) =>
   queryOptions({
     placeholderData: keepPreviousData,
     queryFn: () => getVcDiffs(request),

@@ -24,7 +24,7 @@ function UnauthorizedTrigger() {
 
   return (
     <>
-      <Button className="h-auto rounded-full p-0 ml-2.5" onClick={() => setIsOpen(true)} variant="ghost">
+      <Button className="h-auto rounded-full p-0" onClick={() => setIsOpen(true)} variant="ghost">
         <Avatar>
           <AvatarFallback className="bg-transparent">
             <User className="size-4 shrink-0" />
@@ -49,7 +49,7 @@ function AuthorizedMenu() {
 
   if (!user) {
     return (
-      <Button className="ml-2.5" disabled size="sm" variant="outline">
+      <Button disabled size="sm" variant="outline">
         <User className="size-4 shrink-0 text-muted-foreground" />
         <span>Signed in</span>
       </Button>
@@ -89,7 +89,7 @@ export function AuthMenu() {
 
   if (isLoadingInitial) {
     return (
-      <Button className="ml-2.5" disabled size="icon" variant="outline">
+      <Button disabled size="icon" variant="outline">
         <User className="size-4 shrink-0 text-muted-foreground animate-pulse" />
       </Button>
     )

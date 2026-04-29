@@ -45,7 +45,6 @@ export function NewBranchDialog({initialName = '', onOpenChange, open, startPoin
       await checkout.mutateAsync({branch: trimmed, create: true, startPoint})
       toast.success(
         startPoint ? `Created ${trimmed} from ${startPoint} and switched to it` : `Created and switched to ${trimmed}`,
-        {position: 'top-center'},
       )
       onOpenChange(false)
     } catch (error) {

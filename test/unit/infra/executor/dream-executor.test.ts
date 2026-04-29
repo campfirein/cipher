@@ -6,6 +6,9 @@ import {restore, type SinonStub, stub} from 'sinon'
 
 import type {ICipherAgent} from '../../../../src/agent/core/interfaces/i-cipher-agent.js'
 
+import {FileContextTreeManifestService} from '../../../../src/server/infra/context-tree/file-context-tree-manifest-service.js'
+import {FileContextTreeSnapshotService} from '../../../../src/server/infra/context-tree/file-context-tree-snapshot-service.js'
+import {FileContextTreeSummaryService} from '../../../../src/server/infra/context-tree/file-context-tree-summary-service.js'
 import {EMPTY_DREAM_STATE} from '../../../../src/server/infra/dream/dream-state-schema.js'
 import {DreamExecutor, type DreamExecutorDeps} from '../../../../src/server/infra/executor/dream-executor.js'
 
@@ -618,6 +621,30 @@ describe('DreamExecutor', () => {
           createReviewEntries.callCount,
           'createReviewEntries must run exactly once when step 7 throws after success-path review write',
         ).to.equal(1)
+      })
+    })
+
+    describe('summary propagation taskId threading (ENG-2100)', () => {
+      it('passes the dream operation taskId to propagateStaleness so summary LLM calls share one billing session', async () => {
+        // pre-state empty, post-state has one new file → diffStates yields one changed path
+        stub(FileContextTreeSnapshotService.prototype, 'getCurrentState')
+          .onFirstCall()
+          .resolves(new Map())
+          .onSecondCall()
+          .resolves(new Map([['auth/jwt.md', {hash: 'h', size: 1}]]))
+        const propagateStalenessStub = stub(
+          FileContextTreeSummaryService.prototype,
+          'propagateStaleness',
+        ).resolves([])
+        stub(FileContextTreeManifestService.prototype, 'buildManifest').resolves()
+
+        const executor = new DreamExecutor(deps)
+        await executor.executeWithAgent(agent, defaultOptions)
+
+        expect(propagateStalenessStub.calledOnce).to.be.true
+        // 4th arg must be the dream's taskId so the billing service groups
+        // summary regenerations into the same session as the parent operation.
+        expect(propagateStalenessStub.firstCall.args[3]).to.equal(defaultOptions.taskId)
       })
     })
   })

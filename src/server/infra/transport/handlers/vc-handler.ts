@@ -5,7 +5,7 @@ import {promisify} from 'node:util'
 
 import type {ITokenStore} from '../../../core/interfaces/auth/i-token-store.js'
 import type {IContextTreeService} from '../../../core/interfaces/context-tree/i-context-tree-service.js'
-import type {GitCommit, IGitService} from '../../../core/interfaces/services/i-git-service.js'
+import type {GitCommit, GitDiffSide, IGitService} from '../../../core/interfaces/services/i-git-service.js'
 import type {ISpaceService} from '../../../core/interfaces/services/i-space-service.js'
 import type {ITeamService} from '../../../core/interfaces/services/i-team-service.js'
 import type {IProjectConfigStore} from '../../../core/interfaces/storage/i-project-config-store.js'
@@ -26,6 +26,7 @@ import {
   type IVcCommitResponse,
   type IVcConfigRequest,
   type IVcConfigResponse,
+  type IVcDiffFile,
   type IVcDiffRequest,
   type IVcDiffResponse,
   type IVcDiffsRequest,
@@ -48,6 +49,8 @@ import {
   type IVcResetRequest,
   type IVcResetResponse,
   type IVcStatusResponse,
+  type VcDiffFileStatus,
+  type VcDiffMode,
   type VcDiffSide,
   VcErrorCode,
   type VcErrorCodeType,
@@ -101,6 +104,32 @@ const FIELD_MAP: Record<string, 'commitSign' | 'email' | 'name' | 'signingKey'> 
   'user.email': 'email',
   'user.name': 'name',
   'user.signingkey': 'signingKey',
+}
+
+function inferStatus(oldExists: boolean, newExists: boolean): VcDiffFileStatus {
+  if (!oldExists && newExists) return 'added'
+  if (oldExists && !newExists) return 'deleted'
+  return 'modified'
+}
+
+function resolveDiffSides(mode: VcDiffMode): {from: GitDiffSide; to: GitDiffSide} {
+  switch (mode.kind) {
+    case 'range': {
+      return {from: {commitish: mode.from}, to: {commitish: mode.to}}
+    }
+
+    case 'ref-vs-worktree': {
+      return {from: {commitish: mode.ref}, to: 'WORKDIR'}
+    }
+
+    case 'staged': {
+      return {from: {commitish: 'HEAD'}, to: 'STAGE'}
+    }
+
+    case 'unstaged': {
+      return {from: 'STAGE', to: 'WORKDIR'}
+    }
+  }
 }
 
 export interface IVcHandlerDeps {
@@ -207,6 +236,54 @@ export class VcHandler {
     this.transport.onRequest<void, IVcStatusResponse>(VcEvents.STATUS, (_data, clientId) => this.handleStatus(clientId))
   }
 
+  private async buildAuthorHint(existing?: IVcGitConfig): Promise<string> {
+    try {
+      const token = await this.tokenStore.load()
+      if (token?.isValid()) {
+        const email = existing?.email ?? token.userEmail
+        const name = existing?.name ?? token.userName ?? token.userEmail
+        return `Run: brv vc config user.name '${name}' and brv vc config user.email '${email}'.`
+      }
+    } catch {
+      // not logged in
+    }
+
+    return 'Run: brv vc config user.name <value> and brv vc config user.email <value>.'
+  }
+
+  /**
+   * Builds a single diff entry for a changed file, or `undefined` when either required side
+   * is absent/binary (the caller filters these out to keep binaries out of diff output).
+   */
+  private async buildDiffFile(params: {
+    directory: string
+    from: GitDiffSide
+    path: string
+    status: VcDiffFileStatus
+    to: GitDiffSide
+  }): Promise<IVcDiffFile | undefined> {
+    const {directory, from, path, status, to} = params
+    const [oldSide, newSide] = await Promise.all([
+      status === 'added' ? undefined : this.readSideEntry(directory, from, path),
+      status === 'deleted' ? undefined : this.readSideEntry(directory, to, path),
+    ])
+
+    if (status !== 'added' && !oldSide) return undefined
+    if (status !== 'deleted' && !newSide) return undefined
+
+    const binary = (oldSide?.binary ?? false) || (newSide?.binary ?? false)
+    const result: IVcDiffFile = {
+      newContent: binary ? '' : (newSide?.content ?? ''),
+      oldContent: binary ? '' : (oldSide?.content ?? ''),
+      path,
+      status,
+    }
+    if (oldSide) result.oldOid = oldSide.oid
+    if (newSide) result.newOid = newSide.oid
+    if (binary) result.binary = true
+    return result
+  }
+
   private buildNoRemoteMessage(nextStep: string): string {
     return (
       `No remote configured.\n\nTo connect to cloud:\n` +
@@ -220,7 +297,7 @@ export class VcHandler {
   private async computeDiff(directory: string, path: string, side: VcDiffSide): Promise<IVcDiffResponse> {
     if (side === 'staged') {
       const [head, stage] = await Promise.all([
-        this.gitService.getBlobContent({directory, path, ref: 'HEAD'}),
+        this.gitService.getBlobContent({directory, path, ref: {commitish: 'HEAD'}}),
         this.gitService.getBlobContent({directory, path, ref: 'STAGE'}),
       ])
       return {newContent: stage ?? '', oldContent: head ?? '', path}
@@ -261,10 +338,7 @@ export class VcHandler {
   private async guardUnmergedAndMarkers(directory: string): Promise<void> {
     const conflicts = await this.gitService.getConflicts({directory})
     if (conflicts.length > 0) {
-      throw new VcError(
-        'Committing is not possible because you have unmerged files.',
-        VcErrorCode.MERGE_CONFLICT,
-      )
+      throw new VcError('Committing is not possible because you have unmerged files.', VcErrorCode.MERGE_CONFLICT)
     }
 
     const markerFiles = await this.gitService.getFilesWithConflictMarkers({directory})
@@ -738,18 +812,12 @@ export class VcHandler {
         // CWD and would break the next time the daemon starts from a
         // different directory. Matches git's own `user.signingKey` semantic.
         if (!path.isAbsolute(resolvedPath)) {
-          throw new VcError(
-            `Signing key path must be absolute. Got: ${resolvedPath}`,
-            VcErrorCode.INVALID_CONFIG_VALUE,
-          )
+          throw new VcError(`Signing key path must be absolute. Got: ${resolvedPath}`, VcErrorCode.INVALID_CONFIG_VALUE)
         }
 
         const probe = await probeSSHKey(resolvedPath)
         if (!probe.exists) {
-          throw new VcError(
-            `SSH key not found at: ${resolvedPath}`,
-            VcErrorCode.SIGNING_KEY_NOT_FOUND,
-          )
+          throw new VcError(`SSH key not found at: ${resolvedPath}`, VcErrorCode.SIGNING_KEY_NOT_FOUND)
         }
 
         // Derive fingerprint for display hint (non-blocking if parse fails)
@@ -824,23 +892,67 @@ export class VcHandler {
       throw new VcError('ByteRover version control not initialized.', VcErrorCode.GIT_NOT_INITIALIZED)
     }
 
+    // Mode-based call (CLI/TUI): auto-discover changed files + return full IVcDiffFile entries.
+    // Binary or unreadable files are dropped by buildDiffFile (returns undefined).
+    if ('mode' in data) {
+      const {from, to} = resolveDiffSides(data.mode)
+      try {
+        const changed = await this.gitService.listChangedFiles({directory, from, to})
+        const entries = await Promise.all(
+          changed.map((change) => this.buildDiffFile({directory, from, path: change.path, status: change.status, to})),
+        )
+        const diffs = entries.filter((d): d is IVcDiffFile => d !== undefined)
+        return {diffs, mode: data.mode}
+      } catch (error) {
+        const classified = classifyIsomorphicGitError(error, VcErrorCode.INVALID_REF)
+        if (classified) throw classified
+        throw error
+      }
+    }
+
+    // WebUI call: caller-supplied paths + side. Status is derived from blob presence,
+    // so an empty-blob edit is correctly reported as `modified`, not `added`.
     const {paths, side} = data
 
     if (side === 'staged') {
       const [head, stage] = await Promise.all([
-        this.gitService.getBlobContents({directory, paths, ref: 'HEAD'}),
+        this.gitService.getBlobContents({directory, paths, ref: {commitish: 'HEAD'}}),
         this.gitService.getBlobContents({directory, paths, ref: 'STAGE'}),
       ])
-      const diffs = paths.map((path) => ({newContent: stage[path] ?? '', oldContent: head[path] ?? '', path}))
+      const diffs = paths.map((path) => {
+        const oldBlob = head[path]
+        const newBlob = stage[path]
+        return {
+          newContent: newBlob ?? '',
+          oldContent: oldBlob ?? '',
+          path,
+          status: inferStatus(oldBlob !== undefined, newBlob !== undefined),
+        }
+      })
       return {diffs}
     }
 
     // unstaged: compare index (old) against working tree (new)
     const stage = await this.gitService.getBlobContents({directory, paths, ref: 'STAGE'})
     const workingTree = await Promise.all(
-      paths.map((path) => fs.promises.readFile(join(directory, path), 'utf8').catch(() => '')),
+      paths.map(async (path): Promise<string | undefined> => {
+        try {
+          return await fs.promises.readFile(join(directory, path), 'utf8')
+        } catch {
+          return undefined
+        }
+      }),
     )
-    const diffs = paths.map((path, i) => ({newContent: workingTree[i], oldContent: stage[path] ?? '', path}))
+    const diffs = paths.map((path, i) => {
+      const oldBlob = stage[path]
+      const newFile = workingTree[i]
+      return {
+        newContent: newFile ?? '',
+        oldContent: oldBlob ?? '',
+        path,
+        status: inferStatus(oldBlob !== undefined, newFile !== undefined),
+      }
+    })
     return {diffs}
   }
 
@@ -857,7 +969,7 @@ export class VcHandler {
     // Prefer index blob (preserves staged changes); fall back to HEAD; else delete (untracked).
     const [stage, head] = await Promise.all([
       this.gitService.getBlobContents({directory, paths: filePaths, ref: 'STAGE'}),
-      this.gitService.getBlobContents({directory, paths: filePaths, ref: 'HEAD'}),
+      this.gitService.getBlobContents({directory, paths: filePaths, ref: {commitish: 'HEAD'}}),
     ])
 
     const results = await Promise.all(
@@ -865,9 +977,7 @@ export class VcHandler {
         const target = stage[path] ?? head[path]
         const absolutePath = join(directory, path)
         try {
-          await (target === undefined
-            ? fs.promises.unlink(absolutePath)
-            : fs.promises.writeFile(absolutePath, target))
+          await (target === undefined ? fs.promises.unlink(absolutePath) : fs.promises.writeFile(absolutePath, target))
           return true
         } catch {
           return false
@@ -965,10 +1075,7 @@ export class VcHandler {
 
     const probe = await probeSSHKey(resolvedPath)
     if (!probe.exists) {
-      throw new VcError(
-        `SSH key from git config not found at: ${resolvedPath}`,
-        VcErrorCode.SIGNING_KEY_NOT_FOUND,
-      )
+      throw new VcError(`SSH key from git config not found at: ${resolvedPath}`, VcErrorCode.SIGNING_KEY_NOT_FOUND)
     }
 
     // Read and merge into brv config
@@ -1321,6 +1428,30 @@ export class VcHandler {
       return {action: 'show', url: url ? maskCredentialsInUrl(url) : undefined}
     }
 
+    if (data.subcommand === 'remove') {
+      const existingUrl = await this.gitService.getRemoteUrl({directory, remote: 'origin'})
+      if (!existingUrl) {
+        throw new VcError("No remote 'origin' to remove.", VcErrorCode.NO_REMOTE)
+      }
+
+      // Clear config before removing the remote so a mid-way failure leaves a retry-friendly state:
+      // if removeRemote throws, config is already cleared and remote is still present, so
+      // re-running `remove` will retry removeRemote and succeed. The reverse order leaves the
+      // remote gone but config stale, and the next `remove` fails with NO_REMOTE — unrecoverable.
+      const existingConfig = await this.projectConfigStore.read(projectPath)
+      if (existingConfig) {
+        await this.projectConfigStore.write(existingConfig.withoutSpace(), projectPath)
+      }
+
+      await this.gitService.removeRemote({directory, remote: 'origin'})
+
+      return {action: 'remove'}
+    }
+
+    if (data.subcommand !== 'add' && data.subcommand !== 'set-url') {
+      throw new VcError('Unknown remote subcommand.', VcErrorCode.INVALID_ACTION)
+    }
+
     if (!data.url) {
       throw new VcError('URL is required.', VcErrorCode.INVALID_REMOTE_URL)
     }
@@ -1516,29 +1647,29 @@ export class VcHandler {
   }
 
   /**
-   * Resolve commit author: config values first, then fallback to auth token.
-   * Throws USER_NOT_CONFIGURED only when neither source has name+email.
+   * Reads a diff side's content + short oid in a single pass. Returns `undefined`
+   * only when the blob is absent on disk / at the ref. Binary content (NUL byte)
+   * is marked via `binary: true` so the caller can emit `Binary files ... differ`.
    */
-  private async resolveAuthor(config?: IVcGitConfig): Promise<{email: string; name: string}> {
-    if (config?.name && config.email) {
-      return {email: config.email, name: config.name}
-    }
-
-    try {
-      const token = await this.tokenStore.load()
-      if (token?.isValid()) {
-        const email = config?.email ?? token.userEmail
-        const name = config?.name ?? token.userName ?? token.userEmail
-        if (email && name) return {email, name}
+  private async readSideEntry(
+    directory: string,
+    side: GitDiffSide,
+    path: string,
+  ): Promise<undefined | {binary?: boolean; content: string; oid: string}> {
+    if (side === 'WORKDIR') {
+      let buf: Buffer
+      try {
+        buf = await fs.promises.readFile(join(directory, path))
+      } catch {
+        return undefined
       }
-    } catch {
-      // not logged in
+
+      const oid = await this.gitService.hashBlob(buf)
+      if (buf.includes(0)) return {binary: true, content: '', oid}
+      return {content: buf.toString('utf8'), oid}
     }
 
-    throw new VcError(
-      'Commit author not configured. Run: brv vc config user.name <value> and brv vc config user.email <value>.',
-      VcErrorCode.USER_NOT_CONFIGURED,
-    )
+    return this.gitService.getTextBlob({directory, path, ref: side})
   }
 
   /**
@@ -1681,11 +1812,7 @@ export class VcHandler {
    *   Path B: in-memory TTL cache (passphrase not needed after first use)
    *   Path C: parse key file (may require passphrase — delegates to CLI caller via PASSPHRASE_REQUIRED error)
    */
-  private async resolveSigningKey(
-    projectPath: string,
-    keyPath: string,
-    passphrase?: string,
-  ): Promise<ParsedSSHKey> {
+  private async resolveSigningKey(projectPath: string, keyPath: string, passphrase?: string): Promise<ParsedSSHKey> {
     // Path B: in-memory TTL cache — scoped by (project, key) pair so a user
     // switching projects never inherits a decrypted KeyObject from elsewhere.
     const cachedKey = this.signingKeyCache.get(projectPath, keyPath)
@@ -1694,10 +1821,7 @@ export class VcHandler {
     // Path C: parse key file
     const probe = await probeSSHKey(keyPath)
     if (!probe.exists) {
-      throw new VcError(
-        `SSH key file not found: ${keyPath}`,
-        VcErrorCode.SIGNING_KEY_NOT_FOUND,
-      )
+      throw new VcError(`SSH key file not found: ${keyPath}`, VcErrorCode.SIGNING_KEY_NOT_FOUND)
     }
 
     if (probe.needsPassphrase) {
@@ -1706,7 +1830,7 @@ export class VcHandler {
       if (probe.opensshEncrypted) {
         throw new VcError(
           `Encrypted OpenSSH private keys are not supported for direct signing. ` +
-          `Load the key into ssh-agent first: ssh-add ${keyPath}`,
+            `Load the key into ssh-agent first: ssh-add ${keyPath}`,
           VcErrorCode.SIGNING_KEY_NOT_SUPPORTED,
         )
       }

@@ -252,7 +252,7 @@ describe('FolderPackExecutor', () => {
     expect(executeIterativeStub.calledOnce).to.be.true
     expect(executeIterativeStub.firstCall.args[3]).to.equal(path.resolve(clientCwd, 'src'))
     expect(executeIterativeStub.firstCall.args[5]).to.equal(clientCwd)
-    expect(propagateStalenessStub.calledOnceWithExactly(['auth/jwt.md'], agent, clientCwd)).to.be.true
+    expect(propagateStalenessStub.calledOnceWithExactly(['auth/jwt.md'], agent, clientCwd, 'task-123')).to.be.true
     expect(buildManifestStub.calledOnceWithExactly(clientCwd)).to.be.true
   })
 

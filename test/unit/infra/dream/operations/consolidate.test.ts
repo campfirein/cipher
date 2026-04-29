@@ -9,6 +9,29 @@ import type {DreamOperation} from '../../../../../src/server/infra/dream/dream-l
 
 import {consolidate, type ConsolidateDeps} from '../../../../../src/server/infra/dream/operations/consolidate.js'
 
+/**
+ * Create a file with canonical (non-alphabetical) frontmatter order
+ * (title -> summary -> tags -> related -> keywords -> createdAt -> updatedAt),
+ * matching MarkdownWriter's canonical order. Used to verify dream operations
+ * preserve this ordering rather than re-sorting alphabetically.
+ */
+async function createCanonicalFile(dir: string, relativePath: string, body: string): Promise<void> {
+  const fullPath = join(dir, relativePath)
+  await mkdir(join(fullPath, '..'), {recursive: true})
+  const frontmatter = [
+    '---',
+    'title: Auth Session',
+    "summary: Session handling overview",
+    'tags: [auth, session]',
+    'related: []',
+    'keywords: [session, cookie]',
+    "createdAt: '2026-04-01T00:00:00.000Z'",
+    "updatedAt: '2026-04-10T00:00:00.000Z'",
+    '---',
+  ].join('\n')
+  await writeFile(fullPath, `${frontmatter}\n${body}`, 'utf8')
+}
+
 /** Narrow DreamOperation to CONSOLIDATE variant for test assertions */
 function asConsolidate(op: DreamOperation) {
   expect(op.type).to.equal('CONSOLIDATE')
@@ -22,7 +45,7 @@ async function createMdFile(dir: string, relativePath: string, body: string, fro
   let content = body
   if (frontmatter) {
     const {dump} = await import('js-yaml')
-    const yaml = dump(frontmatter, {flowLevel: 1, lineWidth: -1, sortKeys: true}).trimEnd()
+    const yaml = dump(frontmatter, {flowLevel: 1, lineWidth: -1, sortKeys: false}).trimEnd()
     content = `---\n${yaml}\n---\n${body}`
   }
 
@@ -498,6 +521,121 @@ describe('consolidate', () => {
 
       // No write needed when there's nothing to clear
       expect(dreamStateService.write.called).to.be.false
+    })
+  })
+
+  // ==========================================================================
+  // Frontmatter field order preservation
+  // ==========================================================================
+
+  describe('frontmatter field order preservation', () => {
+    it('TEMPORAL_UPDATE preserves existing frontmatter field order', async () => {
+      await createCanonicalFile(ctxDir, 'auth/session.md', '# Old session info')
+
+      // LLM returns updatedContent WITH frontmatter in canonical order.
+      // addFrontmatterFields merges consolidated_at into it — sortKeys must
+      // not reorder the existing fields.
+      const updatedWithFm = [
+        '---',
+        'title: Auth Session',
+        "summary: Updated session handling",
+        'tags: [auth, session]',
+        'related: []',
+        'keywords: [session, cookie]',
+        "createdAt: '2026-04-01T00:00:00.000Z'",
+        "updatedAt: '2026-04-10T00:00:00.000Z'",
+        '---',
+        '# Updated session info',
+        'New content.',
+      ].join('\n')
+
+      agent.executeOnSession.resolves(llmResponse([{
+        files: ['auth/session.md'],
+        reason: 'Outdated info',
+        type: 'TEMPORAL_UPDATE',
+        updatedContent: updatedWithFm,
+      }]))
+
+      await consolidate(['auth/session.md'], deps)
+
+      const updated = await readFile(join(ctxDir, 'auth/session.md'), 'utf8')
+      // Extract frontmatter field names in order
+      const yamlBlock = updated.slice(updated.indexOf('---\n') + 4, updated.indexOf('\n---\n', 4))
+      const fieldNames = yamlBlock.split('\n').map(line => line.split(':')[0].trim()).filter(Boolean)
+
+      // title must come before createdAt (canonical order, not alphabetical)
+      const titleIdx = fieldNames.indexOf('title')
+      const createdAtIdx = fieldNames.indexOf('createdAt')
+      expect(titleIdx, 'title should appear before createdAt (canonical order)').to.be.lessThan(createdAtIdx)
+    })
+
+    it('CROSS_REFERENCE preserves existing frontmatter field order', async () => {
+      await createCanonicalFile(ctxDir, 'auth/session.md', '# Session')
+      await createCanonicalFile(ctxDir, 'auth/tokens.md', '# Tokens')
+
+      agent.executeOnSession.resolves(llmResponse([{
+        files: ['auth/session.md', 'auth/tokens.md'],
+        reason: 'Related auth topics',
+        type: 'CROSS_REFERENCE',
+      }]))
+
+      await consolidate(['auth/session.md', 'auth/tokens.md'], deps)
+
+      const session = await readFile(join(ctxDir, 'auth/session.md'), 'utf8')
+      const yamlBlock = session.slice(session.indexOf('---\n') + 4, session.indexOf('\n---\n', 4))
+      const fieldNames = yamlBlock.split('\n').map(line => line.split(':')[0].trim()).filter(Boolean)
+
+      // title must come before createdAt (canonical order, not alphabetical)
+      const titleIdx = fieldNames.indexOf('title')
+      const createdAtIdx = fieldNames.indexOf('createdAt')
+      expect(titleIdx, 'title should appear before createdAt (canonical order)').to.be.lessThan(createdAtIdx)
+
+      // Verify order is also preserved in the second file
+      const tokens = await readFile(join(ctxDir, 'auth/tokens.md'), 'utf8')
+      const tokensYaml = tokens.slice(tokens.indexOf('---\n') + 4, tokens.indexOf('\n---\n', 4))
+      const tokensFields = tokensYaml.split('\n').map(line => line.split(':')[0].trim()).filter(Boolean)
+      expect(tokensFields.indexOf('title')).to.be.lessThan(tokensFields.indexOf('createdAt'))
+    })
+
+    it('MERGE preserves field order from target file frontmatter', async () => {
+      await createCanonicalFile(ctxDir, 'auth/session.md', '# Session')
+      await createMdFile(ctxDir, 'auth/session-v2.md', '# Session V2')
+
+      // LLM returns mergedContent WITH frontmatter in canonical order.
+      // addFrontmatterFields merges consolidated_at/consolidated_from — sortKeys
+      // must not reorder the existing fields.
+      const mergedWithFm = [
+        '---',
+        'title: Auth Session',
+        "summary: Unified session handling",
+        'tags: [auth, session]',
+        'related: []',
+        'keywords: [session, cookie]',
+        "createdAt: '2026-04-01T00:00:00.000Z'",
+        "updatedAt: '2026-04-10T00:00:00.000Z'",
+        '---',
+        '# Unified Session',
+        'Merged.',
+      ].join('\n')
+
+      agent.executeOnSession.resolves(llmResponse([{
+        files: ['auth/session.md', 'auth/session-v2.md'],
+        mergedContent: mergedWithFm,
+        outputFile: 'auth/session.md',
+        reason: 'Redundant',
+        type: 'MERGE',
+      }]))
+
+      await consolidate(['auth/session.md', 'auth/session-v2.md'], deps)
+
+      const merged = await readFile(join(ctxDir, 'auth/session.md'), 'utf8')
+      const yamlBlock = merged.slice(merged.indexOf('---\n') + 4, merged.indexOf('\n---\n', 4))
+      const fieldNames = yamlBlock.split('\n').map(line => line.split(':')[0].trim()).filter(Boolean)
+
+      // title must come before createdAt (canonical order, not alphabetical)
+      const titleIdx = fieldNames.indexOf('title')
+      const createdAtIdx = fieldNames.indexOf('createdAt')
+      expect(titleIdx, 'title should appear before createdAt (canonical order)').to.be.lessThan(createdAtIdx)
     })
   })
 })

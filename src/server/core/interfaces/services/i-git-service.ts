@@ -66,7 +66,12 @@ export type CommitGitParams = {
 } & BaseGitParams
 export type LogGitParams = BaseGitParams & {depth?: number; filepath?: string; ref?: string}
 export type PushGitParams = BaseGitParams & {branch?: string; remote?: string}
-export type PullGitParams = BaseGitParams & {allowUnrelatedHistories?: boolean; author?: {email: string; name: string}; branch?: string; remote?: string}
+export type PullGitParams = BaseGitParams & {
+  allowUnrelatedHistories?: boolean
+  author?: {email: string; name: string}
+  branch?: string
+  remote?: string
+}
 export type FetchGitParams = BaseGitParams & {ref?: string; remote?: string}
 export type AbortMergeGitParams = BaseGitParams
 export type MergeGitParams = BaseGitParams & {
@@ -108,10 +113,10 @@ export type CloneGitParams = BaseGitParams & {
 
 /**
  * Source of the blob content.
- * - `'HEAD'` → blob at the HEAD commit
  * - `'STAGE'` → blob in the git index (staging area)
+ * - `{commitish: string}` → blob at the resolved commit (branch name, tag, SHA, or `'HEAD'`)
  */
-export type GitBlobRef = 'HEAD' | 'STAGE'
+export type GitBlobRef = 'STAGE' | {commitish: string}
 
 export type GetBlobContentParams = BaseGitParams & {
   path: string
@@ -125,6 +130,32 @@ export type GetBlobContentsParams = BaseGitParams & {
 
 /** Map of path → blob content (utf8). Missing entries indicate the blob is absent at that ref. */
 export type BlobContents = Record<string, string | undefined>
+
+/**
+ * Source of the side being diffed. Beyond `GitBlobRef`, also supports `'WORKDIR'`
+ * (the working tree, used for unstaged and ref-vs-worktree comparisons).
+ */
+export type GitDiffSide = 'STAGE' | 'WORKDIR' | {commitish: string}
+
+export type ListChangedFilesParams = BaseGitParams & {
+  from: GitDiffSide
+  to: GitDiffSide
+}
+
+export type ChangedFile = {
+  path: string
+  status: 'added' | 'deleted' | 'modified'
+}
+
+/** Content + short oid pair returned by {@link IGitService.getTextBlob}. */
+export type TextBlob = {
+  /** True when the blob contains a NUL byte; `content` is then empty. */
+  binary?: boolean
+  /** UTF-8 decoded blob content (empty string when binary). */
+  content: string
+  /** 7-char short oid. */
+  oid: string
+}
 
 // --- Interface ---
 export interface IGitService {
@@ -141,11 +172,11 @@ export interface IGitService {
   getAheadBehind(params: GetAheadBehindParams): Promise<AheadBehind>
   /**
    * Reads the content of a file blob at a given git ref.
-   * - `ref: 'HEAD'` → resolves HEAD commit, then reads the blob at `path`
    * - `ref: 'STAGE'` → reads the blob staged in the index at `path`
+   * - `ref: {commitish}` → resolves the commit-ish ref (branch name, tag, SHA, or `'HEAD'`), then reads the blob at `path`
    *
    * Returns `undefined` when no blob exists at that ref (e.g. file not yet committed,
-   * or file not yet staged), or when HEAD has no commits.
+   * or file not yet staged), or when the ref has no commits.
    */
   getBlobContent(params: GetBlobContentParams): Promise<string | undefined>
   /**
@@ -174,8 +205,21 @@ export interface IGitService {
    */
   getFilesWithConflictMarkers(params: BaseGitParams): Promise<string[]>
   getRemoteUrl(params: GetRemoteUrlGitParams): Promise<string | undefined>
+  /**
+   * Reads a UTF-8 text blob together with its short oid in a single pass.
+   * Returns `undefined` when the blob is absent or detected as binary (contains a NUL byte).
+   * Used by diff producers to avoid the double-read pattern of calling `getBlobContent`
+   * and `git.hashBlob` separately.
+   */
+  getTextBlob(params: GetBlobContentParams): Promise<TextBlob | undefined>
   /** Returns the upstream tracking branch config, or `undefined` if not configured. */
   getTrackingBranch(params: GetTrackingBranchParams): Promise<TrackingBranch | undefined>
+  /**
+   * Returns the 7-character short oid that git would assign to the given content,
+   * computed via `git.hashBlob`. Used to render the working-tree side of a
+   * `git diff`-style `index <oid>..<oid>` header (the working tree has no stored oid).
+   */
+  hashBlob(content: Buffer): Promise<string>
   init(params: InitGitParams): Promise<void>
   /** Returns true if `ancestor` commit is reachable from `commit`. */
   isAncestor(params: BaseGitParams & {ancestor: string; commit: string}): Promise<boolean>
@@ -185,6 +229,18 @@ export interface IGitService {
   isInitialized(params: BaseGitParams): Promise<boolean>
   /** Lists local branches. When `remote` is specified, also includes remote-tracking branches. */
   listBranches(params: ListBranchesGitParams): Promise<GitBranch[]>
+  /**
+   * Returns the set of files that differ between two diff sides, with their change status.
+   *
+   * Status mirrors `git diff` semantics:
+   * - `'added'`   → present on `to` side, absent on `from` side
+   * - `'deleted'` → present on `from` side, absent on `to` side
+   * - `'modified'` → present on both, differs
+   *
+   * Untracked files (absent from both HEAD and STAGE) are excluded from the
+   * unstaged case (`from='STAGE', to='WORKDIR'`) to match `git diff` no-args behavior.
+   */
+  listChangedFiles(params: ListChangedFilesParams): Promise<ChangedFile[]>
   listRemotes(params: BaseGitParams): Promise<GitRemote[]>
   log(params: LogGitParams): Promise<GitCommit[]>
   merge(params: MergeGitParams): Promise<MergeResult>

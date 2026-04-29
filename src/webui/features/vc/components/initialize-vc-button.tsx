@@ -10,14 +10,9 @@ export function InitializeVcButton() {
   async function handleInit() {
     try {
       const result = await init.mutateAsync()
-      toast.success(
-        result.reinitialized ? 'Reinitialized version control' : 'Initialized version control',
-        {position: 'top-center'},
-      )
+      toast.success(result.reinitialized ? 'Reinitialized version control' : 'Initialized version control')
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to initialize', {
-        position: 'top-center',
-      })
+      toast.error(error instanceof Error ? error.message : 'Failed to initialize')
     }
   }
 
