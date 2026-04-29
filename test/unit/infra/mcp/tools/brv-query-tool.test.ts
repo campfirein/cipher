@@ -2,7 +2,7 @@ import type {ConnectionState, ConnectionStateHandler, ITransportClient} from '@c
 import type {McpServer} from '@modelcontextprotocol/sdk/server/mcp.js'
 
 import {expect} from 'chai'
-import {mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync} from 'node:fs'
+import {existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {restore, type SinonFakeTimers, type SinonStub, stub, useFakeTimers} from 'sinon'
@@ -17,6 +17,7 @@ const ATTRIBUTION_FOOTER = '\n\n---\nSource: ByteRover Knowledge Base'
 /** Returns undefined — named constant avoids inline `() => undefined` triggering unicorn/no-useless-undefined. */
 const noClient = (): ITransportClient | undefined => undefined
 const noWorkingDirectory = (): string | undefined => undefined
+const noStartupProjectContext = (): McpStartupProjectContext | undefined => undefined
 
 /**
  * Handler type captured from server.registerTool().
@@ -29,19 +30,35 @@ type QueryToolHandler = (input: {cwd?: string; query: string}) => Promise<{
 /**
  * Creates a mock McpServer that captures tool handlers on registerTool().
  */
+interface ToolRegistrationConfig {
+  _meta?: Record<string, unknown>
+  annotations?: Record<string, unknown>
+  description?: string
+  inputSchema?: unknown
+  title?: string
+}
+
 function createMockMcpServer(): {
+  getConfig: (name: string) => ToolRegistrationConfig
   getHandler: (name: string) => QueryToolHandler
   server: McpServer
 } {
   const handlers = new Map<string, QueryToolHandler>()
+  const configs = new Map<string, ToolRegistrationConfig>()
 
   const mock = {
-    registerTool(name: string, _config: unknown, cb: QueryToolHandler) {
+    registerTool(name: string, config: ToolRegistrationConfig, cb: QueryToolHandler) {
       handlers.set(name, cb)
+      configs.set(name, config)
     },
   }
 
   return {
+    getConfig(name: string): ToolRegistrationConfig {
+      const config = configs.get(name)
+      if (!config) throw new Error(`Config ${name} not captured`)
+      return config
+    },
     getHandler(name: string): QueryToolHandler {
       const handler = handlers.get(name)
       if (!handler) throw new Error(`Handler ${name} not registered`)
@@ -649,6 +666,84 @@ describe('brv-query-tool', () => {
       expect(listenersRegisteredBeforeCreate).to.be.true
       expect(result.isError).to.be.undefined
       expect(result.content[0].text).to.equal('fast result')
+    })
+  })
+
+  describe('Phase 5 Task 5.5 — deprecation marker', () => {
+    it('description starts with "[deprecated]" so MCP `tools/list` advertises the marker', () => {
+      const {getConfig, server} = createMockMcpServer()
+      registerBrvQueryTool(server, noClient, () => '/proj', noStartupProjectContext)
+
+      const config = getConfig('brv-query')
+      expect(config.description).to.match(/^\[deprecated]/i)
+    })
+
+    it('_meta includes deprecated:true and replacedBy hints (MCP SDK does not allow custom annotations fields)', () => {
+      const {getConfig, server} = createMockMcpServer()
+      registerBrvQueryTool(server, noClient, () => '/proj', noStartupProjectContext)
+
+      const config = getConfig('brv-query')
+      expect(config._meta).to.exist
+      expect(config._meta!.deprecated).to.equal(true)
+      const replacedBy = config._meta!.replacedBy as string[]
+      expect(replacedBy).to.include('brv-search')
+      expect(replacedBy).to.include('brv-gather')
+      expect(replacedBy).to.include('brv-record-answer')
+    })
+
+    it('title also flags deprecation so picker UIs surface it', () => {
+      const {getConfig, server} = createMockMcpServer()
+      registerBrvQueryTool(server, noClient, () => '/proj', noStartupProjectContext)
+
+      const config = getConfig('brv-query')
+      expect(config.title).to.match(/deprecat/i)
+    })
+  })
+
+  describe('Phase 5 Task 5.5 — invocation telemetry', () => {
+    let originalDataDir: string | undefined
+    let tempDir: string
+
+    beforeEach(() => {
+      originalDataDir = process.env.BRV_DATA_DIR
+      tempDir = mkdtempSync(join(tmpdir(), 'brv-query-tool-telemetry-'))
+      process.env.BRV_DATA_DIR = tempDir
+    })
+
+    afterEach(() => {
+      if (originalDataDir === undefined) {
+        delete process.env.BRV_DATA_DIR
+      } else {
+        process.env.BRV_DATA_DIR = originalDataDir
+      }
+
+      rmSync(tempDir, {force: true, recursive: true})
+    })
+
+    it('writes one JSONL telemetry line per invocation, even when daemon is unreachable', async () => {
+      // Handler invoked with no client → enters the early-return path; telemetry
+      // must STILL fire (failed legacy calls count as legacy usage).
+      const handler = setupQueryHandler({
+        getClient: noClient,
+        getWorkingDirectory: () => '/proj',
+      })
+
+      const clock = useFakeTimers()
+      try {
+        const promise = handler({query: 'test'})
+        await clock.tickAsync(61_000)
+        await promise
+      } finally {
+        clock.restore()
+      }
+
+      const file = join(tempDir, 'telemetry', 'mcp-deprecation.jsonl')
+      expect(existsSync(file)).to.equal(true)
+      const lines = readFileSync(file, 'utf8').split('\n').filter(Boolean)
+      expect(lines.length).to.be.at.least(1)
+      const entry = JSON.parse(lines[0]) as {counter: string; tool: string}
+      expect(entry.counter).to.equal('mcp.query.legacy_invocations')
+      expect(entry.tool).to.equal('brv-query')
     })
   })
 })

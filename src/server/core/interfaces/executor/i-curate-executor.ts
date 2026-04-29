@@ -11,6 +11,14 @@ export interface CurateExecuteOptions {
   content: string
   /** Optional file paths for --files flag */
   files?: string[]
+  /**
+   * Curate-log identifier (cur-<timestamp>) assigned by `CurateLogHandler.onTaskCreate`,
+   * forwarded by the task-router via `TaskExecuteSchema.logId`. The executor passes
+   * it to services-adapter so each curated leaf's `Reason` field can carry the
+   * source curate-log id for audit-trail provenance (Phase 2.5 R-3).
+   * Optional — undefined for direct-test invocations that bypass the router.
+   */
+  logId?: string
   /** Canonical project root where .brv/ lives (for post-processing: snapshot, summary, manifest) */
   projectRoot?: string
   /** Task ID for event routing (required for concurrent task isolation) */

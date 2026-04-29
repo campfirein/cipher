@@ -1,14 +1,24 @@
-import type {ContextData, Narrative, RawConcept} from '../../../../server/core/domain/knowledge/markdown-writer.js'
+import type {ContextData, Fact, Narrative, RawConcept} from '../../../../server/core/domain/knowledge/markdown-writer.js'
 
 import {normalize} from './utils.js'
 
 /**
  * Summary of detected structural loss when comparing existing vs proposed content.
+ *
+ * R-1 hotfix (PHASE-2-UAT.md §5.2): added `lostFacts`, `lostKeywords`,
+ * `lostTags`. Pre-fix the detector ignored these three arrays, so
+ * Phase 2's per-fact UPDATE pattern silently dropped existing facts
+ * (Scenario 4 fact-loss bug). Phase 1's monolithic agent loop hid
+ * this by writing richer ContextData per UPDATE.
  */
 export type StructuralLoss = {
   hasLoss: boolean
   /** Number of rawConcept array items (changes, files) that would be lost */
   lostArrayItems: number
+  /** Number of facts (deduped by statement) that would be lost */
+  lostFacts: number
+  /** Number of keywords that would be lost */
+  lostKeywords: number
   /** Number of narrative fields that would be lost */
   lostNarrativeFields: number
   /** Number of rawConcept scalar fields that would be lost */
@@ -17,6 +27,8 @@ export type StructuralLoss = {
   lostRelations: number
   /** Number of snippets that would be lost */
   lostSnippets: number
+  /** Number of tags that would be lost */
+  lostTags: number
 }
 
 /**
@@ -25,6 +37,17 @@ export type StructuralLoss = {
 function countLostItems(existing: string[], proposed: string[]): number {
   const proposedSet = new Set(proposed.map((s) => normalize(s)))
   return existing.filter((item) => !proposedSet.has(normalize(item))).length
+}
+
+/**
+ * Find facts in `existing` whose `statement` (case-insensitive) is not
+ * present in `proposed`. Statement is the unique identity for a Fact —
+ * matches the dedup key used in markdown-writer.ts and
+ * conflict-resolver.ts `mergeFactsByStatement`.
+ */
+function countLostFacts(existing: Fact[], proposed: Fact[]): number {
+  const proposedSet = new Set(proposed.map((f) => normalize(f.statement)))
+  return existing.filter((f) => !proposedSet.has(normalize(f.statement))).length
 }
 
 /**
@@ -78,17 +101,33 @@ export function detectStructuralLoss(existing: ContextData, proposed: ContextDat
     existing.rawConcept,
     proposed.rawConcept,
   )
+  // R-1 hotfix: facts/keywords/tags must be detected so the resolver can
+  // merge them back. Without this, executeUpdate silently overwrites
+  // existing facts (PHASE-2-UAT.md Scenario 4).
+  const lostFacts = countLostFacts(existing.facts ?? [], proposed.facts ?? [])
+  const lostKeywords = countLostItems(existing.keywords ?? [], proposed.keywords ?? [])
+  const lostTags = countLostItems(existing.tags ?? [], proposed.tags ?? [])
 
   const hasLoss =
-    lostSnippets > 0 || lostRelations > 0 || lostNarrativeFields > 0 || lostRawConceptFields > 0 || lostArrayItems > 0
+    lostSnippets > 0 ||
+    lostRelations > 0 ||
+    lostNarrativeFields > 0 ||
+    lostRawConceptFields > 0 ||
+    lostArrayItems > 0 ||
+    lostFacts > 0 ||
+    lostKeywords > 0 ||
+    lostTags > 0
 
   return {
     hasLoss,
     lostArrayItems,
+    lostFacts,
+    lostKeywords,
     lostNarrativeFields,
     lostRawConceptFields,
     lostRelations,
     lostSnippets,
+    lostTags,
   }
 }
 

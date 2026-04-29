@@ -1,0 +1,120 @@
+{
+  "perChunkLatencyMs": 50,
+  "results": [
+    {
+      "concurrency": 1,
+      "result": {
+        "bytes": 2487,
+        "fixture": "small",
+        "llmCallCount": 2,
+        "perSlotMs": {
+          "recon": 0.8857920000000377,
+          "chunk": 0.26466599999980644,
+          "extract": 51.48933299999999,
+          "group": 0.20637500000020736,
+          "dedup": 0.25520800000003874,
+          "conflict": 0.09195799999997689,
+          "write": 0.1636670000000322
+        },
+        "totalChunks": 1,
+        "wallClockMs": 53
+      }
+    },
+    {
+      "concurrency": 4,
+      "result": {
+        "bytes": 2487,
+        "fixture": "small",
+        "llmCallCount": 2,
+        "perSlotMs": {
+          "recon": 0.09837500000003274,
+          "chunk": 0.12308299999995143,
+          "extract": 51.26324999999997,
+          "group": 0.11295800000016243,
+          "dedup": 0.1097500000000764,
+          "conflict": 0.1382499999999709,
+          "write": 0.07799999999997453
+        },
+        "totalChunks": 1,
+        "wallClockMs": 52
+      }
+    },
+    {
+      "concurrency": 1,
+      "result": {
+        "bytes": 64471,
+        "fixture": "large",
+        "llmCallCount": 12,
+        "perSlotMs": {
+          "recon": 0.21529099999997925,
+          "chunk": 0.6496669999999085,
+          "extract": 564.2360829999998,
+          "group": 0.5332080000000587,
+          "dedup": 0.46787499999982174,
+          "conflict": 0.08054199999992306,
+          "write": 0.12095799999997325
+        },
+        "totalChunks": 11,
+        "wallClockMs": 567
+      }
+    },
+    {
+      "concurrency": 4,
+      "result": {
+        "bytes": 64471,
+        "fixture": "large",
+        "llmCallCount": 12,
+        "perSlotMs": {
+          "recon": 0.31712500000003274,
+          "chunk": 0.844957999999906,
+          "extract": 153.14337499999988,
+          "group": 0.37258299999984956,
+          "dedup": 0.44829100000015387,
+          "conflict": 0.08962500000006912,
+          "write": 0.14383399999996982
+        },
+        "totalChunks": 11,
+        "wallClockMs": 156
+      }
+    },
+    {
+      "concurrency": 1,
+      "result": {
+        "bytes": 154841,
+        "fixture": "xlarge",
+        "llmCallCount": 23,
+        "perSlotMs": {
+          "recon": 0.38704199999983757,
+          "chunk": 1.0731249999998909,
+          "extract": 1126.965541,
+          "group": 0.846458999999868,
+          "dedup": 1.1194169999998849,
+          "conflict": 0.11520899999959511,
+          "write": 0.13129200000003038
+        },
+        "totalChunks": 22,
+        "wallClockMs": 1130
+      }
+    },
+    {
+      "concurrency": 4,
+      "result": {
+        "bytes": 154841,
+        "fixture": "xlarge",
+        "llmCallCount": 23,
+        "perSlotMs": {
+          "recon": 0.5370829999997113,
+          "chunk": 0.6504159999999501,
+          "extract": 307.5136669999997,
+          "group": 0.6147920000003069,
+          "dedup": 0.8307079999999587,
+          "conflict": 0.07437500000014552,
+          "write": 0.10062500000003638
+        },
+        "totalChunks": 22,
+        "wallClockMs": 311
+      }
+    }
+  ],
+  "timestamp": "2026-04-28T00:47:26.306Z"
+}

@@ -217,6 +217,9 @@ Use "brv query" when you need a synthesized answer.`
       this.log('Usage: brv search "your query here"')
     }
 
+    // PHASE-5-UAT.md UAT-14 (Codex Pass 8 finding): empty input must exit
+    // non-zero so CI scripts can detect failure.
+    process.exitCode = 1
     return false
   }
 }

@@ -14,6 +14,42 @@ Knowledge is stored in `.brv/context-tree/` as human-readable Markdown files.
 ## Workflow
 1.  **Before Thinking:** Run `brv query` to understand existing patterns.
 2.  **After Implementing:** Run `brv curate` to save new patterns/decisions.
+3.  **For agent synthesis (LLM-free pipeline):** `brv search` → if no high-confidence direct answer, `brv gather` → synthesize with your own model → `brv record-answer` to cache the result. Skips internal LLM cost while still warming the cache for future similar queries.
+
+## MCP Workflow
+
+ByteRover exposes 5 MCP tools. Use them as follows.
+
+### Querying knowledge
+
+1. **Always start with `brv-search`.** It covers cached + direct results without
+   any LLM cost.
+
+   - If `tier ≤ 2`: response is final. Use `cached_answer` or `passages`.
+   - If `status: 'no_results'`: stop. The knowledge base does not contain it.
+   - If `status: 'needs_synthesis'`: escalate to `brv-gather`.
+
+2. **`brv-gather` returns a context bundle for you to synthesize.** It does not
+   itself produce an answer. Synthesize from `prefetched_context` +
+   `manifest_context` using your own model.
+
+3. **Iterate as needed.** Refined queries can re-enter at `brv-search`. There is no
+   separate "agentic" tool — your loop is tier 4.
+
+4. **(Optional) record your synthesis** via `brv-record-answer` to populate the
+   cache for future hits. Pass back the same `fingerprint` you received from the
+   prior `brv-search` call.
+
+### Curating knowledge
+
+Use `brv-curate` (MCP) or `brv curate` (CLI) — same backend. The agent code
+contribution surface (`nodes`, `nodes_meta`, `mode` fields) lands in Phase 3 and
+is not yet enabled.
+
+### Legacy: `brv-query`
+
+`brv-query` still works but is **deprecated**. Migrate to `brv-search` +
+`brv-gather` + `brv-record-answer`. The CLI `brv query` command is unaffected.
 
 ## Commands
 
@@ -109,7 +145,56 @@ brv curate view <logId> --format json
 
 Only proceed when `status: completed`. If `processing`, wait or tell the user. If `error`/`cancelled`, report and consider re-curate. `--detach` errors are silent — verification before trust is mandatory.
 
-### 4. Review Pending Changes
+### 4. Gather Context Bundle
+**Overview:** Assemble an LLM-free context bundle from `.brv/context-tree/` — the prefetched markdown bundle, search metadata, token estimate, and follow-up hints. Same payload that the `brv-gather` MCP tool returns. The agent (or human) synthesizes the answer locally with their own model.
+
+**Use this skill when:**
+- `brv search` returned no high-confidence direct answer and you want to synthesize one yourself without paying for the daemon's internal LLM
+- Pipelining: `brv gather "..." --format json | <your LLM>` for ad-hoc external-LLM queries
+- Debugging: "what context would the agent see for this query?"
+
+**Do NOT use this skill when:**
+- A simple `brv search` already returned a usable direct passage — no need for bundle assembly
+- You want a daemon-synthesized answer — use `brv query` (legacy) instead
+
+```bash
+brv gather "how does authentication work"
+brv gather "JWT tokens" --scope auth/ --limit 5
+brv gather "auth" --token-budget 8000
+brv gather "auth" --format json | jq .total_tokens_estimated
+```
+
+**Flags:** `--limit N` (1-50, default 10), `--scope "domain/"` (path prefix filter), `--token-budget N` (soft cap on bundle tokens; default 4000; truncates excess sections), `--format json` (structured output for tooling).
+
+After synthesizing locally, optionally close the cache loop with `brv record-answer` (next section).
+
+### 5. Record Synthesized Answer
+**Overview:** Cache an agent-synthesized answer so future equivalent queries hit tier 0/1 cache and skip the synthesis cost. Closes the LLM-free pipeline:
+
+```text
+brv search → brv gather → (your LLM synthesizes) → brv record-answer
+```
+
+**Use this skill when:**
+- You just ran `brv gather` + your own LLM synthesis and the answer is reusable
+- You want future equivalent queries to short-circuit through the cache
+
+**Do NOT use this skill when:**
+- The answer is one-shot or unlikely to be re-asked (cache slot is finite)
+- You don't have the `fingerprint` from a prior `brv search` / `brv gather` call (it's required as the cache key)
+
+```bash
+brv record-answer "how does auth work" "Auth uses JWTs..." --fingerprint <fp>
+brv record-answer "q" "a" --fingerprint fp --format json
+```
+
+**Flags:** `--fingerprint <fp>` (REQUIRED — cache key from prior brv search/gather call), `--format json` (structured output for CI/automation).
+
+**Cache TTL:** 60 seconds by default. Recorded answers expire after that window — so this is for amortizing cost across short bursts of similar queries, not long-term storage. For durable knowledge, use `brv curate` instead.
+
+**Failure mode:** if the daemon was started without the cache enabled, the call returns `recorded: false` (no error). It is safe to fire-and-forget.
+
+### 6. Review Pending Changes
 **Overview:** After a curate operation, some changes may require human review before being applied. Use `brv review` to list, approve, or reject pending operations.
 
 **Use this when:**
@@ -172,7 +257,7 @@ brv review approve <taskId> --format json
 brv review reject <taskId> --format json
 ```
 
-### 5. LLM Provider Setup
+### 7. LLM Provider Setup
 `brv query` and `brv curate` require a configured LLM provider. Connect the default ByteRover provider (no API key needed):
 
 ```bash
@@ -186,7 +271,7 @@ brv providers list
 brv providers connect openai --api-key sk-xxx --model gpt-4.1
 ```
 
-### 6. Project Locations
+### 8. Project Locations
 **Overview:** List registered projects and their context tree paths. Returns project metadata including initialization status and active state. Use `-f json` for machine-readable output.
 
 **Use this when:**
@@ -204,7 +289,7 @@ brv locations -f json
 
 JSON fields: `projectPath`, `contextTreePath`, `isCurrent`, `isActive`, `isInitialized`.
 
-### 7. Version Control
+### 9. Version Control
 **Overview:** `brv vc` provides git-based version control for your context tree. It uses standard git semantics — branching, committing, merging, history, and conflict resolution — all working locally with no authentication required. Remote sync with a team is optional. The legacy `brv push`, `brv pull`, and `brv space` commands are deprecated — use `brv vc push`, `brv vc pull`, and `brv vc clone`/`brv vc remote add` instead.
 
 **Use this when:**
@@ -320,7 +405,7 @@ brv vc push -u origin main       # push and set upstream tracking
 brv vc clone https://byterover.dev/<team>/<space>.git
 ```
 
-### 8. Swarm Query
+### 10. Swarm Query
 **Overview:** Search across all active memory providers simultaneously — ByteRover context tree, Obsidian vault, Local Markdown folders, GBrain, and Memory Wiki. Results are fused via Reciprocal Rank Fusion (RRF) and ranked by provider weight and relevance. No LLM call — pure algorithmic search.
 
 **Use this skill when:**
@@ -399,7 +484,7 @@ brv swarm query "testing strategy" -n 5
 
 **Flags:** `--explain` (show routing details), `--format json` (structured output), `-n <value>` (max results).
 
-### 9. Swarm Curate
+### 11. Swarm Curate
 **Overview:** Store knowledge in the best available external memory provider. ByteRover automatically classifies the content type and routes accordingly: entities (people, orgs) go to GBrain, notes (meeting notes, TODOs) go to Local Markdown, general content goes to the first writable provider. Falls back to ByteRover context tree if no external providers are available.
 
 **Use this skill when:**
@@ -455,7 +540,7 @@ Output:
 
 **Flags:** `--provider <id>` (target specific provider), `--format json` (structured output).
 
-### 10. Swarm Status
+### 12. Swarm Status
 **Overview:** Check provider health and write targets before running swarm query or curate. Use this to verify which providers are available and operational.
 
 **Use this skill when:**
@@ -483,7 +568,7 @@ Write Targets:
 Swarm is operational (5/5 providers configured).
 ```
 
-### 11. Query and Curate History
+### 13. Query and Curate History
 **Overview:** Inspect past query and curate operations. Use `brv query-log view` to review query history, `brv curate view` to review curate history, and `brv query-log summary` to see aggregated recall metrics. Supports filtering by time, status, tier, and detailed per-operation output.
 
 **Use this skill when:**

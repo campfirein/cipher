@@ -1,4 +1,4 @@
-import type {ContextData, Narrative, RawConcept} from '../../../../server/core/domain/knowledge/markdown-writer.js'
+import type {ContextData, Fact, Narrative, RawConcept} from '../../../../server/core/domain/knowledge/markdown-writer.js'
 import type {StructuralLoss} from './conflict-detector.js'
 
 import {normalize} from './utils.js'
@@ -24,6 +24,41 @@ function mergeArraysWithDedup(existing: string[], proposed: string[]): string[] 
     if (!seen.has(key)) {
       seen.add(key)
       result.push(item)
+    }
+  }
+
+  return result
+}
+
+/**
+ * Union-merge facts deduped by `statement` (case-insensitive).
+ *
+ * Existing first preserves richer `category`/`subject`/`value` fields when
+ * the same statement appears in both lists. Phase 2's services-adapter
+ * sends one fact per UPDATE; existing-wins preserves established metadata
+ * if the LLM re-extracted the same fact with less detail.
+ *
+ * R-1 hotfix (PHASE-2-UAT.md §5.3) — see `mergeArraysWithDedup` for the
+ * string-array equivalent and `conflict-detector.ts countLostFacts` for
+ * the matching detection helper.
+ */
+function mergeFactsByStatement(existing: Fact[], proposed: Fact[]): Fact[] {
+  const seen = new Set<string>()
+  const result: Fact[] = []
+
+  for (const f of existing) {
+    const key = normalize(f.statement)
+    if (!seen.has(key)) {
+      seen.add(key)
+      result.push(f)
+    }
+  }
+
+  for (const f of proposed) {
+    const key = normalize(f.statement)
+    if (!seen.has(key)) {
+      seen.add(key)
+      result.push(f)
     }
   }
 
@@ -106,10 +141,17 @@ function mergeRawConcept(existing?: RawConcept, proposed?: RawConcept): RawConce
  * Auto-resolve structural loss by merging existing content into proposed content.
  *
  * Resolution strategy:
- * - Arrays (snippets, relations, changes, files): Union merge with deduplication
- * - Scalars (narrative fields, rawConcept scalars): Proposed wins; preserve existing if proposed empty
+ * - Arrays (facts, keywords, tags, snippets, relations, changes, files):
+ *   Union merge with deduplication (existing first, new appended).
+ * - Scalars (narrative fields, rawConcept scalars): Proposed wins;
+ *   preserve existing if proposed empty.
  *
  * Only runs when `loss.hasLoss` is true. When no loss is detected, returns proposed as-is.
+ *
+ * R-1 hotfix (PHASE-2-UAT.md §5.3): facts/keywords/tags added to the
+ * merge set. Pre-fix, executeUpdate silently overwrote existing facts
+ * because Phase 2's services-adapter sends one fact per UPDATE op
+ * (Scenario 4 fact-loss bug).
  *
  * @param existing - Parsed content from the existing file (before update)
  * @param proposed - Proposed new content from the curate operation
@@ -125,9 +167,12 @@ export function resolveStructuralLoss(
 
   return {
     ...proposed,
+    facts: mergeFactsByStatement(existing.facts ?? [], proposed.facts ?? []),
+    keywords: mergeArraysWithDedup(existing.keywords ?? [], proposed.keywords ?? []),
     narrative: mergeNarrative(existing.narrative, proposed.narrative),
     rawConcept: mergeRawConcept(existing.rawConcept, proposed.rawConcept),
     relations: mergeArraysWithDedup(existing.relations ?? [], proposed.relations ?? []),
     snippets: mergeArraysWithDedup(existing.snippets ?? [], proposed.snippets ?? []),
+    tags: mergeArraysWithDedup(existing.tags ?? [], proposed.tags ?? []),
   }
 }

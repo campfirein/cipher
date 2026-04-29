@@ -1,5 +1,8 @@
 export { registerBrvCurateTool } from './brv-curate-tool.js'
+export { registerBrvGatherTool } from './brv-gather-tool.js'
 export { registerBrvQueryTool } from './brv-query-tool.js'
+export { registerBrvRecordAnswerTool } from './brv-record-answer-tool.js'
+export { registerBrvSearchTool } from './brv-search-tool.js'
 export { resolveClientCwd } from './resolve-client-cwd.js'
 export { CWD_DESCRIPTION, cwdField } from './shared-schema.js'
 export { waitForTaskResult } from './task-result-waiter.js'

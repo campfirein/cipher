@@ -21,12 +21,9 @@ import {
 import {loadSources} from '../../core/domain/source/source-schema.js'
 import {isDerivedArtifact} from '../context-tree/derived-artifact.js'
 import {FileContextTreeManifestService} from '../context-tree/file-context-tree-manifest-service.js'
-import {
-  canRespondDirectly,
-  type DirectSearchResult,
-  formatDirectResponse,
-  formatNotFoundResponse,
-} from './direct-search-responder.js'
+import {QueryDispatcher} from '../dispatcher/query-dispatcher.js'
+import {formatNotFoundResponse} from './direct-search-responder.js'
+import {buildPrefetchedContext} from './prefetch-context-builder.js'
 import {QueryResultCache} from './query-result-cache.js'
 
 /** Attribution footer appended to all query responses */
@@ -36,9 +33,6 @@ const ATTRIBUTION_FOOTER = '\n\n---\nSource: ByteRover Knowledge Base'
 function buildMatchedDocs(sr: SearchKnowledgeResult | undefined): QueryLogMatchedDoc[] {
   return (sr?.results ?? []).map((r) => ({path: r.path, score: r.score, title: r.title}))
 }
-
-/** Minimum normalized score to consider a result high-confidence for pre-fetching */
-const SMART_ROUTING_SCORE_THRESHOLD = 0.7
 
 /** Maximum number of documents to pre-fetch and inject into the prompt */
 const SMART_ROUTING_MAX_DOCS = 5
@@ -79,6 +73,20 @@ export interface QueryExecutorDeps {
  */
 export class QueryExecutor implements IQueryExecutor {
   private static readonly FINGERPRINT_CACHE_TTL_MS = 30_000
+  /**
+   * Tier 0/1/2 path. Stateless — owns the cache + BM25 + direct-response
+   * logic shared with `brv_search` MCP. Constructed in the executor so the
+   * legacy executor and any future MCP-side wiring share the same instance
+   * (same cache, same searchService) and avoid forking. Per
+   * PHASE-5-VALIDATION.md §2.2 (recommendation b), fingerprint computation
+   * stays on the executor and is passed in.
+   *
+   * Public so agent-process.ts can route the `'mcp-search'` task type
+   * directly through this dispatcher (PHASE-5-PLAN.md Task 5.2 §3.3
+   * Option B — no parallel `SearchExecutor` to fork; keeps the cache
+   * instance shared with legacy `brv_query`).
+   */
+  public readonly dispatcher: QueryDispatcher
   private readonly baseDirectory?: string
   private readonly cache?: QueryResultCache
   private cachedFingerprint?: {expiresAt: number; sourceValidityHash: string; value: string; worktreeRoot?: string}
@@ -92,6 +100,12 @@ export class QueryExecutor implements IQueryExecutor {
     if (deps?.enableCache) {
       this.cache = new QueryResultCache()
     }
+
+    this.dispatcher = new QueryDispatcher({
+      ...(this.cache ? {cache: this.cache} : {}),
+      ...(this.fileSystem ? {fileSystem: this.fileSystem} : {}),
+      ...(this.searchService ? {searchService: this.searchService} : {}),
+    })
   }
 
   public async executeWithAgent(agent: ICipherAgent, options: QueryExecuteOptions): Promise<QueryExecutorResult> {
@@ -104,90 +118,87 @@ export class QueryExecutor implements IQueryExecutor {
     // Prevent unhandled rejection if we return early (cache hit) while search is still pending
     searchPromise?.catch(() => {})
 
-    // === Tier 0: Exact cache hit (0ms) ===
-    let fingerprint: string | undefined
-    if (this.cache && this.fileSystem) {
-      fingerprint = await this.computeContextTreeFingerprint(worktreeRoot)
-      const cached = this.cache.get(query, fingerprint)
-      if (cached) {
-        return {
-          matchedDocs: [],
-          response: cached + ATTRIBUTION_FOOTER,
-          tier: TIER_EXACT_CACHE,
-          timing: {durationMs: Date.now() - startTime},
-        }
+    // === Tiers 0/1/2 via QueryDispatcher (PHASE-5-PLAN.md Task 5.1) ===
+    // Dispatcher owns cache + BM25 + direct-response. Executor handles
+    // entity-supplementation (legacy-only behavior) by wrapping the search
+    // promise before passing it in — preserves the parallel-search-with-
+    // fingerprint optimization without forking dispatcher logic.
+    const fingerprint =
+      this.cache && this.fileSystem ? await this.computeContextTreeFingerprint(worktreeRoot) : undefined
+
+    const supplementedPromise: Promise<SearchKnowledgeResult | undefined> | undefined =
+      searchPromise === undefined
+        ? undefined
+        : (async () => {
+            try {
+              let sr = await searchPromise
+              if (this.searchService && sr && sr.totalFound < 3) {
+                sr = await this.supplementEntitySearches(query, sr, workspaceScope)
+              }
+
+              return sr
+            } catch {
+              
+            }
+          })()
+
+    const dispatchResult = await this.dispatcher.dispatch({
+      ...(fingerprint === undefined ? {} : {fingerprint}),
+      query,
+      ...(workspaceScope === undefined ? {} : {scope: workspaceScope}),
+      ...(supplementedPromise === undefined ? {} : {searchPromise: supplementedPromise}),
+    })
+
+    if (dispatchResult.status === 'cached_answer') {
+      return {
+        matchedDocs: [],
+        response: dispatchResult.cachedAnswer + ATTRIBUTION_FOOTER,
+        tier: dispatchResult.tier === 0 ? TIER_EXACT_CACHE : TIER_FUZZY_CACHE,
+        timing: {durationMs: Date.now() - startTime},
       }
     }
 
-    // === Tier 1: Fuzzy cache match (~50ms) ===
-    if (this.cache && fingerprint) {
-      const fuzzyHit = this.cache.findSimilar(query, fingerprint)
-      if (fuzzyHit) {
-        return {
-          matchedDocs: [],
-          response: fuzzyHit + ATTRIBUTION_FOOTER,
-          tier: TIER_FUZZY_CACHE,
-          timing: {durationMs: Date.now() - startTime},
-        }
+    if (dispatchResult.status === 'direct_passages') {
+      return {
+        matchedDocs: buildMatchedDocs(dispatchResult.searchResult),
+        response: dispatchResult.directAnswer + ATTRIBUTION_FOOTER,
+        searchMetadata: {
+          cacheFingerprint: fingerprint,
+          resultCount: dispatchResult.searchResult.results.length,
+          topScore: dispatchResult.searchResult.results[0]?.score ?? 0,
+          totalFound: dispatchResult.searchResult.totalFound,
+        },
+        tier: TIER_DIRECT_SEARCH,
+        timing: {durationMs: Date.now() - startTime},
       }
     }
 
-    // Await search result (already started in parallel with fingerprint computation)
-    let searchResult: SearchKnowledgeResult | undefined
-    try {
-      searchResult = await searchPromise
-    } catch {
-      // Search failed, proceed without pre-fetched context
-    }
-
-    // Supplementary entity-based searches for better multi-session recall
-    if (this.searchService && searchResult && searchResult.totalFound < 3) {
-      searchResult = await this.supplementEntitySearches(query, searchResult, workspaceScope)
-    }
-
-    // === OOD short-circuit: no results means topic not covered ===
-    if (searchResult && searchResult.results.length === 0) {
-      const response = formatNotFoundResponse(query)
+    if (dispatchResult.status === 'no_results') {
+      // OOD short-circuit: legacy executor caches a human-readable not-found
+      // response so future identical queries hit Tier 0. Dispatcher leaves
+      // this to the executor since the cached string is human-facing.
+      const notFoundResponse = formatNotFoundResponse(query)
       if (this.cache && fingerprint) {
-        this.cache.set(query, response, fingerprint)
+        this.cache.set(query, notFoundResponse, fingerprint)
       }
 
       return {
         matchedDocs: [],
-        response: response + ATTRIBUTION_FOOTER,
+        response: notFoundResponse + ATTRIBUTION_FOOTER,
         searchMetadata: {resultCount: 0, topScore: 0, totalFound: 0},
         tier: TIER_DIRECT_SEARCH,
         timing: {durationMs: Date.now() - startTime},
       }
     }
 
-    // === Tier 2: Direct search response (~100-200ms) ===
-    if (searchResult && this.fileSystem) {
-      const directResult = await this.tryDirectSearchResponse(query, searchResult)
-      if (directResult) {
-        if (this.cache && fingerprint) {
-          this.cache.set(query, directResult, fingerprint)
-        }
-
-        return {
-          matchedDocs: buildMatchedDocs(searchResult),
-          response: directResult + ATTRIBUTION_FOOTER,
-          searchMetadata: {
-            cacheFingerprint: fingerprint,
-            resultCount: searchResult.results.length,
-            topScore: searchResult.results[0]?.score ?? 0,
-            totalFound: searchResult.totalFound,
-          },
-          tier: TIER_DIRECT_SEARCH,
-          timing: {durationMs: Date.now() - startTime},
-        }
-      }
-    }
+    // status === 'needs_synthesis' — fall through to tier 3/4 with the
+    // dispatcher's already-resolved (and supplemented) search result.
+    const {searchResult} = dispatchResult
 
     // === Tier 3/4: LLM call with RLM pattern (variable-based search results) ===
     let prefetchedContext: string | undefined
     if (searchResult && this.fileSystem) {
-      prefetchedContext = this.buildPrefetchedContext(searchResult)
+      prefetchedContext = buildPrefetchedContext(searchResult)
     }
 
     // Lazy manifest rebuild: provides broad structural awareness for LLM
@@ -284,25 +295,19 @@ export class QueryExecutor implements IQueryExecutor {
   }
 
   /**
-   * Build pre-fetched context string from search results for LLM prompt injection.
-   * Synchronous — uses already-fetched search results (no additional I/O for excerpts).
-   * Full document reads happen only for high-confidence results.
+   * Public accessor for the context-tree fingerprint used by tier 0/1 cache
+   * lookups. Phase 5 Task 5.2 (PHASE-5-CODE-REVIEW.md F2) — agent-process's
+   * `'mcp-search'` case calls this so `brv_search` can hit cached answers
+   * and return the fingerprint to the agent for the round-trip
+   * search → gather → record-answer → search loop.
+   *
+   * Returns undefined when caching is disabled (no cache OR no fileSystem).
+   * Reuses the same TTL-bounded `cachedFingerprint` slot the legacy path uses,
+   * so MCP and CLI consumers share one cache miss not two.
    */
-  private buildPrefetchedContext(searchResult: SearchKnowledgeResult): string | undefined {
-    if (searchResult.totalFound === 0) return undefined
-
-    const highConfidenceResults = searchResult.results.filter((r) => r.score >= SMART_ROUTING_SCORE_THRESHOLD)
-
-    if (highConfidenceResults.length === 0) return undefined
-
-    const sections = highConfidenceResults.map((r) => {
-      const source =
-        r.origin === 'shared' && r.originAlias ? `[${r.originAlias}]:${r.path}` : `.brv/context-tree/${r.path}`
-
-      return `### ${r.title}\n**Source**: ${source}\n\n${r.excerpt}`
-    })
-
-    return sections.join('\n\n---\n\n')
+  public async resolveFingerprint(worktreeRoot?: string): Promise<string | undefined> {
+    if (!this.cache || !this.fileSystem) return undefined
+    return this.computeContextTreeFingerprint(worktreeRoot)
   }
 
   /**
@@ -613,50 +618,4 @@ ${responseFormat}`
     }
   }
 
-  /**
-   * Attempt to produce a direct response from search results without LLM.
-   * Returns formatted response if high-confidence dominant match found, undefined otherwise.
-   *
-   * Uses higher thresholds than smart routing (score >= 8, 2x dominance)
-   * to ensure only clearly answerable queries bypass the LLM.
-   */
-  private async tryDirectSearchResponse(
-    query: string,
-    searchResult: SearchKnowledgeResult,
-  ): Promise<string | undefined> {
-    try {
-      if (searchResult.totalFound === 0) return undefined
-
-      // Build full results with content
-      const fullResults: DirectSearchResult[] = await Promise.all(
-        searchResult.results
-          .filter((r) => r.score >= SMART_ROUTING_SCORE_THRESHOLD)
-          .slice(0, SMART_ROUTING_MAX_DOCS)
-          .map(async (result) => {
-            let content = result.excerpt
-            try {
-              // Use originContextTreeRoot for shared results, local context tree for local
-              const ctBase = result.originContextTreeRoot ?? join(BRV_DIR, CONTEXT_TREE_DIR)
-              const ctPath = join(ctBase, result.path)
-              const {content: fullContent} = await this.fileSystem!.readFile(ctPath)
-              content = fullContent
-            } catch {
-              // Use excerpt if full read fails
-            }
-
-            // Include source attribution in path for shared results
-            const displayPath =
-              result.origin === 'shared' && result.originAlias ? `[${result.originAlias}]:${result.path}` : result.path
-
-            return {content, path: displayPath, score: result.score, title: result.title}
-          }),
-      )
-
-      if (!canRespondDirectly(fullResults)) return undefined
-
-      return formatDirectResponse(query, fullResults)
-    } catch {
-      return undefined
-    }
-  }
 }

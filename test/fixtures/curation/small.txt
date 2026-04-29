@@ -1,0 +1,67 @@
+[USER]: Document the auth middleware in src/auth/middleware.ts.
+
+[ASSISTANT]: Looking at the file. The auth module uses JWT tokens stored
+in httpOnly cookies. Tokens expire after 24 hours and refresh tokens rotate
+on every use. The middleware validates the JWT signature against the
+project's secret key (loaded from env var AUTH_SECRET).
+
+```typescript
+export function authMiddleware(req: Request, res: Response, next: NextFunction) {
+  const token = req.cookies.session
+  if (!token) return res.status(401).send('Unauthorized')
+
+  try {
+    const payload = jwt.verify(token, process.env.AUTH_SECRET!)
+    req.user = payload as User
+    next()
+  } catch {
+    return res.status(401).send('Invalid token')
+  }
+}
+```
+
+The handler attaches the decoded payload to `req.user` so downstream
+handlers can access user identity without re-parsing.
+
+[USER]: Are there any rate limits?
+
+[ASSISTANT]: Yes, the project uses express-rate-limit. The default config
+is 100 requests per minute per IP, with a stricter 10/min window for the
+/auth/login endpoint specifically. Rate limit headers (X-RateLimit-Remaining,
+X-RateLimit-Reset) are included in every response.
+
+The configuration lives in src/middleware/rate-limit.ts. There's a
+dedicated bypass for internal service tokens — these are identified by
+the X-Service-Token header containing one of the keys listed in
+SERVICE_TOKEN_ALLOWLIST.
+
+[USER]: Where are session tokens stored on the client?
+
+[ASSISTANT]: httpOnly cookies, with the SameSite=Strict and Secure flags
+set in production. The cookie name is "session" and it's set by the login
+handler at /auth/login on a successful authentication. Logout clears the
+cookie by setting Max-Age=0.
+
+For mobile clients (where cookies aren't ideal), the auth module also
+supports Bearer tokens via the Authorization header. The middleware checks
+for the cookie first, then falls back to parsing the Authorization header.
+
+[USER]: Database for user records?
+
+[ASSISTANT]: PostgreSQL 15. The users table has the following schema:
+
+```sql
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) UNIQUE NOT NULL,
+  password_hash VARCHAR(72) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_login_at TIMESTAMPTZ
+);
+
+CREATE INDEX idx_users_email ON users (email);
+```
+
+Passwords are hashed with bcrypt (cost factor 12). The application uses
+the `pg` Node driver with a connection pool of 10 connections by default,
+configurable via DB_POOL_SIZE env var.

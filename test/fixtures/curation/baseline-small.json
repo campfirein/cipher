@@ -1,0 +1,156 @@
+{
+  "failures": [],
+  "fixture": {
+    "bytes": 2487,
+    "path": "test/fixtures/curation/small.txt"
+  },
+  "outputs": {
+    "recon": {
+      "headPreview": "[USER]: Document the auth middleware in src/auth/middleware.ts.\n\n[ASSISTANT]: Looking at the file. The auth module uses JWT tokens stored\nin httpOnly cookies. Tokens expire after 24 hours and refresh tokens rotate\non every use. The middleware validates the JWT signature against the\nproject's secret key (loaded from env var AUTH_SECRET).\n\n```typescript\nexport function authMiddleware(req: Request, res: Response, next: NextFunction) {\n  const token = req.cookies.session\n  if (!token) return res.status(401).send('Unauthorized')\n\n  try {\n    const payload = jwt.verify(token, process.env.AUTH_SECRET!)\n    req.user = payload as User\n    next()\n  } catch {\n    return res.status(401).send('Invalid token')\n  }\n}\n```\n\nThe handler attaches the decoded payload to `req.user` so downstream\nhandlers can access user identity without re-parsing.\n\n[USER]: Are there any rate limits?\n\n[ASSISTANT]: Yes, the project uses express-rate-limit. The default config\nis 100 requests per minute per IP, with a stricter 10/min window for the\n/auth/login endpoint specifically. Rate limit headers (X-RateLimit-Remaining,\nX-RateLimit-Reset) are included in every response.\n\nThe configuration lives in src/middleware/rate-limit.ts. There's a\ndedicated bypass for internal service tokens — these are identified by\nthe X-Service-Token header containing one of the keys listed in\nSERVICE_TOKEN_ALLOWLIST.\n\n[USER]: Where are session tokens stored on the client?\n\n[ASSISTANT]: httpOnly cookies, with the SameSite=Strict and Secure flags\nset in production. The cookie name is \"session\" and it's set by the login\nhandler at /auth/login on a successful authentication. Logout clears the\ncookie by setting Max-Age=0.\n\nFor mobile clients (where cookies aren't ideal), the auth module also\nsupports Bearer tokens via the Authorization header. The middleware checks\nfor the cookie first, then falls back to parsing the Authorization header.\n\n[USER]: Database for user records?\n\n[ASSISTANT]: PostgreSQL 15. The users table has the following schema:\n\n```sql\nCREATE TABLE users (\n  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),\n  email VARCHAR(255) UNIQUE NOT NULL,\n  password_hash VARCHAR(72) NOT NULL,\n  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),\n  last_login_at TIMESTAMPTZ\n);\n\nCREATE INDEX idx_users_email ON users (email);\n```\n\nPasswords are hashed with bcrypt (cost factor 12). The application uses\nthe `pg` Node driver with a connection pool of 10 connections by default,\nconfigurable via DB_POOL_SIZE env var.\n",
+      "history": {
+        "domains": {},
+        "totalProcessed": 0
+      },
+      "meta": {
+        "charCount": 2487,
+        "lineCount": 68,
+        "messageCount": 7
+      },
+      "suggestedChunkCount": 1,
+      "suggestedMode": "single-pass",
+      "tailPreview": "Strict and Secure flags\nset in production. The cookie name is \"session\" and it's set by the login\nhandler at /auth/login on a successful authentication. Logout clears the\ncookie by setting Max-Age=0.\n\nFor mobile clients (where cookies aren't ideal), the auth module also\nsupports Bearer tokens via the Authorization header. The middleware checks\nfor the cookie first, then falls back to parsing the Authorization header.\n\n[USER]: Database for user records?\n\n[ASSISTANT]: PostgreSQL 15. The users table has the following schema:\n\n```sql\nCREATE TABLE users (\n  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),\n  email VARCHAR(255) UNIQUE NOT NULL,\n  password_hash VARCHAR(72) NOT NULL,\n  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),\n  last_login_at TIMESTAMPTZ\n);\n\nCREATE INDEX idx_users_email ON users (email);\n```\n\nPasswords are hashed with bcrypt (cost factor 12). The application uses\nthe `pg` Node driver with a connection pool of 10 connections by default,\nconfigurable via DB_POOL_SIZE env var.\n"
+    },
+    "chunk": {
+      "boundaries": [
+        {
+          "end": 2487,
+          "start": 0
+        }
+      ],
+      "chunks": [
+        "[USER]: Document the auth middleware in src/auth/middleware.ts.\n\n[ASSISTANT]: Looking at the file. The auth module uses JWT tokens stored\nin httpOnly cookies. Tokens expire after 24 hours and refresh tokens rotate\non every use. The middleware validates the JWT signature against the\nproject's secret key (loaded from env var AUTH_SECRET).\n\n```typescript\nexport function authMiddleware(req: Request, res: Response, next: NextFunction) {\n  const token = req.cookies.session\n  if (!token) return res.status(401).send('Unauthorized')\n\n  try {\n    const payload = jwt.verify(token, process.env.AUTH_SECRET!)\n    req.user = payload as User\n    next()\n  } catch {\n    return res.status(401).send('Invalid token')\n  }\n}\n```\n\nThe handler attaches the decoded payload to `req.user` so downstream\nhandlers can access user identity without re-parsing.\n\n[USER]: Are there any rate limits?\n\n[ASSISTANT]: Yes, the project uses express-rate-limit. The default config\nis 100 requests per minute per IP, with a stricter 10/min window for the\n/auth/login endpoint specifically. Rate limit headers (X-RateLimit-Remaining,\nX-RateLimit-Reset) are included in every response.\n\nThe configuration lives in src/middleware/rate-limit.ts. There's a\ndedicated bypass for internal service tokens — these are identified by\nthe X-Service-Token header containing one of the keys listed in\nSERVICE_TOKEN_ALLOWLIST.\n\n[USER]: Where are session tokens stored on the client?\n\n[ASSISTANT]: httpOnly cookies, with the SameSite=Strict and Secure flags\nset in production. The cookie name is \"session\" and it's set by the login\nhandler at /auth/login on a successful authentication. Logout clears the\ncookie by setting Max-Age=0.\n\nFor mobile clients (where cookies aren't ideal), the auth module also\nsupports Bearer tokens via the Authorization header. The middleware checks\nfor the cookie first, then falls back to parsing the Authorization header.\n\n[USER]: Database for user records?\n\n[ASSISTANT]: PostgreSQL 15. The users table has the following schema:\n\n```sql\nCREATE TABLE users (\n  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),\n  email VARCHAR(255) UNIQUE NOT NULL,\n  password_hash VARCHAR(72) NOT NULL,\n  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),\n  last_login_at TIMESTAMPTZ\n);\n\nCREATE INDEX idx_users_email ON users (email);\n```\n\nPasswords are hashed with bcrypt (cost factor 12). The application uses\nthe `pg` Node driver with a connection pool of 10 connections by default,\nconfigurable via DB_POOL_SIZE env var.\n"
+      ],
+      "totalChunks": 1
+    },
+    "extract": {
+      "facts": [
+        {
+          "statement": "Auth uses JWT in httpOnly cookies",
+          "subject": "auth"
+        },
+        {
+          "statement": "Database is PostgreSQL 15",
+          "subject": "database"
+        },
+        {
+          "statement": "Rate limit is 100/min per IP",
+          "subject": "rate-limit"
+        }
+      ],
+      "failed": 0,
+      "succeeded": 3,
+      "total": 1
+    },
+    "group": {
+      "grouped": {
+        "auth": [
+          {
+            "statement": "Auth uses JWT in httpOnly cookies",
+            "subject": "auth"
+          }
+        ],
+        "database": [
+          {
+            "statement": "Database is PostgreSQL 15",
+            "subject": "database"
+          }
+        ],
+        "rate-limit": [
+          {
+            "statement": "Rate limit is 100/min per IP",
+            "subject": "rate-limit"
+          }
+        ]
+      }
+    },
+    "dedup": {
+      "deduped": [
+        {
+          "statement": "Auth uses JWT in httpOnly cookies",
+          "subject": "auth"
+        },
+        {
+          "statement": "Database is PostgreSQL 15",
+          "subject": "database"
+        },
+        {
+          "statement": "Rate limit is 100/min per IP",
+          "subject": "rate-limit"
+        }
+      ]
+    },
+    "conflict": {
+      "decisions": [
+        {
+          "action": "add",
+          "fact": {
+            "statement": "Auth uses JWT in httpOnly cookies",
+            "subject": "auth"
+          }
+        },
+        {
+          "action": "add",
+          "fact": {
+            "statement": "Database is PostgreSQL 15",
+            "subject": "database"
+          }
+        },
+        {
+          "action": "add",
+          "fact": {
+            "statement": "Rate limit is 100/min per IP",
+            "subject": "rate-limit"
+          }
+        }
+      ]
+    },
+    "write": {
+      "applied": [
+        {
+          "confidence": "high",
+          "impact": "low",
+          "needsReview": false,
+          "path": "auth/Auth uses JWT in httpOnly cook.md",
+          "reason": "baseline capture",
+          "status": "success",
+          "type": "ADD"
+        },
+        {
+          "confidence": "high",
+          "impact": "low",
+          "needsReview": false,
+          "path": "database/Database is PostgreSQL 15.md",
+          "reason": "baseline capture",
+          "status": "success",
+          "type": "ADD"
+        },
+        {
+          "confidence": "high",
+          "impact": "low",
+          "needsReview": false,
+          "path": "rate-limit/Rate limit is 100/min per IP.md",
+          "reason": "baseline capture",
+          "status": "success",
+          "type": "ADD"
+        }
+      ],
+      "summary": {
+        "added": 3,
+        "deleted": 0,
+        "failed": 0,
+        "merged": 0,
+        "updated": 0
+      }
+    }
+  }
+}

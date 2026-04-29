@@ -974,20 +974,31 @@ async function executeUpdate(
 
     let resolvedContextData: ContextData = proposedContextData
     let elevatedImpact = impact
+    let mergeHappened = false
 
     if (existingParsed) {
       const loss = detectStructuralLoss(existingParsed, proposedContextData)
       const structuralImpact = deriveImpactFromLoss(loss)
       elevatedImpact = maxImpact(impact, structuralImpact)
       resolvedContextData = resolveStructuralLoss(existingParsed, proposedContextData, loss)
+      mergeHappened = loss.hasLoss
     }
 
     const reviewMeta = deriveReviewMetadata('UPDATE', confidence, elevatedImpact)
 
+    // R-6 (PHASE-2.5-PLAN.md §3.2): when facts are merged in via R-1's
+    // resolveStructuralLoss, the operation's `summary` only reflects the
+    // new (single) fact and the frontmatter goes stale relative to
+    // `## Facts`. Regenerate summary as `; `-joined statements (capped 200).
+    const effectiveSummary =
+      mergeHappened && (resolvedContextData.facts?.length ?? 0) > 1
+        ? resolvedContextData.facts!.map((f) => f.statement).join('; ').slice(0, 200)
+        : summary
+
     const contextContent = MarkdownWriter.generateContext({
       ...resolvedContextData,
       reason,
-      summary,
+      summary: effectiveSummary,
       timestamps,
     })
     await backupBeforeWrite(contextPath, basePath)

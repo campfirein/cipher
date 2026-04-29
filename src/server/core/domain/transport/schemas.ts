@@ -392,6 +392,14 @@ export const TaskExecuteSchema = z.object({
   folderPath: z.string().optional(),
   /** Force flag for dream tasks (skip time/activity/queue gates) */
   force: z.boolean().optional(),
+  /**
+   * Curate-log identifier (cur-<timestamp>) assigned by `CurateLogHandler.onTaskCreate`
+   * via `runCreateHooks` in the task-router. Threaded through to the executor so
+   * services-adapter.write can include it in the per-leaf `Reason` field for
+   * audit-trail provenance (Phase 2.5 R-3). Optional and backward-compatible:
+   * non-curate tasks (query/dream/etc.) leave it undefined.
+   */
+  logId: z.string().optional(),
   /** Project path this task belongs to (for multi-project routing) */
   projectPath: z.string().optional(),
   /** Unique task identifier */
@@ -399,7 +407,7 @@ export const TaskExecuteSchema = z.object({
   /** Dream trigger source — how this dream was initiated */
   trigger: z.enum(['agent-idle', 'cli', 'manual']).optional(),
   /** Task type */
-  type: z.enum(['curate', 'curate-folder', 'dream', 'query', 'search']),
+  type: z.enum(['curate', 'curate-folder', 'dream', 'gather', 'mcp-search', 'query', 'record-answer', 'search']),
   /** Workspace root for scoped query/curate */
   worktreeRoot: z.string().optional(),
 })
@@ -520,7 +528,7 @@ export const TaskCreatedSchema = z.object({
   /** Unique task identifier */
   taskId: z.string(),
   /** Task type */
-  type: z.enum(['curate', 'curate-folder', 'query', 'search']),
+  type: z.enum(['curate', 'curate-folder', 'gather', 'mcp-search', 'query', 'record-answer', 'search']),
 })
 
 /**
@@ -664,7 +672,7 @@ export type TaskQueryResultEvent = z.infer<typeof TaskQueryResultEventSchema>
 // Request/Response Schemas (for client → server commands)
 // ============================================================================
 
-export const TaskTypeSchema = z.enum(['curate', 'curate-folder', 'dream', 'query', 'search'])
+export const TaskTypeSchema = z.enum(['curate', 'curate-folder', 'dream', 'gather', 'mcp-search', 'query', 'record-answer', 'search'])
 
 /**
  * Request to create a new task

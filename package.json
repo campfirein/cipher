@@ -73,6 +73,7 @@
     "officeparser": "^6.0.4",
     "open": "^10.2.0",
     "openai": "^6.9.1",
+    "p-map": "^7.0.4",
     "proxy-agent": "^7.0.0",
     "react": "^19.2.1",
     "react-diff-viewer-continued": "^4.2.0",

@@ -6,6 +6,7 @@ import {randomUUID} from 'node:crypto'
 import {z} from 'zod'
 
 import {TransportTaskEventNames} from '../../../core/domain/transport/schemas.js'
+import {recordLegacyQueryInvocation} from './deprecation-telemetry.js'
 import {associateProjectWithRetry, type McpStartupProjectContext, resolveMcpTaskContext} from './mcp-project-context.js'
 import {resolveClientCwd} from './resolve-client-cwd.js'
 import {cwdField} from './shared-schema.js'
@@ -19,8 +20,15 @@ export const BrvQueryInputSchema = z.object({
 /**
  * Registers the brv-query tool with the MCP server.
  *
- * This tool allows coding agents to query the ByteRover context tree
- * for patterns, decisions, implementation details, or any stored knowledge.
+ * **DEPRECATED (Phase 5 Task 5.5)** — agents should migrate to:
+ *   `brv-search` (tier 0/1/2 — cached/BM25, no LLM)
+ *   `brv-gather` (tier 3 prep — context bundle, no LLM; agent synthesizes)
+ *   `brv-record-answer` (cache-write companion to close the loop)
+ *
+ * The legacy tool keeps working — old MCP clients are unaffected. Each
+ * invocation writes one JSONL line to `<dataDir>/telemetry/mcp-deprecation.jsonl`
+ * so we can decide when usage is low enough to remove this MCP path.
+ * The CLI `brv query` command stays — that's a separate consumer.
  */
 export function registerBrvQueryTool(
   server: McpServer,
@@ -31,11 +39,25 @@ export function registerBrvQueryTool(
   server.registerTool(
     'brv-query',
     {
-      description: 'Query the ByteRover context tree for patterns, decisions, or implementation details.',
+      // MCP SDK's `annotations` only accepts standard fields (readOnlyHint,
+      // destructiveHint, etc.) — arbitrary metadata goes in `_meta`. Tool-aware
+      // clients can read `_meta.deprecated` / `_meta.replacedBy` to surface
+      // migration guidance; legacy clients see the `[deprecated]` prefix in
+      // the description and the title suffix.
+      _meta: {
+        deprecated: true,
+        replacedBy: ['brv-search', 'brv-gather', 'brv-record-answer'],
+      },
+      description:
+        '[deprecated] Query the ByteRover context tree for patterns, decisions, or implementation details. ' +
+        'Migrate to brv-search + brv-gather + brv-record-answer (LLM-free pipeline; agent synthesizes locally).',
       inputSchema: BrvQueryInputSchema,
-      title: 'ByteRover Query',
+      title: 'ByteRover Query (deprecated)',
     },
     async ({cwd, query}: {cwd?: string; query: string}) => {
+      // Telemetry first — fire on every invocation so adoption metrics include
+      // failures (failed legacy calls still count as legacy usage).
+      recordLegacyQueryInvocation()
       // Resolve clientCwd: explicit cwd param > server working directory
       const cwdResult = resolveClientCwd(cwd, getWorkingDirectory)
       if (!cwdResult.success) {
