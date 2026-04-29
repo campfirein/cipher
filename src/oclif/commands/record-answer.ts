@@ -62,6 +62,8 @@ defaults to 60 seconds.`
       options: ['text', 'json'],
     }),
   }
+  // Allow unknown flags for forward-compatibility (e.g., new daemon flags
+  // passed through by wrapper scripts without requiring a CLI upgrade).
   public static strict = false
 
   protected getDaemonClientOptions(): DaemonClientOptions {
@@ -198,13 +200,15 @@ defaults to 60 seconds.`
             }
           }
         },
-        onError({error}) {
+        onError: ({error}) => {
           if (format === 'json') {
             writeJsonResponse({
               command: 'record-answer',
               data: {event: 'error', message: error.message, status: 'error'},
               success: false,
             })
+          } else {
+            this.log(`\nError: ${error.message}\n`)
           }
         },
         taskId,

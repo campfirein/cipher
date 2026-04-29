@@ -119,6 +119,12 @@ function applyTokenBudget(bundle: string, tokenBudget: number): string {
     accumulated += sectionTokens
   }
 
+  // Always include at least the first section so callers receive some context
+  // even when token_budget is smaller than a single section.
+  if (kept.length === 0 && sections.length > 0) {
+    return sections[0]
+  }
+
   return kept.join('\n\n---\n\n')
 }
 

@@ -186,10 +186,10 @@ export class QueryDispatcher {
     const {fingerprint, limit, query, scope, searchPromise} = options
 
     if (this.cache && fingerprint) {
-      const cached = this.cache.get(query, fingerprint)
-      if (cached) {
+      const exact = this.cache.get(query, fingerprint)
+      if (exact) {
         return {
-          cachedAnswer: cached,
+          cachedAnswer: exact,
           fingerprint,
           status: 'cached_answer',
           tier: 0,
@@ -197,13 +197,11 @@ export class QueryDispatcher {
           totalFound: 0,
         }
       }
-    }
 
-    if (this.cache && fingerprint) {
-      const fuzzyHit = this.cache.findSimilar(query, fingerprint)
-      if (fuzzyHit) {
+      const fuzzy = this.cache.findSimilar(query, fingerprint)
+      if (fuzzy) {
         return {
-          cachedAnswer: fuzzyHit,
+          cachedAnswer: fuzzy,
           fingerprint,
           status: 'cached_answer',
           tier: 1,

@@ -117,7 +117,17 @@ export function registerBrvSearchTool(
         // so legacy callers still receive the raw daemon response.
         let parsedMeta: BrvSearchResult | undefined
         try {
-          parsedMeta = JSON.parse(result) as BrvSearchResult
+          const raw: unknown = JSON.parse(result)
+          // Light structural check — at minimum tier + status must be present
+          // (avoids `as` assertion per CLAUDE.md standards)
+          if (
+            raw !== null &&
+            typeof raw === 'object' &&
+            'tier' in raw &&
+            'status' in raw
+          ) {
+            parsedMeta = raw as BrvSearchResult
+          }
         } catch {
           // raw text fallback below
         }
