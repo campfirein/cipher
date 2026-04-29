@@ -258,7 +258,6 @@ export const PROVIDER_REGISTRY: Readonly<Record<string, ProviderDefinition>> = {
   'openai-compatible': {
     baseUrl: '',
     category: 'other',
-    defaultModel: 'llama3',
     description: 'OpenAI-compatible endpoint (Ollama, LM Studio, etc.)',
     envVars: ['OPENAI_COMPATIBLE_API_KEY'],
     headers: {},

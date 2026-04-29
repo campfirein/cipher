@@ -2,6 +2,7 @@ import {mkdir, unlink, writeFile} from 'node:fs/promises'
 import {dirname, join, relative} from 'node:path'
 
 import type {ICurateLogStore} from '../../../core/interfaces/storage/i-curate-log-store.js'
+import type {IProjectConfigStore} from '../../../core/interfaces/storage/i-project-config-store.js'
 import type {IReviewBackupStore} from '../../../core/interfaces/storage/i-review-backup-store.js'
 import type {ITransportServer} from '../../../core/interfaces/transport/i-transport-server.js'
 
@@ -9,9 +10,12 @@ import {
   type ReviewDecideTaskRequest,
   type ReviewDecideTaskResponse,
   ReviewEvents,
+  type ReviewGetDisabledResponse,
   type ReviewPendingOperation,
   type ReviewPendingResponse,
   type ReviewPendingTask,
+  type ReviewSetDisabledRequest,
+  type ReviewSetDisabledResponse,
 } from '../../../../shared/transport/events/review-events.js'
 import {BRV_DIR, CONTEXT_TREE_DIR} from '../../../constants.js'
 import {type ProjectPathResolver, resolveRequiredProjectPath} from './handler-types.js'
@@ -25,6 +29,7 @@ export interface ReviewHandlerDeps {
   curateLogStoreFactory: CurateLogStoreFactory
   /** Called after all pending ops for a task are decided. Used to notify TUI clients. */
   onResolved?: (info: {projectPath: string; taskId: string}) => void
+  projectConfigStore: IProjectConfigStore
   resolveProjectPath: ProjectPathResolver
   reviewBackupStoreFactory: ReviewBackupStoreFactory
   transport: ITransportServer
@@ -54,6 +59,7 @@ async function writeFileWithDirs(absolutePath: string, content: string): Promise
 export class ReviewHandler {
   private readonly curateLogStoreFactory: CurateLogStoreFactory
   private readonly onResolved: ReviewHandlerDeps['onResolved']
+  private readonly projectConfigStore: IProjectConfigStore
   private readonly resolveProjectPath: ProjectPathResolver
   private readonly reviewBackupStoreFactory: ReviewBackupStoreFactory
   private readonly transport: ITransportServer
@@ -61,6 +67,7 @@ export class ReviewHandler {
   constructor(deps: ReviewHandlerDeps) {
     this.curateLogStoreFactory = deps.curateLogStoreFactory
     this.onResolved = deps.onResolved
+    this.projectConfigStore = deps.projectConfigStore
     this.resolveProjectPath = deps.resolveProjectPath
     this.reviewBackupStoreFactory = deps.reviewBackupStoreFactory
     this.transport = deps.transport
@@ -72,9 +79,19 @@ export class ReviewHandler {
       (data, clientId) => this.handleDecideTask(data, clientId),
     )
 
+    this.transport.onRequest<Record<string, unknown>, ReviewGetDisabledResponse>(
+      ReviewEvents.GET_DISABLED,
+      (_data, clientId) => this.handleGetDisabled(clientId),
+    )
+
     this.transport.onRequest<Record<string, unknown>, ReviewPendingResponse>(
       ReviewEvents.PENDING,
       (_data, clientId) => this.handlePending(clientId),
+    )
+
+    this.transport.onRequest<ReviewSetDisabledRequest, ReviewSetDisabledResponse>(
+      ReviewEvents.SET_DISABLED,
+      (data, clientId) => this.handleSetDisabled(data, clientId),
     )
   }
 
@@ -194,6 +211,16 @@ export class ReviewHandler {
     return {files: fileResults.map(({path, reverted}) => ({path, reverted})), totalCount}
   }
 
+  private async handleGetDisabled(clientId: string): Promise<ReviewGetDisabledResponse> {
+    const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
+    const config = await this.projectConfigStore.read(projectPath)
+    if (!config) {
+      throw new Error(`Project not initialized: ${projectPath}. Run \`brv init\` first.`)
+    }
+
+    return {reviewDisabled: config.reviewDisabled === true}
+  }
+
   private async handlePending(clientId: string): Promise<ReviewPendingResponse> {
     const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
     const contextTreeDir = join(projectPath, BRV_DIR, CONTEXT_TREE_DIR)
@@ -234,5 +261,20 @@ export class ReviewHandler {
     const pendingCount = tasks.reduce((sum, t) => sum + t.operations.length, 0)
 
     return {pendingCount, tasks}
+  }
+
+  private async handleSetDisabled(
+    {reviewDisabled}: ReviewSetDisabledRequest,
+    clientId: string,
+  ): Promise<ReviewSetDisabledResponse> {
+    const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
+    const config = await this.projectConfigStore.read(projectPath)
+    if (!config) {
+      throw new Error(`Project not initialized: ${projectPath}. Run \`brv init\` first.`)
+    }
+
+    const updated = config.withReviewDisabled(reviewDisabled)
+    await this.projectConfigStore.write(updated, projectPath)
+    return {reviewDisabled}
   }
 }

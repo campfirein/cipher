@@ -94,6 +94,38 @@ describe('ModelHandler', () => {
       expect(providerConfigStore.setActiveModel.calledBefore(transport.broadcast)).to.be.true
     })
 
+    it('should activate the provider when picking a model (load-bearing for openai-compatible deferred-activation)', async () => {
+      // The openai-compatible connect path passes setAsActive: false when no
+      // active model will be set. The provider only becomes active once a
+      // model is picked here — so this call MUST flip activeProvider, or
+      // the openai-compatible setup flow ends up "connected but never
+      // active". A regression that drops this call would silently break it.
+      providerConfigStore.read.resolves(
+        ProviderConfig.fromJson({
+          activeProvider: '',
+          providers: {
+            'openai-compatible': {
+              authMethod: 'api-key',
+              baseUrl: 'http://localhost:11434/v1',
+              connectedAt: new Date().toISOString(),
+              favoriteModels: [],
+              recentModels: [],
+            },
+          },
+        }),
+      )
+
+      createHandler()
+
+      const handler = transport._handlers.get(ModelEvents.SET_ACTIVE)
+      const result = await handler!({modelId: 'qwen3.5-9b', providerId: 'openai-compatible'}, 'client-1')
+
+      expect(result).to.deep.equal({success: true})
+      expect(providerConfigStore.setActiveProvider.calledWith('openai-compatible')).to.be.true
+      expect(providerConfigStore.setActiveModel.calledWith('openai-compatible', 'qwen3.5-9b')).to.be.true
+      expect(providerConfigStore.setActiveProvider.calledBefore(providerConfigStore.setActiveModel)).to.be.true
+    })
+
     it('should reject when provider is not connected', async () => {
       createHandler()
 

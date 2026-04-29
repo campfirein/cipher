@@ -1,8 +1,22 @@
 export const ReviewEvents = {
   DECIDE_TASK: 'review:decideTask',
+  GET_DISABLED: 'review:getDisabled',
   NOTIFY: 'review:notify',
   PENDING: 'review:pending',
+  SET_DISABLED: 'review:setDisabled',
 } as const
+
+export interface ReviewGetDisabledResponse {
+  reviewDisabled: boolean
+}
+
+export interface ReviewSetDisabledRequest {
+  reviewDisabled: boolean
+}
+
+export interface ReviewSetDisabledResponse {
+  reviewDisabled: boolean
+}
 
 export interface ReviewNotifyEvent {
   pendingCount: number
