@@ -53,7 +53,9 @@ import type {IAuthStateStore} from '../../core/interfaces/state/i-auth-state-sto
 
 import {hasConflictMarkers} from '../../../shared/utils/conflict-markers.js'
 import {GitAuthError, GitError} from '../../core/domain/errors/git-error.js'
+import {formatOverwriteMessage} from './git-error-messages.js'
 import {gitHttpWrapper as http} from './git-http-wrapper.js'
+import {classifyTuple} from './status-row-classifier.js'
 
 /** Max commit depth for ahead/behind calculation. Counts beyond this are truncated. */
 const MAX_AHEAD_BEHIND_DEPTH = 500
@@ -205,10 +207,7 @@ export class IsomorphicGitService implements IGitService {
       await git.checkout({dir, force: params.force, fs, ref: params.ref})
     } catch (error) {
       if (error instanceof git.Errors.CheckoutConflictError) {
-        throw new GitError(
-          'Your local changes to the following files would be overwritten by checkout. ' +
-            'Commit your changes or stash them before you switch branches.',
-        )
+        throw new GitError(formatOverwriteMessage('checkout', []))
       }
 
       throw error
@@ -641,7 +640,7 @@ export class IsomorphicGitService implements IGitService {
           await git.writeRef({dir, force: true, fs, ref: `refs/heads/${currentBranch}`, value: localSha})
         }
 
-        throw new GitError('Local changes would be overwritten by merge. Commit or discard your changes first.')
+        throw new GitError(formatOverwriteMessage('merge', []))
       }
 
       if (error instanceof git.Errors.MergeConflictError) {
@@ -723,7 +722,9 @@ export class IsomorphicGitService implements IGitService {
     // Abort if any dirty local file would be overwritten by the incoming changes
     if (localSha && remoteSha) {
       const matrix = await git.statusMatrix({dir, fs})
-      const dirtyFiles = matrix.filter((row) => row[2] !== 1 || row[3] !== 1).map((row) => String(row[0]))
+      const dirtyFiles = matrix
+        .filter(([, head, workdir, stage]) => classifyTuple(head, workdir, stage).dirty)
+        .map((row) => String(row[0]))
 
       const localRef = localSha
       const remoteRef = remoteSha
@@ -742,8 +743,9 @@ export class IsomorphicGitService implements IGitService {
           return localFileOid !== remoteFileOid
         }),
       )
-      if (wouldBeOverwritten.some(Boolean)) {
-        throw new GitError('Local changes would be overwritten by pull. Commit or discard your changes first.')
+      const overwrittenFiles = dirtyFiles.filter((_, i) => wouldBeOverwritten[i])
+      if (overwrittenFiles.length > 0) {
+        throw new GitError(formatOverwriteMessage('pull', overwrittenFiles))
       }
     }
 
@@ -802,7 +804,7 @@ export class IsomorphicGitService implements IGitService {
           await git.writeRef({dir, force: true, fs, ref: `refs/heads/${localBranch}`, value: localSha})
         }
 
-        throw new GitError('Local changes would be overwritten by pull. Commit or discard your changes first.')
+        throw new GitError(formatOverwriteMessage('pull', []))
       }
 
       throw error
@@ -984,21 +986,15 @@ export class IsomorphicGitService implements IGitService {
   }
 
   private classifyStagedRow(row: StatusRow): ChangedFile | undefined {
-    const [filepath, head, , stage] = row
-    const path = String(filepath)
-    if (head === 0 && (stage === 2 || stage === 3)) return {path, status: 'added'}
-    if (head === 1 && stage === 0) return {path, status: 'deleted'}
-    if (head === 1 && (stage === 2 || stage === 3)) return {path, status: 'modified'}
-    return undefined
+    const [filepath, head, workdir, stage] = row
+    const status = classifyTuple(head, workdir, stage).stagedDiff
+    return status ? {path: String(filepath), status} : undefined
   }
 
   private classifyUnstagedRow(row: StatusRow): ChangedFile | undefined {
     const [filepath, head, workdir, stage] = row
-    const path = String(filepath)
-    if (head === 0 && stage === 0) return undefined // skip untracked
-    if (workdir === 0 && (stage === 1 || stage === 2 || stage === 3)) return {path, status: 'deleted'}
-    if (workdir === 2 && (stage === 1 || stage === 3)) return {path, status: 'modified'}
-    return undefined
+    const status = classifyTuple(head, workdir, stage).unstagedDiff
+    return status ? {path: String(filepath), status} : undefined
   }
 
   private conflictsFromError(error: Error): GitConflict[] {
@@ -1064,9 +1060,9 @@ export class IsomorphicGitService implements IGitService {
   private async guardStagedConflicts(dir: string, sourceBranch: string, targetRef: string): Promise<void> {
     const matrix = await git.statusMatrix({dir, fs})
 
-    // Staged files: index (col 3) differs from HEAD (col 1)
-    // [1,_,2] modified+staged, [1,_,0] deleted+staged, [0,_,2] new+staged
-    const stagedFiles = matrix.filter(([, head, , stage]) => stage !== head).map(([filepath]) => String(filepath))
+    const stagedFiles = matrix
+      .filter(([, head, workdir, stage]) => classifyTuple(head, workdir, stage).staged)
+      .map(([filepath]) => String(filepath))
 
     if (stagedFiles.length === 0) return
 
@@ -1085,11 +1081,7 @@ export class IsomorphicGitService implements IGitService {
     /* eslint-enable no-await-in-loop */
 
     if (conflicting.length > 0) {
-      throw new GitError(
-        'Your local changes to the following files would be overwritten by checkout:\n' +
-          conflicting.map((f) => `\t${f}`).join('\n') +
-          '\nPlease commit your changes or stash them before you switch branches.',
-      )
+      throw new GitError(formatOverwriteMessage('checkout', conflicting))
     }
   }
 
@@ -1258,36 +1250,14 @@ export class IsomorphicGitService implements IGitService {
     return {success: true}
   }
 
-  // eslint-disable-next-line complexity
   private parseMatrix(matrix: StatusRow[]): GitStatusFile[] {
     const files: GitStatusFile[] = []
     for (const [filepath, head, workdir, stage] of matrix) {
       const path = String(filepath)
-      if (head === 1 && workdir === 0 && stage === 0) {
-        files.push({path, staged: true, status: 'deleted'}) // [1,0,0] staged deletion (git rm)
-      } else if (head === 1 && workdir === 0 && stage === 1) {
-        files.push({path, staged: false, status: 'deleted'}) // [1,0,1] unstaged deletion (rm without git rm)
-      } else if (head === 1 && workdir === 0 && stage === 2) {
-        files.push({path, staged: false, status: 'deleted'}) // [1,0,2] absent from disk, index differs from HEAD (e.g. post-merge-conflict)
-      } else if (head === 1 && workdir === 0 && stage === 3) {
-        // [1,0,3] staged modification then deleted from disk → show both staged mod and unstaged deletion
-        files.push({path, staged: true, status: 'modified'}, {path, staged: false, status: 'deleted'})
-      } else if (head === 1 && workdir === 1 && stage === 0) {
-        files.push({path, staged: true, status: 'deleted'}, {path, staged: false, status: 'untracked'}) // [1,1,0] git rm --cached: staged deletion + file still in workdir → untracked
-      } else if (head === 1 && workdir === 2 && stage === 1) {
-        files.push({path, staged: false, status: 'modified'}) // [1,2,1] unstaged modification
-      } else if (head === 1 && workdir === 2 && stage === 2) {
-        files.push({path, staged: true, status: 'modified'}) // [1,2,2] staged modification
-      } else if (head === 1 && workdir === 2 && stage === 3) {
-        files.push({path, staged: true, status: 'modified'}, {path, staged: false, status: 'modified'}) // [1,2,3] partially staged modification
-      } else if (head === 0 && workdir === 2 && stage === 0) {
-        files.push({path, staged: false, status: 'untracked'}) // [0,2,0] untracked new file
-      } else if (head === 0 && workdir === 2 && stage === 2) {
-        files.push({path, staged: true, status: 'added'}) // [0,2,2] staged new file
-      } else if (head === 0 && workdir === 2 && stage === 3) {
-        files.push({path, staged: true, status: 'added'}, {path, staged: false, status: 'modified'}) // [0,2,3] partially staged new file
+      const classification = classifyTuple(head, workdir, stage)
+      for (const entry of classification.files) {
+        files.push({path, staged: entry.staged, status: entry.status})
       }
-      // [1,1,1] unmodified → skip
     }
 
     return files
@@ -1365,13 +1335,7 @@ export class IsomorphicGitService implements IGitService {
     const matrix = await git.statusMatrix({dir, fs})
 
     // Identify staged rows — any file where the index differs from HEAD
-    const stagedRows = matrix.filter(([, head, , stage]) => {
-      if (head === 1 && stage === 0) return true // staged deletion or git rm --cached ([1,0,0] and [1,1,0])
-      if (head === 0 && stage === 2) return true // staged new file ([0,2,2])
-      if (head === 1 && stage === 2) return true // staged modification ([1,2,2])
-      if (stage === 3) return true // partially staged ([*,*,3])
-      return false
-    })
+    const stagedRows = matrix.filter(([, head, workdir, stage]) => classifyTuple(head, workdir, stage).staged)
 
     const toUnstage =
       filePaths && filePaths.length > 0
