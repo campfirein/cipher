@@ -42,13 +42,11 @@ export function useComposerSubmit(args: {
     try {
       await createMutation.mutateAsync(payload)
       const verb = args.type === 'query' ? 'Query' : 'Curate'
-      toast.success(`${verb} task queued`, {position: 'top-center'})
+      toast.success(`${verb} task queued`)
       args.onSubmitted?.(taskId, args.openDetailAfter)
       args.onClose()
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to create task', {
-        position: 'top-center',
-      })
+      toast.error(error instanceof Error ? error.message : 'Failed to create task')
     }
   }
 

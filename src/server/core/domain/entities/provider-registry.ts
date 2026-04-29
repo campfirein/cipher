@@ -161,7 +161,7 @@ export const PROVIDER_REGISTRY: Readonly<Record<string, ProviderDefinition>> = {
     apiKeyUrl: 'https://aistudio.google.com/apikey',
     baseUrl: '',
     category: 'popular',
-    defaultModel: 'gemini-2.5-flash',
+    defaultModel: 'gemini-3-flash-preview',
     description: 'Gemini models by Google',
     envVars: ['GOOGLE_API_KEY', 'GEMINI_API_KEY'],
     headers: {},

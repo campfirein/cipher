@@ -280,10 +280,7 @@ describe('E2E smoke — TaskHistory + WebUI surface (proj/persis-task-history)',
       'webui-1',
     )) as {tasks: Array<{taskId: string}>}
 
-    const seenIds = new Set([
-      ...page1.tasks.map((t) => t.taskId),
-      ...page2.tasks.map((t) => t.taskId),
-    ])
+    const seenIds = new Set([...page1.tasks.map((t) => t.taskId), ...page2.tasks.map((t) => t.taskId)])
     expect(seenIds.has('p1')).to.equal(true)
     expect(seenIds.has('p2')).to.equal(true)
     expect(seenIds.has('p3')).to.equal(true)

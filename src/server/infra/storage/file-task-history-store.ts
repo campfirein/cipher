@@ -110,10 +110,7 @@ const MAX_APPEND_CHUNK_BYTES = 3584
  *
  * Exported for direct unit-testing of the chunk boundaries.
  */
-export function chunkLinesByBytes(
-  lines: readonly string[],
-  maxBytes: number,
-): readonly (readonly string[])[] {
+export function chunkLinesByBytes(lines: readonly string[], maxBytes: number): readonly (readonly string[])[] {
   const chunks: string[][] = []
   let current: string[] = []
   let currentBytes = 0
@@ -753,10 +750,7 @@ export class FileTaskHistoryStore implements ITaskHistoryStore {
    * Recent saves (createdAt within `staleThresholdMs`) fall through to the
    * C1 branch; old `'created'`/`'started'` orphans take the N2 branch.
    */
-  private async recoverPreRenameSaves(
-    liveIds: Set<string>,
-    tombstones: Set<string>,
-  ): Promise<void> {
+  private async recoverPreRenameSaves(liveIds: Set<string>, tombstones: Set<string>): Promise<void> {
     let dataFilenames: string[]
     try {
       dataFilenames = await readdir(this.dataDir)
@@ -898,9 +892,7 @@ export class FileTaskHistoryStore implements ITaskHistoryStore {
       if (!liveTaskIds.has(taskId)) toUnlink.push(filename)
     }
 
-    await Promise.all(
-      toUnlink.map((filename) => rm(join(this.dataDir, filename), {force: true}).catch(() => {})),
-    )
+    await Promise.all(toUnlink.map((filename) => rm(join(this.dataDir, filename), {force: true}).catch(() => {})))
   }
 
   /**

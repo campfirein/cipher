@@ -21,7 +21,7 @@ export const googleProvider: ProviderModule = {
       model: provider(config.model),
     })
   },
-  defaultModel: 'gemini-2.5-flash',
+  defaultModel: 'gemini-3-flash-preview',
   description: 'Gemini models by Google',
   envVars: ['GOOGLE_API_KEY', 'GEMINI_API_KEY'],
   id: 'google',

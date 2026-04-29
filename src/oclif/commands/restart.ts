@@ -28,6 +28,34 @@ The daemon will restart automatically on the next brv command.`
   private static readonly SERVER_AGENT_PATTERNS = ['brv-server.js', 'agent-process.js']
 
   /**
+   * Returns the process + ancestor chain up to (but not including) pid 1.
+   *
+   * Needed to protect every bash-wrapper layer when the oclif + plugin-update chain
+   * is: outer bash (tarball) → redirect shim → inner bash (client) → node. Each layer
+   * has `bin/brv` in its cmdline and would self-kill if not excluded. `process.ppid`
+   * alone only covers the direct parent — grandparents and beyond need this walker.
+   *
+   * `getPpidOf` is injected for testability; the default queries the OS.
+   */
+  static ancestorPids(
+    startPid: number,
+    getPpidOf: (pid: number) => number | undefined = Restart.createDefaultGetPpidOf(),
+  ): number[] {
+    const chain: number[] = []
+    const visited = new Set<number>()
+    let pid = startPid
+    while (pid > 1 && !visited.has(pid)) {
+      chain.push(pid)
+      visited.add(pid)
+      const ppid = getPpidOf(pid)
+      if (ppid === undefined || ppid === pid || ppid <= 1) break
+      pid = ppid
+    }
+
+    return chain
+  }
+
+  /**
    * Builds the list of CLI script patterns used to identify brv client processes.
    *
    * All patterns are absolute paths or specific filenames to avoid false-positive matches
@@ -59,6 +87,109 @@ The daemon will restart automatically on the next brv command.`
   }
 
   /**
+   * Builds the Windows PowerShell kill script for `patternKill`.
+   *
+   * Extracted for testability — the actual spawn is a side-effect on win32. Non-finite
+   * pids (NaN/Infinity) are dropped so a stray undefined in the exclude set cannot
+   * collapse to `$_.ProcessId -ne NaN` (PowerShell-true for every row, silent skip).
+   * `$true` fallback keeps the emitted script syntactically valid when the exclude set
+   * is empty or fully non-finite — prevents a trailing `-and` from breaking PS parsing.
+   */
+  static buildWindowsKillScript(patterns: string[], excludePids: Iterable<number>, skipProtected: boolean): string {
+    const whereClause = patterns.map((p) => `$_.CommandLine -like '*${p.replaceAll("'", "''")}*'`).join(' -or ')
+    const excludeClause =
+      [...excludePids]
+        .filter((p) => Number.isFinite(p))
+        .map((p) => `$_.ProcessId -ne ${p}`)
+        .join(' -and ') || '$true'
+    const protectedClause = skipProtected
+      ? ` -and ${Restart.PROTECTED_COMMANDS.map((cmd) => `$_.CommandLine -notlike '* ${cmd} *' -and $_.CommandLine -notlike '* ${cmd}'`).join(' -and ')}`
+      : ''
+    return `Get-CimInstance Win32_Process | Where-Object { (${whereClause}) -and ${excludeClause}${protectedClause} } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`
+  }
+
+  /**
+   * Parses a Linux `/proc/<pid>/stat` line into the ppid, or undefined if malformed.
+   *
+   * The stat format is `<pid> (<comm>) <state> <ppid> <pgrp> ...`. The comm field can
+   * contain spaces and parens, so we anchor on the last `)` — everything after
+   * `") "` is space-delimited and `ppid` is the second token.
+   *
+   * Extracted as a pure function for testability — the surrounding `getPpidOf` does
+   * a filesystem read that's awkward to mock.
+   */
+  static parseProcStat(stat: string): number | undefined {
+    const lastParen = stat.lastIndexOf(')')
+    if (lastParen === -1) return undefined
+    const rest = stat.slice(lastParen + 2).split(' ')
+    if (rest.length < 2) return undefined
+    const n = Number.parseInt(rest[1], 10)
+    return Number.isNaN(n) ? undefined : n
+  }
+
+  /**
+   * Parses `"<pid>,<ppid>\n..."` stdout from the PowerShell process-table query into
+   * a Map. Tolerates header rows, blank lines, CRLF endings, and malformed rows (any
+   * row whose pid or ppid is non-numeric is dropped silently).
+   */
+  static parseWindowsProcessTable(stdout: string): Map<number, number> {
+    const table = new Map<number, number>()
+    for (const line of stdout.split(/\r?\n/)) {
+      const [pidStr, ppidStr] = line.split(',')
+      const pid = Number.parseInt(pidStr, 10)
+      const ppid = Number.parseInt(ppidStr, 10)
+      if (Number.isFinite(pid) && Number.isFinite(ppid)) {
+        table.set(pid, ppid)
+      }
+    }
+
+    return table
+  }
+
+  /**
+   * Builds the default `getPpidOf` for the current platform.
+   *
+   * On Windows, preloads the full Win32_Process table with a single PowerShell
+   * invocation (~200 ms cold start) and returns a Map-backed closure — replaces the
+   * prior per-pid PowerShell spawn, which was O(ancestors × PS startup) per
+   * `ancestorPids` call. On Linux/macOS/other Unix, falls through to per-pid
+   * `getPpidOf` (cheap — `/proc` read or `ps -o ppid=`).
+   */
+  private static createDefaultGetPpidOf(): (pid: number) => number | undefined {
+    if (process.platform === 'win32') {
+      const table = Restart.loadWindowsProcessTable()
+      return (pid) => table.get(pid)
+    }
+
+    return (pid) => Restart.getPpidOf(pid)
+  }
+
+  /**
+   * Returns the parent PID of a given PID, or undefined if the process is gone.
+   *
+   * Windows is handled via the batched `loadWindowsProcessTable` path in
+   * `createDefaultGetPpidOf` — this function only covers Unix-family platforms:
+   *   linux         : /proc/<pid>/stat, parsed via `parseProcStat`
+   *   darwin (macOS): ps -p <pid> -o ppid=
+   *   other Unix    : same ps command as darwin
+   */
+  private static getPpidOf(pid: number): number | undefined {
+    if (process.platform === 'linux') {
+      try {
+        return Restart.parseProcStat(readFileSync(join('/proc', String(pid), 'stat'), 'utf8'))
+      } catch {
+        return undefined
+      }
+    }
+
+    // darwin (macOS) + other Unix (FreeBSD, etc.) — POSIX ps.
+    const result = spawnSync('ps', ['-p', String(pid), '-o', 'ppid='], {encoding: 'utf8'})
+    if (result.status !== 0) return undefined
+    const n = Number.parseInt(result.stdout.trim(), 10)
+    return Number.isNaN(n) ? undefined : n
+  }
+
+  /**
    * Returns true if the cmdline contains a protected command as an argument.
    * Handles both /proc null-byte delimiters (Linux) and space delimiters (macOS ps).
    */
@@ -82,7 +213,7 @@ The daemon will restart automatically on the next brv command.`
   private static killByPid(pid: number): void {
     try {
       if (process.platform === 'win32') {
-        spawnSync('taskkill', ['/pid', String(pid), '/f', '/t'], {stdio: 'ignore'})
+        spawnSync('taskkill', ['/pid', String(pid), '/f', '/t'], {stdio: 'ignore', windowsHide: true})
       } else {
         process.kill(pid, 'SIGKILL')
       }
@@ -147,11 +278,32 @@ The daemon will restart automatically on the next brv command.`
   }
 
   /**
+   * Loads the full Windows process table (pid → ppid) via one PowerShell invocation.
+   * Returns an empty map if PowerShell fails or is unavailable.
+   */
+  private static loadWindowsProcessTable(): Map<number, number> {
+    const result = spawnSync(
+      'powershell',
+      [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        'Get-CimInstance Win32_Process | ForEach-Object { "$($_.ProcessId),$($_.ParentProcessId)" }',
+      ],
+      {encoding: 'utf8', timeout: 10_000, windowsHide: true},
+    )
+    if (result.status !== 0) return new Map()
+    return Restart.parseWindowsProcessTable(result.stdout)
+  }
+
+  /**
    * Pattern-kill brv processes matching the given patterns.
    *
-   * Self-exclusion: own PID and parent PID are always filtered out.
-   * The parent PID exclusion protects the oclif bin/brv bash wrapper
-   * on bundled installs (it does not use exec, so bash remains as parent).
+   * Self-exclusion covers the full ancestor chain (self → parent → grandparent → …).
+   * Required because a `brv restart` under the oclif bash wrapper + plugin-update
+   * redirect chain has up to four ancestors (outer tarball wrapper → redirect shim →
+   * inner client wrapper → node), every one of which contains `bin/brv` in its
+   * cmdline. Excluding only `process.ppid` leaves grandparents open to self-kill.
    *
    * When skipProtected is true, processes running protected commands
    * (e.g. `brv update`) are spared — prevents `brv restart` from killing
@@ -162,16 +314,24 @@ The daemon will restart automatically on the next brv command.`
    *   macOS:                      ps -A scan
    *   Windows:                    PowerShell Get-CimInstance — available Windows 8+ / PS 3.0+
    */
-  private static patternKill(patterns: string[], skipProtected = false): void {
-    const excludePids = new Set([process.pid, process.ppid])
+  private static patternKill(
+    patterns: string[],
+    skipProtected = false,
+    getPpidOf: (pid: number) => number | undefined = Restart.createDefaultGetPpidOf(),
+  ): void {
+    // Self-exclusion: walk the full ancestor chain (getPpidOf is platform-aware —
+    // Linux /proc, macOS ps, Windows PowerShell CIM). process.pid + process.ppid
+    // are kept as explicit fallbacks in case the walker regresses or returns empty
+    // on an unexpected platform — Set dedups so there's no cost.
+    const excludePids = new Set<number>([
+      process.pid,
+      process.ppid,
+      ...Restart.ancestorPids(process.pid, getPpidOf),
+    ])
 
     if (process.platform === 'win32') {
-      const whereClause = patterns.map((p) => `$_.CommandLine -like '*${p.replaceAll("'", "''")}*'`).join(' -or ')
-      const protectedClause = skipProtected
-        ? ` -and ${Restart.PROTECTED_COMMANDS.map((cmd) => `$_.CommandLine -notlike '* ${cmd} *' -and $_.CommandLine -notlike '* ${cmd}'`).join(' -and ')}`
-        : ''
-      const script = `Get-CimInstance Win32_Process | Where-Object { (${whereClause}) -and $_.ProcessId -ne ${process.pid} -and $_.ProcessId -ne ${process.ppid}${protectedClause} } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }`
-      spawnSync('powershell', ['-Command', script], {stdio: 'ignore'})
+      const script = Restart.buildWindowsKillScript(patterns, excludePids, skipProtected)
+      spawnSync('powershell', ['-NoProfile', '-NonInteractive', '-Command', script], {stdio: 'ignore', timeout: 10_000, windowsHide: true})
     } else if (process.platform === 'linux') {
       Restart.killByProcScan(patterns, excludePids, skipProtected)
     } else {
@@ -229,13 +389,18 @@ The daemon will restart automatically on the next brv command.`
   async run(): Promise<void> {
     const dataDir = getGlobalDataDir()
 
+    // Resolve the platform getPpidOf once. On Windows this loads the full
+    // Win32_Process table via PowerShell; share it across Phase 1 and Phase 3
+    // so the spawn happens only once instead of twice.
+    const getPpidOf = Restart.createDefaultGetPpidOf()
+
     // Phase 1: Kill all client processes first (TUI, MCP, headless commands).
     // Must happen BEFORE daemon kill — clients have reconnectors that will
     // respawn the daemon via ensureDaemonRunning() if they detect disconnection.
     // Self excluded by process.pid / process.ppid.
     // Protected commands (e.g. `brv update`) are spared.
     this.log('Stopping clients...')
-    Restart.patternKill(Restart.buildCliPatterns(), true)
+    Restart.patternKill(Restart.buildCliPatterns(), true, getPpidOf)
     await Restart.sleep(KILL_SETTLE_MS)
 
     // Phase 2: Graceful daemon kill via daemon.json PID.
@@ -262,7 +427,7 @@ The daemon will restart automatically on the next brv command.`
     }
 
     // Phase 3: Kill orphaned server/agent processes not tracked in daemon.json.
-    Restart.patternKill(Restart.SERVER_AGENT_PATTERNS)
+    Restart.patternKill(Restart.SERVER_AGENT_PATTERNS, false, getPpidOf)
     await Restart.sleep(KILL_SETTLE_MS)
 
     // Phase 4: Clean state files.

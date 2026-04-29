@@ -12,13 +12,14 @@
  * 1. Setup daemon logging
  * 2. Select port (random batch scan in dynamic range 49152-65535)
  * 3. Acquire global instance lock (atomic temp+rename)
- * 4. Start Socket.IO transport server
+ * 4. Construct Socket.IO transport server (start() is deferred — see step 11)
  * 5. Start heartbeat writer
  * 6. Install daemon resilience handlers
  * 7. Create services (auth, project state, agent pool, handlers)
  * 8. Wire events (idle timeout, auth broadcasts, state server)
  * 9. Create shutdown handler
  * 10. Start idle timer + register signal handlers
+ * 11. Start Socket.IO transport server (port opens — clients can connect)
  */
 
 import {GlobalInstanceManager} from '@campfirein/brv-transport-client'
@@ -77,7 +78,12 @@ import {createTokenStore} from '../storage/token-store.js'
 import {SocketIOTransportServer} from '../transport/socket-io-transport-server.js'
 import {createWebUiMiddleware} from '../webui/webui-middleware.js'
 import {WebUiServer} from '../webui/webui-server.js'
-import {readWebuiPreferredPort, removeWebuiState, writeWebuiPreferredPort, writeWebuiState} from '../webui/webui-state.js'
+import {
+  readWebuiPreferredPort,
+  removeWebuiState,
+  writeWebuiPreferredPort,
+  writeWebuiState,
+} from '../webui/webui-state.js'
 import {AgentIdleTimeoutPolicy} from './agent-idle-timeout-policy.js'
 import {AgentPool} from './agent-pool.js'
 import {DaemonResilience} from './daemon-resilience.js'
@@ -191,10 +197,8 @@ async function main(): Promise<void> {
   let webuiServer: undefined | WebUiServer
 
   try {
-    // 4a. Start Socket.IO transport server (no HTTP routes — Socket.IO only)
+    // 4a. Construct transport server. start() is deferred to step 11 so all handlers register before sockets connect.
     transportServer = new SocketIOTransportServer()
-    await transportServer.start(port)
-    log(`Transport server started on port ${port}`)
 
     // 4b. Start Web UI server on stable port (separate from transport)
     const daemonDir = dirname(fileURLToPath(import.meta.url))
@@ -204,7 +208,7 @@ async function main(): Promise<void> {
     const webuiPortEnv = process.env.BRV_WEBUI_PORT
     const webuiPort = webuiPortEnv
       ? Number.parseInt(webuiPortEnv, 10)
-      : readWebuiPreferredPort() ?? WEBUI_DEFAULT_PORT
+      : (readWebuiPreferredPort() ?? WEBUI_DEFAULT_PORT)
 
     const webuiApp = createWebUiMiddleware({
       getConfig: () => ({daemonPort: port, port: webuiPort, projectCwd: process.cwd(), version}),
@@ -235,7 +239,7 @@ async function main(): Promise<void> {
       webuiServer = undefined
     }
 
-    // 5. Start heartbeat writer
+    // 5. Start heartbeat writer. Must run before transport.start(): pollForDaemon SIGTERMs daemons with stale heartbeat.
     const heartbeatPath = join(getGlobalDataDir(), HEARTBEAT_FILE)
     heartbeatWriter = new HeartbeatWriter({
       filePath: heartbeatPath,
@@ -570,41 +574,38 @@ async function main(): Promise<void> {
     }))
 
     // Web UI set port — restarts webui server on new port and persists preference
-    transportServer.onRequest<{port: number}, {port: number; success: boolean}>(
-      'webui:setPort',
-      async (data) => {
-        const newPort = data.port
+    transportServer.onRequest<{port: number}, {port: number; success: boolean}>('webui:setPort', async (data) => {
+      const newPort = data.port
 
-        // Stop existing webui server if running
-        if (webuiServer?.isRunning()) {
-          await webuiServer.stop()
-          log(`Stopped web UI server on port ${webuiServer.getPort() ?? '?'}`)
-        }
+      // Stop existing webui server if running
+      if (webuiServer?.isRunning()) {
+        await webuiServer.stop()
+        log(`Stopped web UI server on port ${webuiServer.getPort() ?? '?'}`)
+      }
 
-        // Create fresh Express app for the new server
-        const newWebuiApp = createWebUiMiddleware({
-          getConfig: () => ({daemonPort: port, port: newPort, projectCwd: process.cwd(), version}),
-          webuiDistDir,
-        })
-        const newApp = express()
-        newApp.use(
-          createReviewApiRouter({
-            curateLogStoreFactory: (projectPath) => new FileCurateLogStore({baseDir: getProjectDataDir(projectPath)}),
-            reviewBackupStoreFactory: (projectPath) => new FileReviewBackupStore(join(projectPath, BRV_DIR)),
-          }),
-        )
-        newApp.use(newWebuiApp)
+      // Create fresh Express app for the new server
+      const newWebuiApp = createWebUiMiddleware({
+        getConfig: () => ({daemonPort: port, port: newPort, projectCwd: process.cwd(), version}),
+        webuiDistDir,
+      })
+      const newApp = express()
+      newApp.use(
+        createReviewApiRouter({
+          curateLogStoreFactory: (projectPath) => new FileCurateLogStore({baseDir: getProjectDataDir(projectPath)}),
+          reviewBackupStoreFactory: (projectPath) => new FileReviewBackupStore(join(projectPath, BRV_DIR)),
+        }),
+      )
+      newApp.use(newWebuiApp)
 
-        // Start on new port
-        webuiServer = new WebUiServer(newApp)
-        await webuiServer.start(newPort)
-        writeWebuiState(newPort)
-        writeWebuiPreferredPort(newPort)
-        log(`Web UI server restarted on port ${newPort} (persisted)`)
+      // Start on new port
+      webuiServer = new WebUiServer(newApp)
+      await webuiServer.start(newPort)
+      writeWebuiState(newPort)
+      writeWebuiPreferredPort(newPort)
+      log(`Web UI server restarted on port ${newPort} (persisted)`)
 
-        return {port: newPort, success: true}
-      },
-    )
+      return {port: newPort, success: true}
+    })
 
     // Debug endpoint — exposes daemon internal state for `brv debug` command
     transportServer.onRequest<void, unknown>('daemon:getState', () => ({
@@ -680,6 +681,10 @@ async function main(): Promise<void> {
         log(`Shutdown error: ${error instanceof Error ? error.message : String(error)}`)
       })
     })
+
+    // 11. All handlers registered — open the socket port now.
+    await transportServer.start(port)
+    log(`Transport server started on port ${port}`)
 
     log(`Daemon fully started (PID: ${process.pid}, port: ${port})`)
   } catch (error: unknown) {

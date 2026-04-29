@@ -1,3 +1,4 @@
+import {spawn} from 'node:child_process'
 import {join} from 'node:path'
 
 import type {ProjectLocationDTO} from '../../../../shared/transport/types/dto.js'
@@ -5,9 +6,15 @@ import type {IContextTreeService} from '../../../core/interfaces/context-tree/i-
 import type {IProjectRegistry} from '../../../core/interfaces/project/i-project-registry.js'
 import type {ITransportServer} from '../../../core/interfaces/transport/i-transport-server.js'
 
-import {LocationsEvents, type LocationsGetResponse} from '../../../../shared/transport/events/locations-events.js'
+import {
+  LocationsEvents,
+  type LocationsGetResponse,
+  type LocationsRevealRequest,
+  type LocationsRevealResponse,
+} from '../../../../shared/transport/events/locations-events.js'
 import {BRV_DIR, CONTEXT_TREE_DIR} from '../../../constants.js'
 import {type ProjectPathResolver} from './handler-types.js'
+import {resolveRevealCommand} from './reveal-command.js'
 
 export interface LocationsHandlerDeps {
   contextTreeService: IContextTreeService
@@ -49,6 +56,10 @@ export class LocationsHandler {
         return {locations: []}
       }
     })
+
+    this.transport.onRequest<LocationsRevealRequest, LocationsRevealResponse>(LocationsEvents.REVEAL, async (data) =>
+      this.handleReveal(data),
+    )
   }
 
   private async buildLocations(currentProjectPath?: string): Promise<ProjectLocationDTO[]> {
@@ -95,5 +106,29 @@ export class LocationsHandler {
       if (a.isInitialized !== b.isInitialized) return a.isInitialized ? -1 : 1
       return (all.get(b.projectPath)?.registeredAt ?? 0) - (all.get(a.projectPath)?.registeredAt ?? 0)
     })
+  }
+
+  private async handleReveal(data: LocationsRevealRequest): Promise<LocationsRevealResponse> {
+    const {projectPath} = data
+    if (!projectPath) throw new Error('projectPath is required')
+
+    // Only allow revealing paths that are registered projects — the client
+    // controls this argument, so we must not trust it blindly.
+    const registered = this.projectRegistry.getAll()
+    if (!registered.has(projectPath)) {
+      throw new Error('Project is not registered.')
+    }
+
+    const exists = await this.pathExists(projectPath).catch(() => false)
+    if (!exists) throw new Error('Project folder no longer exists.')
+
+    const {args, command} = resolveRevealCommand(process.platform, projectPath)
+    const child = spawn(command, args, {detached: true, stdio: 'ignore', windowsHide: true})
+    child.on('error', () => {
+      /* best-effort — nothing to report back once the ack resolved */
+    })
+    child.unref()
+
+    return {projectPath}
   }
 }
