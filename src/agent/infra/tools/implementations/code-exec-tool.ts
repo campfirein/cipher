@@ -106,9 +106,22 @@ export function createCodeExecTool(sandboxService: ISandboxService): Tool {
         timeout,
       })
 
-      // Auto-redirect large outputs to sandbox variable for RLM commands.
-      // This prevents large tool results from bloating conversation history.
-      const AUTO_REDIRECT_THRESHOLD = 2000
+      // Auto-redirect large outputs to sandbox variable. This prevents
+      // truly outsized tool results (e.g. agent accidentally dumping a
+      // raw context blob) from bloating conversation history.
+      //
+      // The threshold is tied to maxStdoutChars when set: for curate/query
+      // the sandbox already truncates stdout at maxStdoutChars (5K curate,
+      // 8K query), so setting the redirect threshold to match means we
+      // never redirect for RLM commands — stdout always lands inline in
+      // the tool result. Redirect only kicks in for callers without a
+      // sandbox cap (non-RLM) when stdout exceeds the legacy 2K threshold.
+      //
+      // Eliminating the redirect for RLM commands eliminates the dedicated
+      // read-back iteration the agent (Anthropic in particular) otherwise
+      // had to make to retrieve `__stdout_<id>` — exp 04 measured ~25% of
+      // Anthropic's iterations were these read-backs. exp 06 lifts them.
+      const AUTO_REDIRECT_THRESHOLD = maxStdoutChars ?? 2000
       if (
         !silent
         && result.stdout.length > AUTO_REDIRECT_THRESHOLD
