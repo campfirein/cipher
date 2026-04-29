@@ -1621,16 +1621,22 @@ export class VcHandler {
     teamSlug: string,
     spaceSlug: string,
   ): Promise<{
-    spaceId: string
-    spaceName: string
+    spaceId?: string
+    spaceName?: string
     spaceSlug: string
-    teamId: string
-    teamName: string
+    teamId?: string
+    teamName?: string
     teamSlug: string
     url: string
   }> {
     const token = await this.tokenStore.load()
-    if (!token?.isValid()) throw new NotAuthenticatedError()
+    // Anonymous: skip team/space ID lookup (the API requires auth) and let the
+    // server be the sole authority on access. The slugs are sufficient to talk
+    // to the cogit server. Downstream consumers guard space-config persistence
+    // on having all four IDs/names, so partial info simply skips persistence.
+    if (!token?.isValid()) {
+      return {spaceSlug, teamSlug, url: buildCogitRemoteUrl(this.gitRemoteBaseUrl, teamSlug, spaceSlug)}
+    }
 
     const {teams} = await this.teamService.getTeams(token.sessionKey, {fetchAll: true})
     const team = teams.find((t) => t.slug.toLowerCase() === teamSlug.toLowerCase())

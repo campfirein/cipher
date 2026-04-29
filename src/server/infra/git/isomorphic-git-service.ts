@@ -228,11 +228,11 @@ export class IsomorphicGitService implements IGitService {
 
   async clone(params: CloneGitParams): Promise<void> {
     const dir = this.requireDirectory(params)
-    const token = this.requireToken()
+    const token = this.authStateStore.getToken()
     await git.clone({
       dir,
       fs,
-      headers: this.buildBasicAuthHeaders(token.userId, token.sessionKey),
+      ...(token ? {headers: this.buildBasicAuthHeaders(token.userId, token.sessionKey)} : {}),
       http,
       onAuth: this.getOnAuth(),
       onAuthFailure: this.getOnAuthFailure(),
@@ -301,11 +301,11 @@ export class IsomorphicGitService implements IGitService {
 
   async fetch(params: FetchGitParams): Promise<void> {
     const dir = this.requireDirectory(params)
-    const token = this.requireToken()
+    const token = this.authStateStore.getToken()
     await git.fetch({
       dir,
       fs,
-      headers: this.buildBasicAuthHeaders(token.userId, token.sessionKey),
+      ...(token ? {headers: this.buildBasicAuthHeaders(token.userId, token.sessionKey)} : {}),
       http,
       onAuth: this.getOnAuth(),
       onAuthFailure: this.getOnAuthFailure(),
@@ -674,7 +674,7 @@ export class IsomorphicGitService implements IGitService {
 
   async pull(params: PullGitParams): Promise<PullResult> {
     const dir = this.requireDirectory(params)
-    const token = this.requireToken()
+    const token = this.authStateStore.getToken()
     const remote = params.remote ?? 'origin'
 
     // Guard: if MERGE_HEAD exists, a previous merge is unresolved — refuse to pull
@@ -692,7 +692,7 @@ export class IsomorphicGitService implements IGitService {
     await git.fetch({
       dir,
       fs,
-      headers: this.buildBasicAuthHeaders(token.userId, token.sessionKey),
+      ...(token ? {headers: this.buildBasicAuthHeaders(token.userId, token.sessionKey)} : {}),
       http,
       onAuth: this.getOnAuth(),
       onAuthFailure: this.getOnAuthFailure(),
@@ -813,7 +813,7 @@ export class IsomorphicGitService implements IGitService {
 
   async push(params: PushGitParams): Promise<PushResult> {
     const dir = this.requireDirectory(params)
-    const token = this.requireToken()
+    const token = this.authStateStore.getToken()
     try {
       const branch = params.branch ?? (await git.currentBranch({dir, fs})) ?? 'main'
       const remote = params.remote ?? 'origin'
@@ -827,7 +827,7 @@ export class IsomorphicGitService implements IGitService {
       await git.push({
         dir,
         fs,
-        headers: this.buildBasicAuthHeaders(token.userId, token.sessionKey),
+        ...(token ? {headers: this.buildBasicAuthHeaders(token.userId, token.sessionKey)} : {}),
         http,
         onAuth: this.getOnAuth(),
         onAuthFailure: this.getOnAuthFailure(),
@@ -1318,12 +1318,6 @@ export class IsomorphicGitService implements IGitService {
     // Guard against empty string — undefined/null are caught by TypeScript at compile time
     if (!params.directory) throw new GitError('directory is required for git operations')
     return params.directory
-  }
-
-  private requireToken(): NonNullable<ReturnType<IAuthStateStore['getToken']>> {
-    const token = this.authStateStore.getToken()
-    if (!token) throw new GitAuthError()
-    return token
   }
 
   /**
