@@ -14,13 +14,55 @@ import {restore, stub} from 'sinon'
 import type {ICipherAgent} from '../../../../src/agent/core/interfaces/i-cipher-agent.js'
 
 import {LocalSandbox} from '../../../../src/agent/infra/sandbox/local-sandbox.js'
+
+/**
+ * Mock cipher agent used by the runAgentBody / finalize split tests.
+ * Hoisted to module scope (consistent-function-scoping lint rule).
+ */
+function buildSplitTestAgent(): ICipherAgent {
+  return {
+    cancel: stub().resolves(false),
+    createTaskSession: stub().resolves('session-id'),
+    deleteSandboxVariable: stub(),
+    deleteSandboxVariableOnSession: stub(),
+    deleteSession: stub().resolves(true),
+    deleteTaskSession: stub().resolves(),
+    execute: stub().resolves(''),
+    executeOnSession: stub().resolves('curated'),
+    generate: stub().resolves({content: '', toolCalls: [], usage: {inputTokens: 0, outputTokens: 0}}),
+    getSessionMetadata: stub().resolves(),
+    getState: stub().returns({currentIteration: 0, executionHistory: [], executionState: 'idle', toolCallsExecuted: 0}),
+    listPersistedSessions: stub().resolves([]),
+    reset: stub(),
+    setSandboxVariable: stub(),
+    setSandboxVariableOnSession: stub(),
+    start: stub().resolves(),
+    stream: stub().resolves({[Symbol.asyncIterator]: () => ({next: () => Promise.resolve({done: true, value: undefined})})}),
+  } as unknown as ICipherAgent
+}
+
 import {FileValidationError} from '../../../../src/server/core/domain/errors/task-error.js'
 import {FileContextTreeManifestService} from '../../../../src/server/infra/context-tree/file-context-tree-manifest-service.js'
 import {FileContextTreeSnapshotService} from '../../../../src/server/infra/context-tree/file-context-tree-snapshot-service.js'
 import {FileContextTreeSummaryService} from '../../../../src/server/infra/context-tree/file-context-tree-summary-service.js'
+import {DreamLockService} from '../../../../src/server/infra/dream/dream-lock-service.js'
 import {CurateExecutor} from '../../../../src/server/infra/executor/curate-executor.js'
 
+/**
+ * Default DreamLockService stubs so Phase 4 tests don't write real
+ * `dream.lock` files. Tests exercising the lock directly re-stub via restore.
+ */
+function stubDreamLockServiceDefaults(): void {
+  stub(DreamLockService.prototype, 'tryAcquire').resolves({acquired: true, priorMtime: 0})
+  stub(DreamLockService.prototype, 'release').resolves()
+  stub(DreamLockService.prototype, 'rollback').resolves()
+}
+
 describe('CurateExecutor (regression)', () => {
+  beforeEach(() => {
+    stubDreamLockServiceDefaults()
+  })
+
   afterEach(() => {
     restore()
   })
@@ -298,6 +340,183 @@ describe('CurateExecutor (regression)', () => {
       // 4th arg must be the curate's taskId so the billing service groups
       // summary regenerations into the same session as the parent operation.
       expect(propagateStalenessStub.firstCall.args[3]).to.equal(taskId)
+    })
+  })
+
+  describe('runAgentBody / finalize split', () => {
+    // runAgentBody must return the response BEFORE Phase 4 runs so the daemon
+    // can fire `task:completed` early and queue finalize for background work.
+
+    it('returns the agent response without running Phase 4 first', async () => {
+      const agent = buildSplitTestAgent()
+      stub(FileContextTreeSnapshotService.prototype, 'getCurrentState')
+        .onFirstCall()
+        .resolves(new Map())
+        .onSecondCall()
+        .resolves(new Map([['auth/jwt.md', {hash: 'h', size: 1}]]))
+      const propagateStalenessStub = stub(
+        FileContextTreeSummaryService.prototype,
+        'propagateStaleness',
+      ).resolves([])
+      stub(FileContextTreeManifestService.prototype, 'buildManifest').resolves()
+
+      const executor = new CurateExecutor()
+      const {finalize, response} = await executor.runAgentBody(agent, {
+        clientCwd: '/p',
+        content: 'capture',
+        projectRoot: '/p',
+        taskId: 't1',
+      })
+
+      // Phase 4 must NOT have run yet — response was returned immediately.
+      expect(response).to.equal('curated')
+      expect(propagateStalenessStub.called).to.be.false
+      expect((agent.deleteTaskSession as ReturnType<typeof stub>).called).to.be.false
+
+      // finalize() actually runs Phase 4
+      await finalize()
+      expect(propagateStalenessStub.calledOnce).to.be.true
+      expect((agent.deleteTaskSession as ReturnType<typeof stub>).calledOnce).to.be.true
+    })
+
+    it('cleans up the task session if the agent body throws (no finalize returned)', async () => {
+      const agent = buildSplitTestAgent()
+      ;(agent.executeOnSession as ReturnType<typeof stub>).rejects(new Error('agent failed'))
+
+      const executor = new CurateExecutor()
+      try {
+        await executor.runAgentBody(agent, {clientCwd: '/p', content: 'x', taskId: 't2'})
+        expect.fail('should have thrown')
+      } catch (error) {
+        expect((error as Error).message).to.equal('agent failed')
+      }
+
+      // Even on agent body failure, the session must be cleaned up — no leak.
+      expect((agent.deleteTaskSession as ReturnType<typeof stub>).calledOnceWithExactly('session-id')).to.be.true
+    })
+
+    it('executeWithAgent (backwards-compat wrapper) still runs Phase 4 inline before returning', async () => {
+      const agent = buildSplitTestAgent()
+      stub(FileContextTreeSnapshotService.prototype, 'getCurrentState')
+        .onFirstCall()
+        .resolves(new Map())
+        .onSecondCall()
+        .resolves(new Map([['auth/jwt.md', {hash: 'h', size: 1}]]))
+      const propagateStalenessStub = stub(
+        FileContextTreeSummaryService.prototype,
+        'propagateStaleness',
+      ).resolves([])
+
+      const executor = new CurateExecutor()
+      const result = await executor.executeWithAgent(agent, {
+        clientCwd: '/p',
+        content: 'x',
+        projectRoot: '/p',
+        taskId: 't3',
+      })
+
+      expect(result).to.equal('curated')
+      // Wrapper awaits finalize internally — Phase 4 ran by the time we get here.
+      expect(propagateStalenessStub.calledOnce).to.be.true
+    })
+  })
+
+  describe('dream-lock coordination in Phase 4', () => {
+    // Detached Phase 4 races with idle-triggered dream on `_index.md` /
+    // `_manifest.json`. Curate's finalize must hold the dream lock around
+    // propagateStaleness + buildManifest to prevent interleaving.
+
+    it('acquires the dream lock before propagation and releases on success', async () => {
+      // Restore default stubs so we can observe the real call sequence.
+      restore()
+      const tryAcquire = stub(DreamLockService.prototype, 'tryAcquire').resolves({acquired: true, priorMtime: 1234})
+      const release = stub(DreamLockService.prototype, 'release').resolves()
+      const rollback = stub(DreamLockService.prototype, 'rollback').resolves()
+
+      const agent = buildSplitTestAgent()
+      stub(FileContextTreeSnapshotService.prototype, 'getCurrentState')
+        .onFirstCall()
+        .resolves(new Map())
+        .onSecondCall()
+        .resolves(new Map([['auth/jwt.md', {hash: 'h', size: 1}]]))
+      const propagateStaleness = stub(FileContextTreeSummaryService.prototype, 'propagateStaleness').resolves([])
+
+      const executor = new CurateExecutor()
+      const {finalize} = await executor.runAgentBody(agent, {
+        clientCwd: '/p',
+        content: 'x',
+        projectRoot: '/p',
+        taskId: 't-lock-success',
+      })
+      await finalize()
+
+      expect(tryAcquire.calledOnce).to.be.true
+      expect(propagateStaleness.calledOnce).to.be.true
+      // Lock-then-propagate, then release on success (no rollback).
+      expect(tryAcquire.calledBefore(propagateStaleness)).to.be.true
+      expect(release.calledOnce).to.be.true
+      expect(rollback.called).to.be.false
+    })
+
+    it('skips propagation when the lock is held (dream is running)', async () => {
+      restore()
+      const tryAcquire = stub(DreamLockService.prototype, 'tryAcquire').resolves({acquired: false})
+      const release = stub(DreamLockService.prototype, 'release').resolves()
+      const rollback = stub(DreamLockService.prototype, 'rollback').resolves()
+
+      const agent = buildSplitTestAgent()
+      // Snapshot is reachable so without the lock check, propagation would run.
+      stub(FileContextTreeSnapshotService.prototype, 'getCurrentState')
+        .onFirstCall()
+        .resolves(new Map())
+        .onSecondCall()
+        .resolves(new Map([['auth/jwt.md', {hash: 'h', size: 1}]]))
+      const propagateStaleness = stub(FileContextTreeSummaryService.prototype, 'propagateStaleness').resolves([])
+
+      const executor = new CurateExecutor()
+      const {finalize} = await executor.runAgentBody(agent, {
+        clientCwd: '/p',
+        content: 'x',
+        projectRoot: '/p',
+        taskId: 't-lock-held',
+      })
+      await finalize()
+
+      // Lock was checked; propagation skipped; nothing to release/rollback.
+      expect(tryAcquire.calledOnce).to.be.true
+      expect(propagateStaleness.called).to.be.false
+      expect(release.called).to.be.false
+      expect(rollback.called).to.be.false
+    })
+
+    it('rolls back the lock (preserves prior mtime) when propagation throws', async () => {
+      restore()
+      const priorMtime = 9999
+      stub(DreamLockService.prototype, 'tryAcquire').resolves({acquired: true, priorMtime})
+      const release = stub(DreamLockService.prototype, 'release').resolves()
+      const rollback = stub(DreamLockService.prototype, 'rollback').resolves()
+
+      const agent = buildSplitTestAgent()
+      stub(FileContextTreeSnapshotService.prototype, 'getCurrentState')
+        .onFirstCall()
+        .resolves(new Map())
+        .onSecondCall()
+        .resolves(new Map([['auth/jwt.md', {hash: 'h', size: 1}]]))
+      stub(FileContextTreeSummaryService.prototype, 'propagateStaleness').rejects(new Error('boom'))
+
+      const executor = new CurateExecutor()
+      const {finalize} = await executor.runAgentBody(agent, {
+        clientCwd: '/p',
+        content: 'x',
+        projectRoot: '/p',
+        taskId: 't-lock-fail',
+      })
+
+      // Phase 4 is fail-open: finalize must not throw even though propagation did.
+      await finalize()
+
+      expect(release.called).to.be.false
+      expect(rollback.calledOnceWithExactly(priorMtime)).to.be.true
     })
   })
 })

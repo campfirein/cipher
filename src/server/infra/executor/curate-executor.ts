@@ -12,10 +12,8 @@ import {
   type FileReadResult,
 } from '../../utils/file-content-reader.js'
 import {validateFileForCurate} from '../../utils/file-validator.js'
-import {FileContextTreeManifestService} from '../context-tree/file-context-tree-manifest-service.js'
 import {FileContextTreeSnapshotService} from '../context-tree/file-context-tree-snapshot-service.js'
-import {FileContextTreeSummaryService} from '../context-tree/file-context-tree-summary-service.js'
-import {diffStates} from '../context-tree/snapshot-diff.js'
+import {propagateSummariesUnderLock} from '../context-tree/propagate-summaries.js'
 import {DreamStateService} from '../dream/dream-state-service.js'
 import {PreCompactionService} from './pre-compaction/pre-compaction-service.js'
 
@@ -51,7 +49,24 @@ export class CurateExecutor implements ICurateExecutor {
     this.fileContentReader = fileContentReader ?? createFileContentReader()
   }
 
+  /** Synchronous wrapper — runs Phases 1-3 and awaits Phase 4 inline. */
   public async executeWithAgent(agent: ICipherAgent, options: CurateExecuteOptions): Promise<string> {
+    const {finalize, response} = await this.runAgentBody(agent, options)
+    await finalize()
+    return response
+  }
+
+  /**
+   * Returns the response after Phases 1-3 plus a `finalize` thunk for Phase 4
+   * (snapshot diff, summary regen, manifest rebuild, dream counter, drain,
+   * task-session cleanup). Caller invokes `finalize` exactly once. The thunk
+   * is fail-open. If the agent body itself throws, the task session is cleaned
+   * up before propagating and no `finalize` is returned.
+   */
+  public async runAgentBody(
+    agent: ICipherAgent,
+    options: CurateExecuteOptions,
+  ): Promise<{finalize: () => Promise<void>; response: string}> {
     const {clientCwd, content, files, projectRoot, taskId} = options
 
     // --- Phase 1: Preprocessing (no sessions created yet — safe to throw) ---
@@ -76,6 +91,8 @@ export class CurateExecutor implements ICurateExecutor {
     }
 
     const taskSessionId = await agent.createTaskSession(taskId, 'curate', {mapRootEligible: true, userFacing: true})
+
+    let response: string
     try {
       // Task-scoped variable names for RLM pattern.
       // Replace hyphens with underscores: UUIDs have hyphens which are invalid in JS identifiers,
@@ -124,49 +141,31 @@ export class CurateExecutor implements ICurateExecutor {
 
       // Execute on the task session (isolated sandbox + history)
       // Task lifecycle is managed by Transport (task:started, task:completed, task:error)
-      const response = await agent.executeOnSession(taskSessionId, prompt, {
+      response = await agent.executeOnSession(taskSessionId, prompt, {
         executionContext: {clearHistory: true, commandType: 'curate', maxIterations: 50},
         taskId,
       })
 
       // Parse curation status from agent response for status tracking
       this.lastStatus = this.parseCurationStatus(taskId, response)
-
-      // --- Phase 4: Post-curation summary propagation (fail-open) ---
-      if (preState) {
-        try {
-          const postState = await snapshotService.getCurrentState(baseDir)
-          const changedPaths = diffStates(preState, postState)
-          if (changedPaths.length > 0) {
-            const summaryService = new FileContextTreeSummaryService()
-            const results = await summaryService.propagateStaleness(changedPaths, agent, baseDir, taskId)
-
-            // Opportunistic manifest rebuild (pre-warm for next query)
-            if (results.some((r) => r.actionTaken)) {
-              const manifestService = new FileContextTreeManifestService({baseDirectory: baseDir})
-              await manifestService.buildManifest(baseDir)
-            }
-          }
-        } catch {
-          // Fail-open: summary/manifest errors never block curation
-        }
-      }
-
-      // Increment dream curation counter (fail-open: non-critical for curation)
-      try {
-        const dreamStateService = new DreamStateService({baseDir: path.join(baseDir, BRV_DIR)})
-        await dreamStateService.incrementCurationCount()
-      } catch {
-        // Dream state tracking is non-critical — don't block curation
-      }
-
-      await (agent as BackgroundDrainAgent).drainBackgroundWork?.()
-
-      return response
-    } finally {
-      // Clean up entire task session (sandbox + history) in one call
+    } catch (error) {
+      // Clean up before propagating — error path returns no finalize.
       await agent.deleteTaskSession(taskSessionId)
+      throw error
     }
+
+    const finalize = async (): Promise<void> => {
+      try {
+        await propagateSummariesUnderLock({agent, baseDir, preState, snapshotService, taskId})
+        await this.incrementDreamCounter(baseDir)
+        await (agent as BackgroundDrainAgent).drainBackgroundWork?.()
+      } finally {
+        // In `finally` so the session is deleted even if Phase 4 throws.
+        await agent.deleteTaskSession(taskSessionId)
+      }
+    }
+
+    return {finalize, response}
   }
 
   /**
@@ -240,6 +239,19 @@ export class CurateExecutor implements ICurateExecutor {
       default: {
         return fileType
       }
+    }
+  }
+
+  /**
+   * Phase 4d: bump the dream-state curation counter. Fail-open — dream state
+   * tracking is non-critical and must never block curate completion.
+   */
+  private async incrementDreamCounter(baseDir: string): Promise<void> {
+    try {
+      const dreamStateService = new DreamStateService({baseDir: path.join(baseDir, BRV_DIR)})
+      await dreamStateService.incrementCurationCount()
+    } catch {
+      // Dream state tracking is non-critical
     }
   }
 
