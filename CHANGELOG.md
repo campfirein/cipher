@@ -2,6 +2,18 @@
 
 All notable user-facing changes to ByteRover CLI will be documented in this file.
 
+## [3.10.1]
+
+### Added
+- **`brv review --disable` / `--enable` per project.** Opt a project out of the human-in-the-loop review prompts and backups, or turn them back on. Run `brv review` with no flags to see the current state. Existing `brv review pending / approve / reject` are unchanged.
+
+### Changed
+- **`brv curate` returns to your prompt right away.** The final summary-rebuild step now runs in the background instead of making you wait. Nothing is skipped, just moved off your wait time (about 18 seconds saved on a typical run).
+
+### Fixed
+- **Clearer `brv vc status` and `brv vc pull` errors.** Status now catches a few staged-then-edited file states it used to hide. When a pull, checkout, or merge would overwrite local changes, the error now lists the affected files instead of just saying "local changes would be overwritten."
+- **OpenAI-compatible providers fail loudly when the URL is wrong.** First-time setup for Ollama, LM Studio, and similar providers now checks the base URL up front and shows the error inline. Bad URLs no longer pre-select a placeholder `llama3` model or hang the REPL on disconnect / reconnect.
+
 ## [3.10.0]
 
 ### Added
