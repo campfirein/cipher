@@ -26,7 +26,12 @@ import {getProjectDataDir} from '../../utils/path-utils.js'
 import {OAuthService} from '../auth/oauth-service.js'
 import {OidcDiscoveryService} from '../auth/oidc-discovery-service.js'
 import {SystemBrowserLauncher} from '../browser/system-browser-launcher.js'
+import {createDriver} from '../channel/drivers/acp-driver.js'
+import {CancelCoordinator} from '../channel/drivers/cancel-coordinator.js'
+import {DefaultAgentRegistry} from '../channel/drivers/default-agent-registry.js'
+import {DriverPool} from '../channel/drivers/driver-pool.js'
 import {MockChannelAgentDriver} from '../channel/drivers/mock-driver.js'
+import {PermissionBroker} from '../channel/drivers/permission-broker.js'
 import {ChannelOrchestrator} from '../channel/orchestrator.js'
 import {LookbackBuilder} from '../channel/storage/lookback-builder.js'
 import {FileTreeReader} from '../channel/storage/tree-reader.js'
@@ -94,6 +99,15 @@ export interface FeatureHandlersOptions {
 }
 
 /**
+ * Resources that need a shutdown lifecycle. Phase 2 review (Kimi B1) — the daemon
+ * `ShutdownHandler` consumes `channelDriverPool.closeAll()` so cancel-pending and
+ * idle ACP subprocesses get SIGTERM/SIGKILL'd instead of becoming zombies.
+ */
+export interface FeatureHandlersResult {
+  channelDriverPool: {closeAll(): Promise<void>}
+}
+
+/**
  * Setup all feature handlers on the transport server.
  * These handlers implement the TUI ↔ Server event contract (auth:*, config:*, status:*, etc.).
  */
@@ -109,7 +123,7 @@ export async function setupFeatureHandlers({
   resolveProjectPath,
   transport,
   webuiPort,
-}: FeatureHandlersOptions): Promise<void> {
+}: FeatureHandlersOptions): Promise<FeatureHandlersResult> {
   const envConfig = getCurrentConfig()
   const tokenStore = createTokenStore()
   const projectConfigStore = new ProjectConfigStore()
@@ -275,20 +289,37 @@ export async function setupFeatureHandlers({
     transport,
   }).setup()
 
-  // Channel feature wiring (BRV-201..208). Mock-driver-only in Phase 1; real ACP drivers land in Phase 2.
-  // Cross-process subscription transport for `channel:turn-event` lands in Phase 3 (BRV-221).
+  // Channel feature wiring (BRV-201..214). Phase 2 introduces real ACP drivers via a per-(channelId, agentId)
+  // pool; mock-* ids continue to use the in-tree MockChannelAgentDriver. Cross-process subscription transport
+  // for `channel:turn-event` lands in Phase 3 (BRV-221).
   const channelTreeWriter = new FileTreeWriter()
-  // Phase 1: daemon enumerates channels under `process.cwd()`. Phase 2+ adds per-channel project resolution
-  // when real ACP drivers (and per-channel cwd) land.
-  const channelTreeReader = new FileTreeReader(process.cwd())
+  // Phase 2 known limitation (Kimi B3): channel enumeration is rooted at the daemon's CWD. Channels created
+  // outside this root are invisible to `listAllChannels()`. The orchestrator's `driverFor` callback still
+  // receives a per-channel `projectRoot` (read from `ChannelMeta.treeRoot`) so each ACP subprocess spawns
+  // in the correct directory. Multi-root enumeration is a v1.1 follow-up — track via the Phase 2 review doc.
+  const channelProjectRoot = process.cwd()
+  const channelTreeReader = new FileTreeReader(channelProjectRoot)
+  const channelAgentRegistry = new DefaultAgentRegistry()
+  const channelPermissionBroker = new PermissionBroker()
+  const channelDriverPool = new DriverPool()
+  // Codex F5: coordinator evicts the pool entry after hard close so the next turn gets a fresh driver.
+  const channelCancelCoordinator = new CancelCoordinator({driverPool: channelDriverPool})
+
   const channelOrchestrator = new ChannelOrchestrator({
-    driverFor(agentId) {
-      // Phase 1 only knows the mock driver. Real ACP drivers register a richer factory in Phase 2.
-      if (!agentId.startsWith('mock-')) {
-        throw new AgentNotAvailableError(agentId)
+    activeTurnTracker: channelCancelCoordinator,
+    driverFor(agentId, ctx) {
+      const channelId = ctx?.channelId ?? ''
+      const cwd = ctx?.projectRoot ?? channelProjectRoot
+      // mock-* agents stay on the in-tree driver — used by orchestrator unit tests and Phase 1 demos.
+      if (agentId.startsWith('mock-')) {
+        return channelDriverPool.getOrCreate(channelId, agentId, () => new MockChannelAgentDriver({scenario: 'echo'}))
       }
 
-      return new MockChannelAgentDriver({scenario: 'echo'})
+      const entry = channelAgentRegistry.get(agentId)
+      if (!entry) throw new AgentNotAvailableError(agentId)
+      return channelDriverPool.getOrCreate(channelId, agentId, () =>
+        createDriver(entry, {channelId, cwd, permissionBroker: channelPermissionBroker}),
+      )
     },
     lookbackBuilder: new LookbackBuilder(channelTreeReader),
     publish() {/* in-process subscribers attach in Phase 3 (BRV-221). */},
@@ -298,7 +329,9 @@ export async function setupFeatureHandlers({
   })
   await channelOrchestrator.recoverChannelsOnStartup()
   new ChannelHandler({
+    cancelCoordinator: channelCancelCoordinator,
     orchestrator: channelOrchestrator,
+    permissionBroker: channelPermissionBroker,
     reader: channelTreeReader,
     transport,
     writer: channelTreeWriter,
@@ -361,4 +394,6 @@ export async function setupFeatureHandlers({
   new SourceHandler({ resolveProjectPath, transport }).setup()
 
   log('Feature handlers registered')
+
+  return {channelDriverPool}
 }

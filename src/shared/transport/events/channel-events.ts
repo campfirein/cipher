@@ -3,6 +3,7 @@ import {z} from 'zod'
 import {
   AgentEntry,
   ChannelMeta,
+  PendingPermission,
   Turn,
   TurnEvent,
   TurnState,
@@ -69,6 +70,8 @@ export type ChannelGetRequestT = z.infer<typeof ChannelGetRequest>
 
 export const ChannelGetResponse = z.object({
   meta: ChannelMeta.nullable(),
+  /** Phase 2 review (Kimi B2 / Codex F1) — parked ACP permission requests for this channel. */
+  pendingPermissions: z.array(PendingPermission).default([]),
 })
 export type ChannelGetResponseT = z.infer<typeof ChannelGetResponse>
 

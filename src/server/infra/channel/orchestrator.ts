@@ -10,7 +10,7 @@ import type {TreeReader} from './storage/tree-reader.js'
 import type {TreeWriter} from './storage/tree-writer.js'
 import type {WriteSerializer} from './storage/write-serializer.js'
 
-import {AgentNotAvailableError, ChannelNotFoundError} from '../../core/domain/channel/errors.js'
+import {AgentNotAvailableError, ChannelNotFoundError, PermissionDeniedError, PermissionExpiredError, TurnCancelledError} from '../../core/domain/channel/errors.js'
 import {transition} from '../../core/domain/channel/state-machine.js'
 
 export interface TurnEventNotification {
@@ -20,8 +20,20 @@ export interface TurnEventNotification {
   type: 'turn-event'
 }
 
+export interface DriverContext {
+  channelId: string
+  projectRoot: string
+}
+
+export interface ActiveTurnTracker {
+  bind(channelId: string, turnId: string, driver: ChannelAgentDriver, agentId?: string): void
+  unbind(channelId: string, turnId: string): void
+}
+
 export interface OrchestratorDeps {
-  driverFor(agentId: string): ChannelAgentDriver
+  /** Optional. When provided, the orchestrator binds/unbinds drivers around `prompt()` so cancels can find them. */
+  activeTurnTracker?: ActiveTurnTracker
+  driverFor(agentId: string, ctx?: DriverContext): ChannelAgentDriver
   lookbackBuilder: LookbackBuilder
   /** In-process broadcast hook. Phase 3 hooks the cross-process subscription transport here (BRV-221). */
   publish(channelId: string, ev: TurnEventNotification): void
@@ -128,7 +140,7 @@ export class ChannelOrchestrator {
 
     let driver: ChannelAgentDriver
     try {
-      driver = this.deps.driverFor(member.agentId)
+      driver = this.deps.driverFor(member.agentId, {channelId: meta.channelId, projectRoot: meta.treeRoot})
     } catch (error) {
       const reason = error instanceof AgentNotAvailableError ? error.message : errMsg(error)
       turn = transition(turn, {reason, type: 'fail'})
@@ -142,6 +154,8 @@ export class ChannelOrchestrator {
     turn = transition(turn, {type: 'route'})
     turn = transition(turn, {type: 'start'})
 
+    this.deps.activeTurnTracker?.bind(meta.channelId, turnId, driver, member.agentId)
+
     try {
       for await (const event of driver.prompt({
         channelId: meta.channelId,
@@ -149,6 +163,27 @@ export class ChannelOrchestrator {
         prompt,
         turnId,
       })) {
+        // Permission request: park the turn in `awaiting_permission`. The driver awaits
+        // the broker decision internally; subsequent events resume the iteration here.
+        if (event.kind === 'permission_request' && turn.state === 'in_flight') {
+          turn = transition(turn, {permissionRequestId: event.permissionRequestId, type: 'await_permission'})
+          events.push(event)
+          // Codex F2 review fix — persist `awaiting_permission` immediately so `brv channel get`
+          // can observe the parked turn while the driver is blocked on the broker. Without this
+          // mid-loop write, the on-disk turn stays at the previous state until `prompt()` returns.
+          await this.deps.writer.writeTurn(meta, turn, joinMessages(events), events)
+          await this.deps.serializer.run(`${meta.channelId}:${turnId}`, async () => {
+            this.deps.publish(meta.channelId, {channelId: meta.channelId, event, turnId, type: 'turn-event'})
+          })
+          continue
+        }
+
+        if (turn.state === 'awaiting_permission') {
+          // First non-permission event after parking — decision arrived as `allow`/`always`.
+          // (A `deny` surfaces as `PermissionExpiredError` or driver-thrown error, not continued events.)
+          turn = transition(turn, {decision: 'allow', type: 'permission_decision'})
+        }
+
         events.push(event)
         await this.deps.serializer.run(`${meta.channelId}:${turnId}`, async () => {
           this.deps.publish(meta.channelId, {channelId: meta.channelId, event, turnId, type: 'turn-event'})
@@ -157,9 +192,29 @@ export class ChannelOrchestrator {
 
       turn = transition(turn, {type: 'complete'})
     } catch (error) {
-      const reason = errMsg(error)
-      events.push({kind: 'error', message: reason})
-      turn = transition(turn, {reason, type: 'fail'})
+      if (error instanceof TurnCancelledError) {
+        // Codex F4 review fix — driver detected a soft cancel; persist `state: 'cancelled'`
+        // so the API success response matches the stored turn state.
+        events.push({kind: 'error', message: 'turn cancelled', suggestion: 'mention again to retry'})
+        turn = transition(turn, {type: 'cancel'})
+      } else if (error instanceof PermissionDeniedError) {
+        // Codex re-review Finding 1 — broker resolved with `deny`. Apply `permission_decision: deny`
+        // (state machine maps `awaiting_permission` → `failed`). If for some reason the turn already
+        // moved past `awaiting_permission`, fall back to a plain `fail` transition.
+        events.push({kind: 'error', message: 'permission denied', suggestion: 'mention again to retry'})
+        turn = turn.state === 'awaiting_permission'
+          ? transition(turn, {decision: 'deny', type: 'permission_decision'})
+          : transition(turn, {reason: 'permission denied', type: 'fail'})
+      } else if (error instanceof PermissionExpiredError) {
+        events.push({kind: 'error', message: 'permission expired', suggestion: 're-mention to retry'})
+        turn = transition(turn, {type: 'expire'})
+      } else {
+        const reason = errMsg(error)
+        events.push({kind: 'error', message: reason})
+        turn = transition(turn, {reason, type: 'fail'})
+      }
+    } finally {
+      this.deps.activeTurnTracker?.unbind(meta.channelId, turnId)
     }
 
     turn.toolCallCount = countTools(events)

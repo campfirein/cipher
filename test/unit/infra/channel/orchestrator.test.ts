@@ -118,6 +118,129 @@ describe('ChannelOrchestrator', () => {
     expect(turns).to.deep.equal([])
   })
 
+  it('transitions a turn to expired when the driver throws PermissionExpiredError', async () => {
+    const {PermissionExpiredError} = await import('../../../../src/server/core/domain/channel/errors.js')
+    driverFactory = () => ({
+      async forceClose() { /* no-op */ },
+      async *prompt() {
+        yield {kind: 'permission_request' as const, permissionRequestId: 'perm-1', toolName: 'edit'}
+        throw new PermissionExpiredError('t-001')
+      },
+      async requestCancel() { /* no-op */ },
+    })
+
+    const orchestrator = makeOrchestrator()
+    const turns = await orchestrator.mention({channelId: channelMetaFixture.channelId, prompt: '@mock-a edit something'})
+
+    expect(turns).to.have.length(1)
+    expect(turns[0].state).to.equal('expired')
+    expect(turns[0].endedAt).to.be.a('string')
+  })
+
+  // Codex re-review Finding 1 — driver throws PermissionDeniedError; orchestrator persists `state: 'failed'`.
+  it('transitions a turn to failed when the driver throws PermissionDeniedError', async () => {
+    const {PermissionDeniedError} = await import('../../../../src/server/core/domain/channel/errors.js')
+    driverFactory = () => ({
+      async forceClose() { /* no-op */ },
+      async *prompt() {
+        yield {kind: 'permission_request' as const, permissionRequestId: 'perm-1', toolName: 'edit'}
+        // Decision was deny — driver poisons the queue.
+        throw new PermissionDeniedError('t-001', 'perm-1')
+      },
+      async requestCancel() { /* no-op */ },
+    })
+
+    const orchestrator = makeOrchestrator()
+    const turns = await orchestrator.mention({channelId: channelMetaFixture.channelId, prompt: '@mock-a edit something'})
+
+    expect(turns).to.have.length(1)
+    expect(turns[0].state).to.equal('failed')
+    expect(turns[0].endedAt).to.be.a('string')
+  })
+
+  // Codex F4 — the driver throws TurnCancelledError on cancel; orchestrator persists `state: 'cancelled'`.
+  it('transitions a turn to cancelled when the driver throws TurnCancelledError', async () => {
+    const {TurnCancelledError} = await import('../../../../src/server/core/domain/channel/errors.js')
+    driverFactory = () => ({
+      async forceClose() { /* no-op */ },
+      async *prompt() {
+        yield {delta: 'partial ', kind: 'token' as const}
+        throw new TurnCancelledError('t-001')
+      },
+      async requestCancel() { /* no-op */ },
+    })
+
+    const orchestrator = makeOrchestrator()
+    const turns = await orchestrator.mention({channelId: channelMetaFixture.channelId, prompt: '@mock-a long task'})
+
+    expect(turns).to.have.length(1)
+    expect(turns[0].state).to.equal('cancelled')
+    expect(turns[0].endedAt).to.be.a('string')
+  })
+
+  // Codex F2 — awaiting_permission must be observable on disk while the driver is parked.
+  it('persists awaiting_permission to disk before yielding subsequent driver events', async () => {
+    let resolveDecision: (() => void) | undefined
+    const decisionGate = new Promise<void>((resolve) => { resolveDecision = resolve })
+
+    driverFactory = () => ({
+      async forceClose() { /* no-op */ },
+      async *prompt() {
+        yield {kind: 'permission_request' as const, permissionRequestId: 'perm-1', toolName: 'edit'}
+        // Block until the test verifies the on-disk state.
+        await decisionGate
+        yield {kind: 'status' as const, status: 'done' as const}
+      },
+      async requestCancel() { /* no-op */ },
+    })
+
+    const orchestrator = makeOrchestrator()
+    const mentionPromise = orchestrator.mention({
+      channelId: channelMetaFixture.channelId,
+      prompt: '@mock-a please edit',
+    })
+
+    // Wait for the driver to have parked — turn state on disk should be awaiting_permission.
+    // Poll briefly to avoid timing flakiness.
+    const meta = await reader.readMeta(channelMetaFixture.channelId)
+    let observed: string | undefined
+    for (let i = 0; i < 50; i++) {
+      // eslint-disable-next-line no-await-in-loop -- intentional polling
+      const persisted = await reader.readTurn(meta!, 't-001')
+      if (persisted?.state === 'awaiting_permission') {
+        observed = persisted.state
+        break
+      }
+
+      // eslint-disable-next-line no-await-in-loop -- intentional polling delay
+      await new Promise<void>((resolve) => { setTimeout(resolve, 10) })
+    }
+
+    expect(observed).to.equal('awaiting_permission')
+
+    // Release the driver; turn settles to completed.
+    resolveDecision?.()
+    const [turn] = await mentionPromise
+    expect(turn.state).to.equal('completed')
+  })
+
+  it('transitions awaiting_permission back to in_flight when the driver yields a follow-up event after permission_request', async () => {
+    driverFactory = () => ({
+      async forceClose() { /* no-op */ },
+      async *prompt() {
+        yield {kind: 'permission_request' as const, permissionRequestId: 'perm-2', toolName: 'edit'}
+        // Decision arrived (allow). Driver resumes session updates.
+        yield {delta: 'after permission ', kind: 'token' as const}
+        yield {kind: 'status' as const, status: 'done' as const}
+      },
+      async requestCancel() { /* no-op */ },
+    })
+
+    const orchestrator = makeOrchestrator()
+    const turns = await orchestrator.mention({channelId: channelMetaFixture.channelId, prompt: '@mock-a edit'})
+    expect(turns[0].state).to.equal('completed')
+  })
+
   it('recoverChannelsOnStartup transitions in-flight turns to failed and resets member status', async () => {
     // Manually persist an in-flight turn and a thinking member.
     const meta = await reader.readMeta(channelMetaFixture.channelId)

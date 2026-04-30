@@ -204,4 +204,138 @@ describe('ChannelHandler', () => {
     const res = await call<{message: string}>(ChannelEvents.JOIN, {channelId: 'join-test'})
     expect(res.message).to.match(/phase 3/i)
   })
+
+  // Codex F1 + Kimi B2 — when wired with a PermissionBroker, GET surfaces parked permissions
+  // and PERMISSION_DECISION resolves them. Tested as a separate describe so we can supply a broker.
+  describe('with PermissionBroker wired', () => {
+    it('GET includes pendingPermissions; PERMISSION_DECISION resolves a parked permission', async () => {
+      const {PermissionBroker} = await import('../../../../../src/server/infra/channel/drivers/permission-broker.js')
+      const broker = new PermissionBroker(60_000)
+      const localTransport = createMockTransportServer()
+      const orchestrator = new ChannelOrchestrator({
+        driverFor: () => new MockChannelAgentDriver({scenario: 'echo'}),
+        lookbackBuilder: new LookbackBuilder(reader),
+        publish() {/* no-op */},
+        reader,
+        serializer: new WriteSerializer(),
+        writer,
+      })
+      const handler = new ChannelHandler({
+        orchestrator,
+        permissionBroker: broker,
+        reader,
+        transport: localTransport,
+        writer,
+      })
+      handler.setup()
+
+      // Park a permission via the broker so GET has something to surface.
+      const parked = broker.parkAndAwait('t-001', 'auth-rotation', {
+        options: [
+          {kind: 'allow_once', name: 'Allow', optionId: 'allow'},
+          {kind: 'reject_once', name: 'Deny', optionId: 'deny'},
+        ],
+        sessionId: 'sess-x',
+        toolCall: {kind: 'edit', rawInput: {}, status: 'pending', title: 'Edit src/auth.ts', toolCallId: 'tc-1'},
+      })
+      // Ignore the eventual rejection in case the test's decide() lands first.
+      parked.catch(() => {})
+
+      // Need a meta on disk for handleGet to find.
+      await writer.writeMeta({
+        channelId: 'auth-rotation',
+        createdAt: new Date().toISOString(),
+        members: [],
+        scope: 'project',
+        status: 'active',
+        treeRoot: tempRoot,
+        turnCount: 0,
+      })
+
+      const handlers = localTransport._handlers
+      const getRes = await (handlers.get(ChannelEvents.GET)! as AnyHandler)({channelId: 'auth-rotation'}, 'test')
+      expect(getRes).to.have.property('pendingPermissions')
+      const pendingPerms = (getRes as {pendingPermissions: Array<{permissionRequestId: string; turnId: string;}>}).pendingPermissions
+      expect(pendingPerms).to.have.length(1)
+      expect(pendingPerms[0].turnId).to.equal('t-001')
+      expect(pendingPerms[0].permissionRequestId).to.equal('tc-1')
+
+      const decisionRes = await (handlers.get(ChannelEvents.PERMISSION_DECISION)! as AnyHandler)({
+        channelId: 'auth-rotation',
+        decision: 'allow',
+        permissionRequestId: 'tc-1',
+        turnId: 't-001',
+      }, 'test')
+      expect((decisionRes as {resumedState: string}).resumedState).to.equal('in_flight')
+
+      // The parked Promise must have resolved with the broker's translated SDK shape.
+      const result = await parked
+      expect(result.denied).to.equal(false)
+      expect(result.response.outcome.outcome).to.equal('selected')
+    })
+
+    // Codex re-review (round 3) Finding 1 — the handler's PERMISSION_DECISION translates a
+    // `'deny'` decision into the right `optionId` by kind, even when the vendor uses non-literal IDs.
+    it('PERMISSION_DECISION resolves deny to the reject option by kind, not by literal optionId', async () => {
+      const {PermissionBroker} = await import('../../../../../src/server/infra/channel/drivers/permission-broker.js')
+      const broker = new PermissionBroker(60_000)
+      const localTransport = createMockTransportServer()
+      const orchestrator = new ChannelOrchestrator({
+        driverFor: () => new MockChannelAgentDriver({scenario: 'echo'}),
+        lookbackBuilder: new LookbackBuilder(reader),
+        publish() {/* no-op */},
+        reader,
+        serializer: new WriteSerializer(),
+        writer,
+      })
+      const handler = new ChannelHandler({orchestrator, permissionBroker: broker, reader, transport: localTransport, writer})
+      handler.setup()
+
+      // Vendor-style options: arbitrary optionIds, classified only by kind.
+      const parked = broker.parkAndAwait('t-vendor', 'auth-rotation', {
+        options: [
+          {kind: 'allow_once', name: 'Yes', optionId: 'yes_button'},
+          {kind: 'reject_once', name: 'No', optionId: 'reject_once_99'},
+        ],
+        sessionId: 'sess-x',
+        toolCall: {kind: 'edit', rawInput: {}, status: 'pending', title: 'Edit', toolCallId: 'tc-vendor'},
+      })
+      parked.catch(() => {})
+
+      const handlers = localTransport._handlers
+      const decisionRes = await (handlers.get(ChannelEvents.PERMISSION_DECISION)! as AnyHandler)({
+        channelId: 'auth-rotation',
+        decision: 'deny',
+        permissionRequestId: 'tc-vendor',
+        turnId: 't-vendor',
+      }, 'test')
+      expect((decisionRes as {resumedState: string}).resumedState).to.equal('failed')
+
+      const result = await parked
+      expect(result.denied).to.equal(true)
+      if (result.response.outcome.outcome === 'selected') {
+        expect(result.response.outcome.optionId).to.equal('reject_once_99')
+      }
+    })
+
+    it('CANCEL returns cancelled:false when no turn is bound', async () => {
+      const {CancelCoordinator} = await import('../../../../../src/server/infra/channel/drivers/cancel-coordinator.js')
+      const localTransport = createMockTransportServer()
+      const coordinator = new CancelCoordinator()
+      const orchestrator = new ChannelOrchestrator({
+        driverFor: () => new MockChannelAgentDriver({scenario: 'echo'}),
+        lookbackBuilder: new LookbackBuilder(reader),
+        publish() {/* no-op */},
+        reader,
+        serializer: new WriteSerializer(),
+        writer,
+      })
+      const handler = new ChannelHandler({cancelCoordinator: coordinator, orchestrator, reader, transport: localTransport, writer})
+      handler.setup()
+
+      const handlers = localTransport._handlers
+      const res = await (handlers.get(ChannelEvents.CANCEL)! as AnyHandler)({channelId: 'x', turnId: 'y'}, 'test')
+      expect((res as {cancelled: boolean}).cancelled).to.equal(false)
+    })
+  })
 })

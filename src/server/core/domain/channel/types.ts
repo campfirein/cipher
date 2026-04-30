@@ -185,3 +185,17 @@ export const IncludesConfig = z.object({
   })),
 })
 export type IncludesConfig = z.infer<typeof IncludesConfig>
+
+/**
+ * Phase 2 — observable shape of a parked permission request, surfaced via
+ * `ChannelEvents.GET`'s `pendingPermissions` array. The decision path
+ * (Phase 3 TUI's `permission/decision`) consumes these to render the prompt.
+ */
+export const PendingPermission = z.object({
+  channelId: z.string(),
+  permissionRequestId: z.string(),
+  rationale: z.string().optional(),
+  toolName: z.string(),
+  turnId: z.string(),
+})
+export type PendingPermission = z.infer<typeof PendingPermission>

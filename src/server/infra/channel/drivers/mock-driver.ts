@@ -25,11 +25,7 @@ export class MockChannelAgentDriver implements ChannelAgentDriver {
 
   constructor(private readonly options: MockDriverOptions = {}) {}
 
-  public async cancel(): Promise<void> {
-    this.cancelled = true
-  }
-
-  public async close(): Promise<void> {
+  public async forceClose(): Promise<void> {
     /* no-op for the in-tree stub. */
   }
 
@@ -64,6 +60,10 @@ export class MockChannelAgentDriver implements ChannelAgentDriver {
     // 'echo' default
     yield {content: `mock echo: ${input.prompt}`, kind: 'message', role: 'agent'}
     yield {kind: 'status', status: 'done'}
+  }
+
+  public async requestCancel(): Promise<void> {
+    this.cancelled = true
   }
 
   private async maybePause(): Promise<void> {

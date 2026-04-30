@@ -641,7 +641,7 @@ async function main(): Promise<void> {
     // Feature handlers (auth, init, status, push, pull, etc.) require async OIDC discovery.
     // Placed after daemon:getState so the debug endpoint is available immediately,
     // without waiting for OIDC discovery (~400ms).
-    await setupFeatureHandlers({
+    const featureHandlerResult = await setupFeatureHandlers({
       authStateStore,
       broadcastToProject(projectPath, event, data) {
         broadcastToProjectRoom(projectRegistry, projectRouter, projectPath, event, data)
@@ -656,6 +656,10 @@ async function main(): Promise<void> {
       transport: transportServer,
       webuiPort: webuiServer?.getPort(),
     })
+
+    // Phase 2 review (Kimi B1) — register the channel driver pool with the already-constructed
+    // shutdown handler so daemon shutdown SIGTERM/SIGKILLs every live ACP subprocess.
+    shutdownHandler.setChannelDriverPool(featureHandlerResult.channelDriverPool)
 
     // Load auth token AFTER feature handlers are registered.
     // AuthHandler's onAuthChanged/onAuthExpired callbacks must be wired first

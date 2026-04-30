@@ -16,9 +16,16 @@ interface IWebUiServer {
   stop(): Promise<void>
 }
 
+/** Phase 2 review (Kimi B1) — minimal contract for any pool that needs daemon-shutdown teardown. */
+export interface IClosablePool {
+  closeAll(): Promise<void>
+}
+
 export interface ShutdownHandlerDeps {
   readonly agentIdleTimeoutPolicy?: IAgentIdleTimeoutPolicy
   readonly agentPool?: IAgentPool
+  /** Channel-driver pool. SIGTERM/SIGKILL all live ACP subprocesses on shutdown. */
+  readonly channelDriverPool?: IClosablePool
   readonly daemonResilience: IDaemonResilience
   readonly heartbeatWriter: IHeartbeatWriter
   readonly idleTimeoutPolicy: IIdleTimeoutPolicy
@@ -48,11 +55,21 @@ export interface ShutdownHandlerDeps {
  * another daemon binding the same port while sockets are still closing.
  */
 export class ShutdownHandler implements IShutdownHandler {
+  private channelDriverPoolOverride?: IClosablePool
   private readonly deps: ShutdownHandlerDeps
   private isShuttingDown = false
 
   constructor(deps: ShutdownHandlerDeps) {
     this.deps = deps
+  }
+
+  /**
+   * Late-bind the channel driver pool. Phase 2 review (Kimi B1) — `setupFeatureHandlers` runs
+   * after the `ShutdownHandler` is constructed, so the pool is registered with this setter once
+   * the feature wiring returns.
+   */
+  setChannelDriverPool(pool: IClosablePool): void {
+    this.channelDriverPoolOverride = pool
   }
 
   async shutdown(): Promise<void> {
@@ -109,6 +126,20 @@ export class ShutdownHandler implements IShutdownHandler {
         await this.deps.agentPool.shutdown()
       } catch (error) {
         log(`Error shutting down agent pool: ${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
+
+    // Step 5b. Stop channel driver pool (Phase 2 review Kimi B1) — closes every ACP subprocess
+    // tracked by `DriverPool`. Hard-capped at 5 s so a misbehaving subprocess can't stall shutdown.
+    const channelDriverPool = this.channelDriverPoolOverride ?? this.deps.channelDriverPool
+    if (channelDriverPool) {
+      try {
+        await Promise.race([
+          channelDriverPool.closeAll(),
+          new Promise<void>((resolve) => { setTimeout(resolve, 5000) }),
+        ])
+      } catch (error) {
+        log(`Error shutting down channel driver pool: ${error instanceof Error ? error.message : String(error)}`)
       }
     }
 
