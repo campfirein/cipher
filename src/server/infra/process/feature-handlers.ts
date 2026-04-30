@@ -21,10 +21,17 @@ import {ReviewEvents} from '../../../shared/transport/events/review-events.js'
 import {getAuthConfig} from '../../config/auth.config.js'
 import {getCurrentConfig} from '../../config/environment.js'
 import {API_V1_PATH, BRV_DIR} from '../../constants.js'
+import {AgentNotAvailableError} from '../../core/domain/channel/errors.js'
 import {getProjectDataDir} from '../../utils/path-utils.js'
 import {OAuthService} from '../auth/oauth-service.js'
 import {OidcDiscoveryService} from '../auth/oidc-discovery-service.js'
 import {SystemBrowserLauncher} from '../browser/system-browser-launcher.js'
+import {MockChannelAgentDriver} from '../channel/drivers/mock-driver.js'
+import {ChannelOrchestrator} from '../channel/orchestrator.js'
+import {LookbackBuilder} from '../channel/storage/lookback-builder.js'
+import {FileTreeReader} from '../channel/storage/tree-reader.js'
+import {FileTreeWriter} from '../channel/storage/tree-writer.js'
+import {WriteSerializer} from '../channel/storage/write-serializer.js'
 import {HttpCogitPullService} from '../cogit/http-cogit-pull-service.js'
 import {HttpCogitPushService} from '../cogit/http-cogit-push-service.js'
 import {ProjectConfigStore} from '../config/file-config-store.js'
@@ -50,6 +57,7 @@ import {HttpTeamService} from '../team/http-team-service.js'
 import {FsTemplateLoader} from '../template/fs-template-loader.js'
 import {
   AuthHandler,
+  ChannelHandler,
   ConfigHandler,
   ConnectorsHandler,
   ContextTreeHandler,
@@ -265,6 +273,35 @@ export async function setupFeatureHandlers({
     connectorManagerFactory,
     resolveProjectPath,
     transport,
+  }).setup()
+
+  // Channel feature wiring (BRV-201..208). Mock-driver-only in Phase 1; real ACP drivers land in Phase 2.
+  // Cross-process subscription transport for `channel:turn-event` lands in Phase 3 (BRV-221).
+  const channelTreeWriter = new FileTreeWriter()
+  // Phase 1: daemon enumerates channels under `process.cwd()`. Phase 2+ adds per-channel project resolution
+  // when real ACP drivers (and per-channel cwd) land.
+  const channelTreeReader = new FileTreeReader(process.cwd())
+  const channelOrchestrator = new ChannelOrchestrator({
+    driverFor(agentId) {
+      // Phase 1 only knows the mock driver. Real ACP drivers register a richer factory in Phase 2.
+      if (!agentId.startsWith('mock-')) {
+        throw new AgentNotAvailableError(agentId)
+      }
+
+      return new MockChannelAgentDriver({scenario: 'echo'})
+    },
+    lookbackBuilder: new LookbackBuilder(channelTreeReader),
+    publish() {/* in-process subscribers attach in Phase 3 (BRV-221). */},
+    reader: channelTreeReader,
+    serializer: new WriteSerializer(),
+    writer: channelTreeWriter,
+  })
+  await channelOrchestrator.recoverChannelsOnStartup()
+  new ChannelHandler({
+    orchestrator: channelOrchestrator,
+    reader: channelTreeReader,
+    transport,
+    writer: channelTreeWriter,
   }).setup()
 
   const skillConnectorFactory = (projectRoot: string): SkillConnector => new SkillConnector({ fileService, projectRoot })

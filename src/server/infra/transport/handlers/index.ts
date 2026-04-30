@@ -1,5 +1,7 @@
 export {AuthHandler} from './auth-handler.js'
 export type {AuthHandlerDeps} from './auth-handler.js'
+export {ChannelHandler} from './channel-handler.js'
+export type {ChannelHandlerDeps} from './channel-handler.js'
 export {ConfigHandler} from './config-handler.js'
 export type {ConfigHandlerDeps} from './config-handler.js'
 export {ConnectorsHandler} from './connectors-handler.js'

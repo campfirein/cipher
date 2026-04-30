@@ -1,0 +1,105 @@
+{
+  "$ref": "#/definitions/AgentEntry",
+  "definitions": {
+    "AgentEntry": {
+      "type": "object",
+      "properties": {
+        "displayName": {
+          "type": "string"
+        },
+        "id": {
+          "type": "string"
+        },
+        "launch": {
+          "anyOf": [
+            {
+              "type": "object",
+              "properties": {
+                "args": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "command": {
+                  "type": "string"
+                },
+                "env": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                },
+                "kind": {
+                  "type": "string",
+                  "const": "stdio"
+                }
+              },
+              "required": [
+                "args",
+                "command",
+                "kind"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "host": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string",
+                  "const": "tcp"
+                },
+                "port": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0
+                }
+              },
+              "required": [
+                "host",
+                "kind",
+                "port"
+              ],
+              "additionalProperties": false
+            },
+            {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "const": "mock"
+                },
+                "mockId": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "mockId"
+              ],
+              "additionalProperties": false
+            }
+          ]
+        },
+        "role": {
+          "type": "string",
+          "enum": [
+            "coding-agent",
+            "personal-assistant",
+            "observer"
+          ]
+        }
+      },
+      "required": [
+        "displayName",
+        "id",
+        "launch",
+        "role"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

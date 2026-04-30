@@ -1,0 +1,80 @@
+{
+  "$ref": "#/definitions/Turn",
+  "definitions": {
+    "Turn": {
+      "type": "object",
+      "properties": {
+        "agentId": {
+          "type": "string"
+        },
+        "artifactsTouched": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "channelId": {
+          "type": "string"
+        },
+        "endedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "hostsContacted": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "promptedBy": {
+          "type": "string",
+          "enum": [
+            "user",
+            "agent"
+          ]
+        },
+        "promptText": {
+          "type": "string"
+        },
+        "startedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "submitted",
+            "routing",
+            "in_flight",
+            "awaiting_permission",
+            "expired",
+            "completed",
+            "failed",
+            "cancelled"
+          ]
+        },
+        "tokensUsed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "toolCallCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "turnId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "agentId",
+        "channelId",
+        "promptText",
+        "startedAt",
+        "state",
+        "turnId"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

@@ -1,0 +1,197 @@
+{
+  "$ref": "#/definitions/TurnEvent",
+  "definitions": {
+    "TurnEvent": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "status"
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "starting",
+                "thinking",
+                "tool",
+                "writing",
+                "awaiting_permission",
+                "done",
+                "error"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "status"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "tool"
+            },
+            "latencyMs": {
+              "type": "number"
+            },
+            "name": {
+              "type": "string"
+            },
+            "ok": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "kind",
+            "latencyMs",
+            "name",
+            "ok"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "delta": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "const": "token"
+            }
+          },
+          "required": [
+            "delta",
+            "kind"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "bytesEstimate": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "contentHash": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "const": "artifact_intent"
+            },
+            "path": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "contentHash",
+            "kind",
+            "path"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "bytes": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "kind": {
+              "type": "string",
+              "const": "artifact"
+            },
+            "path": {
+              "type": "string"
+            },
+            "summary": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "bytes",
+            "kind",
+            "path"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "content": {
+              "type": "string"
+            },
+            "kind": {
+              "type": "string",
+              "const": "message"
+            },
+            "role": {
+              "type": "string",
+              "const": "agent"
+            },
+            "summary": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "content",
+            "kind",
+            "role"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "permission_request"
+            },
+            "permissionRequestId": {
+              "type": "string"
+            },
+            "rationale": {
+              "type": "string"
+            },
+            "toolName": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "permissionRequestId",
+            "toolName"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "const": "error"
+            },
+            "message": {
+              "type": "string"
+            },
+            "suggestion": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "message"
+          ],
+          "additionalProperties": false
+        }
+      ]
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

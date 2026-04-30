@@ -1,0 +1,33 @@
+{
+  "$ref": "#/definitions/IncludesConfig",
+  "definitions": {
+    "IncludesConfig": {
+      "type": "object",
+      "properties": {
+        "refs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "parleyConsentRef": {
+                "type": "string"
+              },
+              "treeId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "treeId"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "refs"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "$schema": "http://json-schema.org/draft-07/schema#"
+}

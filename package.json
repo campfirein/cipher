@@ -77,8 +77,8 @@
     "react": "^19.2.1",
     "react-diff-viewer-continued": "^4.2.0",
     "react-dom": "^19.2.1",
-    "react-reconciler": "0.33.0",
     "react-markdown": "^10.1.0",
+    "react-reconciler": "0.33.0",
     "react-router-dom": "^7.13.0",
     "react-syntax-highlighter": "^16.1.1",
     "remark-frontmatter": "^5.0.0",
@@ -96,6 +96,7 @@
     "zustand": "^5.0.11"
   },
   "devDependencies": {
+    "@agentclientprotocol/sdk": "0.21.0",
     "@eslint/compat": "^1",
     "@oclif/prettier-config": "^0.2.1",
     "@oclif/test": "^4",
@@ -197,7 +198,7 @@
   },
   "repository": "campfirein/byterover-cli",
   "scripts": {
-    "build": "shx rm -rf dist && tsc -b && shx cp -r src/server/templates dist/server/templates && shx cp -r src/agent/resources dist/agent/resources && npm run build:ui",
+    "build": "shx rm -rf dist && tsc -b && node dist/server/core/domain/channel/emit-schemas.js && shx cp -r src/server/templates dist/server/templates && shx cp -r src/agent/resources dist/agent/resources && npm run build:ui",
     "build:ui": "vite build src/webui --mode package",
     "build:ui:submodule": "node scripts/prepare-ui-submodule-links.mjs && vite build src/webui --mode submodule",
     "dev": "node bin/kill-daemon.js && npm run build && ./bin/dev.js",
