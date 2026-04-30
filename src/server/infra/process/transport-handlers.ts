@@ -44,6 +44,11 @@ export type {TaskInfo} from './types.js'
 type TransportHandlersOptions = {
   agentPool?: IAgentPool
   clientManager?: IClientManager
+  /**
+   * Daemon's CLI version (read from package.json at startup). Surfaced in the
+   * `client:register` ack so clients can render version-drift indicators.
+   */
+  daemonVersion?: string
   /** Resolves project's review-disabled flag at task-create. Snapshotted once into TaskInfo + TaskExecute. */
   isReviewDisabled?: IsReviewDisabledResolver
   /** Lifecycle hooks for task events (e.g. CurateLogHandler). */
@@ -81,6 +86,7 @@ export class TransportHandlers {
     this.connectionCoordinator = new ConnectionCoordinator({
       agentPool: options.agentPool,
       clientManager: options.clientManager,
+      daemonVersion: options.daemonVersion,
       projectRegistry: options.projectRegistry,
       projectRouter: options.projectRouter,
       taskRouter: this.taskRouter,

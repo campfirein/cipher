@@ -21,6 +21,7 @@ function createMockClient(): {
     connect: stub().resolves(),
     disconnect: stub().resolves(),
     getClientId: stub().returns('mock-client-id'),
+    getDaemonVersion: stub(),
     getState: stub().returns('connected'),
     isConnected: stub().resolves(true),
     joinRoom: stub().resolves(),
