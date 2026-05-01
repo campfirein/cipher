@@ -61,6 +61,18 @@ import {type ProcessedOutput, ToolOutputProcessor, type TruncationConfig} from '
 const TARGET_MESSAGE_TOKEN_UTILIZATION = 0.7
 
 /**
+ * Build a `<dateTime>...</dateTime>\n\n` prefix for a user-message body.
+ *
+ * Per-call timestamps must NOT enter the system prompt (they would poison
+ * the prefix cache). They are injected into the user message instead, at
+ * the boundaries where the model legitimately needs fresh time context:
+ * the iter-0 input, and after a rolling-checkpoint history clear.
+ */
+export function buildDateTimePrefix(now: Date = new Date()): string {
+  return `<dateTime>Current date and time: ${now.toISOString()}</dateTime>\n\n`
+}
+
+/**
  * Result of parallel tool execution (before adding to context).
  * Contains all information needed to add the result to context in order.
  */
@@ -952,7 +964,7 @@ export class AgentLLMService implements ILLMService {
       // the cached system prefix stays byte-stable across iterations
       // and Anthropic/OpenAI/Google prefix caches can engage cleanly.
       if (iterationCount === 0) {
-        const inputWithDateTime = `<dateTime>Current date and time: ${new Date().toISOString()}</dateTime>\n\n${textInput}`
+        const inputWithDateTime = `${buildDateTimePrefix()}${textInput}`
         await this.contextManager.addUserMessage(inputWithDateTime, imageData, fileData)
       }
 
@@ -1547,8 +1559,12 @@ export class AgentLLMService implements ILLMService {
     // Clear conversation history
     await this.contextManager.clearHistory()
 
-    // Re-inject continuation prompt with variable reference
-    const continuationPrompt = [
+    // Re-inject continuation prompt with variable reference.
+    // Prepend the dateTime block: clearHistory wiped the iter-0 user
+    // message that originally carried it, and the iter-0 guard upstream
+    // prevents re-injection. Without this, every iteration after the
+    // first checkpoint loses time context for the rest of the run.
+    const continuationPrompt = buildDateTimePrefix() + [
       `Continue task. Iteration checkpoint at turn ${iterationCount}.`,
       `Previous progress stored in variable: ${checkpointVar}`,
       `Original task: ${textInput.slice(0, 200)}${textInput.length > 200 ? '...' : ''}`,

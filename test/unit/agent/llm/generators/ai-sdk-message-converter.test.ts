@@ -40,9 +40,14 @@ describe('toAiSdkTools — anthropic cache_control on last tool', () => {
     const result = toAiSdkTools(tools)
     expect(result).to.exist
 
-    // Object literal key order is alphabetical here (lint sort-objects), so
-    // entry iteration is firstTool → lastTool → middleTool. The "last"
-    // iterated entry is middleTool, which is what should carry cacheControl.
+    // The cache_control marker is attached to the LAST entry by insertion
+    // order, NOT by name. In production, tool registration is deterministic
+    // (driven by getToolNamesForCommand), so the "last" entry is stable.
+    // In this test, the object literal is alphabetically sorted by the
+    // sort-objects lint rule, so iteration order is
+    // firstTool → lastTool → middleTool — and middleTool ends up last,
+    // which is what should carry cacheControl. This test pins the
+    // insertion-order contract, not an alphabetical or name-based one.
     expect(getProviderOptions(result?.firstTool)).to.equal(undefined)
     expect(getProviderOptions(result?.lastTool)).to.equal(undefined)
     expect(getProviderOptions(result?.middleTool)).to.deep.equal(EPHEMERAL_CACHE_CONTROL)
