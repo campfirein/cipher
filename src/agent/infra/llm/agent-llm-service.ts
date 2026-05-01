@@ -902,8 +902,11 @@ export class AgentLLMService implements ILLMService {
       this.cachedBasePrompt = basePrompt
       this.memoryDirtyFlag = false
     } else {
-      // Cache hit: reuse base prompt, only refresh the DateTime section
-      basePrompt = this.refreshDateTime(this.cachedBasePrompt!)
+      // Cache hit: reuse base prompt verbatim. The cached prompt has no
+      // dateTime section to refresh — dateTime is injected into the
+      // first user message instead so the system prefix stays byte-stable
+      // across iterations and prompt caching can engage cleanly.
+      basePrompt = this.cachedBasePrompt!
     }
 
     let systemPrompt = basePrompt
@@ -944,9 +947,13 @@ export class AgentLLMService implements ILLMService {
 
     // Add user message and compress context within mutex lock
     return this.mutex.withLock(async () => {
-      // Add user message to context only on the first iteration
+      // Add user message to context only on the first iteration. The
+      // dateTime block is prefixed here (not in the system prompt) so
+      // the cached system prefix stays byte-stable across iterations
+      // and Anthropic/OpenAI/Google prefix caches can engage cleanly.
       if (iterationCount === 0) {
-        await this.contextManager.addUserMessage(textInput, imageData, fileData)
+        const inputWithDateTime = `<dateTime>Current date and time: ${new Date().toISOString()}</dateTime>\n\n${textInput}`
+        await this.contextManager.addUserMessage(inputWithDateTime, imageData, fileData)
       }
 
       // Rolling checkpoint: periodically save progress and clear history for RLM commands.
@@ -1553,19 +1560,6 @@ export class AgentLLMService implements ILLMService {
     this.sessionEventBus.emit('llmservice:warning', {
       message: `Rolling checkpoint at iteration ${iterationCount}: history cleared, progress saved to ${checkpointVar}`,
     })
-  }
-
-  /**
-   * Replace the DateTime section in a cached system prompt with a fresh timestamp.
-   * DateTimeContributor wraps its output in <dateTime>...</dateTime> XML tags,
-   * enabling reliable regex replacement without rebuilding the entire prompt.
-   *
-   * @param cachedPrompt - Previously cached system prompt
-   * @returns Updated prompt with fresh DateTime
-   */
-  private refreshDateTime(cachedPrompt: string): string {
-    const freshDateTime = `<dateTime>Current date and time: ${new Date().toISOString()}</dateTime>`
-    return cachedPrompt.replace(/<dateTime>[\S\s]*?<\/dateTime>/, freshDateTime)
   }
 
   /**

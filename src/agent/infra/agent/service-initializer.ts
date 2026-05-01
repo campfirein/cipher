@@ -193,12 +193,18 @@ export async function createCipherAgentServices(
     basePath: promptsBasePath,
     validateConfig: true,
   })
-  // Register default contributors
+  // Register default contributors.
+  //
+  // Note: dateTime is intentionally NOT in the system prompt. Anthropic
+  // prompt caching does token-level prefix matching, so a per-iteration
+  // refreshed timestamp here would invalidate the cache for everything
+  // past it. dateTime is instead injected into the first user message
+  // by AgentLLMService, where it lives after the cache breakpoints and
+  // does not poison the cached prefix.
   systemPromptManager.registerContributors([
     {enabled: true, filepath: 'system-prompt.yml', id: 'base', priority: 0, type: 'file'},
     {enabled: true, id: 'env', priority: 10, type: 'environment'},
     {enabled: true, id: 'memories', priority: 20, type: 'memory'},
-    {enabled: true, id: 'datetime', priority: 30, type: 'dateTime'},
   ])
 
   // Register context tree structure contributor for query/curate commands
