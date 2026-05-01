@@ -31,6 +31,7 @@ import { OldestRemovalStrategy } from '../llm/context/compression/oldest-removal
 import {
   LoggingContentGenerator,
   RetryableContentGenerator,
+  wrapWithUsageOnlyTelemetry,
 } from '../llm/generators/index.js'
 import { createGeneratorForProvider } from '../llm/providers/index.js'
 import { DEFAULT_RETRY_POLICY } from '../llm/retry/retry-policy.js'
@@ -410,14 +411,19 @@ export function createSessionServices(
     })
 
     // Create escalated compression strategy with retry-only generator (no UI noise).
-    // Skip LoggingContentGenerator: avoids llmservice:thinking spinner events.
-    // Use a silenced SessionEventBus: RetryableContentGenerator emits
-    // llmservice:warning/error via eventBus on retries. Using a detached
-    // event bus with no listeners ensures these fire into void.
+    // Use a silenced SessionEventBus for RetryableContentGenerator's
+    // llmservice:warning/error emits — they fire into void.
+    // Then wrap with usage-only telemetry so background compression LLM calls
+    // are still captured for token-cost accounting (without spinner UI noise).
     const compactionEventBus = new SessionEventBus()
-    const compactionGenerator = new RetryableContentGenerator(baseGenerator, {
+    const compactionRetryable = new RetryableContentGenerator(baseGenerator, {
       eventBus: compactionEventBus,
       policy: DEFAULT_RETRY_POLICY,
+    })
+    const compactionGenerator = wrapWithUsageOnlyTelemetry({
+      agentEventBus: sharedServices.agentEventBus,
+      inner: compactionRetryable,
+      sessionTag: 'compaction',
     })
     const escalatedStrategy = new EscalatedCompressionStrategy({
       generator: compactionGenerator,

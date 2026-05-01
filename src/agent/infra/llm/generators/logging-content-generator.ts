@@ -23,6 +23,13 @@ export interface LoggingOptions {
   logRequests?: boolean
   /** Log response details */
   logResponses?: boolean
+  /**
+   * When true, suppress every event except `llmservice:usage`. Use for
+   * background generator paths (abstract-queue, compaction) that need
+   * per-call token telemetry but must not surface UI noise (thinking,
+   * error, chunk events).
+   */
+  usageOnly?: boolean
   /** Enable verbose logging (all options) */
   verbose?: boolean
 }
@@ -82,7 +89,9 @@ export class LoggingContentGenerator implements IContentGenerator {
     const requestId = this.generateRequestId()
 
     this.logRequest(requestId, request)
-    this.eventBus?.emit('llmservice:thinking')
+    if (!this.options.usageOnly) {
+      this.eventBus?.emit('llmservice:thinking')
+    }
 
     try {
       const response = await this.inner.generateContent(request)
@@ -108,7 +117,9 @@ export class LoggingContentGenerator implements IContentGenerator {
     const requestId = this.generateRequestId()
 
     this.logRequest(requestId, request)
-    this.eventBus?.emit('llmservice:thinking')
+    if (!this.options.usageOnly) {
+      this.eventBus?.emit('llmservice:thinking')
+    }
 
     let capturedUsage: GenerateContentChunk['usage']
     try {
@@ -199,6 +210,7 @@ export class LoggingContentGenerator implements IContentGenerator {
    * Log an error that occurred during generation.
    */
   private logError(_requestId: string, error: unknown, _durationMs: number): void {
+    if (this.options.usageOnly) return
     const errorMessage = error instanceof Error ? error.message : String(error)
 
     this.eventBus?.emit('llmservice:error', {

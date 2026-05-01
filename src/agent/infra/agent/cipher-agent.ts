@@ -27,7 +27,7 @@ import {getEffectiveMaxInputTokens, resolveRegistryProvider} from '../../core/do
 import {STREAMING_EVENT_NAMES} from '../../core/domain/streaming/types.js'
 import {ToolName} from '../../core/domain/tools/constants.js'
 import {AgentEventBus} from '../events/event-emitter.js'
-import {RetryableContentGenerator} from '../llm/generators/index.js'
+import {RetryableContentGenerator, wrapWithUsageOnlyTelemetry} from '../llm/generators/index.js'
 import {createGeneratorForProvider} from '../llm/providers/index.js'
 import {DEFAULT_RETRY_POLICY} from '../llm/retry/retry-policy.js'
 import {EventBasedLogger} from '../logger/event-based-logger.js'
@@ -1184,13 +1184,20 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
       temperature: 0,
     })
 
-    // Wrap with retry for background resilience (no event bus — background tasks have no UI)
+    // Wrap with retry for background resilience. The usage-only telemetry
+    // wrap surfaces `llmservice:usage` to the agent bus (so UsageLogger
+    // captures L0/L1 abstract calls) without leaking spinner/error UI noise.
     const retryableCurateGenerator = new RetryableContentGenerator(curateGenerator, {
       policy: DEFAULT_RETRY_POLICY,
     })
+    const meteredCurateGenerator = wrapWithUsageOnlyTelemetry({
+      agentEventBus: this._agentEventBus,
+      inner: retryableCurateGenerator,
+      sessionTag: 'abstract-queue',
+    })
 
     // Wire generator into the abstract queue so background generation can proceed
-    services.abstractQueue.setGenerator(retryableCurateGenerator)
+    services.abstractQueue.setGenerator(meteredCurateGenerator)
 
     // Refresh OAuth token before each background generation (tokens expire between tasks)
     if (this._transportClient) {
@@ -1209,7 +1216,12 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
           return
         }
 
-        services.abstractQueue.setGenerator(retryableFreshGenerator)
+        const meteredFreshGenerator = wrapWithUsageOnlyTelemetry({
+          agentEventBus: this._agentEventBus,
+          inner: retryableFreshGenerator,
+          sessionTag: 'abstract-queue',
+        })
+        services.abstractQueue.setGenerator(meteredFreshGenerator)
       })
     }
 
@@ -1229,9 +1241,16 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
       {abstractQueue: services.abstractQueue, contentGenerator: retryableCurateGenerator},
     )
 
-    // Rebuild session compressor with the new generator (used in deleteTaskSession)
-    const deduplicator = new MemoryDeduplicator(retryableCurateGenerator)
-    this.sessionCompressor = new SessionCompressor(deduplicator, retryableCurateGenerator, services.memoryManager)
+    // Rebuild session compressor with the new generator (used in deleteTaskSession).
+    // Wrap with usage-only telemetry so background compression LLM calls are
+    // captured for fair token-cost accounting without leaking spinner UI noise.
+    const meteredCompressionGenerator = wrapWithUsageOnlyTelemetry({
+      agentEventBus: this._agentEventBus,
+      inner: retryableCurateGenerator,
+      sessionTag: 'compaction',
+    })
+    const deduplicator = new MemoryDeduplicator(meteredCompressionGenerator)
+    this.sessionCompressor = new SessionCompressor(deduplicator, meteredCompressionGenerator, services.memoryManager)
   }
 
   private rebindMapTools(
@@ -1304,8 +1323,13 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
       return
     }
 
-    const deduplicator = new MemoryDeduplicator(retryable)
-    this.sessionCompressor = new SessionCompressor(deduplicator, retryable, this.services.memoryManager)
+    const meteredRetryable = wrapWithUsageOnlyTelemetry({
+      agentEventBus: this._agentEventBus,
+      inner: retryable,
+      sessionTag: 'compaction',
+    })
+    const deduplicator = new MemoryDeduplicator(meteredRetryable)
+    this.sessionCompressor = new SessionCompressor(deduplicator, meteredRetryable, this.services.memoryManager)
   }
 
   /**
