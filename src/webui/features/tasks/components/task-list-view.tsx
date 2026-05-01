@@ -188,15 +188,14 @@ export function TaskListView() {
         onError: (err) => toast.error(err.message),
         onSuccess() {
           for (const id of eligibleIds) removeTask(id)
+          clearSelection()
         },
       },
     )
-    clearSelection()
   }
 
   const handleClearCompleted = () => {
-    const path = projectPath || undefined
-    clearCompletedMutation.mutate(path ? {projectPath: path} : {}, {
+    clearCompletedMutation.mutate(projectPath ? {projectPath} : {}, {
       onError: (err) => toast.error(err.message),
       onSuccess: () => clearCompleted(),
     })

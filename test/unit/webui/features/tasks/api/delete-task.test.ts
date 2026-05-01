@@ -47,6 +47,16 @@ describe('deleteTask', () => {
     }
   })
 
+  it('falls back to "Delete failed" when success: false has no error string', async () => {
+    request.resolves({success: false})
+    try {
+      await deleteTask({taskId: 'tsk-1'})
+      expect.fail('expected to throw')
+    } catch (error) {
+      expect((error as Error).message).to.equal('Delete failed')
+    }
+  })
+
   it('throws when not connected to the daemon', async () => {
     useTransportStore.setState({apiClient: null})
     try {
