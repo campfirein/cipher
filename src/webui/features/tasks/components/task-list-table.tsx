@@ -1,3 +1,5 @@
+import type {KeyboardEvent} from 'react'
+
 import {Badge} from '@campfirein/byterover-packages/components/badge'
 import {Button} from '@campfirein/byterover-packages/components/button'
 import {
@@ -118,6 +120,14 @@ export function TaskTable({
 }
 
 function LoadMoreRow({isFetching, onClick}: {isFetching: boolean; onClick: () => void}) {
+  const handleKeyDown = (event: KeyboardEvent) => {
+    if (isFetching) return
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault()
+      onClick()
+    }
+  }
+
   return (
     <TableRow
       aria-disabled={isFetching}
@@ -126,6 +136,9 @@ function LoadMoreRow({isFetching, onClick}: {isFetching: boolean; onClick: () =>
         isFetching ? 'cursor-wait opacity-60' : 'cursor-pointer',
       )}
       onClick={isFetching ? undefined : onClick}
+      onKeyDown={handleKeyDown}
+      role="button"
+      tabIndex={isFetching ? -1 : 0}
     >
       <TableCell className="mono py-3 text-center text-[11px] uppercase tracking-wider" colSpan={8}>
         {isFetching ? 'Loading…' : 'Load more'}
