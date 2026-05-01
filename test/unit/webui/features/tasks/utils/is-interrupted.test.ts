@@ -40,4 +40,13 @@ describe('isInterrupted', () => {
   it('returns false when error is undefined', () => {
     expect(isInterrupted({status: 'error'})).to.equal(false)
   })
+
+  it('status guard fires before error inspection (completed status with INTERRUPTED code → false)', () => {
+    expect(
+      isInterrupted({
+        error: {code: 'INTERRUPTED', message: 'Interrupted (daemon terminated)', name: 'TaskError'},
+        status: 'completed',
+      }),
+    ).to.equal(false)
+  })
 })
