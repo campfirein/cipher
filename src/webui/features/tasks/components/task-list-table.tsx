@@ -8,6 +8,7 @@ import {
   TableHeader,
   TableRow,
 } from '@campfirein/byterover-packages/components/table'
+import {Tooltip, TooltipContent, TooltipTrigger} from '@campfirein/byterover-packages/components/tooltip'
 import {cn} from '@campfirein/byterover-packages/lib/utils'
 import {Trash2} from 'lucide-react'
 
@@ -128,12 +129,12 @@ function TaskRow({
   const isRunning = !terminal
   const interrupted = isInterrupted(task)
   const activity = getCurrentActivity(task)
-  return (
+
+  const row = (
     <TableRow
       className={cn('cursor-pointer [&>td]:align-middle', {'opacity-60': interrupted})}
       data-state={isSelected ? 'selected' : undefined}
       onClick={() => onRowClick(task.taskId)}
-      title={interrupted ? 'Daemon was restarted while this task was running. The task did not complete.' : undefined}
     >
       <TableCell className="relative" onClick={(event) => event.stopPropagation()}>
         {isRunning && (
@@ -183,6 +184,15 @@ function TaskRow({
         {terminal && <RowAction onClick={() => onDelete(task.taskId)} />}
       </TableCell>
     </TableRow>
+  )
+
+  if (!interrupted) return row
+
+  return (
+    <Tooltip>
+      <TooltipTrigger render={row} />
+      <TooltipContent>Daemon was restarted while this task was running. The task did not complete.</TooltipContent>
+    </Tooltip>
   )
 }
 
