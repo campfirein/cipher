@@ -50,7 +50,9 @@ export function TaskListView() {
   const removeTask = useTaskStore((s) => s.removeTask)
 
   const breakdown = useStatusBreakdown()
-  const {isLoading} = useGetTasks({projectPath: projectPath || undefined})
+  const {fetchNextPage, hasNextPage, isFetchingNextPage, isLoading} = useGetTasks({
+    projectPath: projectPath || undefined,
+  })
   const now = useTickingNow(breakdown.running > 0)
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
@@ -201,9 +203,12 @@ export function TaskListView() {
         <TaskTable
           allSelected={allFilteredSelected}
           filtered={filtered}
+          hasNextPage={hasNextPage}
+          isFetchingNextPage={isFetchingNextPage}
           now={now}
           onClearSearch={() => setSearchQuery('')}
           onDelete={removeTask}
+          onLoadMore={() => fetchNextPage()}
           onRowClick={openTask}
           onToggleSelect={toggleSelect}
           onToggleSelectAll={toggleSelectAll}
