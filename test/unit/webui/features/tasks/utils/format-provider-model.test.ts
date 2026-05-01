@@ -23,5 +23,6 @@ describe('formatProviderModel', () => {
   it('treats empty strings as missing', () => {
     expect(formatProviderModel('', '')).to.equal(undefined)
     expect(formatProviderModel('', 'gpt-5-pro')).to.equal(undefined)
+    expect(formatProviderModel('openai', '')).to.equal('openai')
   })
 })
