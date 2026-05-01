@@ -79,8 +79,12 @@ export class DreamTrigger {
       }
     }
 
-    // Gate 2: Activity
-    if (state.curationsSinceDream < minCurations) {
+    // Gate 2: Activity. Bypassed when the stale-summary queue has deferred
+    // work — leaving entries indefinitely strands `_index.md` regeneration
+    // in low-activity projects (the very projects ENG-2485 most affects,
+    // since 1–2 curates over a 12h window otherwise sit under minCurations
+    // forever). Dream is the canonical drain point; if it has work, run.
+    if (state.curationsSinceDream < minCurations && state.staleSummaryPaths.length === 0) {
       return {
         eligible: false,
         reason: `Not enough activity (${state.curationsSinceDream} < ${minCurations} curations)`,

@@ -18,6 +18,7 @@ import {FileValidationError} from '../../../../src/server/core/domain/errors/tas
 import {FileContextTreeManifestService} from '../../../../src/server/infra/context-tree/file-context-tree-manifest-service.js'
 import {FileContextTreeSnapshotService} from '../../../../src/server/infra/context-tree/file-context-tree-snapshot-service.js'
 import {FileContextTreeSummaryService} from '../../../../src/server/infra/context-tree/file-context-tree-summary-service.js'
+import {DreamStateService} from '../../../../src/server/infra/dream/dream-state-service.js'
 import {CurateExecutor} from '../../../../src/server/infra/executor/curate-executor.js'
 
 describe('CurateExecutor (regression)', () => {
@@ -250,8 +251,8 @@ describe('CurateExecutor (regression)', () => {
     })
   })
 
-  describe('summary propagation taskId threading (ENG-2100)', () => {
-    it('passes the curate operation taskId to propagateStaleness so summary LLM calls share one billing session', async () => {
+  describe('summary cascade deferral to dream (ENG-2485)', () => {
+    it('enqueues stale-summary paths to the dream queue and does NOT call propagateStaleness inline', async () => {
       const agent = {
         cancel: stub().resolves(false),
         createTaskSession: stub().resolves('session-id'),
@@ -283,6 +284,10 @@ describe('CurateExecutor (regression)', () => {
         'propagateStaleness',
       ).resolves([])
       stub(FileContextTreeManifestService.prototype, 'buildManifest').resolves()
+      const enqueueStub = stub(DreamStateService.prototype, 'enqueueStaleSummaryPaths').resolves()
+      // incrementCurationCount is unrelated dream-state work that runs after the post-curation
+      // step; stub it so the test doesn't hit disk for the dream state file.
+      stub(DreamStateService.prototype, 'incrementCurationCount').resolves()
 
       const taskId = 'curate-op-uuid-1'
       const projectRoot = '/projects/myapp'
@@ -294,10 +299,14 @@ describe('CurateExecutor (regression)', () => {
         taskId,
       })
 
-      expect(propagateStalenessStub.calledOnce).to.be.true
-      // 4th arg must be the curate's taskId so the billing service groups
-      // summary regenerations into the same session as the parent operation.
-      expect(propagateStalenessStub.firstCall.args[3]).to.equal(taskId)
+      // ENG-2485 invariant: the LLM-bound propagateStaleness walk MUST NOT run
+      // on the curate hot path. It is deferred to the next dream cycle.
+      expect(propagateStalenessStub.called).to.equal(false)
+
+      // The deferred work is captured in the dream queue: the changed paths from
+      // diffStates are enqueued for the next dream cycle to drain.
+      expect(enqueueStub.calledOnce).to.equal(true)
+      expect(enqueueStub.firstCall.args[0]).to.deep.equal(['auth/jwt.md'])
     })
   })
 })
