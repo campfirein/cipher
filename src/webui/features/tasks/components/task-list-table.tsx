@@ -16,6 +16,7 @@ import type {StoredTask} from '../types/stored-task'
 
 import {getCurrentActivity} from '../utils/current-activity'
 import {formatDuration, formatRelative, formatTimeOfDay, shortTaskId} from '../utils/format-time'
+import {isInterrupted} from '../utils/is-interrupted'
 import {displayTaskType, isTerminalStatus} from '../utils/task-status'
 import {StatusPill} from './status-pill'
 import {NoMatchState} from './task-list-empty'
@@ -125,12 +126,14 @@ function TaskRow({
 }) {
   const terminal = isTerminalStatus(task.status)
   const isRunning = !terminal
+  const interrupted = isInterrupted(task)
   const activity = getCurrentActivity(task)
   return (
     <TableRow
-      className="cursor-pointer [&>td]:align-middle"
+      className={cn('cursor-pointer [&>td]:align-middle', {'opacity-60': interrupted})}
       data-state={isSelected ? 'selected' : undefined}
       onClick={() => onRowClick(task.taskId)}
+      title={interrupted ? 'Daemon was restarted while this task was running. The task did not complete.' : undefined}
     >
       <TableCell className="relative" onClick={(event) => event.stopPropagation()}>
         {isRunning && (
