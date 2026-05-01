@@ -28,11 +28,9 @@ function hasRichDetail(task: StoredTask | undefined): boolean {
 // eslint-disable-next-line complexity
 export function TaskDetailView({taskId}: TaskDetailViewProps) {
   const storeTask = useTaskById(taskId)
-  const needsFetch = !hasRichDetail(storeTask)
+  const isLiveInStore = storeTask !== undefined && isActiveStatus(storeTask.status)
+  const needsFetch = !hasRichDetail(storeTask) && !isLiveInStore
 
-  // Cold restored task: store has only a list-row snapshot (or nothing).
-  // Fetch the full persisted entry; live tasks (have responseContent/toolCalls)
-  // skip the network call entirely via `enabled: false`.
   const {data, isLoading} = useGetTaskDetail({enabled: needsFetch, taskId})
 
   const fetched: StoredTask | undefined = data?.task ? taskHistoryEntryToStoredTask(data.task) : undefined

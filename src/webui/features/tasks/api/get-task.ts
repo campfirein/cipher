@@ -21,6 +21,7 @@ export const getTaskQueryOptions = (taskId: string, enabled: boolean) =>
     enabled,
     queryFn: () => getTask(taskId),
     queryKey: ['tasks', 'detail', taskId],
+    staleTime: Number.POSITIVE_INFINITY,
   })
 
 type UseGetTaskDetailOptions = {
@@ -33,4 +34,5 @@ export const useGetTaskDetail = ({enabled, queryConfig, taskId}: UseGetTaskDetai
   useQuery({
     ...getTaskQueryOptions(taskId, enabled),
     ...queryConfig,
+    enabled,
   })

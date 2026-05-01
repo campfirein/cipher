@@ -37,6 +37,14 @@ describe('taskHistoryEntryToStoredTask', () => {
     expect(result.status).to.equal('started')
   })
 
+  it('leaves rich detail fields undefined for a started entry without content', () => {
+    const entry: TaskHistoryEntry = {...baseEntry, startedAt: 1_700_000_001_000, status: 'started'}
+    const result = taskHistoryEntryToStoredTask(entry)
+    expect(result.responseContent).to.equal(undefined)
+    expect(result.toolCalls).to.equal(undefined)
+    expect(result.reasoningContents).to.equal(undefined)
+  })
+
   it('maps a completed entry with result + timestamps', () => {
     const entry: TaskHistoryEntry = {
       ...baseEntry,
