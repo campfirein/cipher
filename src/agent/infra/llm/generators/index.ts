@@ -12,3 +12,4 @@ export {AiSdkContentGenerator, type AiSdkContentGeneratorConfig} from './ai-sdk-
 export {ByteRoverContentGenerator, type ByteRoverContentGeneratorConfig} from './byterover-content-generator.js'
 export {LoggingContentGenerator, type LoggingOptions} from './logging-content-generator.js'
 export {RetryableContentGenerator, type RetryableOptions} from './retryable-content-generator.js'
+export {type UsageOnlyTelemetryParams, wrapWithUsageOnlyTelemetry} from './usage-only-telemetry.js'
