@@ -2,12 +2,16 @@ import {Button} from '@campfirein/byterover-packages/components/button'
 import {Sheet, SheetContent} from '@campfirein/byterover-packages/components/sheet'
 import {useEffect, useMemo, useState} from 'react'
 import {useSearchParams} from 'react-router-dom'
+import {toast} from 'sonner'
 
 import type {ComposerType} from './task-composer-types'
 
 import {useTransportStore} from '../../../stores/transport-store'
 import {CURATE_EXAMPLE, QUERY_EXAMPLE, TOUR_STEP_LABEL} from '../../onboarding/lib/tour-examples'
 import {useOnboardingStore} from '../../onboarding/stores/onboarding-store'
+import {useClearCompleted} from '../api/clear-completed'
+import {useDeleteBulkTasks} from '../api/delete-bulk-tasks'
+import {useDeleteTask} from '../api/delete-task'
 import {useGetTasks} from '../api/get-tasks'
 import {useTickingNow} from '../hooks/use-ticking-now'
 import {useComposerRetryStore} from '../stores/composer-retry-store'
@@ -52,6 +56,10 @@ export function TaskListView() {
   const breakdown = useStatusBreakdown()
   const {isLoading} = useGetTasks({projectPath: projectPath || undefined})
   const now = useTickingNow(breakdown.running > 0)
+
+  const deleteMutation = useDeleteTask()
+  const deleteBulkMutation = useDeleteBulkTasks()
+  const clearCompletedMutation = useClearCompleted()
 
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [composer, setComposer] = useState<{
@@ -154,13 +162,44 @@ export function TaskListView() {
 
   const clearSelection = () => setSelectedIds(new Set())
 
+  const handleDelete = (taskId: string) => {
+    deleteMutation.mutate(
+      {taskId},
+      {
+        onError: (err) => toast.error(err.message),
+        onSuccess: () => removeTask(taskId),
+      },
+    )
+  }
+
   const deleteSelected = () => {
-    for (const taskId of selectedIds) {
-      const task = taskMap.get(taskId)
-      if (task && isTerminalStatus(task.status)) removeTask(taskId)
+    const eligibleIds = [...selectedIds].filter((id) => {
+      const task = taskMap.get(id)
+      return task !== undefined && isTerminalStatus(task.status)
+    })
+    if (eligibleIds.length === 0) {
+      clearSelection()
+      return
     }
 
+    deleteBulkMutation.mutate(
+      {taskIds: eligibleIds},
+      {
+        onError: (err) => toast.error(err.message),
+        onSuccess() {
+          for (const id of eligibleIds) removeTask(id)
+        },
+      },
+    )
     clearSelection()
+  }
+
+  const handleClearCompleted = () => {
+    const path = projectPath || undefined
+    clearCompletedMutation.mutate(path ? {projectPath: path} : {}, {
+      onError: (err) => toast.error(err.message),
+      onSuccess: () => clearCompleted(),
+    })
   }
 
   return (
@@ -203,7 +242,7 @@ export function TaskListView() {
           filtered={filtered}
           now={now}
           onClearSearch={() => setSearchQuery('')}
-          onDelete={removeTask}
+          onDelete={handleDelete}
           onRowClick={openTask}
           onToggleSelect={toggleSelect}
           onToggleSelectAll={toggleSelectAll}
@@ -215,7 +254,7 @@ export function TaskListView() {
 
       {finishedCount > 0 && (
         <div className="flex items-center justify-end px-1">
-          <Button onClick={() => clearCompleted()} size="xs" variant="ghost">
+          <Button onClick={handleClearCompleted} size="xs" variant="ghost">
             Clear finished ({finishedCount})
           </Button>
         </div>
