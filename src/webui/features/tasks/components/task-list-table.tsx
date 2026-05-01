@@ -43,9 +43,12 @@ function durationOf(task: StoredTask, now: number): string {
 interface TaskTableProps {
   allSelected: boolean
   filtered: StoredTask[]
+  hasNextPage: boolean
+  isFetchingNextPage: boolean
   now: number
   onClearSearch: () => void
   onDelete: (taskId: string) => void
+  onLoadMore: () => void
   onRowClick: (taskId: string) => void
   onToggleSelect: (taskId: string) => void
   onToggleSelectAll: () => void
@@ -57,9 +60,12 @@ interface TaskTableProps {
 export function TaskTable({
   allSelected,
   filtered,
+  hasNextPage,
+  isFetchingNextPage,
   now,
   onClearSearch,
   onDelete,
+  onLoadMore,
   onRowClick,
   onToggleSelect,
   onToggleSelectAll,
@@ -91,20 +97,40 @@ export function TaskTable({
             </TableCell>
           </TableRow>
         ) : (
-          filtered.map((task) => (
-            <TaskRow
-              isSelected={selectedIds.has(task.taskId)}
-              key={task.taskId}
-              now={now}
-              onDelete={onDelete}
-              onRowClick={onRowClick}
-              onToggleSelect={onToggleSelect}
-              task={task}
-            />
-          ))
+          <>
+            {filtered.map((task) => (
+              <TaskRow
+                isSelected={selectedIds.has(task.taskId)}
+                key={task.taskId}
+                now={now}
+                onDelete={onDelete}
+                onRowClick={onRowClick}
+                onToggleSelect={onToggleSelect}
+                task={task}
+              />
+            ))}
+            {hasNextPage && <LoadMoreRow isFetching={isFetchingNextPage} onClick={onLoadMore} />}
+          </>
         )}
       </TableBody>
     </Table>
+  )
+}
+
+function LoadMoreRow({isFetching, onClick}: {isFetching: boolean; onClick: () => void}) {
+  return (
+    <TableRow
+      aria-disabled={isFetching}
+      className={cn(
+        'text-muted-foreground hover:text-foreground hover:bg-muted/50',
+        isFetching ? 'cursor-wait opacity-60' : 'cursor-pointer',
+      )}
+      onClick={isFetching ? undefined : onClick}
+    >
+      <TableCell className="mono py-3 text-center text-[11px] uppercase tracking-wider" colSpan={8}>
+        {isFetching ? 'Loading…' : 'Load more'}
+      </TableCell>
+    </TableRow>
   )
 }
 

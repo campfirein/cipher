@@ -36,7 +36,8 @@ export function TaskSubscriptionInitializer() {
 
   useEffect(() => {
     if (!data) return
-    mergeTasks(data.tasks)
+    const merged = data.pages.flatMap((page) => page.tasks)
+    mergeTasks(merged)
   }, [data, mergeTasks])
 
   return null
