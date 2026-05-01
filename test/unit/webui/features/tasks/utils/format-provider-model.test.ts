@@ -1,0 +1,27 @@
+import {expect} from 'chai'
+
+import {formatProviderModel} from '../../../../../../src/webui/features/tasks/utils/format-provider-model.js'
+
+describe('formatProviderModel', () => {
+  it('returns undefined when no provider', () => {
+    expect(formatProviderModel()).to.equal(undefined)
+  })
+
+  it('returns "<provider>:<model>" for external providers', () => {
+    expect(formatProviderModel('openai', 'gpt-5-pro')).to.equal('openai:gpt-5-pro')
+    expect(formatProviderModel('anthropic', 'claude-sonnet-4-6')).to.equal('anthropic:claude-sonnet-4-6')
+  })
+
+  it('returns "<provider>" alone when model is missing (byterover internal)', () => {
+    expect(formatProviderModel('byterover')).to.equal('byterover')
+  })
+
+  it('returns undefined when only model is set', () => {
+    expect(formatProviderModel(undefined, 'gpt-5-pro')).to.equal(undefined)
+  })
+
+  it('treats empty strings as missing', () => {
+    expect(formatProviderModel('', '')).to.equal(undefined)
+    expect(formatProviderModel('', 'gpt-5-pro')).to.equal(undefined)
+  })
+})
