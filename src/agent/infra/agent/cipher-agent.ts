@@ -1288,13 +1288,24 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
 
     const mapLogger = new EventBasedLogger(this._agentEventBus, 'MapTools')
 
+    // Wrap mapGenerator with usage-only telemetry so per-chunk LLM calls from
+    // tools.curation.mapExtract(), tools.llmMap, and tools.agenticMap surface
+    // `llmservice:usage` events to the agent bus. Without this wrap these
+    // paths bypass UsageLogger and are invisible in usage.jsonl, undercounting
+    // any token-cost measurement of the curate hot path.
+    const meteredMapGenerator = wrapWithUsageOnlyTelemetry({
+      agentEventBus: this._agentEventBus,
+      inner: mapGenerator,
+      sessionTag: 'map-extract',
+    })
+
     // Atomically replace map tools with fresh generator/tokenizer/maxContextTokens.
     // replaceTools() is build-then-swap — if build fails, old tools remain intact.
     services.toolProvider.replaceTools(
       [ToolName.LLM_MAP, ToolName.AGENTIC_MAP],
       {
         agentInstance: this,
-        contentGenerator: mapGenerator,
+        contentGenerator: meteredMapGenerator,
         logger: mapLogger,
         maxContextTokens: effectiveMaxContextTokens,
         tokenizer: mapTokenizer,
@@ -1302,7 +1313,7 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
     )
 
     // Update sandbox for tools.curation.mapExtract()
-    services.sandboxService.setContentGenerator?.(mapGenerator)
+    services.sandboxService.setContentGenerator?.(meteredMapGenerator)
   }
 
   private async refreshSessionCompressorFromTransport(): Promise<void> {
