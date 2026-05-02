@@ -188,82 +188,87 @@ describe('TaskRouter — extended handlers', () => {
   // ==========================================================================
 
   describe('handleTaskList', () => {
-    it('honors before + limit', async () => {
+    it('honors page + pageSize (M2.16 numbered pagination)', async () => {
       for (let i = 0; i < 5; i++) {
         // eslint-disable-next-line no-await-in-loop
         await store.save(makeStoredEntry({createdAt: 100 * (i + 1), taskId: `t${i}`}))
       }
 
       const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.LIST)
-      const result = (await handler!({before: 350, limit: 2, projectPath: '/app'}, 'client-1')) as {
-        nextCursor?: number
+      const result = (await handler!({page: 2, pageSize: 2, projectPath: '/app'}, 'client-1')) as {
+        page: number
+        pageCount: number
+        pageSize: number
         tasks: Array<{taskId: string}>
+        total: number
       }
 
-      // 5 entries (createdAt 100,200,300,400,500). before=350 → keep 100,200,300. limit=2 → newest two.
+      // 5 entries (createdAt 100..500). Sorted DESC: t4,t3,t2,t1,t0. page=2,size=2 → t2,t1.
       expect(result.tasks.map((t) => t.taskId)).to.deep.equal(['t2', 't1'])
-      // Page is full (limit=2) and there's still 't0' below → expect nextCursor.
-      expect(result.nextCursor).to.equal(200)
+      expect(result.total).to.equal(5)
+      expect(result.page).to.equal(2)
+      expect(result.pageSize).to.equal(2)
+      expect(result.pageCount).to.equal(3) // ceil(5/2)
     })
 
-    it('returns nextCursor when more entries exist past the page', async () => {
+    it('returns shape with total + pageCount + counts + available* sets', async () => {
       for (let i = 0; i < 4; i++) {
         // eslint-disable-next-line no-await-in-loop
         await store.save(makeStoredEntry({createdAt: 100 * (i + 1), taskId: `n${i}`}))
       }
 
       const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.LIST)
-      const result = (await handler!({limit: 2, projectPath: '/app'}, 'client-1')) as {
-        nextCursor?: number
+      const result = (await handler!({page: 1, pageSize: 2, projectPath: '/app'}, 'client-1')) as {
+        availableModels: Array<{modelId: string; providerId: string}>
+        availableProviders: string[]
+        counts: {all: number}
+        pageCount: number
         tasks: unknown[]
+        total: number
       }
 
       expect(result.tasks).to.have.lengthOf(2)
-      expect(result.nextCursor).to.be.a('number')
+      expect(result.total).to.equal(4)
+      expect(result.pageCount).to.equal(2)
+      expect(result.counts.all).to.equal(4)
+      expect(result.availableProviders).to.be.an('array')
+      expect(result.availableModels).to.be.an('array')
     })
 
-    it('cursor tiebreaker — same-millisecond cluster paginates without skips', async () => {
-      // Reproduces the regression: 4 tasks share createdAt=100. With limit=2,
-      // page 1 returns 2 of them; without a tiebreaker, page 2 (using
-      // before=100 alone) skips the remaining 2 because the store's filter
-      // excludes `createdAt >= before`. With (before, beforeTaskId), page 2
-      // returns the missing 2.
+    it('page > pageCount returns empty tasks but correct total/pageCount', async () => {
+      for (let i = 0; i < 3; i++) {
+        // eslint-disable-next-line no-await-in-loop
+        await store.save(makeStoredEntry({createdAt: 100 * (i + 1), taskId: `t${i}`}))
+      }
+
+      const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.LIST)
+      const result = (await handler!({page: 9999, pageSize: 50, projectPath: '/app'}, 'client-1')) as {
+        page: number
+        pageCount: number
+        tasks: unknown[]
+        total: number
+      }
+
+      expect(result.tasks).to.deep.equal([])
+      expect(result.total).to.equal(3)
+      expect(result.pageCount).to.equal(1)
+      expect(result.page).to.equal(9999) // server echoes back; caller must correct
+    })
+
+    it('same-millisecond cluster — sort stable by (createdAt DESC, taskId DESC)', async () => {
       const sharedCreatedAt = 100
-      // Task IDs are sorted DESC by the handler, so secondary sort is taskId DESC.
-      // Use predictable lexical order: 'd' > 'c' > 'b' > 'a'.
       for (const id of ['a', 'b', 'c', 'd']) {
         // eslint-disable-next-line no-await-in-loop
         await store.save(makeStoredEntry({createdAt: sharedCreatedAt, taskId: id}))
       }
 
       const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.LIST)
-
-      // Page 1: limit=2 → expect ['d', 'c'] (taskId DESC tiebreaker on equal createdAt)
-      const page1 = (await handler!({limit: 2, projectPath: '/app'}, 'client-1')) as {
-        nextCursor?: number
-        nextCursorTaskId?: string
-        tasks: Array<{createdAt: number; taskId: string}>
+      const result = (await handler!({page: 1, pageSize: 4, projectPath: '/app'}, 'client-1')) as {
+        tasks: Array<{taskId: string}>
       }
-      expect(page1.tasks.map((t) => t.taskId)).to.deep.equal(['d', 'c'])
-      expect(page1.nextCursor).to.equal(sharedCreatedAt)
-      expect(page1.nextCursorTaskId).to.equal('c')
 
-      // Page 2: pass back (nextCursor, nextCursorTaskId) → expect ['b', 'a']
-      const page2 = (await handler!(
-        {
-          before: page1.nextCursor,
-          beforeTaskId: page1.nextCursorTaskId,
-          limit: 2,
-          projectPath: '/app',
-        },
-        'client-1',
-      )) as {
-        nextCursor?: number
-        nextCursorTaskId?: string
-        tasks: Array<{createdAt: number; taskId: string}>
-      }
-      expect(page2.tasks.map((t) => t.taskId)).to.deep.equal(['b', 'a'])
-      expect(page2.nextCursor).to.equal(undefined) // no more pages
+      // taskId DESC tiebreaker on equal createdAt: d,c,b,a
+      expect(result.tasks.map((t) => t.taskId)).to.deep.equal(['d', 'c', 'b', 'a'])
     })
 
     it('merges in-memory + persisted, in-memory wins by taskId', async () => {
@@ -460,6 +465,348 @@ describe('TaskRouter — extended handlers', () => {
       const ghost = result.tasks.find((t) => t.taskId === 'ghost')
       expect(ghost).to.exist
       expect(ghost!.status).to.equal('error')
+    })
+
+    // ----------------------------------------------------------------------
+    // M2.16 — filter dimensions + derivative sets
+    // ----------------------------------------------------------------------
+
+    it('searchText matches content (case-insensitive)', async () => {
+      await store.save(makeStoredEntry({content: 'Inspect AUTH flow', taskId: 'a1'}))
+      await store.save(makeStoredEntry({content: 'index hub', taskId: 'a2'}))
+
+      const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.LIST)
+      const result = (await handler!({projectPath: '/app', searchText: 'auth'}, 'client-1')) as {
+        tasks: Array<{taskId: string}>
+      }
+
+      expect(result.tasks.map((t) => t.taskId)).to.deep.equal(['a1'])
+    })
+
+    it('searchText matches error.message on error tasks', async () => {
+      await store.save(
+        makeStoredEntry({
+          completedAt: 1,
+          error: {code: 'X', message: 'Timeout: connection refused', name: 'TaskError'},
+          status: 'error',
+          taskId: 'e1',
+        }),
+      )
+      await store.save(makeStoredEntry({content: 'unrelated', taskId: 'c1'}))
+
+      const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.LIST)
+      const result = (await handler!({projectPath: '/app', searchText: 'timeout'}, 'client-1')) as {
+        tasks: Array<{taskId: string}>
+      }
+
+      expect(result.tasks.map((t) => t.taskId)).to.deep.equal(['e1'])
+    })
+
+    it('provider[] filter — exact match', async () => {
+      await store.save(makeStoredEntry({provider: 'openai', taskId: 'o1'}))
+      await store.save(makeStoredEntry({provider: 'anthropic', taskId: 'a1'}))
+      await store.save(makeStoredEntry({taskId: 'np1'})) // no provider
+
+      const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.LIST)
+      const result = (await handler!({projectPath: '/app', provider: ['openai']}, 'client-1')) as {
+        tasks: Array<{taskId: string}>
+      }
+
+      expect(result.tasks.map((t) => t.taskId)).to.deep.equal(['o1'])
+    })
+
+    it('model[] filter — exact match', async () => {
+      await store.save(makeStoredEntry({model: 'gpt-5-pro', provider: 'openai', taskId: 'g1'}))
+      await store.save(makeStoredEntry({model: 'claude-3-5-sonnet', provider: 'anthropic', taskId: 'c1'}))
+
+      const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.LIST)
+      const result = (await handler!({model: ['gpt-5-pro'], projectPath: '/app'}, 'client-1')) as {
+        tasks: Array<{taskId: string}>
+      }
+
+      expect(result.tasks.map((t) => t.taskId)).to.deep.equal(['g1'])
+    })
+
+    it('createdAfter / createdBefore — timestamp range', async () => {
+      await store.save(makeStoredEntry({createdAt: 100, taskId: 'old'}))
+      await store.save(makeStoredEntry({createdAt: 200, taskId: 'mid'}))
+      await store.save(makeStoredEntry({createdAt: 300, taskId: 'new'}))
+
+      const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.LIST)
+      const result = (await handler!(
+        {createdAfter: 150, createdBefore: 250, projectPath: '/app'},
+        'client-1',
+      )) as {tasks: Array<{taskId: string}>}
+
+      expect(result.tasks.map((t) => t.taskId)).to.deep.equal(['mid'])
+    })
+
+    it('minDurationMs / maxDurationMs — terminal-only', async () => {
+      await store.save(
+        makeStoredEntry({
+          completedAt: 1100, // dur = 1100 - 1000 = 100ms
+          startedAt: 1000,
+          status: 'completed',
+          taskId: 'fast',
+        }),
+      )
+      await store.save(
+        makeStoredEntry({
+          completedAt: 6000, // dur = 5000ms
+          startedAt: 1000,
+          status: 'completed',
+          taskId: 'slow',
+        }),
+      )
+      await store.save(
+        makeStoredEntry({
+          // No startedAt or completedAt → 'created' status — must be excluded by duration filter
+          status: 'created',
+          taskId: 'active',
+        }),
+      )
+
+      const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.LIST)
+      const result = (await handler!({minDurationMs: 1000, projectPath: '/app'}, 'client-1')) as {
+        tasks: Array<{taskId: string}>
+      }
+
+      expect(result.tasks.map((t) => t.taskId)).to.deep.equal(['slow'])
+    })
+
+    it('AND combination — searchText + status + provider', async () => {
+      await store.save(
+        makeStoredEntry({
+          completedAt: 100,
+          content: 'auth flow',
+          error: {code: 'X', message: 'auth failure', name: 'TaskError'},
+          provider: 'openai',
+          status: 'error',
+          taskId: 'match',
+        }),
+      )
+      await store.save(makeStoredEntry({content: 'auth flow', provider: 'openai', status: 'completed', taskId: 'wrong-status'}))
+
+      const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.LIST)
+      const result = (await handler!(
+        {projectPath: '/app', provider: ['openai'], searchText: 'auth', status: ['error']},
+        'client-1',
+      )) as {tasks: Array<{taskId: string}>}
+
+      expect(result.tasks.map((t) => t.taskId)).to.deep.equal(['match'])
+    })
+
+    it('counts derive from allFiltered (matches current filter scope — Model A)', async () => {
+      await store.save(makeStoredEntry({status: 'completed', taskId: 'c1'}))
+      await store.save(makeStoredEntry({status: 'completed', taskId: 'c2'}))
+      await store.save(
+        makeStoredEntry({
+          completedAt: 1,
+          error: {code: 'X', message: 'x', name: 'X'},
+          status: 'error',
+          taskId: 'e1',
+        }),
+      )
+
+      const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.LIST)
+      // Pick status=['error'] — counts reflects post-status-filter (Model A).
+      const result = (await handler!({projectPath: '/app', status: ['error']}, 'client-1')) as {
+        counts: {all: number; cancelled: number; completed: number; failed: number; running: number}
+        tasks: Array<{taskId: string}>
+      }
+
+      expect(result.tasks.map((t) => t.taskId)).to.deep.equal(['e1'])
+      expect(result.counts).to.deep.equal({all: 1, cancelled: 0, completed: 0, failed: 1, running: 0})
+    })
+
+    it('availableProviders + availableModels — history-derived, exclude pivots', async () => {
+      await store.save(makeStoredEntry({model: 'gpt-5-pro', provider: 'openai', taskId: 'a'}))
+      await store.save(makeStoredEntry({model: 'claude-3-5-sonnet', provider: 'anthropic', taskId: 'b'}))
+      await store.save(makeStoredEntry({model: 'claude-3-5-sonnet', provider: 'bedrock', taskId: 'c'}))
+      await store.save(makeStoredEntry({taskId: 'd'})) // no provider/model — must NOT add phantom
+
+      const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.LIST)
+      // Pick provider=['openai'] — availableProviders/availableModels MUST still include all (exclude pivot).
+      const result = (await handler!({projectPath: '/app', provider: ['openai']}, 'client-1')) as {
+        availableModels: Array<{modelId: string; providerId: string}>
+        availableProviders: string[]
+        tasks: Array<{taskId: string}>
+      }
+
+      expect(result.tasks.map((t) => t.taskId)).to.deep.equal(['a'])
+      expect(result.availableProviders).to.have.members(['openai', 'anthropic', 'bedrock'])
+      // pair preservation: claude-3-5-sonnet from 2 providers = 2 entries
+      const claude35 = result.availableModels.filter((m) => m.modelId === 'claude-3-5-sonnet')
+      expect(claude35).to.have.lengthOf(2)
+      expect(claude35.map((m) => m.providerId).sort()).to.deep.equal(['anthropic', 'bedrock'])
+    })
+
+    it('pass-2 lazy crack — searchText matches full result text via getById (happy path)', async () => {
+      // Persist a completed task whose `result` contains the needle but content/error.message do NOT.
+      // Pass-1 must miss; pass-2 must getById and match against entry.result.
+      await store.save(
+        makeStoredEntry({
+          completedAt: 100,
+          content: 'unrelated prompt',
+          // result is NOT on the index summary, so pass-1 cannot see it.
+          // The save persists the full TaskHistoryEntry to data/tsk-deep.json including result.
+          startedAt: 50,
+          status: 'completed',
+          taskId: 'deep',
+        }),
+      )
+      // Save also writes the data file with the full entry — verify by direct save() with result.
+      await store.save({
+        completedAt: 100,
+        content: 'unrelated prompt',
+        createdAt: 0,
+        id: 'deep',
+        projectPath: '/app',
+        result: 'x'.repeat(2000) + 'unique-deep-result-token' + 'y'.repeat(2000),
+        schemaVersion: 1,
+        startedAt: 50,
+        status: 'completed',
+        taskId: 'deep',
+        type: 'curate',
+      })
+
+      const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.LIST)
+      const result = (await handler!(
+        {projectPath: '/app', searchText: 'unique-deep-result-token'},
+        'client-1',
+      )) as {tasks: Array<{taskId: string}>}
+
+      expect(result.tasks.map((t) => t.taskId)).to.deep.equal(['deep'])
+    })
+
+    it('pass-2 lazy crack — in-memory completed task matches via task.result (no I/O)', async () => {
+      // Drive a task through completion via TaskRouter so it lives in this.completedTasks.
+      const createHandler = transportHelper.requestHandlers.get(TransportTaskEventNames.CREATE)
+      await createHandler!(makeTaskCreateRequest({content: 'plain prompt', taskId: 'live'}), 'client-1')
+
+      const completedHandler = transportHelper.requestHandlers.get(TransportTaskEventNames.COMPLETED)
+      await completedHandler!(
+        {result: 'response with needle-in-mem in middle', taskId: 'live'},
+        'client-1',
+      )
+
+      // Stub getById to throw — proves pass-2 in-memory path didn't go through I/O.
+      const getByIdStub = sandbox.stub(store, 'getById').rejects(new Error('should not be called'))
+
+      const listHandler = transportHelper.requestHandlers.get(TransportTaskEventNames.LIST)
+      const result = (await listHandler!(
+        {projectPath: '/app', searchText: 'needle-in-mem'},
+        'client-1',
+      )) as {tasks: Array<{taskId: string}>}
+
+      expect(result.tasks.map((t) => t.taskId)).to.deep.equal(['live'])
+      expect(getByIdStub.called, 'in-memory pass-2 must NOT call store.getById').to.equal(false)
+    })
+
+    it('searchText empty string is treated as "no filter"', async () => {
+      await store.save(makeStoredEntry({taskId: 't1'}))
+      await store.save(makeStoredEntry({taskId: 't2'}))
+
+      const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.LIST)
+      const result = (await handler!({projectPath: '/app', searchText: ''}, 'client-1')) as {
+        tasks: Array<{taskId: string}>
+      }
+
+      expect(result.tasks).to.have.lengthOf(2)
+    })
+
+    it('availableProviders + availableModels exclude empty-string entries (regression: asymmetric guard)', async () => {
+      // Schema accepts '' for provider/model; derivative sets MUST guard length > 0
+      // so we don't emit phantom {providerId: 'openai', modelId: ''} pairs.
+      await store.save(makeStoredEntry({model: '', provider: 'openai', taskId: 'empty-model'}))
+      await store.save(makeStoredEntry({model: 'gpt-5-pro', provider: '', taskId: 'empty-provider'}))
+      await store.save(makeStoredEntry({model: 'gpt-5-pro', provider: 'openai', taskId: 'good'}))
+
+      const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.LIST)
+      const result = (await handler!({projectPath: '/app'}, 'client-1')) as {
+        availableModels: Array<{modelId: string; providerId: string}>
+        availableProviders: string[]
+      }
+
+      expect(result.availableProviders).to.deep.equal(['openai'])
+      expect(result.availableProviders).to.not.include('')
+      expect(result.availableModels).to.deep.equal([{modelId: 'gpt-5-pro', providerId: 'openai'}])
+      expect(result.availableModels.some((m) => m.modelId === '' || m.providerId === '')).to.equal(false)
+    })
+
+    it('availableProviders excludes phantom undefined when tasks have no provider', async () => {
+      await store.save(makeStoredEntry({provider: 'openai', taskId: 'a'}))
+      await store.save(makeStoredEntry({taskId: 'b'})) // no provider
+
+      const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.LIST)
+      const result = (await handler!({projectPath: '/app'}, 'client-1')) as {
+        availableProviders: string[]
+      }
+
+      expect(result.availableProviders).to.not.include(undefined)
+      expect(result.availableProviders).to.not.include('')
+      expect(result.availableProviders).to.deep.equal(['openai'])
+    })
+
+    it('counts.all === total invariant under status filter (Model A)', async () => {
+      await store.save(makeStoredEntry({status: 'completed', taskId: 'c1'}))
+      await store.save(makeStoredEntry({status: 'completed', taskId: 'c2'}))
+      await store.save(
+        makeStoredEntry({
+          completedAt: 1,
+          error: {code: 'X', message: 'x', name: 'X'},
+          status: 'error',
+          taskId: 'e1',
+        }),
+      )
+
+      const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.LIST)
+      const result = (await handler!({projectPath: '/app', status: ['error']}, 'client-1')) as {
+        counts: {all: number}
+        total: number
+      }
+
+      // counts.all matches current filter scope → equal to total under any filter.
+      expect(result.counts.all).to.equal(result.total)
+      expect(result.counts.all).to.equal(1)
+      expect(result.total).to.equal(1)
+    })
+
+    it('pass-2 swallows getById file-race errors', async () => {
+      await store.save(
+        makeStoredEntry({
+          completedAt: 100,
+          content: 'no-keyword-here',
+          // result is NOT on the index — search past pass-1 will trigger pass-2 → getById.
+          startedAt: 50,
+          status: 'completed',
+          taskId: 'race',
+        }),
+      )
+      // Stub getById to throw (simulating concurrent delete)
+      sandbox.stub(store, 'getById').rejects(new Error('ENOENT'))
+
+      const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.LIST)
+      // Search must complete without crash; race task is not matched (no result-text match).
+      const result = (await handler!({projectPath: '/app', searchText: 'something'}, 'client-1')) as {
+        tasks: Array<{taskId: string}>
+      }
+
+      expect(result.tasks).to.be.an('array')
+      expect(result.tasks).to.deep.equal([])
+    })
+
+    it('pageSize clamps to [1, 1000]', async () => {
+      await store.save(makeStoredEntry({taskId: 't1'}))
+      const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.LIST)
+
+      // pageSize=0 should be clamped to 1 by handler (schema rejects 0, but handler also clamps for back-compat)
+      const r1 = (await handler!({pageSize: 0, projectPath: '/app'}, 'client-1')) as {pageSize: number}
+      expect(r1.pageSize).to.equal(1)
+
+      // pageSize=1001 — schema enforces max 1000 at parse time. Test handler clamp safety.
+      const r2 = (await handler!({pageSize: 9999, projectPath: '/app'}, 'client-1')) as {pageSize: number}
+      expect(r2.pageSize).to.equal(1000)
     })
 
     it('store error falls back to in-memory only', async () => {

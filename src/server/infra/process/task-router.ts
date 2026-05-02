@@ -81,8 +81,8 @@ type LlmEventPayloadMap = {
  */
 const TASK_CLEANUP_GRACE_PERIOD_MS = 5000
 
-/** Default page size for `task:list` when caller omits `limit`. Schema caps at 1000. */
-const DEFAULT_TASK_LIST_LIMIT = 50
+/** Default page size for `task:list` when caller omits `pageSize`. Schema caps at 1000. */
+const DEFAULT_TASK_LIST_PAGE_SIZE = 50
 
 /** Statuses considered terminal for delete refusal (M2.09). */
 const TERMINAL_STATUSES: ReadonlySet<TaskListItemStatus> = new Set(['cancelled', 'completed', 'error'])
@@ -140,39 +140,73 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null
 }
 
-function matchesListFilters(
-  item: TaskListItem,
-  filters: {
-    before?: number
-    /**
-     * Tiebreaker for `before`. When two tasks share the same `createdAt` and
-     * `before === item.createdAt`, the row with `taskId < beforeTaskId`
-     * survives (so we strictly continue past the previous page boundary).
-     * When omitted, falls back to the original `<` semantics on `before`.
-     */
-    beforeTaskId?: string
-    projectFilter: string
-    statusFilter?: TaskListItemStatus[]
-    /**
-     * Optional task-type filter (e.g. `['curate']`, `['query', 'search']`).
-     * Empty array is treated as omitted to match the store's `?.length`
-     * semantics — both layers must agree so persisted+in-memory results
-     * are filtered consistently.
-     */
-    typeFilter?: string[]
-  },
-): boolean {
+/**
+ * Bounded-concurrency map for async I/O (M2.16 pass-2 lazy crack of data files).
+ * Keeps file-descriptor usage well under macOS default soft limit (256).
+ * No external dep (`p-limit` is not installed); ~10 lines hand-roll.
+ */
+async function mapBounded<T, R>(
+  items: readonly T[],
+  limit: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = Array.from({length: items.length})
+  let nextIdx = 0
+  const workers = Array.from({length: Math.min(limit, items.length)}, async () => {
+    while (true) {
+      const i = nextIdx++
+      if (i >= items.length) return
+      // eslint-disable-next-line no-await-in-loop -- bounded worker pool; awaiting in sequence inside each worker is the point
+      results[i] = await fn(items[i])
+    }
+  })
+  await Promise.all(workers)
+  return results
+}
+
+/** Concurrency cap for pass-2 lazy crack — keeps FD usage minimal. */
+const FULL_TEXT_CONCURRENCY = 16
+
+/** Build a clamped, well-typed empty response (M2.16). */
+function emptyTaskListResponse(data: TaskListRequest): TaskListResponse {
+  const pageSize = Math.min(Math.max(data.pageSize ?? DEFAULT_TASK_LIST_PAGE_SIZE, 1), 1000)
+  const page = Math.max(data.page ?? 1, 1)
+  return {
+    availableModels: [],
+    availableProviders: [],
+    counts: {all: 0, cancelled: 0, completed: 0, failed: 0, running: 0},
+    page,
+    pageCount: 1,
+    pageSize,
+    tasks: [],
+    total: 0,
+  }
+}
+
+/**
+ * Filter dimensions evaluated on a `TaskListItem` (M2.16).
+ * AND-combined; empty arrays treated as "no filter" to match store `?.length` semantics.
+ *
+ * Search Pass-1 (`searchText`) checks `content + error.message` here. Pass-2
+ * (full `result` lazy crack) runs separately in `handleTaskList` and is NOT
+ * evaluated here — see that handler for the 2-pass flow.
+ */
+type ListFilterArgs = {
+  createdAfter?: number
+  createdBefore?: number
+  maxDurationMs?: number
+  minDurationMs?: number
+  modelFilter?: string[]
+  projectFilter: string
+  providerFilter?: string[]
+  searchText?: string
+  statusFilter?: TaskListItemStatus[]
+  typeFilter?: string[]
+}
+
+function matchesListFilters(item: TaskListItem, filters: ListFilterArgs): boolean {
   const taskProject = item.projectPath
   if (taskProject !== undefined && taskProject !== filters.projectFilter) return false
-  if (filters.before !== undefined) {
-    if (filters.beforeTaskId !== undefined) {
-      // Composite cursor: strictly past (before, beforeTaskId) in DESC order.
-      if (item.createdAt > filters.before) return false
-      if (item.createdAt === filters.before && item.taskId >= filters.beforeTaskId) return false
-    } else if (item.createdAt >= filters.before) {
-      return false
-    }
-  }
 
   if (filters.statusFilter && filters.statusFilter.length > 0 && !filters.statusFilter.includes(item.status)) {
     return false
@@ -180,6 +214,25 @@ function matchesListFilters(
 
   if (filters.typeFilter && filters.typeFilter.length > 0 && !filters.typeFilter.includes(item.type)) {
     return false
+  }
+
+  if (filters.providerFilter && filters.providerFilter.length > 0 && (item.provider === undefined || !filters.providerFilter.includes(item.provider))) return false
+
+  if (filters.modelFilter && filters.modelFilter.length > 0 && (item.model === undefined || !filters.modelFilter.includes(item.model))) return false
+
+  if (filters.createdAfter !== undefined && item.createdAt < filters.createdAfter) return false
+  if (filters.createdBefore !== undefined && item.createdAt > filters.createdBefore) return false
+
+  if (filters.minDurationMs !== undefined || filters.maxDurationMs !== undefined) {
+    if (item.startedAt === undefined || item.completedAt === undefined) return false
+    const dur = item.completedAt - item.startedAt
+    if (filters.minDurationMs !== undefined && dur < filters.minDurationMs) return false
+    if (filters.maxDurationMs !== undefined && dur > filters.maxDurationMs) return false
+  }
+
+  if (filters.searchText !== undefined && filters.searchText.length > 0) {
+    const haystack = (item.content + '\n' + (item.error?.message ?? '')).toLowerCase()
+    if (!haystack.includes(filters.searchText.toLowerCase())) return false
   }
 
   return true
@@ -1172,72 +1225,234 @@ export class TaskRouter {
     }
   }
 
+  // eslint-disable-next-line complexity
   private async handleTaskList(data: TaskListRequest, clientId: string): Promise<TaskListResponse> {
     const projectFilter = data.projectPath ?? this.resolveClientProjectPath?.(clientId)
 
-    // No resolvable project — return empty rather than leaking every task.
-    // A client that hasn't registered a project shouldn't see other projects' work.
-    if (projectFilter === undefined) return {tasks: []}
+    // No resolvable project — return empty (don't leak other projects' work).
+    if (projectFilter === undefined) return emptyTaskListResponse(data)
 
-    const matches = (taskProject?: string): boolean => taskProject === projectFilter || taskProject === undefined
+    const inMemoryTaskById = new Map<string, TaskInfo>()
+    const collectInMemory = (task: TaskInfo): void => {
+      if (task.projectPath !== undefined && task.projectPath !== projectFilter) return
+      inMemoryTaskById.set(task.taskId, task)
+    }
 
-    const limit = data.limit ?? DEFAULT_TASK_LIST_LIMIT
-    const {before, beforeTaskId, status: statusFilter, type: typeFilter} = data
+    for (const task of this.tasks.values()) collectInMemory(task)
+    for (const {task} of this.completedTasks.values()) collectInMemory(task)
 
-    // Persisted entries from the index (best-effort — tolerate store outages).
-    // `TaskListItemStatus` and `TaskHistoryStatus` are structurally identical
-    // (same five string literals) — both are typed via `TaskHistoryStatus =
-    // TaskListItemStatus` in the entity, so the store's filter accepts the
-    // wire shape directly with no cast.
+    // Persisted entries (best-effort — tolerate store outages). Push down ONLY
+    // non-pivot filters (project + type + time). Pivot filters (status / provider
+    // / model) are evaluated at the handler level so derivative sets (counts,
+    // availableProviders, availableModels) can apply their exclusion rules.
     let persisted: TaskListItem[] = []
     if (this.getTaskHistoryStore !== undefined) {
       try {
         const store = this.getTaskHistoryStore(projectFilter)
         persisted = await store.list({
           projectPath: projectFilter,
-          ...(before === undefined ? {} : {before}),
-          ...(statusFilter === undefined ? {} : {status: statusFilter}),
-          ...(typeFilter === undefined ? {} : {type: typeFilter}),
+          ...(data.createdAfter === undefined ? {} : {createdAfter: data.createdAfter}),
+          ...(data.createdBefore === undefined ? {} : {createdBefore: data.createdBefore}),
+          ...(data.type === undefined ? {} : {type: data.type}),
         })
       } catch (error) {
         transportLog(`handleTaskList: store.list failed: ${error instanceof Error ? error.message : String(error)}`)
       }
     }
 
-    const filterArgs = {before, beforeTaskId, projectFilter, statusFilter, typeFilter}
-
-    // Build merge map (taskId → item). In-memory wins.
+    // Step 1-2: merge candidates + apply NON-PIVOT filters with pass-1 search
+    // (project + type + time + duration + content/error.message search).
+    // Status/provider/model are pivot filters — applied later. `available*`
+    // dropdowns exclude status+provider+model pivots so users can switch
+    // selections without the dropdown shrinking. `counts` reflects the FULL
+    // current filter (including status) — chip count = visible row count.
+    //
+    // Pass-2 (full-result lazy crack) re-derives its own candidate set using
+    // `pass2Filter` (same dims minus searchText) so it can find completed tasks
+    // whose result text matches but whose content/error.message did not. The
+    // dual-derivation invariant: any new filter dim must be added to BOTH
+    // `nonPivotFilterArgs` and the pass-2 path below.
     const merged = new Map<string, TaskListItem>()
+    const nonPivotFilterArgs: ListFilterArgs = {
+      createdAfter: data.createdAfter,
+      createdBefore: data.createdBefore,
+      maxDurationMs: data.maxDurationMs,
+      minDurationMs: data.minDurationMs,
+      projectFilter,
+      searchText: data.searchText,
+      typeFilter: data.type,
+    }
+
     for (const item of persisted) {
-      if (matchesListFilters(item, filterArgs)) merged.set(item.taskId, item)
+      if (matchesListFilters(item, nonPivotFilterArgs)) merged.set(item.taskId, item)
     }
 
-    for (const task of this.tasks.values()) {
-      if (!matches(task.projectPath)) continue
+    for (const task of inMemoryTaskById.values()) {
       const item = toListItem(task)
-      if (matchesListFilters(item, filterArgs)) merged.set(item.taskId, item)
+      if (matchesListFilters(item, nonPivotFilterArgs)) merged.set(item.taskId, item)
     }
 
-    for (const {task} of this.completedTasks.values()) {
-      if (!matches(task.projectPath)) continue
-      const item = toListItem(task)
-      if (matchesListFilters(item, filterArgs)) merged.set(item.taskId, item)
+    // Step 3-4: pass-2 search (full-text via lazy data-file crack).
+    // Only when searchText is set AND the row has status='completed' AND it didn't match pass-1.
+    // For in-memory tasks we read result directly from TaskInfo (no I/O); for
+    // persisted we call store.getById, swallowing file-race errors.
+    if (data.searchText !== undefined && data.searchText.length > 0) {
+      const needle = data.searchText.toLowerCase()
+      const pass2Filter: ListFilterArgs = {...nonPivotFilterArgs, searchText: undefined}
+
+      const candidatesNoSearch = new Map<string, TaskListItem>()
+      for (const item of persisted) {
+        if (matchesListFilters(item, pass2Filter)) candidatesNoSearch.set(item.taskId, item)
+      }
+
+      for (const task of inMemoryTaskById.values()) {
+        const item = toListItem(task)
+        if (matchesListFilters(item, pass2Filter)) candidatesNoSearch.set(item.taskId, item)
+      }
+
+      const completedUnmatched: TaskListItem[] = []
+      for (const item of candidatesNoSearch.values()) {
+        if (item.status !== 'completed') continue
+        if (merged.has(item.taskId)) continue
+        completedUnmatched.push(item)
+      }
+
+      // Log race errors at most once per query to avoid log spam during compaction storms.
+      // The rest of the racing reads still execute; we just don't write N log lines.
+      let raceLogged = false
+
+      const matchedIds = await mapBounded(completedUnmatched, FULL_TEXT_CONCURRENCY, async (item) => {
+        // In-memory task — match against task.result directly (no I/O).
+        // Invariant: in-memory tasks with status='completed' always have task.result
+        // defined because handleTaskCompleted sets it synchronously with the status
+        // transition (TaskCompletedEvent.result is required by schema). Persisted
+        // snapshots are derived from this same TaskInfo, so no in-memory/disk
+        // result divergence is possible — fallback to getById is unnecessary here.
+        const inMem = inMemoryTaskById.get(item.taskId)
+        if (inMem !== undefined) {
+          if (inMem.result !== undefined && inMem.result.toLowerCase().includes(needle)) return item.taskId
+          return
+        }
+
+        // Persisted — load full entry via store.getById.
+        if (this.getTaskHistoryStore === undefined) return
+        try {
+          const store = this.getTaskHistoryStore(projectFilter)
+          const entry = await store.getById(item.taskId)
+          if (entry?.status === 'completed' && entry.result?.toLowerCase().includes(needle)) {
+            return item.taskId
+          }
+        } catch (error) {
+          // Swallow file-race (concurrent delete/compaction) — treat as no-match.
+          if (!raceLogged) {
+            raceLogged = true
+            transportLog(
+              `handleTaskList: pass-2 getById(${item.taskId}) failed: ${error instanceof Error ? error.message : String(error)} (further race errors in this query suppressed)`,
+            )
+          }
+        }
+      })
+
+      for (const id of matchedIds) {
+        if (id === undefined) continue
+        const fromMap = candidatesNoSearch.get(id)
+        if (fromMap !== undefined) merged.set(id, fromMap)
+      }
     }
 
-    // Sort by (createdAt DESC, taskId DESC) so same-millisecond clusters have a
-    // stable secondary order matching the cursor tiebreaker.
-    const items = [...merged.values()].sort((a, b) => {
+    // Step 5: nonPivotFull = merged. Derive availableProviders/availableModels.
+    // Guard both provider AND model length > 0 — wire/index schemas accept empty
+    // strings, which would otherwise emit phantom entries like {providerId: 'openai', modelId: ''}.
+    const availableProviderSet = new Set<string>()
+    const availableModelMap = new Map<string, {modelId: string; providerId: string}>()
+    for (const item of merged.values()) {
+      const providerId = item.provider
+      const modelId = item.model
+      if (providerId !== undefined && providerId.length > 0) availableProviderSet.add(providerId)
+      if (providerId !== undefined && providerId.length > 0 && modelId !== undefined && modelId.length > 0) {
+        const key = `${providerId}|${modelId}`
+        if (!availableModelMap.has(key)) availableModelMap.set(key, {modelId, providerId})
+      }
+    }
+
+    const availableProviders = [...availableProviderSet].sort((a, b) => a.localeCompare(b))
+    const availableModels = [...availableModelMap.values()].sort((a, b) => {
+      const p = a.providerId.localeCompare(b.providerId)
+      return p === 0 ? a.modelId.localeCompare(b.modelId) : p
+    })
+
+    // Step 6: apply pivot filters (provider + model + status) → allFiltered.
+    // Hoist into consts so TS narrows the loop captures (avoids `!` assertion per CLAUDE.md).
+    const providerFilter = data.provider
+    const modelFilter = data.model
+    const statusFilter = data.status
+    const allFiltered: TaskListItem[] = []
+    for (const item of merged.values()) {
+      if (
+        providerFilter &&
+        providerFilter.length > 0 &&
+        (item.provider === undefined || !providerFilter.includes(item.provider))
+      ) {
+        continue
+      }
+
+      if (
+        modelFilter &&
+        modelFilter.length > 0 &&
+        (item.model === undefined || !modelFilter.includes(item.model))
+      ) {
+        continue
+      }
+
+      if (statusFilter && statusFilter.length > 0 && !statusFilter.includes(item.status)) continue
+      allFiltered.push(item)
+    }
+
+    // Step 7: counts = status histogram of allFiltered (matches current filter scope — Model A).
+    // Chip count == visible row count; counts.all === total invariant.
+    const counts = {all: allFiltered.length, cancelled: 0, completed: 0, failed: 0, running: 0}
+    for (const item of allFiltered) {
+      switch (item.status) {
+        case 'cancelled': {
+          counts.cancelled++
+          break
+        }
+
+        case 'completed': {
+          counts.completed++
+          break
+        }
+
+        case 'created':
+        case 'started': {
+          counts.running++
+          break
+        }
+
+        case 'error': {
+          counts.failed++
+          break
+        }
+      }
+    }
+
+    // Step 8: Sort (createdAt DESC, taskId DESC) — stable secondary order for same-millisecond clusters.
+    allFiltered.sort((a, b) => {
       if (b.createdAt !== a.createdAt) return b.createdAt - a.createdAt
       if (b.taskId > a.taskId) return 1
       if (b.taskId < a.taskId) return -1
       return 0
     })
-    const paged = items.slice(0, limit)
-    const hasMore = items.length > paged.length
-    const last = hasMore ? paged.at(-1) : undefined
 
-    if (last === undefined) return {tasks: paged}
-    return {nextCursor: last.createdAt, nextCursorTaskId: last.taskId, tasks: paged}
+    // Step 9: paginate. Wire shape unchanged (result preserved per existing toListItem behavior).
+    const pageSize = Math.min(Math.max(data.pageSize ?? DEFAULT_TASK_LIST_PAGE_SIZE, 1), 1000)
+    const page = Math.max(data.page ?? 1, 1)
+    const total = allFiltered.length
+    const pageCount = Math.max(Math.ceil(total / pageSize), 1)
+    const start = (page - 1) * pageSize
+    const tasks = allFiltered.slice(start, start + pageSize)
+
+    return {availableModels, availableProviders, counts, page, pageCount, pageSize, tasks, total}
   }
 
   /**

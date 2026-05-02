@@ -1281,7 +1281,17 @@ describe('TaskRouter', () => {
 
       const listHandler = helper.requestHandlers.get(TransportTaskEventNames.LIST)
       const result = await listHandler!({}, 'unknown-client')
-      expect(result).to.deep.equal({tasks: []})
+      // M2.16: empty response carries the full numbered-pagination shape (page=1, pageCount=1, etc.)
+      expect(result).to.deep.equal({
+        availableModels: [],
+        availableProviders: [],
+        counts: {all: 0, cancelled: 0, completed: 0, failed: 0, running: 0},
+        page: 1,
+        pageCount: 1,
+        pageSize: 50,
+        tasks: [],
+        total: 0,
+      })
     })
   })
 

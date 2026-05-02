@@ -736,28 +736,38 @@ export const TaskCancelResponseSchema = z.object({
 /**
  * task:list - Snapshot of active and recently-completed tasks for a project.
  * Used by the web UI Tasks tab to populate state without replaying history.
+ *
+ * M2.16: cursor pagination dropped; numbered pagination (page/pageSize) +
+ * full filter dimensions (search/provider/model/time/duration).
  */
-export const TaskListRequestSchema = z.object({
-  /** Pagination cursor — return tasks with createdAt < before. */
-  before: z.number().optional(),
-  /**
-   * Tiebreaker for cursor pagination. When two tasks share the same `createdAt`
-   * (same-millisecond bursts from a single client), `before` alone is ambiguous
-   * — the next page might skip rows that share the boundary createdAt. Pass
-   * `beforeTaskId` together with `before` to skip exactly the row at the
-   * boundary and continue strictly past it. Optional for back-compat; when
-   * omitted the server falls back to the `<` semantics on `before` alone.
-   */
-  beforeTaskId: z.string().optional(),
-  /** Page size — server clamps to 1..1000; defaults to 50 when omitted (handler policy). */
-  limit: z.number().int().min(1).max(1000).optional(),
-  /** Optional project filter — defaults to caller's registered project */
-  projectPath: z.string().optional(),
-  /** Optional status filter (M2.09) — return only tasks whose status matches one of these. */
-  status: z.array(z.enum(['cancelled', 'completed', 'created', 'error', 'started'])).optional(),
-  /** Optional task-type filter (M2.09) — e.g. ['curate'], ['query']. */
-  type: z.array(z.string()).optional(),
-})
+export const TaskListRequestSchema = z
+  .object({
+    /** Created at >= this epoch ms (M2.16). */
+    createdAfter: z.number().optional(),
+    /** Created at <= this epoch ms (M2.16). */
+    createdBefore: z.number().optional(),
+    /** Maximum elapsed time (ms) for terminal tasks (M2.16). */
+    maxDurationMs: z.number().optional(),
+    /** Minimum elapsed time (ms) for terminal tasks; only matches startedAt+completedAt rows (M2.16). */
+    minDurationMs: z.number().optional(),
+    /** Optional model id filter (M2.16). */
+    model: z.array(z.string()).optional(),
+    /** 1-based page index — server clamps to >= 1; defaults to 1 (M2.16). */
+    page: z.number().int().min(1).optional(),
+    /** Page size — server clamps to 1..1000; defaults to 50 (M2.16). */
+    pageSize: z.number().int().min(1).max(1000).optional(),
+    /** Optional project filter — defaults to caller's registered project. */
+    projectPath: z.string().optional(),
+    /** Optional provider id filter (M2.16). */
+    provider: z.array(z.string()).optional(),
+    /** Case-insensitive substring search over content + result + error.message (M2.16). */
+    searchText: z.string().optional(),
+    /** Optional status filter — return only tasks whose status matches one of these. */
+    status: z.array(z.enum(['cancelled', 'completed', 'created', 'error', 'started'])).optional(),
+    /** Optional task-type filter — e.g. ['curate'], ['query']. */
+    type: z.array(z.string()).optional(),
+  })
+  .strict()
 
 export const TaskListItemStatusSchema = z.enum(['cancelled', 'completed', 'created', 'error', 'started'])
 
@@ -775,6 +785,11 @@ export const TaskListItemSchema = z.object({
   projectPath: z.string().optional(),
   /** Active provider id at task creation time */
   provider: z.string().optional(),
+  /**
+   * Result string. Only present for in-memory completed tasks (toListItem
+   * populates from TaskInfo.result). Persisted entries from the index do not
+   * carry result by 2-tier design — detail panel uses task:get for full text.
+   */
   result: z.string().optional(),
   startedAt: z.number().optional(),
   status: TaskListItemStatusSchema,
@@ -782,17 +797,43 @@ export const TaskListItemSchema = z.object({
   type: z.string(),
 })
 
-export const TaskListResponseSchema = z.object({
-  /** Cursor for the next page — pass as `before` to fetch older tasks. Undefined when no more. */
-  nextCursor: z.number().optional(),
-  /**
-   * Companion tiebreaker for `nextCursor`. Pass back as `beforeTaskId` together
-   * with `before` to disambiguate same-millisecond clusters at page boundaries.
-   * Always returned together with `nextCursor`.
-   */
-  nextCursorTaskId: z.string().optional(),
-  tasks: z.array(TaskListItemSchema),
+/** Status histogram used by FE filter-bar breakdown (M2.16). */
+export const TaskListCountsSchema = z.object({
+  all: z.number().int().nonnegative(),
+  cancelled: z.number().int().nonnegative(),
+  completed: z.number().int().nonnegative(),
+  /** Tasks with status === 'error'. */
+  failed: z.number().int().nonnegative(),
+  /** Tasks with status === 'created' || 'started'. */
+  running: z.number().int().nonnegative(),
 })
+
+/** (providerId, modelId) pair from history (M2.16). */
+export const TaskListAvailableModelSchema = z.object({
+  modelId: z.string(),
+  providerId: z.string(),
+})
+
+export const TaskListResponseSchema = z
+  .object({
+    /** Distinct (providerId, modelId) pairs in candidate set. History-derived. */
+    availableModels: z.array(TaskListAvailableModelSchema),
+    /** Distinct providerId values in candidate set. History-derived (includes uninstalled). */
+    availableProviders: z.array(z.string()),
+    /** Status histogram pre-status-filter (FE filter-bar breakdown). */
+    counts: TaskListCountsSchema,
+    /** 1-based page index, echoed and clamped. */
+    page: z.number().int().min(1),
+    /** Total page count = max(ceil(total/pageSize), 1). */
+    pageCount: z.number().int().min(1),
+    /** Page size echoed back, clamped to [1, 1000]. */
+    pageSize: z.number().int().min(1).max(1000),
+    /** Page slice of items after all filters. */
+    tasks: z.array(TaskListItemSchema),
+    /** Total count of items matching ALL filters (incl. status). */
+    total: z.number().int().nonnegative(),
+  })
+  .strict()
 
 /**
  * task:get — fetch full Level 2 detail for a single persisted task.
