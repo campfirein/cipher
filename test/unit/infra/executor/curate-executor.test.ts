@@ -309,4 +309,70 @@ describe('CurateExecutor (regression)', () => {
       expect(enqueueStub.firstCall.args[0]).to.deep.equal(['auth/jwt.md'])
     })
   })
+
+  describe('pre-pipelined recon (ENG-2530)', () => {
+    it('injects __recon_result_<taskIdSafe> as a sandbox variable and surfaces it in the prompt', async () => {
+      const taskId = '7a2b9e10-cdef-4321-8765-0abcdef01234'
+      const taskIdSafe = taskId.replaceAll('-', '_')
+      const expectedReconVar = `__recon_result_${taskIdSafe}`
+
+      const setSandboxVariableOnSession = stub()
+      const executeOnSession = stub().resolves('ok')
+
+      const agent = {
+        cancel: stub().resolves(false),
+        createTaskSession: stub().resolves('session-id'),
+        deleteSandboxVariable: stub(),
+        deleteSandboxVariableOnSession: stub(),
+        deleteSession: stub().resolves(true),
+        deleteTaskSession: stub().resolves(),
+        execute: stub().resolves(''),
+        executeOnSession,
+        generate: stub().resolves({content: '', toolCalls: [], usage: {inputTokens: 0, outputTokens: 0}}),
+        getSessionMetadata: stub().resolves(),
+        getState: stub().returns({currentIteration: 0, executionHistory: [], executionState: 'idle', toolCallsExecuted: 0}),
+        listPersistedSessions: stub().resolves([]),
+        reset: stub(),
+        setSandboxVariable: stub(),
+        setSandboxVariableOnSession,
+        start: stub().resolves(),
+        stream: stub().resolves({[Symbol.asyncIterator]: () => ({next: () => Promise.resolve({done: true, value: undefined})})}),
+      } as unknown as ICipherAgent
+
+      // Stub the post-curate filesystem services so the test stays
+      // fully in-memory (mirrors the ENG-2485 test above). Without
+      // these, executeWithAgent attempts real I/O against /projects/myapp.
+      stub(FileContextTreeSnapshotService.prototype, 'getCurrentState').resolves(new Map())
+      stub(DreamStateService.prototype, 'incrementCurationCount').resolves()
+
+      const executor = new CurateExecutor()
+      await executor.executeWithAgent(agent, {
+        clientCwd: '/projects/myapp',
+        content: 'plain text content for the curate to inspect',
+        taskId,
+      })
+
+      // (a) recon result was set on the task session under __recon_result_<taskIdSafe>
+      const reconCall = setSandboxVariableOnSession
+        .getCalls()
+        .find((c) => c.args[1] === expectedReconVar)
+      expect(reconCall, `no setSandboxVariableOnSession call with key ${expectedReconVar}`).to.not.equal(undefined)
+
+      const reconValue = reconCall?.args[2] as Record<string, unknown> | undefined
+      expect(reconValue).to.have.property('suggestedMode')
+      expect(reconValue).to.have.property('suggestedChunkCount')
+      expect(reconValue).to.have.property('meta')
+      const meta = reconValue?.meta as Record<string, unknown>
+      expect(meta).to.have.property('charCount')
+      expect(meta).to.have.property('lineCount')
+      expect(meta).to.have.property('messageCount')
+
+      // (b) prompt instructs the agent that recon is pre-computed and to skip the call
+      expect(executeOnSession.calledOnce).to.equal(true)
+      const promptArg = executeOnSession.firstCall.args[1] as string
+      expect(promptArg).to.include('Recon already computed in')
+      expect(promptArg).to.include(expectedReconVar)
+      expect(promptArg).to.include('Do NOT call tools.curation.recon')
+    })
+  })
 })
