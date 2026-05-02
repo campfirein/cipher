@@ -574,6 +574,32 @@ describe('TaskRouter — extended handlers', () => {
       expect(result.tasks.map((t) => t.taskId)).to.deep.equal(['slow'])
     })
 
+    it('maxDurationMs — upper bound rejects long-running terminal tasks', async () => {
+      await store.save(
+        makeStoredEntry({
+          completedAt: 1100, // dur = 100ms (under cap)
+          startedAt: 1000,
+          status: 'completed',
+          taskId: 'fast',
+        }),
+      )
+      await store.save(
+        makeStoredEntry({
+          completedAt: 6000, // dur = 5000ms (exceeds 1000ms cap)
+          startedAt: 1000,
+          status: 'completed',
+          taskId: 'too-long',
+        }),
+      )
+
+      const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.LIST)
+      const result = (await handler!({maxDurationMs: 1000, projectPath: '/app'}, 'client-1')) as {
+        tasks: Array<{taskId: string}>
+      }
+
+      expect(result.tasks.map((t) => t.taskId)).to.deep.equal(['fast'])
+    })
+
     it('AND combination — searchText + status + provider', async () => {
       await store.save(
         makeStoredEntry({
@@ -848,6 +874,58 @@ describe('TaskRouter — extended handlers', () => {
       }
 
       expect(result.tasks.map((t) => t.taskId)).to.deep.equal(['in-mem'])
+    })
+
+    it('handler returns valid empty response when getTaskHistoryStore is undefined', async () => {
+      // Build a router WITHOUT a store factory — handler must fall back to
+      // in-memory only and still return the full response shape.
+      sandbox.restore()
+      sandbox = createSandbox()
+      transportHelper = makeStubTransportServer(sandbox)
+      agentPool = makeStubAgentPool(sandbox)
+      projectRegistry = makeStubProjectRegistry(sandbox)
+      projectRouter = makeStubProjectRouter(sandbox)
+      getAgentForProject = sandbox.stub().returns('agent-1')
+
+      router = new TaskRouter({
+        agentPool,
+        getAgentForProject,
+        // getTaskHistoryStore: undefined — no persistent store wired
+        projectRegistry,
+        projectRouter,
+        resolveClientProjectPath: () => '/app',
+        transport: transportHelper.transport,
+      })
+      router.setup()
+
+      const createHandler = transportHelper.requestHandlers.get(TransportTaskEventNames.CREATE)
+      await createHandler!(makeTaskCreateRequest({taskId: 'live-only'}), 'client-1')
+
+      const listHandler = transportHelper.requestHandlers.get(TransportTaskEventNames.LIST)
+      const result = (await listHandler!({projectPath: '/app'}, 'client-1')) as {
+        availableModels: unknown[]
+        availableProviders: unknown[]
+        counts: {all: number}
+        page: number
+        pageCount: number
+        pageSize: number
+        tasks: Array<{taskId: string}>
+        total: number
+      }
+
+      // In-memory live task surfaces; full response shape valid.
+      expect(result.tasks.map((t) => t.taskId)).to.deep.equal(['live-only'])
+      expect(result.total).to.equal(1)
+      expect(result.counts.all).to.equal(1)
+      expect(result.availableProviders).to.be.an('array')
+      expect(result.availableModels).to.be.an('array')
+
+      // Pass-2 search must not throw when store is undefined.
+      const searchResult = (await listHandler!(
+        {projectPath: '/app', searchText: 'anything'},
+        'client-1',
+      )) as {tasks: Array<{taskId: string}>}
+      expect(searchResult.tasks).to.be.an('array')
     })
   })
 

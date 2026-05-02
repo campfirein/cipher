@@ -148,9 +148,9 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 async function mapBounded<T, R>(
   items: readonly T[],
   limit: number,
-  fn: (item: T) => Promise<R>,
-): Promise<R[]> {
-  const results: R[] = Array.from({length: items.length})
+  fn: (item: T) => Promise<R | undefined>,
+): Promise<(R | undefined)[]> {
+  const results: (R | undefined)[] = Array.from({length: items.length})
   let nextIdx = 0
   const workers = Array.from({length: Math.min(limit, items.length)}, async () => {
     while (true) {
@@ -1267,11 +1267,11 @@ export class TaskRouter {
     // selections without the dropdown shrinking. `counts` reflects the FULL
     // current filter (including status) — chip count = visible row count.
     //
-    // Pass-2 (full-result lazy crack) re-derives its own candidate set using
-    // `pass2Filter` (same dims minus searchText) so it can find completed tasks
-    // whose result text matches but whose content/error.message did not. The
-    // dual-derivation invariant: any new filter dim must be added to BOTH
-    // `nonPivotFilterArgs` and the pass-2 path below.
+    // Pass-2 (full-result lazy crack) re-uses the same `candidatesNoSearch` map
+    // built below to find completed tasks whose result text matches but whose
+    // content/error.message did not. `pass2Filter` is the same shape as
+    // `nonPivotFilterArgs` minus searchText — the spread auto-inherits any
+    // future non-pivot filter dim added upstream.
     const merged = new Map<string, TaskListItem>()
     const nonPivotFilterArgs: ListFilterArgs = {
       createdAfter: data.createdAfter,
@@ -1282,14 +1282,24 @@ export class TaskRouter {
       searchText: data.searchText,
       typeFilter: data.type,
     }
+    const pass2Filter: ListFilterArgs = {...nonPivotFilterArgs, searchText: undefined}
 
+    // Single pass over persisted + in-memory: build `candidatesNoSearch` (all non-pivot
+    // filters applied EXCEPT search). `merged` derives from it by re-applying the search
+    // predicate via `matchesListFilters(item, nonPivotFilterArgs)`. Saves a 2×N traversal
+    // when searchText is set; same cost when unset.
+    const candidatesNoSearch = new Map<string, TaskListItem>()
     for (const item of persisted) {
-      if (matchesListFilters(item, nonPivotFilterArgs)) merged.set(item.taskId, item)
+      if (matchesListFilters(item, pass2Filter)) candidatesNoSearch.set(item.taskId, item)
     }
 
     for (const task of inMemoryTaskById.values()) {
       const item = toListItem(task)
-      if (matchesListFilters(item, nonPivotFilterArgs)) merged.set(item.taskId, item)
+      if (matchesListFilters(item, pass2Filter)) candidatesNoSearch.set(item.taskId, item)
+    }
+
+    for (const [taskId, item] of candidatesNoSearch) {
+      if (matchesListFilters(item, nonPivotFilterArgs)) merged.set(taskId, item)
     }
 
     // Step 3-4: pass-2 search (full-text via lazy data-file crack).
@@ -1298,17 +1308,6 @@ export class TaskRouter {
     // persisted we call store.getById, swallowing file-race errors.
     if (data.searchText !== undefined && data.searchText.length > 0) {
       const needle = data.searchText.toLowerCase()
-      const pass2Filter: ListFilterArgs = {...nonPivotFilterArgs, searchText: undefined}
-
-      const candidatesNoSearch = new Map<string, TaskListItem>()
-      for (const item of persisted) {
-        if (matchesListFilters(item, pass2Filter)) candidatesNoSearch.set(item.taskId, item)
-      }
-
-      for (const task of inMemoryTaskById.values()) {
-        const item = toListItem(task)
-        if (matchesListFilters(item, pass2Filter)) candidatesNoSearch.set(item.taskId, item)
-      }
 
       const completedUnmatched: TaskListItem[] = []
       for (const item of candidatesNoSearch.values()) {

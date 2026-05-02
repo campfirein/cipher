@@ -10,6 +10,12 @@
 import {z} from 'zod'
 
 import type {AgentEventMap} from '../../../../agent/core/domain/agent-events/types.js'
+import type {
+  TaskListAvailableModel,
+  TaskListCounts,
+  TaskListRequest,
+  TaskListResponse,
+} from '../../../../shared/transport/events/task-events.js'
 
 import {QUERY_LOG_TIERS, type QueryLogTier} from '../../domain/entities/query-log-entry.js'
 import {TaskHistoryEntrySchema} from '../entities/task-history-entry.js'
@@ -767,7 +773,7 @@ export const TaskListRequestSchema = z
     /** Optional task-type filter — e.g. ['curate'], ['query']. */
     type: z.array(z.string()).optional(),
   })
-  .strict()
+  .strict() satisfies z.ZodType<TaskListRequest>
 
 export const TaskListItemStatusSchema = z.enum(['cancelled', 'completed', 'created', 'error', 'started'])
 
@@ -806,13 +812,13 @@ export const TaskListCountsSchema = z.object({
   failed: z.number().int().nonnegative(),
   /** Tasks with status === 'created' || 'started'. */
   running: z.number().int().nonnegative(),
-})
+}) satisfies z.ZodType<TaskListCounts>
 
 /** (providerId, modelId) pair from history (M2.16). */
 export const TaskListAvailableModelSchema = z.object({
   modelId: z.string(),
   providerId: z.string(),
-})
+}) satisfies z.ZodType<TaskListAvailableModel>
 
 export const TaskListResponseSchema = z
   .object({
@@ -820,9 +826,18 @@ export const TaskListResponseSchema = z
     availableModels: z.array(TaskListAvailableModelSchema),
     /** Distinct providerId values in candidate set. History-derived (includes uninstalled). */
     availableProviders: z.array(z.string()),
-    /** Status histogram pre-status-filter (FE filter-bar breakdown). */
+    /**
+     * Status histogram matching current filter scope (Model A — post-filter,
+     * `counts.all === total` invariant). FE filter-bar chip count = visible
+     * row count.
+     */
     counts: TaskListCountsSchema,
-    /** 1-based page index, echoed and clamped. */
+    /**
+     * 1-based page index, echoed back as-sent. Server clamps lower bound only
+     * (page < 1 → 1). NOT clamped against `pageCount`: a request for `page=9999`
+     * against a 1-page result returns `{page: 9999, tasks: []}` so the caller
+     * can detect an out-of-range page and correct itself.
+     */
     page: z.number().int().min(1),
     /** Total page count = max(ceil(total/pageSize), 1). */
     pageCount: z.number().int().min(1),
@@ -833,7 +848,7 @@ export const TaskListResponseSchema = z
     /** Total count of items matching ALL filters (incl. status). */
     total: z.number().int().nonnegative(),
   })
-  .strict()
+  .strict() satisfies z.ZodType<TaskListResponse>
 
 /**
  * task:get — fetch full Level 2 detail for a single persisted task.
@@ -1085,8 +1100,15 @@ export type TaskCancelRequest = z.infer<typeof TaskCancelRequestSchema>
 export type TaskCancelResponse = z.infer<typeof TaskCancelResponseSchema>
 export type TaskListItem = z.infer<typeof TaskListItemSchema>
 export type TaskListItemStatus = z.infer<typeof TaskListItemStatusSchema>
-export type TaskListRequest = z.infer<typeof TaskListRequestSchema>
-export type TaskListResponse = z.infer<typeof TaskListResponseSchema>
+// Re-export from task-events.ts so the hand-written interface remains the single
+// source of truth. Schemas above are bound via `satisfies z.ZodType<X>` to catch
+// any schema/interface drift at compile time.
+export type {
+  TaskListAvailableModel,
+  TaskListCounts,
+  TaskListRequest,
+  TaskListResponse,
+} from '../../../../shared/transport/events/task-events.js'
 
 export type TaskClearCompletedRequest = z.infer<typeof TaskClearCompletedRequestSchema>
 export type TaskClearCompletedResponse = z.infer<typeof TaskClearCompletedResponseSchema>

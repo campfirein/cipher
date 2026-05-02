@@ -152,13 +152,22 @@ export interface TaskListResponse {
   availableModels: TaskListAvailableModel[]
   /** Distinct providerId values seen in candidate set. */
   availableProviders: string[]
-  /** Status histogram pre-status-filter. */
+  /**
+   * Status histogram matching current filter scope (Model A — post-filter).
+   * `counts.all === total` invariant. When user picks `status: ['error']`,
+   * `counts.failed === total` and other buckets are 0.
+   */
   counts: TaskListCounts
-  /** 1-based page index. */
+  /**
+   * 1-based page index, echoed back as-sent. Server clamps the LOWER bound
+   * (page < 1 → 1) but does NOT clamp against `pageCount`. A request with
+   * `page=9999` against a 1-page result returns `page: 9999, tasks: []` so
+   * the caller can detect an out-of-range page.
+   */
   page: number
   /** ceil(total / pageSize), min 1. */
   pageCount: number
-  /** Page size echoed back, clamped. */
+  /** Page size echoed back, clamped to [1, 1000]. */
   pageSize: number
   tasks: TaskListItem[]
   /** Total items matching ALL filters (incl. status). */

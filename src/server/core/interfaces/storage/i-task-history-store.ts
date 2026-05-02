@@ -35,18 +35,24 @@ export interface ITaskHistoryStore {
    * M2.16: param names align with the wire schema (`createdAfter` / `createdBefore`
    * instead of legacy `after` / `before`). Pagination moved to the handler — store
    * returns ALL matches; no `limit`.
+   *
+   * Note on `provider` / `model` / `status` filters: `handleTaskList` does NOT push
+   * these down — pivot filters run at the handler so derivative sets (counts,
+   * availableProviders, availableModels) can apply their exclusion rules. The
+   * options remain on the interface for direct store callers (tests, future CLI
+   * commands like `brv query-log`-style scans) that don't need pivot semantics.
    */
   list(options?: {
     /** Include only entries with createdAt >= this epoch ms. */
     createdAfter?: number
     /** Include only entries with createdAt <= this epoch ms. */
     createdBefore?: number
-    /** Include only entries matching these model ids. */
+    /** Include only entries matching these model ids. Direct-caller use only. */
     model?: string[]
     projectPath?: string
-    /** Include only entries matching these provider ids. */
+    /** Include only entries matching these provider ids. Direct-caller use only. */
     provider?: string[]
-    /** Include only entries matching these statuses. */
+    /** Include only entries matching these statuses. Direct-caller use only. */
     status?: TaskHistoryStatus[]
     /** Include only entries matching these task types. */
     type?: string[]
