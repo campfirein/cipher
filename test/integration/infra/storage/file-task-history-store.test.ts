@@ -191,7 +191,7 @@ describe('FileTaskHistoryStore', () => {
       const byType = await store.list({type: ['query']})
       expect(byType.map((r) => r.taskId)).to.deep.equal(['t3'])
 
-      const byRange = await store.list({after: 150, before: 350})
+      const byRange = await store.list({createdAfter: 150, createdBefore: 350})
       expect(byRange.map((r) => r.taskId).sort()).to.deep.equal(['t2', 't3'])
     })
 
@@ -204,14 +204,26 @@ describe('FileTaskHistoryStore', () => {
       expect(result.map((r) => r.taskId)).to.deep.equal(['new', 'mid', 'old'])
     })
 
-    it('list slices to limit AFTER sort + filter', async () => {
+    it('list returns ALL matches (M2.16: handler paginates, no store-level slice)', async () => {
       for (let i = 0; i < 5; i++) {
         // eslint-disable-next-line no-await-in-loop
         await store.save(makeEntry({createdAt: 100 * (i + 1), taskId: `id-${i}`}))
       }
 
-      const result = await store.list({limit: 2})
-      expect(result.map((r) => r.taskId)).to.deep.equal(['id-4', 'id-3'])
+      const result = await store.list()
+      expect(result.map((r) => r.taskId)).to.deep.equal(['id-4', 'id-3', 'id-2', 'id-1', 'id-0'])
+    })
+
+    it('list filters by provider[] / model[] (M2.16)', async () => {
+      await store.save(makeEntry({model: 'gpt-5-pro', provider: 'openai', taskId: 'a1'}))
+      await store.save(makeEntry({model: 'claude-sonnet-4-6', provider: 'anthropic', taskId: 'a2'}))
+      await store.save(makeEntry({taskId: 'a3'})) // no provider/model
+
+      const byProvider = await store.list({provider: ['openai']})
+      expect(byProvider.map((r) => r.taskId)).to.deep.equal(['a1'])
+
+      const byModel = await store.list({model: ['claude-sonnet-4-6']})
+      expect(byModel.map((r) => r.taskId)).to.deep.equal(['a2'])
     })
 
     it('list returns TaskListItem shape (no detail leak)', async () => {
