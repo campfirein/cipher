@@ -339,6 +339,12 @@ describe('CurateExecutor (regression)', () => {
         stream: stub().resolves({[Symbol.asyncIterator]: () => ({next: () => Promise.resolve({done: true, value: undefined})})}),
       } as unknown as ICipherAgent
 
+      // Stub the post-curate filesystem services so the test stays
+      // fully in-memory (mirrors the ENG-2485 test above). Without
+      // these, executeWithAgent attempts real I/O against /projects/myapp.
+      stub(FileContextTreeSnapshotService.prototype, 'getCurrentState').resolves(new Map())
+      stub(DreamStateService.prototype, 'incrementCurationCount').resolves()
+
       const executor = new CurateExecutor()
       await executor.executeWithAgent(agent, {
         clientCwd: '/projects/myapp',
@@ -356,8 +362,10 @@ describe('CurateExecutor (regression)', () => {
       expect(reconValue).to.have.property('suggestedMode')
       expect(reconValue).to.have.property('suggestedChunkCount')
       expect(reconValue).to.have.property('meta')
-      expect((reconValue?.meta as Record<string, unknown>)).to.have.property('charCount')
-      expect((reconValue?.meta as Record<string, unknown>)).to.have.property('lineCount')
+      const meta = reconValue?.meta as Record<string, unknown>
+      expect(meta).to.have.property('charCount')
+      expect(meta).to.have.property('lineCount')
+      expect(meta).to.have.property('messageCount')
 
       // (b) prompt instructs the agent that recon is pre-computed and to skip the call
       expect(executeOnSession.calledOnce).to.equal(true)

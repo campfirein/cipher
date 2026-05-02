@@ -110,6 +110,11 @@ export class CurateExecutor implements ICurateExecutor {
       // is always "yes, first thing." Surfacing it as an agent-tool meant
       // paying a full LLM iteration just to invoke a deterministic helper.
       const initialHistory = {entries: [], totalProcessed: 0}
+      // The `metadata` arg is currently unused by `recon` — the helper
+      // recomputes char/line/message counts from `effectiveContext`
+      // directly. Passed through here to match the helper's existing
+      // signature; do NOT assume changing `metadata` will alter
+      // `reconResult`.
       const reconResult = reconHelper(effectiveContext, metadata, initialHistory)
       const reconVar = `__recon_result_${taskIdSafe}`
 
