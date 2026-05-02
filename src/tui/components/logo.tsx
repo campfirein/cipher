@@ -113,6 +113,12 @@ interface LogoProps {
    */
   compact?: boolean
   /**
+   * Daemon version to surface inline as a drift indicator. Pass undefined when
+   * the local CLI and the running daemon agree on version (or the daemon is
+   * too old to advertise its version) so the indicator stays hidden.
+   */
+  driftDaemonVersion?: string
+  /**
    * Optional version to display
    */
   version?: string
@@ -123,7 +129,7 @@ interface LogoProps {
  *
  * Automatically selects the best logo variant based on terminal dimensions.
  */
-export const Logo: React.FC<LogoProps> = ({compact, version}) => {
+export const Logo: React.FC<LogoProps> = ({compact, driftDaemonVersion, version}) => {
   const {stdout} = useStdout()
   const {
     theme: {colors},
@@ -140,14 +146,24 @@ export const Logo: React.FC<LogoProps> = ({compact, version}) => {
 
   const logoLines = useMemo(() => getLogoLines(variant, terminalWidth), [variant, terminalWidth])
 
-  const headerLine = useMemo(
-    () => (variant === 'full' && LOGO_FULL[0] ? getHeaderLine(LOGO_FULL[0], version ?? '', terminalWidth) : null),
-    [variant, version, terminalWidth],
-  )
+  // Inline drift token, e.g. " [outdated, daemon v3.99.0]". Empty when the
+  // header has no daemon-version drift to surface — keeps the banner length
+  // calculation symmetric with the no-drift case.
+  const driftText = driftDaemonVersion ? ` [outdated, daemon v${driftDaemonVersion}]` : ''
+
+  const headerLine = useMemo(() => {
+    if (variant !== 'full' || !LOGO_FULL[0]) return null
+    const base = getHeaderLine(LOGO_FULL[0], version ?? '', terminalWidth)
+    if (!driftText) return base
+    // Re-pad so the trailing `/////` fills the row after the drift token.
+    const contentLength = base.brv.length + base.spaces.length + base.version.length + driftText.length
+    return {...base, padEnd: calculatePadEnd(contentLength, terminalWidth)}
+  }, [variant, version, terminalWidth, driftText])
 
   // Text-only logo for minimal terminals
   if (variant === 'text') {
-    const textContent = MINI_LOGO + (version ? ` v${version}` : '') + (isLatestVersion ? ' (latest)' : '')
+    const textContent =
+      MINI_LOGO + (version ? ` v${version}` : '') + (isLatestVersion ? ' (latest)' : '') + driftText
     const padEnd = calculatePadEnd(textContent.length, terminalWidth)
 
     return (
@@ -159,6 +175,7 @@ export const Logo: React.FC<LogoProps> = ({compact, version}) => {
           </Text>
           {version && <Text color={colors.primary}> v{version}</Text>}
           {isLatestVersion && <Text color={colors.primary}> (latest)</Text>}
+          {driftText && <Text color={colors.warning}>{driftText}</Text>}
         </Text>
         <Text color={colors.primary}>{padEnd}</Text>
       </Box>
@@ -175,6 +192,7 @@ export const Logo: React.FC<LogoProps> = ({compact, version}) => {
             <Text>{headerLine.brv}</Text>
             <Text>{headerLine.spaces}</Text>
             <Text color={colors.primary}>{headerLine.version}</Text>
+            {driftText && <Text color={colors.warning}>{driftText}</Text>}
           </Text>
           <Text color={colors.primary}>{headerLine.padEnd}</Text>
         </Box>
