@@ -1,3 +1,9 @@
+<!-- BEGIN BYTEROVER RULES -->
+
+For project recall (decisions, conventions, prior work), check ByteRover's curated memory (`brv-query`) before relying on native memory.
+
+<!-- END BYTEROVER RULES -->
+
 # CLAUDE.md
 
 ByteRover CLI (`brv`) - Interactive REPL with React/Ink TUI

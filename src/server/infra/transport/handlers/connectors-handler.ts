@@ -4,16 +4,23 @@ import type {IConnectorManager} from '../../../core/interfaces/connectors/i-conn
 import type {ITransportServer} from '../../../core/interfaces/transport/i-transport-server.js'
 
 import {
+  type ConnectorDetectAgentsRequest,
+  type ConnectorDetectAgentsResponse,
   ConnectorEvents,
   type ConnectorGetAgentConfigPathsRequest,
   type ConnectorGetAgentConfigPathsResponse,
   type ConnectorGetAgentsResponse,
+  type ConnectorInstallBundleRequest,
+  type ConnectorInstallBundleResponse,
   type ConnectorInstallRequest,
   type ConnectorInstallResponse,
   type ConnectorListResponse,
 } from '../../../../shared/transport/events/connector-events.js'
 import {isConnectorType} from '../../../../shared/types/connector-type.js'
 import {AGENT_CONNECTOR_CONFIG, isAgent} from '../../../core/domain/entities/agent.js'
+import {isBundleSupported, listSupportedBundleAgents} from '../../connectors/agent-bundle-config.js'
+import {installAgentBundle} from '../../connectors/agent-bundle-installer.js'
+import {detectAgents} from '../../connectors/agent-detector.js'
 import {mapAgentsToDTOs} from './agent-dto-mapper.js'
 import {type ProjectPathResolver, resolveRequiredProjectPath} from './handler-types.js'
 
@@ -54,6 +61,22 @@ export class ConnectorsHandler {
       ConnectorEvents.INSTALL,
       (data, clientId) => this.handleInstall(data, clientId),
     )
+
+    this.transport.onRequest<ConnectorInstallBundleRequest, ConnectorInstallBundleResponse>(
+      ConnectorEvents.INSTALL_BUNDLE,
+      (data, clientId) => this.handleInstallBundle(data, clientId),
+    )
+
+    this.transport.onRequest<ConnectorDetectAgentsRequest, ConnectorDetectAgentsResponse>(
+      ConnectorEvents.DETECT_AGENTS,
+      (_data, clientId) => this.handleDetectAgents(clientId),
+    )
+  }
+
+  private handleDetectAgents(clientId: string): ConnectorDetectAgentsResponse {
+    const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
+    const detected = detectAgents(projectPath)
+    return {detected, projectPath}
   }
 
   private handleGetAgentConfigPaths(
@@ -98,6 +121,41 @@ export class ConnectorsHandler {
       message: result.message,
       requiresManualSetup: result.installResult.requiresManualSetup,
       success: result.success,
+    }
+  }
+
+  private async handleInstallBundle(
+    data: ConnectorInstallBundleRequest,
+    clientId: string,
+  ): Promise<ConnectorInstallBundleResponse> {
+    if (!isAgent(data.agentId)) {
+      return {
+        installed: [],
+        message: `Unknown agent: ${data.agentId}`,
+        skipped: [],
+        success: false,
+      }
+    }
+
+    if (!isBundleSupported(data.agentId)) {
+      return {
+        installed: [],
+        message: `${data.agentId} is not yet supported by "brv connect". Supported: ${listSupportedBundleAgents().join(', ')}.`,
+        skipped: [],
+        success: false,
+      }
+    }
+
+    const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
+    const result = await installAgentBundle(data.agentId, projectPath)
+
+    return {
+      agent: result.agent,
+      installed: result.installed,
+      message: `Connected ${result.agent}.`,
+      projectPath,
+      skipped: result.skipped,
+      success: true,
     }
   }
 

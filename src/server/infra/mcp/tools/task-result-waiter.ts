@@ -25,10 +25,11 @@ export interface LlmResponsePayload {
 /**
  * Waits for a task to complete and returns the result.
  *
- * Unlike the fire-and-forget pattern used by `brv curate`, MCP tools need
- * to wait for the task to finish and return the result to the coding agent.
+ * Pass `signal` to abort the wait and release listeners early when the
+ * caller has already failed (e.g. task:create rejected before the task
+ * was queued, so completion events will never fire).
  *
- * This function listens for:
+ * Listens for:
  * - llmservice:response: Captures the LLM's text response
  * - task:completed: Task finished successfully
  * - task:error: Task failed with an error
@@ -37,6 +38,7 @@ export async function waitForTaskResult(
   client: ITransportClient,
   taskId: string,
   timeoutMs: number = 300_000, // 5 minutes (increased from 2 minutes to accommodate sub-agent tasks)
+  signal?: AbortSignal,
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     let result = ''
@@ -48,6 +50,8 @@ export async function waitForTaskResult(
       for (const unsub of unsubscribers) {
         unsub()
       }
+
+      if (onAbort) signal?.removeEventListener('abort', onAbort)
     }
 
     const timeout = setTimeout(() => {
@@ -58,9 +62,28 @@ export async function waitForTaskResult(
       }
     }, timeoutMs)
 
-    // Set up all event listeners
+    const onAbort = signal
+      ? (): void => {
+          if (!completed) {
+            completed = true
+            cleanup()
+            reject(new Error('Task wait aborted'))
+          }
+        }
+      : undefined
+
+    if (signal && onAbort) {
+      if (signal.aborted) {
+        completed = true
+        clearTimeout(timeout)
+        reject(new Error('Task wait aborted'))
+        return
+      }
+
+      signal.addEventListener('abort', onAbort, {once: true})
+    }
+
     unsubscribers.push(
-      // Listen for connection state changes - fail fast on disconnect
       client.onStateChange((state) => {
         if (state === 'disconnected' && !completed) {
           completed = true
@@ -68,22 +91,18 @@ export async function waitForTaskResult(
           reject(new Error('Connection lost to the daemon'))
         }
       }),
-      // Listen for LLM response content
       client.on<LlmResponsePayload>(LlmEventNames.RESPONSE, (payload) => {
         if (payload.taskId === taskId && payload.content) {
           result = payload.content
         }
       }),
-      // Listen for task completion
       client.on<TaskCompletedPayload>(TransportTaskEventNames.COMPLETED, (payload) => {
         if (payload.taskId === taskId && !completed) {
           completed = true
           cleanup()
-          // Use the result from the event if available, otherwise use accumulated result
           resolve(payload.result || result)
         }
       }),
-      // Listen for task error
       client.on<TaskErrorPayload>(TransportTaskEventNames.ERROR, (payload) => {
         if (payload.taskId === taskId && !completed) {
           completed = true
@@ -91,7 +110,6 @@ export async function waitForTaskResult(
           reject(new Error(payload.error.message))
         }
       }),
-      // Listen for task cancellation
       client.on<{taskId: string}>(TransportTaskEventNames.CANCELLED, (payload) => {
         if (payload.taskId === taskId && !completed) {
           completed = true

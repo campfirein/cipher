@@ -30,5 +30,12 @@ agent-tmp
 .env.production
 !.env.example
 
-# ByteRover's skill for Claude Code
+# ByteRover's sub-agent for Claude Code
+.claude/agents/byterover.md
+
+# ByteRover's MCP config for Claude Code
+.mcp.json
+
+# ByteRover's skills for Claude Code
 .claude/skills/byterover
+.claude/skills/byterover-onboarding

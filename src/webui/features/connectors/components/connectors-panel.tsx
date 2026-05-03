@@ -1,37 +1,21 @@
 import {Button} from '@campfirein/byterover-packages/components/button'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from '@campfirein/byterover-packages/components/dropdown-menu'
 import {Skeleton} from '@campfirein/byterover-packages/components/skeleton'
-import {ChevronDown, LoaderCircle, Plus} from 'lucide-react'
+import {LoaderCircle, Plus} from 'lucide-react'
 import {useState} from 'react'
 import {toast} from 'sonner'
 
-import type {ConnectorDTO} from '../../../../shared/transport/types/dto'
 import type {Agent} from '../../../../shared/types/agent'
-import type {ConnectorType} from '../../../../shared/types/connector-type'
 
-import {requiresAgentRestart} from '../../../../shared/types/connector-type'
 import {useGetAgents} from '../api/get-agents'
 import {useGetConnectors} from '../api/get-connectors'
-import {useInstallConnector} from '../api/install-connector'
+import {useInstallBundle} from '../api/install-bundle'
 import {AddConnectorDialog} from './add-connector-dialog'
 import {agentIcons} from './agent-icons'
-
-const connectorLabels: Record<ConnectorType, string> = {
-  hook: 'Hook',
-  mcp: 'MCP',
-  rules: 'Rules',
-  skill: 'Skill',
-}
 
 export function ConnectorsPanel() {
   const {data: connectorsData, isLoading: isLoadingConnectors} = useGetConnectors()
   const {data: agentsData, isLoading: isLoadingAgents} = useGetAgents()
-  const installMutation = useInstallConnector()
+  const installMutation = useInstallBundle()
   const [addDialogOpen, setAddDialogOpen] = useState(false)
   const [pendingAgentId, setPendingAgentId] = useState<string | undefined>()
 
@@ -39,28 +23,23 @@ export function ConnectorsPanel() {
   const agents = agentsData?.agents ?? []
   const isLoading = isLoadingConnectors || isLoadingAgents
 
-  const handleTypeChange = async (connector: ConnectorDTO, newType: ConnectorType) => {
-    if (newType === connector.connectorType) return
-
+  const handleAddConnector = async (agentId: Agent) => {
     try {
-      await installMutation.mutateAsync({agentId: connector.agent, connectorType: newType})
-      const needsRestart = requiresAgentRestart(newType)
+      const result = await installMutation.mutateAsync({agentId})
+      if (!result.success) {
+        toast.error(result.message)
+        return
+      }
+
+      const installed = result.installed.length
+      const skipped = result.skipped.length
       toast.success(
-        needsRestart
-          ? `${connector.agent} switched to ${connectorLabels[newType]}. Restart the agent to apply.`
-          : `${connector.agent} switched to ${connectorLabels[newType]}.`,
+        skipped > 0
+          ? `Connected ${agentId}. Installed ${installed} artifact(s); ${skipped} skipped.`
+          : `Connected ${agentId}. Installed ${installed} artifact(s).`,
       )
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to switch connector type')
-    }
-  }
-
-  const handleAddConnector = async (agentId: Agent, connectorType: ConnectorType) => {
-    try {
-      await installMutation.mutateAsync({agentId, connectorType})
-      toast.success(`${agentId} connected via ${connectorLabels[connectorType]}.`)
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : 'Failed to install connector')
+      toast.error(error instanceof Error ? error.message : 'Failed to connect agent')
     }
   }
 
@@ -89,7 +68,7 @@ export function ConnectorsPanel() {
         onAdd={async (agent) => {
           setPendingAgentId(agent.id)
           try {
-            await handleAddConnector(agent.id, agent.defaultConnectorType)
+            await handleAddConnector(agent.id)
           } finally {
             setPendingAgentId(undefined)
           }
@@ -127,31 +106,6 @@ export function ConnectorsPanel() {
                     <span>{connector.agent}</span>
                     <span className="text-primary text-xs">Connected</span>
                   </div>
-                </div>
-                <div className="flex items-center">
-                  <DropdownMenu>
-                    <DropdownMenuTrigger
-                      disabled={installMutation.isPending}
-                      render={
-                        <Button
-                          className="text-sm"
-                          disabled={installMutation.isPending}
-                          size="sm"
-                          variant="secondary"
-                        />
-                      }
-                    >
-                      {connectorLabels[connector.connectorType]}
-                      <ChevronDown className="size-3.5 shrink-0" />
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      {connector.supportedTypes.map((type) => (
-                        <DropdownMenuItem key={type} onClick={() => handleTypeChange(connector, type)}>
-                          {connectorLabels[type]}
-                        </DropdownMenuItem>
-                      ))}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
                 </div>
               </div>
               {index < connectors.length - 1 && <div className="border-b" />}

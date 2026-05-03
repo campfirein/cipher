@@ -13,6 +13,7 @@ import {syncConfigToXdg} from '../../../server/utils/config-xdg-sync.js'
  * Commands that should skip auto-init and config version validation.
  */
 export const COMMANDS_NEED_AUTO_INIT = new Set<string>([
+  'connect',
   'connectors:install',
   'curate',
   'hub:install',

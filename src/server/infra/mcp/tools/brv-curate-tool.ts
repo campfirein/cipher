@@ -9,6 +9,7 @@ import {TransportTaskEventNames} from '../../../core/domain/transport/schemas.js
 import {associateProjectWithRetry, type McpStartupProjectContext, resolveMcpTaskContext} from './mcp-project-context.js'
 import {resolveClientCwd} from './resolve-client-cwd.js'
 import {cwdField} from './shared-schema.js'
+import {waitForTaskResult} from './task-result-waiter.js'
 
 export const BrvCurateInputSchema = z.object({
   context: z
@@ -31,16 +32,33 @@ export const BrvCurateInputSchema = z.object({
     .describe(
       'Folder path to pack and analyze (triggers folder pack flow). When provided, the entire folder will be analyzed and curated. Takes precedence over files.',
     ),
+  wait: z
+    .boolean()
+    .optional()
+    .default(true)
+    .describe(
+      'When true (default), block until the curate completes so the caller can read the result back via brv-query. Set to false only when you do not need to query the just-curated content in the same turn.',
+    ),
 })
+
+type McpTextResponse = {
+  content: Array<{text: string; type: 'text'}>
+  isError?: boolean
+}
+
+function textResponse(text: string, options?: {isError?: boolean}): McpTextResponse {
+  return {
+    content: [{text, type: 'text'}],
+    ...(options?.isError ? {isError: true} : {}),
+  }
+}
 
 /**
  * Registers the brv-curate tool with the MCP server.
  *
- * This tool allows coding agents to store context to the ByteRover context tree.
- * Use it to save patterns, architectural decisions, error solutions, or insights.
- *
- * Uses fire-and-forget pattern: returns immediately after queueing the task.
- * The curation is processed asynchronously by the ByteRover agent.
+ * Stores context to the ByteRover context tree. Defaults to blocking until
+ * the curate commits so callers can immediately query the result; pass
+ * `wait: false` for fire-and-forget.
  */
 export function registerBrvCurateTool(
   server: McpServer,
@@ -51,59 +69,67 @@ export function registerBrvCurateTool(
   server.registerTool(
     'brv-curate',
     {
-      description:
-        'Store context to the ByteRover context tree. Save patterns, decisions, or insights. ' +
-        'Curation is processed asynchronously — the tool returns immediately after queueing.',
+      description: `Stores a decision, rationale, or convention to the ByteRover memory tree so it's available in future sessions on this project.
+
+USE PROACTIVELY after:
+- Making an architectural choice ("we'll do X because Y")
+- Resolving a tricky bug with a non-obvious cause
+- Establishing a convention ("going forward, all X should Y")
+- When the user says "remember this", "let's standardize on X", or "make a note that..."
+
+DO NOT CURATE:
+- Code itself (lives in git)
+- Trivial fixes or one-off implementation details
+- Information available in public docs
+
+Always confirm with the user before curating. Defaults to blocking until the curate commits — set wait=false for fire-and-forget when you do not need to query the result in the same turn.`,
       inputSchema: BrvCurateInputSchema,
       title: 'ByteRover Curate',
     },
-    async ({context, cwd, files, folder}: {context?: string; cwd?: string; files?: string[]; folder?: string}) => {
-      // Validate that at least one input is provided
+    async ({
+      context,
+      cwd,
+      files,
+      folder,
+      wait = true,
+    }: {
+      context?: string
+      cwd?: string
+      files?: string[]
+      folder?: string
+      wait?: boolean
+    }) => {
       if (!context?.trim() && !files?.length && !folder?.trim()) {
-        return {
-          content: [{text: 'Error: Either context, files, folder, or cwd must be provided', type: 'text' as const}],
-          isError: true,
-        }
+        return textResponse('Error: Either context, files, folder, or cwd must be provided', {isError: true})
       }
 
-      // Resolve clientCwd: explicit cwd param > server working directory
       const cwdResult = resolveClientCwd(cwd, getWorkingDirectory)
       if (!cwdResult.success) {
-        return {
-          content: [{text: cwdResult.error, type: 'text' as const}],
-          isError: true,
-        }
+        return textResponse(cwdResult.error, {isError: true})
       }
 
-      // Wait for a connected client (MCP's attemptReconnect() replaces client in background)
       const client = await waitForConnectedClient(getClient)
       if (!client) {
-        return {
-          content: [
-            {
-              text: 'Error: Not connected to the daemon. Connection timed out. Ensure "brv" is running.',
-              type: 'text' as const,
-            },
-          ],
+        return textResponse('Error: Not connected to the daemon. Connection timed out. Ensure "brv" is running.', {
           isError: true,
-        }
+        })
       }
+
+      const hasFolder = Boolean(folder?.trim())
+      const taskType = hasFolder ? 'curate-folder' : 'curate'
+
+      const abort = new AbortController()
+      const taskId = randomUUID()
+      const resolvedContent = context?.trim() ? context : ''
+      // Register listener before task:create to avoid races where the task
+      // completes before we attach. Abort on early failure to release listeners.
+      const resultPromise = wait ? waitForTaskResult(client, taskId, undefined, abort.signal) : undefined
 
       try {
         const taskContext = resolveMcpTaskContext(cwdResult.clientCwd, getStartupProjectContext())
         if (!getWorkingDirectory()) {
           await associateProjectWithRetry(client, taskContext.projectRoot)
         }
-
-        const taskId = randomUUID()
-
-        // Create task via transport (same pattern as brv curate command)
-        // Use provided context, or empty string for file-only/folder-only mode
-        const resolvedContent = context?.trim() ? context : ''
-
-        // Determine task type: folder pack takes precedence over file-based curate
-        const hasFolder = Boolean(folder?.trim())
-        const taskType = hasFolder ? 'curate-folder' : 'curate'
 
         const ack = await client.requestWithAck<{logId?: string; taskId: string}>(TransportTaskEventNames.CREATE, {
           clientCwd: cwdResult.clientCwd,
@@ -116,25 +142,20 @@ export function registerBrvCurateTool(
           ...(!hasFolder && files?.length ? {files} : {}),
         })
 
-        // Fire-and-forget: return immediately after task is queued
-        // Curation is processed asynchronously by the ByteRover agent
-        const logId = ack?.logId
-        const modeDescription = hasFolder ? 'folder pack' : 'curation'
-        const logSuffix = logId ? `, logId: ${logId}` : ''
-        return {
-          content: [
-            {
-              text: `✓ Context queued for ${modeDescription} (taskId: ${taskId}${logSuffix}). The curation will be processed asynchronously.`,
-              type: 'text' as const,
-            },
-          ],
-        }
+        if (resultPromise) await resultPromise
+
+        const idSuffix = ack?.logId ? `(Task: ${taskId} · Log: ${ack.logId})` : `(Task: ${taskId})`
+        const message = resultPromise
+          ? `✓ Context curated successfully. ${idSuffix}`
+          : `✓ Context queued for processing. ${idSuffix}`
+
+        return textResponse(message)
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error)
-        return {
-          content: [{text: `Error: ${message}`, type: 'text' as const}],
-          isError: true,
-        }
+        abort.abort()
+        // Swallow the abort rejection so we don't surface a misleading second error.
+        if (resultPromise) resultPromise.catch(() => {})
+        const reason = error instanceof Error ? error.message : String(error)
+        return textResponse(`Error: ${reason}`, {isError: true})
       }
     },
   )

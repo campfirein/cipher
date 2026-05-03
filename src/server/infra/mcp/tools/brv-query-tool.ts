@@ -31,7 +31,20 @@ export function registerBrvQueryTool(
   server.registerTool(
     'brv-query',
     {
-      description: 'Query the ByteRover context tree for patterns, decisions, or implementation details.',
+      description: `Retrieves curated context (decisions, rationale, prior implementations, conventions) from the ByteRover memory tree for this project.
+
+USE PROACTIVELY before:
+- Implementing in an unfamiliar module
+- Making architectural decisions
+- Debugging a recurring issue
+- When the user references "our approach", "the way we do X", "last time we...", "did we decide...", or any prior project work
+
+DO NOT USE for:
+- Public library documentation (use web search)
+- Trivial syntax questions
+- When Read/Grep on the current file is sufficient
+
+Returns ranked matches with snippet, source files, and relevance. Native memory does not contain this project context — only this tool does.`,
       inputSchema: BrvQueryInputSchema,
       title: 'ByteRover Query',
     },

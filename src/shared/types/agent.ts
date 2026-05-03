@@ -31,3 +31,9 @@ export const AGENT_VALUES = [
 export type Agent = (typeof AGENT_VALUES)[number]
 
 export const CLAUDE_DESKTOP: Agent = 'Claude Desktop'
+
+const AGENT_SET: ReadonlySet<string> = new Set(AGENT_VALUES)
+
+export function isAgent(value: string | undefined): value is Agent {
+  return value !== undefined && AGENT_SET.has(value)
+}
