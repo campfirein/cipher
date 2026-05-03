@@ -108,10 +108,7 @@ describe('Provider Registry', () => {
     })
 
     it('should not have a defaultModel for byterover (model is resolved at runtime via DEFAULT_LLM_MODEL)', () => {
-      // byterover's model is intentionally NOT persisted in providers.json.
-      // The runtime resolver in agent-process.ts falls back to DEFAULT_LLM_MODEL
-      // on every invocation, so changing the constant rolls out to all users
-      // without a per-user migration step.
+      // intentional: model is runtime-resolved so default changes auto-roll without per-user migration.
       const provider = getProviderById('byterover')
       expect(provider?.defaultModel).to.be.undefined
     })

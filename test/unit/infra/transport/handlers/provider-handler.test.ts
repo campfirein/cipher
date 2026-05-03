@@ -369,11 +369,7 @@ describe('ProviderHandler', () => {
     })
 
     it('should activate byterover on connect without persisting an activeModel', async () => {
-      // byterover has no model fetcher and `brv model switch --provider byterover`
-      // is hard-blocked, so the deferred-activation gate would strand it forever.
-      // It bypasses the gate by id and intentionally leaves activeModel unset —
-      // the runtime resolver in agent-process.ts falls back to DEFAULT_LLM_MODEL,
-      // which lets future default changes roll out without a per-user migration.
+      // byterover bypasses the gate (no model fetcher, no model-switch recovery path); runtime resolves via DEFAULT_LLM_MODEL.
       createHandler()
 
       const handler = transport._handlers.get(ProviderEvents.CONNECT)
