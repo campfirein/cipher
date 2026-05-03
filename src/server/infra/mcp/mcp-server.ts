@@ -219,7 +219,7 @@ export class ByteRoverMcpServer {
    * a reconnect — the protocol is backward-compatible across the gap.
    */
   private logDaemonVersionDrift(daemonVersion: string | undefined): void {
-    if (daemonVersion && !versionsAreEquivalent(daemonVersion, this.config.version)) {
+    if (daemonVersion && !versionsAreEquivalent(this.config.version, daemonVersion)) {
       this.log(
         `connected to daemon ${daemonVersion}; this MCP is ${this.config.version} (backward-compatible protocol)`,
       )

@@ -25,7 +25,7 @@ export const Header: React.FC<HeaderProps> = ({compact}) => {
   // Drift indicator surfaces when this brv build connects to a daemon spawned
   // by a different build. Rendered inline by Logo so the banner stays a single
   // line; hidden when versions match or the daemon is too old to advertise.
-  const isOutdated = Boolean(daemonVersion) && !versionsAreEquivalent(version, daemonVersion)
+  const isOutdated = daemonVersion !== undefined && !versionsAreEquivalent(version, daemonVersion)
 
   return (
     <Box flexDirection="column" marginBottom={1} width="100%">
