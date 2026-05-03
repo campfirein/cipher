@@ -6,12 +6,7 @@ import {expect} from 'chai'
 import sinon, {restore, stub} from 'sinon'
 
 import ProviderSwitch from '../../../src/oclif/commands/providers/switch.js'
-
-const STUB_BYTEROVER_AUTH_ERROR = [
-  'ByteRover Provider requires a ByteRover account.',
-  '  • Interactive shell: brv login',
-  '  • Headless: brv login --api-key <key>',
-].join('\n')
+import {STUB_BYTEROVER_AUTH_ERROR} from '../../helpers/provider-fixtures.js'
 
 // ==================== TestableProviderSwitchCommand ====================
 

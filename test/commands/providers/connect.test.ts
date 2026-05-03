@@ -6,15 +6,7 @@ import {expect} from 'chai'
 import sinon, {restore, stub} from 'sinon'
 
 import ProviderConnect from '../../../src/oclif/commands/providers/connect.js'
-
-// Test fixture mirroring the daemon's BYTEROVER_AUTH_REQUIRED_MESSAGE shape.
-// Kept local so the handler can keep its copy module-private; assertions below
-// pin keyword anchors that the real message must also contain.
-const STUB_BYTEROVER_AUTH_ERROR = [
-  'ByteRover Provider requires a ByteRover account.',
-  '  • Interactive shell: brv login',
-  '  • Headless: brv login --api-key <key>',
-].join('\n')
+import {STUB_BYTEROVER_AUTH_ERROR} from '../../helpers/provider-fixtures.js'
 
 // ==================== TestableProviderConnectCommand ====================
 
@@ -393,6 +385,7 @@ describe('Provider Connect Command', () => {
       await createCommand('byterover').run()
 
       expect(loggedMessages.some((m) => m.includes('ByteRover account'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('brv login --api-key'))).to.be.true
     })
 
     it('should show fallback error when CONNECT resolves with success:false and no error message', async () => {

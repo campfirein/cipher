@@ -55,7 +55,7 @@ import {
 const BYTEROVER_AUTH_REQUIRED_MESSAGE = [
   'ByteRover Provider requires a ByteRover account.',
   '',
-  '  • Interactive shell:  brv login',
+  '  • Interactive shell: brv login',
   '  • Headless / SSH / CI: create an account at https://app.byterover.dev,',
   '    generate an API key at https://app.byterover.dev/settings/keys, then:',
   '      brv login --api-key <key>',
