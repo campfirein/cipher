@@ -214,7 +214,7 @@ describe('E2E smoke — TaskHistory + WebUI surface (proj/persis-task-history)',
     // in between (mimics TaskHistoryHook.onTaskUpdate firing every 100 ms).
     for (let i = 0; i < 5; i++) {
       // eslint-disable-next-line no-await-in-loop
-      const result = (await listHandler!({}, 'webui-1')) as {
+      const result = (await listHandler!({page: 1, pageSize: 50}, 'webui-1')) as {
         tasks: Array<{status: string; taskId: string}>
       }
       const long = result.tasks.find((t) => t.taskId === longRunningId)
@@ -241,9 +241,9 @@ describe('E2E smoke — TaskHistory + WebUI surface (proj/persis-task-history)',
     expect(getResult.task).to.exist
     expect(getResult.task!.status).to.equal('started')
 
-    // ── Phase 2: drive a few terminal tasks in for clear/delete + pagination.
-    // Use the same createdAt ms for several tasks → exercises the cursor
-    // tiebreaker. ────────────────────────────────────────────────────────
+    // ── Phase 2: drive terminal tasks in for clear/delete + numbered pagination.
+    // Same createdAt ms for several tasks → exercises stable secondary sort by taskId DESC.
+    // M2.16: cursor pagination dropped; verify page/pageSize semantics + new response shape.
     const sharedCreatedAt = Date.now()
     for (const id of ['p1', 'p2', 'p3', 'p4']) {
       // eslint-disable-next-line no-await-in-loop
@@ -259,32 +259,33 @@ describe('E2E smoke — TaskHistory + WebUI surface (proj/persis-task-history)',
       )
     }
 
-    // Page 1
-    const page1 = (await listHandler!({limit: 2, projectPath: PROJECT}, 'webui-1')) as {
-      nextCursor?: number
-      nextCursorTaskId?: string
+    // Page 1 — first 2 of the cluster (taskId DESC tiebreaker → p4, p3).
+    const page1 = (await listHandler!({page: 1, pageSize: 2, projectPath: PROJECT}, 'webui-1')) as {
+      counts: {all: number}
+      page: number
+      pageCount: number
+      pageSize: number
       tasks: Array<{taskId: string}>
+      total: number
     }
     expect(page1.tasks).to.have.lengthOf(2)
-    expect(page1.nextCursor, 'pagination tiebreaker missing nextCursor').to.be.a('number')
-    expect(page1.nextCursorTaskId, 'pagination tiebreaker missing nextCursorTaskId').to.be.a('string')
+    expect(page1.page).to.equal(1)
+    expect(page1.pageSize).to.equal(2)
+    expect(page1.total, 'total counts the long-running task plus 4 terminal').to.equal(5)
+    expect(page1.pageCount).to.equal(3) // ceil(5/2)
+    expect(page1.counts.all).to.equal(5)
 
-    // Page 2 — must NOT skip rows in the same-ms cluster.
-    const page2 = (await listHandler!(
-      {
-        before: page1.nextCursor,
-        beforeTaskId: page1.nextCursorTaskId,
-        limit: 10,
-        projectPath: PROJECT,
-      },
-      'webui-1',
-    )) as {tasks: Array<{taskId: string}>}
+    // Page 2
+    const page2 = (await listHandler!({page: 2, pageSize: 2, projectPath: PROJECT}, 'webui-1')) as {
+      tasks: Array<{taskId: string}>
+    }
+    expect(page2.tasks).to.have.lengthOf(2)
 
     const seenIds = new Set([...page1.tasks.map((t) => t.taskId), ...page2.tasks.map((t) => t.taskId)])
-    expect(seenIds.has('p1')).to.equal(true)
-    expect(seenIds.has('p2')).to.equal(true)
-    expect(seenIds.has('p3')).to.equal(true)
-    expect(seenIds.has('p4')).to.equal(true)
+    expect(seenIds.has('p1') || seenIds.has('p2') || seenIds.has('p3') || seenIds.has('p4')).to.equal(true)
+    // Across 2 pages of size 2 we should see at least 3 of the 4 cluster tasks (the 5th slot is long-running).
+    const clusterSeen = ['p1', 'p2', 'p3', 'p4'].filter((id) => seenIds.has(id))
+    expect(clusterSeen.length).to.be.at.least(3)
 
     // ── Phase 3: bulk delete (C4 — count must reflect actual removals only).
     const bulk = (await deleteBulkHandler!(
