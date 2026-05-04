@@ -102,25 +102,76 @@ export interface TaskListItem {
   type: string
 }
 
+/**
+ * task:list request — numbered pagination + filter/search (M2.16).
+ * All filter dims are optional; AND-combined when multiple are set.
+ */
 export interface TaskListRequest {
-  before?: number
-  /**
-   * Tiebreaker for `before` when multiple tasks share the same `createdAt`
-   * (same-millisecond bursts). Pass back the `nextCursorTaskId` from the
-   * previous response together with `before = nextCursor`.
-   */
-  beforeTaskId?: string
-  limit?: number
+  /** createdAt >= this epoch ms */
+  createdAfter?: number
+  /** createdAt <= this epoch ms */
+  createdBefore?: number
+  /** Maximum elapsed time (ms) for terminal tasks. */
+  maxDurationMs?: number
+  /** Minimum elapsed time (ms); only matches startedAt+completedAt rows. */
+  minDurationMs?: number
+  /** Filter to these model ids (exact match). */
+  model?: string[]
+  /** 1-based page index; defaults to 1. */
+  page?: number
+  /** Page size 1..1000; defaults to 50. */
+  pageSize?: number
   projectPath?: string
+  /** Filter to these provider ids (exact match). */
+  provider?: string[]
+  /** Case-insensitive substring on content + result + error.message. */
+  searchText?: string
   status?: TaskListItemStatus[]
   type?: string[]
 }
 
+/** Status histogram used by FE filter-bar breakdown (M2.16). */
+export interface TaskListCounts {
+  all: number
+  cancelled: number
+  completed: number
+  /** Tasks with status === 'error'. */
+  failed: number
+  /** Tasks with status === 'created' || 'started'. */
+  running: number
+}
+
+/** (providerId, modelId) pair from history (M2.16). */
+export interface TaskListAvailableModel {
+  modelId: string
+  providerId: string
+}
+
 export interface TaskListResponse {
-  nextCursor?: number
-  /** Companion tiebreaker for `nextCursor` — see `TaskListRequest.beforeTaskId`. */
-  nextCursorTaskId?: string
+  /** Distinct (providerId, modelId) pairs seen in candidate set. */
+  availableModels: TaskListAvailableModel[]
+  /** Distinct providerId values seen in candidate set. */
+  availableProviders: string[]
+  /**
+   * Status histogram matching current filter scope (Model A — post-filter).
+   * `counts.all === total` invariant. When user picks `status: ['error']`,
+   * `counts.failed === total` and other buckets are 0.
+   */
+  counts: TaskListCounts
+  /**
+   * 1-based page index, echoed back as-sent. Server clamps the LOWER bound
+   * (page < 1 → 1) but does NOT clamp against `pageCount`. A request with
+   * `page=9999` against a 1-page result returns `page: 9999, tasks: []` so
+   * the caller can detect an out-of-range page.
+   */
+  page: number
+  /** ceil(total / pageSize), min 1. */
+  pageCount: number
+  /** Page size echoed back, clamped to [1, 1000]. */
+  pageSize: number
   tasks: TaskListItem[]
+  /** Total items matching ALL filters (incl. status). */
+  total: number
 }
 
 export type TaskClearCompletedRequest = {
