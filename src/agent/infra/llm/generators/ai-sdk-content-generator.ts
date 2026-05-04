@@ -5,7 +5,7 @@
  * Replaces per-provider content generators with one unified implementation.
  */
 
-import type {LanguageModel} from 'ai'
+import type {LanguageModel, ModelMessage} from 'ai'
 
 import {generateText, streamText} from 'ai'
 
@@ -21,6 +21,28 @@ import {StreamChunkType} from '../../../core/interfaces/i-content-generator.js'
 import {toAiSdkTools, toModelMessages} from './ai-sdk-message-converter.js'
 
 const DEFAULT_CHARS_PER_TOKEN = 4
+
+/**
+ * Prepend the system prompt as a system-role message carrying
+ * `providerOptions.anthropic.cacheControl: ephemeral`. AI SDK's top-level
+ * `system: string` parameter does not propagate providerOptions, so the
+ * only way to attach Anthropic cache_control to the system block is to
+ * pass it through the messages array. Non-Anthropic providers ignore the
+ * `anthropic` namespace.
+ */
+export function prependCachedSystemMessage(systemPrompt: string | undefined, messages: ModelMessage[]): ModelMessage[] {
+  if (!systemPrompt) {
+    return messages
+  }
+
+  const systemMessage: ModelMessage = {
+    content: systemPrompt,
+    providerOptions: {anthropic: {cacheControl: {type: 'ephemeral'}}},
+    role: 'system',
+  }
+
+  return [systemMessage, ...messages]
+}
 
 /**
  * Configuration for AiSdkContentGenerator.
@@ -54,7 +76,7 @@ export class AiSdkContentGenerator implements IContentGenerator {
   }
 
   public async generateContent(request: GenerateContentRequest): Promise<GenerateContentResponse> {
-    const messages = toModelMessages(request.contents)
+    const messages = prependCachedSystemMessage(request.systemPrompt, toModelMessages(request.contents))
     const tools = toAiSdkTools(request.tools)
 
     const result = await generateText({
@@ -63,7 +85,6 @@ export class AiSdkContentGenerator implements IContentGenerator {
       messages,
       model: this.model,
       temperature: request.config.temperature,
-      ...(request.systemPrompt && {system: request.systemPrompt}),
       ...(tools && {tools}),
       ...(request.config.topK !== undefined && {topK: request.config.topK}),
       ...(request.config.topP !== undefined && {topP: request.config.topP}),
@@ -100,7 +121,7 @@ export class AiSdkContentGenerator implements IContentGenerator {
   }
 
   public async *generateContentStream(request: GenerateContentRequest): AsyncGenerator<GenerateContentChunk> {
-    const messages = toModelMessages(request.contents)
+    const messages = prependCachedSystemMessage(request.systemPrompt, toModelMessages(request.contents))
     const tools = toAiSdkTools(request.tools)
 
     const result = streamText({
@@ -109,7 +130,6 @@ export class AiSdkContentGenerator implements IContentGenerator {
       messages,
       model: this.model,
       temperature: request.config.temperature,
-      ...(request.systemPrompt && {system: request.systemPrompt}),
       ...(tools && {tools}),
       ...(request.config.topK !== undefined && {topK: request.config.topK}),
       ...(request.config.topP !== undefined && {topP: request.config.topP}),

@@ -21,8 +21,9 @@ import {
   type FileReadResult,
 } from '../../utils/file-content-reader.js'
 import {validateFileForCurate} from '../../utils/file-validator.js'
+import {FileContextTreeManifestService} from '../context-tree/file-context-tree-manifest-service.js'
 import {FileContextTreeSnapshotService} from '../context-tree/file-context-tree-snapshot-service.js'
-import {propagateSummariesUnderLock} from '../context-tree/propagate-summaries.js'
+import {diffStates} from '../context-tree/snapshot-diff.js'
 import {DreamStateService} from '../dream/dream-state-service.js'
 import {PreCompactionService} from './pre-compaction/pre-compaction-service.js'
 
@@ -192,9 +193,9 @@ export class CurateExecutor implements ICurateExecutor {
       }
 
       // initialInput carries the original context for chunk-node and the
-      // recon inputs for recon-node. `existing` was previously here but is
-      // now dead — services.detectConflicts sources its own existing memory
-      // via the lookupSubject closure above (see runner.ts NodeServices doc).
+      // recon inputs for recon-node. The DAG's recon-node provides the
+      // deterministic recon analysis natively (PR #601's pre-pipelined
+      // reconHelper for the agent-loop path is unneeded here).
       //
       // R-5 (PHASE-2.6-PLAN.md §3.1): rolled back from 8 → 4 per Phase 2.5
       // §3.5 go/no-go gate. Phase 4 UAT showed c=8 regressed Scenario 3 from
@@ -226,7 +227,7 @@ export class CurateExecutor implements ICurateExecutor {
 
     const finalize = async (): Promise<void> => {
       try {
-        await propagateSummariesUnderLock({agent, baseDir, preState, snapshotService, taskId})
+        await this.propagateAndRebuild({baseDir, preState, snapshotService})
         await this.incrementDreamCounter(baseDir)
         await (agent as BackgroundDrainAgent).drainBackgroundWork?.()
       } finally {
@@ -421,5 +422,59 @@ export class CurateExecutor implements ICurateExecutor {
 
     // Format with actual content
     return this.formatFileContentsForPrompt(readResults, skippedFiles, projectRoot)
+  }
+
+  /**
+   * Phase 4: snapshot diff → enqueue stale paths for dream → rebuild manifest.
+   *
+   * Summary cascade regeneration (the LLM-driven `propagateStaleness` walk) is
+   * deferred to the next dream cycle to keep curate's hot path free of LLM
+   * calls. The manifest is rebuilt inline because it is a pure file scan (no
+   * LLM) and keeps newly-curated leaf files immediately discoverable via
+   * manifest-driven retrieval.
+   *
+   * Two independent fail-open concerns: (a) enqueue the deferred summary-cascade
+   * work to dream's queue; (b) rebuild the search manifest. They share
+   * `changedPaths` but otherwise are unrelated — a transient disk error on the
+   * dream-state write must not skip the pure-filesystem manifest scan. Each
+   * runs in its own try block so one failure cannot mask the other's work.
+   */
+  private async propagateAndRebuild(args: {
+    baseDir: string
+    preState: Map<string, import('../../core/domain/entities/context-tree-snapshot.js').FileState> | undefined
+    snapshotService: FileContextTreeSnapshotService
+  }): Promise<void> {
+    const {baseDir, preState, snapshotService} = args
+    if (!preState) return
+
+    let changedPaths: string[] = []
+    try {
+      const postState = await snapshotService.getCurrentState(baseDir)
+      changedPaths = diffStates(preState, postState)
+    } catch {
+      // Fail-open: snapshot errors leave changedPaths empty → no enqueue,
+      // no manifest rebuild. Next curate's snapshot will pick up the diff.
+    }
+
+    if (changedPaths.length === 0) return
+
+    try {
+      const dreamStateService = new DreamStateService({baseDir: path.join(baseDir, BRV_DIR)})
+      await dreamStateService.enqueueStaleSummaryPaths(changedPaths)
+    } catch {
+      // Fail-open: queue write errors never block curation. If this write
+      // fails the changed paths are lost from the deferred queue; they will
+      // only be re-captured if the same files are modified in a later curate
+      // (diffStates compares a fresh pre/post snapshot pair, not a persistent
+      // accumulator) or picked up by dream's own snapshot diff if dream
+      // touches them.
+    }
+
+    try {
+      const manifestService = new FileContextTreeManifestService({baseDirectory: baseDir})
+      await manifestService.buildManifest(baseDir)
+    } catch {
+      // Fail-open: manifest rebuild is best-effort pre-warming.
+    }
   }
 }

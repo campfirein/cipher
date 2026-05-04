@@ -49,7 +49,7 @@ function makePartialRunExecutor(args: {
 }
 
 describe('DreamExecutor', () => {
-  let dreamStateService: {read: SinonStub; update: SinonStub; write: SinonStub}
+  let dreamStateService: {drainStaleSummaryPaths: SinonStub; enqueueStaleSummaryPaths: SinonStub; read: SinonStub; update: SinonStub; write: SinonStub}
   let dreamLogStore: {getNextId: SinonStub; save: SinonStub}
   let dreamLockService: {release: SinonStub; rollback: SinonStub}
   let curateLogStore: {getNextId: SinonStub; list: SinonStub; save: SinonStub}
@@ -64,7 +64,12 @@ describe('DreamExecutor', () => {
 
   beforeEach(() => {
     dreamStateService = {
-      read: stub().resolves({...EMPTY_DREAM_STATE, pendingMerges: []}),
+      // Default drain: empty queue. Tests that exercise the queue override.
+      drainStaleSummaryPaths: stub().resolves([]),
+      // Default enqueue: no-op stub. Used by the executor's catch block to
+      // re-enqueue a drained snapshot if propagation fails.
+      enqueueStaleSummaryPaths: stub().resolves(),
+      read: stub().resolves({...EMPTY_DREAM_STATE, pendingMerges: [], staleSummaryPaths: []}),
       // Default update implementation: read → updater → write, mirroring the real
       // service so tests that count write.callCount stay valid without changes.
       update: stub().callsFake(async (updater: (state: import('../../../../src/server/infra/dream/dream-state-schema.js').DreamState) => import('../../../../src/server/infra/dream/dream-state-schema.js').DreamState) => {
@@ -514,6 +519,123 @@ describe('DreamExecutor', () => {
       } finally {
         rmSync(projectRoot, {force: true, recursive: true})
       }
+    })
+
+    // ==========================================================================
+    // Stale-summary queue: drain + re-enqueue on propagation failure
+    // ==========================================================================
+
+    it('propagates over A ∪ B union of drained queue and snapshot diff (happy path)', async () => {
+      // The merge at dream-executor.ts is the central correctness invariant of this
+      // PR — anything in EITHER the queue (A) OR dream's own diff (B) must be
+      // propagated, exactly once per path. This test pins that invariant.
+      dreamStateService.drainStaleSummaryPaths.resolves(['queue/path.md'])
+
+      // Real temp project so snapshotService.getCurrentState succeeds. We override
+      // runOperations to write a new file between pre and post snapshots, so the
+      // snapshot diff produces a non-empty list — that becomes the B half of A ∪ B.
+      const projectRoot = mkdtempSync(join(tmpdir(), 'brv-dream-merge-'))
+      const contextTreeDir = join(projectRoot, '.brv', 'context-tree')
+      mkdirSync(contextTreeDir, {recursive: true})
+      const captured: string[][] = []
+
+      class MergeTestExecutor extends DreamExecutor {
+        protected override async runOperations(): Promise<void> {
+          // Mutate the tree so postState differs from preState by 'diff/added.md'.
+          mkdirSync(join(contextTreeDir, 'diff'), {recursive: true})
+          writeFileSync(join(contextTreeDir, 'diff', 'added.md'), '# new from dream')
+        }
+
+        protected override async runStaleSummaryPropagation(opts: {
+          agent: ICipherAgent
+          paths: string[]
+          projectRoot: string
+        }): Promise<void> {
+          captured.push([...opts.paths].sort())
+        }
+      }
+
+      try {
+        const executor = new MergeTestExecutor(deps)
+        await executor.executeWithAgent(agent, {...defaultOptions, projectRoot})
+      } finally {
+        rmSync(projectRoot, {force: true, recursive: true})
+      }
+
+      expect(captured).to.have.lengthOf(1)
+      expect(captured[0]).to.deep.equal(['diff/added.md', 'queue/path.md'])
+      expect(dreamStateService.enqueueStaleSummaryPaths.callCount).to.equal(0)
+    })
+
+    it('dedups paths that appear in both the queue and the snapshot diff (single regeneration)', async () => {
+      dreamStateService.drainStaleSummaryPaths.resolves(['shared/path.md'])
+
+      const projectRoot = mkdtempSync(join(tmpdir(), 'brv-dream-merge-dedup-'))
+      const contextTreeDir = join(projectRoot, '.brv', 'context-tree')
+      mkdirSync(contextTreeDir, {recursive: true})
+      const captured: string[][] = []
+
+      class MergeTestExecutor extends DreamExecutor {
+        protected override async runOperations(): Promise<void> {
+          // Write the SAME path the queue contains — the merge must dedup.
+          mkdirSync(join(contextTreeDir, 'shared'), {recursive: true})
+          writeFileSync(join(contextTreeDir, 'shared', 'path.md'), '# also touched by dream')
+        }
+
+        protected override async runStaleSummaryPropagation(opts: {
+          agent: ICipherAgent
+          paths: string[]
+          projectRoot: string
+        }): Promise<void> {
+          captured.push([...opts.paths].sort())
+        }
+      }
+
+      try {
+        const executor = new MergeTestExecutor(deps)
+        await executor.executeWithAgent(agent, {...defaultOptions, projectRoot})
+      } finally {
+        rmSync(projectRoot, {force: true, recursive: true})
+      }
+
+      expect(captured).to.have.lengthOf(1)
+      expect(captured[0]).to.deep.equal(['shared/path.md'])
+    })
+
+    it('re-enqueues drained snapshot when post-dream propagation throws', async () => {
+      // Atomic drain removes entries upfront. If propagation fails, the catch
+      // block must re-enqueue so the snapshot is not lost.
+      dreamStateService.drainStaleSummaryPaths.resolves([
+        'auth/jwt/token.md',
+        'billing/webhooks/stripe.md',
+      ])
+
+      // Force the propagation block to throw by making the snapshot service fail.
+      // The dream-executor wraps Step 5 in try/catch so the dream itself completes.
+      const projectRoot = mkdtempSync(join(tmpdir(), 'brv-dream-reenqueue-'))
+      try {
+        const executor = new DreamExecutor(deps)
+        // executeWithAgent uses a real FileContextTreeSnapshotService bound to projectRoot.
+        // The directory exists but has no .brv/context-tree, so getCurrentState throws —
+        // exercising the catch block that should re-enqueue the drained snapshot.
+        await executor.executeWithAgent(agent, {...defaultOptions, projectRoot})
+      } finally {
+        rmSync(projectRoot, {force: true, recursive: true})
+      }
+
+      expect(dreamStateService.enqueueStaleSummaryPaths.calledOnce).to.equal(true)
+      expect(dreamStateService.enqueueStaleSummaryPaths.firstCall.args[0]).to.deep.equal([
+        'auth/jwt/token.md',
+        'billing/webhooks/stripe.md',
+      ])
+    })
+
+    it('does not call enqueue when drain returns an empty snapshot (no work to retry)', async () => {
+      // Default drain stub returns [] — no snapshot to preserve on failure.
+      const executor = new DreamExecutor(deps)
+      await executor.executeWithAgent(agent, defaultOptions)
+
+      expect(dreamStateService.enqueueStaleSummaryPaths.callCount).to.equal(0)
     })
 
     // ==========================================================================
