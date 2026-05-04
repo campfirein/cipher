@@ -45,24 +45,10 @@ import {FileValidationError} from '../../../../src/server/core/domain/errors/tas
 import {FileContextTreeManifestService} from '../../../../src/server/infra/context-tree/file-context-tree-manifest-service.js'
 import {FileContextTreeSnapshotService} from '../../../../src/server/infra/context-tree/file-context-tree-snapshot-service.js'
 import {FileContextTreeSummaryService} from '../../../../src/server/infra/context-tree/file-context-tree-summary-service.js'
-import {DreamLockService} from '../../../../src/server/infra/dream/dream-lock-service.js'
+import {DreamStateService} from '../../../../src/server/infra/dream/dream-state-service.js'
 import {CurateExecutor} from '../../../../src/server/infra/executor/curate-executor.js'
 
-/**
- * Default DreamLockService stubs so Phase 4 tests don't write real
- * `dream.lock` files. Tests exercising the lock directly re-stub via restore.
- */
-function stubDreamLockServiceDefaults(): void {
-  stub(DreamLockService.prototype, 'tryAcquire').resolves({acquired: true, priorMtime: 0})
-  stub(DreamLockService.prototype, 'release').resolves()
-  stub(DreamLockService.prototype, 'rollback').resolves()
-}
-
 describe('CurateExecutor (regression)', () => {
-  beforeEach(() => {
-    stubDreamLockServiceDefaults()
-  })
-
   afterEach(() => {
     restore()
   })
@@ -292,8 +278,8 @@ describe('CurateExecutor (regression)', () => {
     })
   })
 
-  describe('summary propagation taskId threading (ENG-2100)', () => {
-    it('passes the curate operation taskId to propagateStaleness so summary LLM calls share one billing session', async () => {
+  describe('summary cascade deferral to dream (ENG-2485)', () => {
+    it('enqueues stale-summary paths to the dream queue and does NOT call propagateStaleness inline', async () => {
       const agent = {
         cancel: stub().resolves(false),
         createTaskSession: stub().resolves('session-id'),
@@ -325,6 +311,10 @@ describe('CurateExecutor (regression)', () => {
         'propagateStaleness',
       ).resolves([])
       stub(FileContextTreeManifestService.prototype, 'buildManifest').resolves()
+      const enqueueStub = stub(DreamStateService.prototype, 'enqueueStaleSummaryPaths').resolves()
+      // incrementCurationCount is unrelated dream-state work that runs after the post-curation
+      // step; stub it so the test doesn't hit disk for the dream state file.
+      stub(DreamStateService.prototype, 'incrementCurationCount').resolves()
 
       const taskId = 'curate-op-uuid-1'
       const projectRoot = '/projects/myapp'
@@ -336,16 +326,88 @@ describe('CurateExecutor (regression)', () => {
         taskId,
       })
 
-      expect(propagateStalenessStub.calledOnce).to.be.true
-      // 4th arg must be the curate's taskId so the billing service groups
-      // summary regenerations into the same session as the parent operation.
-      expect(propagateStalenessStub.firstCall.args[3]).to.equal(taskId)
+      // ENG-2485 invariant: the LLM-bound propagateStaleness walk MUST NOT run
+      // on the curate hot path. It is deferred to the next dream cycle.
+      expect(propagateStalenessStub.called).to.equal(false)
+
+      // The deferred work is captured in the dream queue: the changed paths from
+      // diffStates are enqueued for the next dream cycle to drain.
+      expect(enqueueStub.calledOnce).to.equal(true)
+      expect(enqueueStub.firstCall.args[0]).to.deep.equal(['auth/jwt.md'])
+    })
+  })
+
+  describe('pre-pipelined recon (ENG-2530)', () => {
+    it('injects __recon_result_<taskIdSafe> as a sandbox variable and surfaces it in the prompt', async () => {
+      const taskId = '7a2b9e10-cdef-4321-8765-0abcdef01234'
+      const taskIdSafe = taskId.replaceAll('-', '_')
+      const expectedReconVar = `__recon_result_${taskIdSafe}`
+
+      const setSandboxVariableOnSession = stub()
+      const executeOnSession = stub().resolves('ok')
+
+      const agent = {
+        cancel: stub().resolves(false),
+        createTaskSession: stub().resolves('session-id'),
+        deleteSandboxVariable: stub(),
+        deleteSandboxVariableOnSession: stub(),
+        deleteSession: stub().resolves(true),
+        deleteTaskSession: stub().resolves(),
+        execute: stub().resolves(''),
+        executeOnSession,
+        generate: stub().resolves({content: '', toolCalls: [], usage: {inputTokens: 0, outputTokens: 0}}),
+        getSessionMetadata: stub().resolves(),
+        getState: stub().returns({currentIteration: 0, executionHistory: [], executionState: 'idle', toolCallsExecuted: 0}),
+        listPersistedSessions: stub().resolves([]),
+        reset: stub(),
+        setSandboxVariable: stub(),
+        setSandboxVariableOnSession,
+        start: stub().resolves(),
+        stream: stub().resolves({[Symbol.asyncIterator]: () => ({next: () => Promise.resolve({done: true, value: undefined})})}),
+      } as unknown as ICipherAgent
+
+      // Stub the post-curate filesystem services so the test stays
+      // fully in-memory (mirrors the ENG-2485 test above). Without
+      // these, executeWithAgent attempts real I/O against /projects/myapp.
+      stub(FileContextTreeSnapshotService.prototype, 'getCurrentState').resolves(new Map())
+      stub(DreamStateService.prototype, 'incrementCurationCount').resolves()
+
+      const executor = new CurateExecutor()
+      await executor.executeWithAgent(agent, {
+        clientCwd: '/projects/myapp',
+        content: 'plain text content for the curate to inspect',
+        taskId,
+      })
+
+      // (a) recon result was set on the task session under __recon_result_<taskIdSafe>
+      const reconCall = setSandboxVariableOnSession
+        .getCalls()
+        .find((c) => c.args[1] === expectedReconVar)
+      expect(reconCall, `no setSandboxVariableOnSession call with key ${expectedReconVar}`).to.not.equal(undefined)
+
+      const reconValue = reconCall?.args[2] as Record<string, unknown> | undefined
+      expect(reconValue).to.have.property('suggestedMode')
+      expect(reconValue).to.have.property('suggestedChunkCount')
+      expect(reconValue).to.have.property('meta')
+      const meta = reconValue?.meta as Record<string, unknown>
+      expect(meta).to.have.property('charCount')
+      expect(meta).to.have.property('lineCount')
+      expect(meta).to.have.property('messageCount')
+
+      // (b) prompt instructs the agent that recon is pre-computed and to skip the call
+      expect(executeOnSession.calledOnce).to.equal(true)
+      const promptArg = executeOnSession.firstCall.args[1] as string
+      expect(promptArg).to.include('Recon already computed in')
+      expect(promptArg).to.include(expectedReconVar)
+      expect(promptArg).to.include('Do NOT call tools.curation.recon')
     })
   })
 
   describe('runAgentBody / finalize split', () => {
     // runAgentBody must return the response BEFORE Phase 4 runs so the daemon
     // can fire `task:completed` early and queue finalize for background work.
+    // Under cascade-defer (ENG-2485), Phase 4 is enqueueStaleSummaryPaths +
+    // buildManifest — it must NEVER call propagateStaleness inline.
 
     it('returns the agent response without running Phase 4 first', async () => {
       const agent = buildSplitTestAgent()
@@ -358,7 +420,9 @@ describe('CurateExecutor (regression)', () => {
         FileContextTreeSummaryService.prototype,
         'propagateStaleness',
       ).resolves([])
-      stub(FileContextTreeManifestService.prototype, 'buildManifest').resolves()
+      const buildManifestStub = stub(FileContextTreeManifestService.prototype, 'buildManifest').resolves()
+      const enqueueStub = stub(DreamStateService.prototype, 'enqueueStaleSummaryPaths').resolves()
+      stub(DreamStateService.prototype, 'incrementCurationCount').resolves()
 
       const executor = new CurateExecutor()
       const {finalize, response} = await executor.runAgentBody(agent, {
@@ -370,12 +434,16 @@ describe('CurateExecutor (regression)', () => {
 
       // Phase 4 must NOT have run yet — response was returned immediately.
       expect(response).to.equal('curated')
-      expect(propagateStalenessStub.called).to.be.false
+      expect(enqueueStub.called).to.be.false
+      expect(buildManifestStub.called).to.be.false
       expect((agent.deleteTaskSession as ReturnType<typeof stub>).called).to.be.false
 
-      // finalize() actually runs Phase 4
+      // finalize() runs Phase 4: enqueue + manifest rebuild + session cleanup.
+      // ENG-2485 invariant: propagateStaleness MUST NOT run on the curate path.
       await finalize()
-      expect(propagateStalenessStub.calledOnce).to.be.true
+      expect(enqueueStub.calledOnce).to.be.true
+      expect(buildManifestStub.calledOnce).to.be.true
+      expect(propagateStalenessStub.called).to.be.false
       expect((agent.deleteTaskSession as ReturnType<typeof stub>).calledOnce).to.be.true
     })
 
@@ -402,10 +470,10 @@ describe('CurateExecutor (regression)', () => {
         .resolves(new Map())
         .onSecondCall()
         .resolves(new Map([['auth/jwt.md', {hash: 'h', size: 1}]]))
-      const propagateStalenessStub = stub(
-        FileContextTreeSummaryService.prototype,
-        'propagateStaleness',
-      ).resolves([])
+      stub(FileContextTreeSummaryService.prototype, 'propagateStaleness').resolves([])
+      stub(FileContextTreeManifestService.prototype, 'buildManifest').resolves()
+      const enqueueStub = stub(DreamStateService.prototype, 'enqueueStaleSummaryPaths').resolves()
+      stub(DreamStateService.prototype, 'incrementCurationCount').resolves()
 
       const executor = new CurateExecutor()
       const result = await executor.executeWithAgent(agent, {
@@ -416,107 +484,9 @@ describe('CurateExecutor (regression)', () => {
       })
 
       expect(result).to.equal('curated')
-      // Wrapper awaits finalize internally — Phase 4 ran by the time we get here.
-      expect(propagateStalenessStub.calledOnce).to.be.true
-    })
-  })
-
-  describe('dream-lock coordination in Phase 4', () => {
-    // Detached Phase 4 races with idle-triggered dream on `_index.md` /
-    // `_manifest.json`. Curate's finalize must hold the dream lock around
-    // propagateStaleness + buildManifest to prevent interleaving.
-
-    it('acquires the dream lock before propagation and releases on success', async () => {
-      // Restore default stubs so we can observe the real call sequence.
-      restore()
-      const tryAcquire = stub(DreamLockService.prototype, 'tryAcquire').resolves({acquired: true, priorMtime: 1234})
-      const release = stub(DreamLockService.prototype, 'release').resolves()
-      const rollback = stub(DreamLockService.prototype, 'rollback').resolves()
-
-      const agent = buildSplitTestAgent()
-      stub(FileContextTreeSnapshotService.prototype, 'getCurrentState')
-        .onFirstCall()
-        .resolves(new Map())
-        .onSecondCall()
-        .resolves(new Map([['auth/jwt.md', {hash: 'h', size: 1}]]))
-      const propagateStaleness = stub(FileContextTreeSummaryService.prototype, 'propagateStaleness').resolves([])
-
-      const executor = new CurateExecutor()
-      const {finalize} = await executor.runAgentBody(agent, {
-        clientCwd: '/p',
-        content: 'x',
-        projectRoot: '/p',
-        taskId: 't-lock-success',
-      })
-      await finalize()
-
-      expect(tryAcquire.calledOnce).to.be.true
-      expect(propagateStaleness.calledOnce).to.be.true
-      // Lock-then-propagate, then release on success (no rollback).
-      expect(tryAcquire.calledBefore(propagateStaleness)).to.be.true
-      expect(release.calledOnce).to.be.true
-      expect(rollback.called).to.be.false
-    })
-
-    it('skips propagation when the lock is held (dream is running)', async () => {
-      restore()
-      const tryAcquire = stub(DreamLockService.prototype, 'tryAcquire').resolves({acquired: false})
-      const release = stub(DreamLockService.prototype, 'release').resolves()
-      const rollback = stub(DreamLockService.prototype, 'rollback').resolves()
-
-      const agent = buildSplitTestAgent()
-      // Snapshot is reachable so without the lock check, propagation would run.
-      stub(FileContextTreeSnapshotService.prototype, 'getCurrentState')
-        .onFirstCall()
-        .resolves(new Map())
-        .onSecondCall()
-        .resolves(new Map([['auth/jwt.md', {hash: 'h', size: 1}]]))
-      const propagateStaleness = stub(FileContextTreeSummaryService.prototype, 'propagateStaleness').resolves([])
-
-      const executor = new CurateExecutor()
-      const {finalize} = await executor.runAgentBody(agent, {
-        clientCwd: '/p',
-        content: 'x',
-        projectRoot: '/p',
-        taskId: 't-lock-held',
-      })
-      await finalize()
-
-      // Lock was checked; propagation skipped; nothing to release/rollback.
-      expect(tryAcquire.calledOnce).to.be.true
-      expect(propagateStaleness.called).to.be.false
-      expect(release.called).to.be.false
-      expect(rollback.called).to.be.false
-    })
-
-    it('rolls back the lock (preserves prior mtime) when propagation throws', async () => {
-      restore()
-      const priorMtime = 9999
-      stub(DreamLockService.prototype, 'tryAcquire').resolves({acquired: true, priorMtime})
-      const release = stub(DreamLockService.prototype, 'release').resolves()
-      const rollback = stub(DreamLockService.prototype, 'rollback').resolves()
-
-      const agent = buildSplitTestAgent()
-      stub(FileContextTreeSnapshotService.prototype, 'getCurrentState')
-        .onFirstCall()
-        .resolves(new Map())
-        .onSecondCall()
-        .resolves(new Map([['auth/jwt.md', {hash: 'h', size: 1}]]))
-      stub(FileContextTreeSummaryService.prototype, 'propagateStaleness').rejects(new Error('boom'))
-
-      const executor = new CurateExecutor()
-      const {finalize} = await executor.runAgentBody(agent, {
-        clientCwd: '/p',
-        content: 'x',
-        projectRoot: '/p',
-        taskId: 't-lock-fail',
-      })
-
-      // Phase 4 is fail-open: finalize must not throw even though propagation did.
-      await finalize()
-
-      expect(release.called).to.be.false
-      expect(rollback.calledOnceWithExactly(priorMtime)).to.be.true
+      // Wrapper awaits finalize internally — cascade-defer enqueue ran by the
+      // time we get here.
+      expect(enqueueStub.calledOnce).to.be.true
     })
   })
 })

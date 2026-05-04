@@ -50,6 +50,56 @@ export class DreamStateService {
   }
 
   /**
+   * Atomic drain — reads the current queue and clears it in a single RMW,
+   * returning the deduped path list. The caller is responsible for retrying
+   * (re-enqueueing the returned snapshot) if the downstream work fails.
+   *
+   * Atomicity is the load-bearing property: any enqueue that runs after the
+   * drain returns sees an empty queue, so it always appends a fresh entry
+   * that survives independently of whether the downstream propagation succeeds
+   * or fails. Earlier "snapshot + clear-later" approaches lost same-path
+   * enqueues: the dedup check on enqueue saw the still-present snapshot entry
+   * and skipped, then `clear()` removed it.
+   */
+  async drainStaleSummaryPaths(): Promise<string[]> {
+    let snapshot: string[] = []
+    await this.update((state) => {
+      snapshot = state.staleSummaryPaths.map((e) => e.path)
+      if (snapshot.length === 0) return state
+      return {...state, staleSummaryPaths: []}
+    })
+    return snapshot
+  }
+
+  /**
+   * Append the given file paths to the stale-summary queue, deduping by path.
+   * A path already in the queue keeps its original `enqueuedAt` timestamp so
+   * "how long has this been waiting?" telemetry stays meaningful.
+   *
+   * Serialized through {@link update} so concurrent enqueues from parallel
+   * curate tasks do not lose entries. Empty input is a no-op (no write).
+   */
+  async enqueueStaleSummaryPaths(paths: string[]): Promise<void> {
+    if (paths.length === 0) return
+    // Dedup the input itself before checking against the queue — callers may
+    // pass non-unique arrays (e.g. multiple changed paths within a single
+    // curate that round-trip through the same parent dir).
+    const incoming = [...new Set(paths)]
+    const enqueuedAt = Date.now()
+    await this.update((state) => {
+      const existing = new Set(state.staleSummaryPaths.map((e) => e.path))
+      const additions = incoming
+        .filter((p) => !existing.has(p))
+        .map((p) => ({enqueuedAt, path: p}))
+      if (additions.length === 0) return state
+      return {
+        ...state,
+        staleSummaryPaths: [...state.staleSummaryPaths, ...additions],
+      }
+    })
+  }
+
+  /**
    * Read-modify-write under a per-file mutex. Serializes concurrent increments
    * from parallel curate tasks within the same agent process so no updates are lost.
    */
@@ -61,10 +111,10 @@ export class DreamStateService {
     try {
       const raw = await readFile(this.stateFilePath, 'utf8')
       const parsed = DreamStateSchema.safeParse(JSON.parse(raw))
-      if (!parsed.success) return {...EMPTY_DREAM_STATE, pendingMerges: []}
+      if (!parsed.success) return {...EMPTY_DREAM_STATE}
       return parsed.data
     } catch {
-      return {...EMPTY_DREAM_STATE, pendingMerges: []}
+      return {...EMPTY_DREAM_STATE}
     }
   }
 
@@ -80,7 +130,16 @@ export class DreamStateService {
     return mutex.withLock(async () => {
       const state = await this.read()
       const next = updater(state)
-      await this.write(next)
+      // Skip the write when the updater returned the same state reference.
+      // Existing call sites (drainStaleSummaryPaths on empty queue,
+      // enqueueStaleSummaryPaths with all-duplicate input) already follow
+      // this convention by returning `state` unchanged — making the no-op
+      // contract observable at the disk level avoids a tmpfile + rename on
+      // every empty drain.
+      if (next !== state) {
+        await this.write(next)
+      }
+
       return next
     })
   }

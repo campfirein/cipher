@@ -4,6 +4,7 @@ import type {ICipherAgent} from '../../../agent/core/interfaces/i-cipher-agent.j
 import type {CurationStatus} from '../../core/domain/entities/curation-status.js'
 import type {CurateExecuteOptions, ICurateExecutor} from '../../core/interfaces/executor/i-curate-executor.js'
 
+import {recon as reconHelper} from '../../../agent/infra/sandbox/curation-helpers.js'
 import {BRV_DIR} from '../../constants.js'
 import {FileValidationError} from '../../core/domain/errors/task-error.js'
 import {
@@ -12,8 +13,9 @@ import {
   type FileReadResult,
 } from '../../utils/file-content-reader.js'
 import {validateFileForCurate} from '../../utils/file-validator.js'
+import {FileContextTreeManifestService} from '../context-tree/file-context-tree-manifest-service.js'
 import {FileContextTreeSnapshotService} from '../context-tree/file-context-tree-snapshot-service.js'
-import {propagateSummariesUnderLock} from '../context-tree/propagate-summaries.js'
+import {diffStates} from '../context-tree/snapshot-diff.js'
 import {DreamStateService} from '../dream/dream-state-service.js'
 import {PreCompactionService} from './pre-compaction/pre-compaction-service.js'
 
@@ -118,12 +120,31 @@ export class CurateExecutor implements ICurateExecutor {
         type: 'string',
       }
 
-      // Inject context, metadata, empty history, and taskId into the TASK session's sandbox
+      // Pre-pipeline the recon step (deterministic helper) so the agent loop
+      // doesn't spend its first iteration calling tools.curation.recon. The
+      // result is injected as a sandbox variable for code-exec access AND
+      // its key findings are surfaced inline in the prompt so the agent's
+      // first iteration can proceed directly to extraction. recon is pure
+      // JS — no LLM judgment is needed for whether to call it; the answer
+      // is always "yes, first thing." Surfacing it as an agent-tool meant
+      // paying a full LLM iteration just to invoke a deterministic helper.
+      const initialHistory = {entries: [], totalProcessed: 0}
+      // The `metadata` arg is currently unused by `recon` — the helper
+      // recomputes char/line/message counts from `effectiveContext`
+      // directly. Passed through here to match the helper's existing
+      // signature; do NOT assume changing `metadata` will alter
+      // `reconResult`.
+      const reconResult = reconHelper(effectiveContext, metadata, initialHistory)
+      const reconVar = `__recon_result_${taskIdSafe}`
+
+      // Inject context, metadata, empty history, taskId, and pre-computed
+      // recon result into the TASK session's sandbox.
       const taskIdVar = `__taskId_${taskIdSafe}`
       agent.setSandboxVariableOnSession(taskSessionId, ctxVar, effectiveContext)
-      agent.setSandboxVariableOnSession(taskSessionId, histVar, {entries: [], totalProcessed: 0})
+      agent.setSandboxVariableOnSession(taskSessionId, histVar, initialHistory)
       agent.setSandboxVariableOnSession(taskSessionId, metaVar, metadata)
       agent.setSandboxVariableOnSession(taskSessionId, taskIdVar, taskId)
+      agent.setSandboxVariableOnSession(taskSessionId, reconVar, reconResult)
 
       // Prompt with curation helpers guidance (tools.curation.* replaces manual infrastructure code)
       const prompt = [
@@ -132,7 +153,8 @@ export class CurateExecutor implements ICurateExecutor {
         `History variable: ${histVar}`,
         `Metadata variable: ${metaVar}`,
         `Task ID variable: ${taskIdVar} (pass as bare variable, not a string)`,
-        `IMPORTANT: Do NOT print raw context. Start with tools.curation.recon(${ctxVar}, ${metaVar}, ${histVar}) to assess.`,
+        `Recon already computed in ${reconVar}: suggestedMode=${reconResult.suggestedMode}, suggestedChunkCount=${reconResult.suggestedChunkCount}, charCount=${reconResult.meta.charCount}, lineCount=${reconResult.meta.lineCount}, messageCount=${reconResult.meta.messageCount}.`,
+        `IMPORTANT: Do NOT print raw context. Do NOT call tools.curation.recon — it has been pre-computed. Proceed directly to extraction.`,
         `For chunked extraction use tools.curation.mapExtract(). Pass taskId: ${taskIdVar} (bare variable).`,
         `IMPORTANT: Any code_exec call containing mapExtract MUST use timeout: 300000 on the code_exec tool call itself (not inside mapExtract options).`,
         `Use tools.curation.groupBySubject() and tools.curation.dedup() to organize extractions.`,
@@ -156,7 +178,7 @@ export class CurateExecutor implements ICurateExecutor {
 
     const finalize = async (): Promise<void> => {
       try {
-        await propagateSummariesUnderLock({agent, baseDir, preState, snapshotService, taskId})
+        await this.propagateAndRebuild({baseDir, preState, snapshotService})
         await this.incrementDreamCounter(baseDir)
         await (agent as BackgroundDrainAgent).drainBackgroundWork?.()
       } finally {
@@ -343,5 +365,59 @@ export class CurateExecutor implements ICurateExecutor {
 
     // Format with actual content
     return this.formatFileContentsForPrompt(readResults, skippedFiles, projectRoot)
+  }
+
+  /**
+   * Phase 4: snapshot diff → enqueue stale paths for dream → rebuild manifest.
+   *
+   * Summary cascade regeneration (the LLM-driven `propagateStaleness` walk) is
+   * deferred to the next dream cycle to keep curate's hot path free of LLM
+   * calls. The manifest is rebuilt inline because it is a pure file scan (no
+   * LLM) and keeps newly-curated leaf files immediately discoverable via
+   * manifest-driven retrieval.
+   *
+   * Two independent fail-open concerns: (a) enqueue the deferred summary-cascade
+   * work to dream's queue; (b) rebuild the search manifest. They share
+   * `changedPaths` but otherwise are unrelated — a transient disk error on the
+   * dream-state write must not skip the pure-filesystem manifest scan. Each
+   * runs in its own try block so one failure cannot mask the other's work.
+   */
+  private async propagateAndRebuild(args: {
+    baseDir: string
+    preState: Map<string, import('../../core/domain/entities/context-tree-snapshot.js').FileState> | undefined
+    snapshotService: FileContextTreeSnapshotService
+  }): Promise<void> {
+    const {baseDir, preState, snapshotService} = args
+    if (!preState) return
+
+    let changedPaths: string[] = []
+    try {
+      const postState = await snapshotService.getCurrentState(baseDir)
+      changedPaths = diffStates(preState, postState)
+    } catch {
+      // Fail-open: snapshot errors leave changedPaths empty → no enqueue,
+      // no manifest rebuild. Next curate's snapshot will pick up the diff.
+    }
+
+    if (changedPaths.length === 0) return
+
+    try {
+      const dreamStateService = new DreamStateService({baseDir: path.join(baseDir, BRV_DIR)})
+      await dreamStateService.enqueueStaleSummaryPaths(changedPaths)
+    } catch {
+      // Fail-open: queue write errors never block curation. If this write
+      // fails the changed paths are lost from the deferred queue; they will
+      // only be re-captured if the same files are modified in a later curate
+      // (diffStates compares a fresh pre/post snapshot pair, not a persistent
+      // accumulator) or picked up by dream's own snapshot diff if dream
+      // touches them.
+    }
+
+    try {
+      const manifestService = new FileContextTreeManifestService({baseDirectory: baseDir})
+      await manifestService.buildManifest(baseDir)
+    } catch {
+      // Fail-open: manifest rebuild is best-effort pre-warming.
+    }
   }
 }

@@ -52,6 +52,17 @@ import {
   ProviderCallbackTimeoutError,
 } from '../../provider-oauth/index.js'
 
+const BYTEROVER_AUTH_REQUIRED_MESSAGE = [
+  'ByteRover Provider requires a ByteRover account.',
+  '',
+  '  • Interactive shell: brv login',
+  '  • Headless / SSH / CI: create an account at https://app.byterover.dev,',
+  '    generate an API key at https://app.byterover.dev/settings/keys, then:',
+  '      brv login --api-key <key>',
+  '',
+  'Once signed in, retry: brv providers connect byterover',
+].join('\n')
+
 async function defaultValidateOpenAICompatibleEndpoint(params: {
   apiKey: string
   baseUrl: string
@@ -257,7 +268,7 @@ export class ProviderHandler {
       const {apiKey, baseUrl, providerId} = data
 
       if (providerId === 'byterover' && !this.isByteRoverAuthSatisfied()) {
-        return {error: 'ByteRover Provider requires authentication. Run /login or brv login to sign in', success: false}
+        return {error: BYTEROVER_AUTH_REQUIRED_MESSAGE, success: false}
       }
 
       // Verify openai-compatible endpoint is reachable before persisting anything —
@@ -300,7 +311,14 @@ export class ProviderHandler {
       // "needs setup" and unmounts any in-flight setup flow on the home
       // page. The model:setActive handler activates the provider when the
       // user picks a model, which is the right moment.
-      const willHaveActiveModel = Boolean(provider?.defaultModel)
+      //
+      // byterover bypasses this gate: it has no model fetcher and no
+      // `brv model switch` recovery path, so deferring would strand it as
+      // connected-but-never-active. Its model is resolved at runtime via
+      // DEFAULT_LLM_MODEL in agent-process.ts rather than persisted here,
+      // so future default changes roll out without a per-user migration.
+      const willHaveActiveModel = providerId === 'byterover'
+        || Boolean(provider?.defaultModel)
         || Boolean(await this.providerConfigStore.getActiveModel(providerId))
       await this.providerConfigStore.connectProvider(providerId, {
         activeModel: provider?.defaultModel,
@@ -388,7 +406,7 @@ export class ProviderHandler {
       ProviderEvents.SET_ACTIVE,
       async (data) => {
         if (data.providerId === 'byterover' && !this.isByteRoverAuthSatisfied()) {
-          return {error: 'ByteRover Provider requires authentication. Run /login or brv login to sign in', success: false}
+          return {error: BYTEROVER_AUTH_REQUIRED_MESSAGE, success: false}
         }
 
         await this.providerConfigStore.setActiveProvider(data.providerId)
