@@ -4,8 +4,7 @@ import {join} from 'node:path'
 import type {ITokenStore} from '../../../core/interfaces/auth/i-token-store.js'
 import type {IContextTreeService} from '../../../core/interfaces/context-tree/i-context-tree-service.js'
 import type {GitCommit, GitDiffSide, IGitService} from '../../../core/interfaces/services/i-git-service.js'
-import type {ISpaceService} from '../../../core/interfaces/services/i-space-service.js'
-import type {ITeamService} from '../../../core/interfaces/services/i-team-service.js'
+import type {IResolveByUrlService} from '../../../core/interfaces/services/i-resolve-by-url-service.js'
 import type {IProjectConfigStore} from '../../../core/interfaces/storage/i-project-config-store.js'
 import type {ITransportServer} from '../../../core/interfaces/transport/i-transport-server.js'
 import type {IVcGitConfig, IVcGitConfigStore} from '../../../core/interfaces/vc/i-vc-git-config-store.js'
@@ -58,6 +57,7 @@ import {
 import {BrvConfig} from '../../../core/domain/entities/brv-config.js'
 import {Space} from '../../../core/domain/entities/space.js'
 import {GitAuthError, GitError} from '../../../core/domain/errors/git-error.js'
+import {ResolveByUrlError} from '../../../core/domain/errors/resolve-by-url-error.js'
 import {NotAuthenticatedError} from '../../../core/domain/errors/task-error.js'
 import {VcError} from '../../../core/domain/errors/vc-error.js'
 import {ensureContextTreeGitignore, ensureGitignoreEntries} from '../../../utils/gitignore.js'
@@ -124,8 +124,7 @@ export interface IVcHandlerDeps {
   gitService: IGitService
   projectConfigStore: IProjectConfigStore
   resolveProjectPath: ProjectPathResolver
-  spaceService: ISpaceService
-  teamService: ITeamService
+  resolveService: IResolveByUrlService
   tokenStore: ITokenStore
   transport: ITransportServer
   vcGitConfigStore: IVcGitConfigStore
@@ -142,8 +141,7 @@ export class VcHandler {
   private readonly gitService: IGitService
   private readonly projectConfigStore: IProjectConfigStore
   private readonly resolveProjectPath: ProjectPathResolver
-  private readonly spaceService: ISpaceService
-  private readonly teamService: ITeamService
+  private readonly resolveService: IResolveByUrlService
   private readonly tokenStore: ITokenStore
   private readonly transport: ITransportServer
   private readonly vcGitConfigStore: IVcGitConfigStore
@@ -156,8 +154,7 @@ export class VcHandler {
     this.gitService = deps.gitService
     this.projectConfigStore = deps.projectConfigStore
     this.resolveProjectPath = deps.resolveProjectPath
-    this.spaceService = deps.spaceService
-    this.teamService = deps.teamService
+    this.resolveService = deps.resolveService
     this.tokenStore = deps.tokenStore
     this.transport = deps.transport
     this.vcGitConfigStore = deps.vcGitConfigStore
@@ -1615,7 +1612,8 @@ export class VcHandler {
   }
 
   /**
-   * Resolve team/space names to IDs via API, build clean cogit URL.
+   * Resolve a (team, space) slug pair to canonical metadata via the cogit resolve-by-URL endpoint.
+   * Public spaces resolve without a session; private spaces require an authorized session.
    */
   private async resolveTeamSpaceNames(
     teamSlug: string,
@@ -1630,40 +1628,43 @@ export class VcHandler {
     url: string
   }> {
     const token = await this.tokenStore.load()
-    // Anonymous: skip team/space ID lookup (the API requires auth) and let the
-    // server be the sole authority on access. The slugs are sufficient to talk
-    // to the cogit server. Downstream consumers guard space-config persistence
-    // on having all four IDs/names, so partial info simply skips persistence.
-    if (!token?.isValid()) {
-      return {spaceSlug, teamSlug, url: buildCogitRemoteUrl(this.gitRemoteBaseUrl, teamSlug, spaceSlug)}
-    }
+    const sessionKey = token?.isValid() ? token.sessionKey : undefined
 
-    const {teams} = await this.teamService.getTeams(token.sessionKey, {fetchAll: true})
-    const team = teams.find((t) => t.slug.toLowerCase() === teamSlug.toLowerCase())
-    if (!team) {
-      throw new VcError(
-        `Team "${teamSlug}" not found. Check the URL and your access permissions.`,
-        VcErrorCode.INVALID_REMOTE_URL,
-      )
-    }
+    let result
+    try {
+      result = await this.resolveService.resolveByUrl({spaceSlug, teamSlug}, sessionKey)
+    } catch (error) {
+      if (error instanceof ResolveByUrlError) {
+        if (error.statusCode === 404) {
+          throw new VcError(
+            `Team "${teamSlug}" / space "${spaceSlug}" not found. Check the URL.`,
+            VcErrorCode.INVALID_REMOTE_URL,
+          )
+        }
 
-    const {spaces} = await this.spaceService.getSpaces(token.sessionKey, team.id, {fetchAll: true})
-    const space = spaces.find((s) => s.slug.toLowerCase() === spaceSlug.toLowerCase())
-    if (!space) {
-      throw new VcError(
-        `Space "${spaceSlug}" not found in team "${team.name}". Check the URL and your access permissions.`,
-        VcErrorCode.INVALID_REMOTE_URL,
-      )
+        if (error.statusCode === 403) {
+          if (sessionKey === undefined) {
+            throw new NotAuthenticatedError()
+          }
+
+          throw new VcError(
+            `Space "${spaceSlug}" is private. Check access permissions.`,
+            VcErrorCode.INVALID_REMOTE_URL,
+          )
+        }
+      }
+
+      throw error
     }
 
     return {
-      spaceId: space.id,
-      spaceName: space.name,
-      spaceSlug: space.slug,
-      teamId: space.teamId,
-      teamName: team.name,
-      teamSlug: team.slug,
-      url: buildCogitRemoteUrl(this.gitRemoteBaseUrl, team.slug, space.slug),
+      spaceId: result.space.id,
+      spaceName: result.space.name,
+      spaceSlug: result.space.slug,
+      teamId: result.team.id,
+      teamName: result.team.name,
+      teamSlug: result.team.slug,
+      url: result.url,
     }
   }
 

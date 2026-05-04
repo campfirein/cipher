@@ -21,8 +21,7 @@ import {createSandbox, type SinonSandbox, type SinonStub} from 'sinon'
 import type {ITokenStore} from '../../../../../../src/server/core/interfaces/auth/i-token-store.js'
 import type {IContextTreeService} from '../../../../../../src/server/core/interfaces/context-tree/i-context-tree-service.js'
 import type {IGitService} from '../../../../../../src/server/core/interfaces/services/i-git-service.js'
-import type {ISpaceService} from '../../../../../../src/server/core/interfaces/services/i-space-service.js'
-import type {ITeamService} from '../../../../../../src/server/core/interfaces/services/i-team-service.js'
+import type {IResolveByUrlService} from '../../../../../../src/server/core/interfaces/services/i-resolve-by-url-service.js'
 import type {IProjectConfigStore} from '../../../../../../src/server/core/interfaces/storage/i-project-config-store.js'
 import type {ITransportServer, RequestHandler} from '../../../../../../src/server/core/interfaces/transport/i-transport-server.js'
 import type {IVcGitConfigStore} from '../../../../../../src/server/core/interfaces/vc/i-vc-git-config-store.js'
@@ -138,8 +137,13 @@ function makeDeps(sandbox: SinonSandbox, contextTreeDir: string): TestDeps {
       write: sandbox.stub().resolves(),
     } as unknown as Stubbed<IProjectConfigStore>,
     resolveProjectPath: sandbox.stub().returns('/fake/project'),
-    spaceService: {getSpaces: sandbox.stub().resolves({spaces: [], total: 0})} as unknown as Stubbed<ISpaceService>,
-    teamService: {getTeams: sandbox.stub().resolves({teams: [], total: 0})} as unknown as Stubbed<ITeamService>,
+    resolveService: {
+      resolveByUrl: sandbox.stub().resolves({
+        space: {id: 's', name: 'space', slug: 'space'},
+        team: {id: 't', name: 'team', slug: 'team'},
+        url: 'https://br.dev/team/space.git',
+      }),
+    } as unknown as Stubbed<IResolveByUrlService>,
     tokenStore,
     transport,
     vcGitConfigStore: {get: sandbox.stub().resolves(), set: sandbox.stub().resolves()} as unknown as Stubbed<IVcGitConfigStore>,

@@ -42,6 +42,7 @@ import {CallbackHandler} from '../http/callback-handler.js'
 import {HubInstallService} from '../hub/hub-install-service.js'
 import {createHubKeychainStore} from '../hub/hub-keychain-store.js'
 import {HubRegistryConfigStore} from '../hub/hub-registry-config-store.js'
+import {HttpResolveByUrlService} from '../space/http-resolve-by-url-service.js'
 import {HttpSpaceService} from '../space/http-space-service.js'
 import {FileCurateLogStore} from '../storage/file-curate-log-store.js'
 import {FileReviewBackupStore} from '../storage/file-review-backup-store.js'
@@ -112,6 +113,8 @@ export async function setupFeatureHandlers({
   const userService = new HttpUserService({apiBaseUrl: iamApiV1})
   const teamService = new HttpTeamService({apiBaseUrl: iamApiV1})
   const spaceService = new HttpSpaceService({apiBaseUrl: iamApiV1})
+  // git/resolve endpoint lives on /api/v3 (vs teams/spaces on /api/v1).
+  const resolveService = new HttpResolveByUrlService({apiBaseUrl: `${envConfig.iamBaseUrl}/api/v3`})
 
   // Auth handler requires async OIDC discovery
   const discoveryService = new OidcDiscoveryService()
@@ -303,8 +306,7 @@ export async function setupFeatureHandlers({
     gitService,
     projectConfigStore,
     resolveProjectPath,
-    spaceService,
-    teamService,
+    resolveService,
     tokenStore,
     transport,
     vcGitConfigStore: new FileVcGitConfigStore(),

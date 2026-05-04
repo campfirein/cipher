@@ -13,8 +13,7 @@ import {createSandbox, type SinonSandbox, type SinonStub} from 'sinon'
 import type {ITokenStore} from '../../../../../src/server/core/interfaces/auth/i-token-store.js'
 import type {IContextTreeService} from '../../../../../src/server/core/interfaces/context-tree/i-context-tree-service.js'
 import type {IGitService} from '../../../../../src/server/core/interfaces/services/i-git-service.js'
-import type {ISpaceService} from '../../../../../src/server/core/interfaces/services/i-space-service.js'
-import type {ITeamService} from '../../../../../src/server/core/interfaces/services/i-team-service.js'
+import type {IResolveByUrlService} from '../../../../../src/server/core/interfaces/services/i-resolve-by-url-service.js'
 import type {IProjectConfigStore} from '../../../../../src/server/core/interfaces/storage/i-project-config-store.js'
 import type {
   ITransportServer,
@@ -26,6 +25,7 @@ import {BRV_DIR, CONTEXT_TREE_DIR} from '../../../../../src/server/constants.js'
 import {AuthToken} from '../../../../../src/server/core/domain/entities/auth-token.js'
 import {BrvConfig} from '../../../../../src/server/core/domain/entities/brv-config.js'
 import {GitAuthError, GitError} from '../../../../../src/server/core/domain/errors/git-error.js'
+import {ResolveByUrlError} from '../../../../../src/server/core/domain/errors/resolve-by-url-error.js'
 import {NotAuthenticatedError} from '../../../../../src/server/core/domain/errors/task-error.js'
 import {VcError} from '../../../../../src/server/core/domain/errors/vc-error.js'
 import {VcHandler} from '../../../../../src/server/infra/transport/handlers/vc-handler.js'
@@ -56,8 +56,7 @@ interface TestDeps {
   projectConfigStore: Stubbed<IProjectConfigStore>
   requestHandlers: Record<string, RequestHandler>
   resolveProjectPath: SinonStub
-  spaceService: Stubbed<ISpaceService>
-  teamService: Stubbed<ITeamService>
+  resolveService: Stubbed<IResolveByUrlService>
   tokenStore: Stubbed<ITokenStore>
   transport: Stubbed<ITransportServer>
   vcGitConfigStore: Stubbed<IVcGitConfigStore>
@@ -123,12 +122,12 @@ function makeDeps(sandbox: SinonSandbox, projectPath: string): TestDeps {
 
   const resolveProjectPath = sandbox.stub().returns(projectPath)
 
-  const teamService: Stubbed<ITeamService> = {
-    getTeams: sandbox.stub().resolves({teams: [], total: 0}),
-  }
-
-  const spaceService: Stubbed<ISpaceService> = {
-    getSpaces: sandbox.stub().resolves({spaces: [], total: 0}),
+  const resolveService: Stubbed<IResolveByUrlService> = {
+    resolveByUrl: sandbox.stub().resolves({
+      space: {id: 'sid-1', name: 'test-space', slug: 'test-space'},
+      team: {id: 'tid-1', name: 'teambao1', slug: 'teambao1'},
+      url: 'https://byterover.dev/teambao1/test-space.git',
+    }),
   }
 
   const defaultToken = new AuthToken({
@@ -182,8 +181,7 @@ function makeDeps(sandbox: SinonSandbox, projectPath: string): TestDeps {
     projectConfigStore,
     requestHandlers,
     resolveProjectPath,
-    spaceService,
-    teamService,
+    resolveService,
     tokenStore,
     transport,
     vcGitConfigStore,
@@ -198,8 +196,7 @@ function makeVcHandler(deps: TestDeps): VcHandler {
     gitService: deps.gitService,
     projectConfigStore: deps.projectConfigStore,
     resolveProjectPath: deps.resolveProjectPath,
-    spaceService: deps.spaceService,
-    teamService: deps.teamService,
+    resolveService: deps.resolveService,
     tokenStore: deps.tokenStore,
     transport: deps.transport,
     vcGitConfigStore: deps.vcGitConfigStore,
@@ -208,25 +205,10 @@ function makeVcHandler(deps: TestDeps): VcHandler {
 }
 
 function stubDefaultTeamSpace(deps: TestDeps): void {
-  deps.teamService.getTeams.resolves({
-    teams: [
-      {displayName: 'Teambao1', id: 'tid-1', isActive: true, isDefault: false, name: 'teambao1', slug: 'teambao1'},
-    ],
-    total: 1,
-  })
-  deps.spaceService.getSpaces.resolves({
-    spaces: [
-      {
-        id: 'sid-1',
-        isDefault: false,
-        name: 'test-space',
-        slug: 'test-space',
-        teamId: 'tid-1',
-        teamName: 'teambao1',
-        teamSlug: 'teambao1',
-      },
-    ],
-    total: 1,
+  deps.resolveService.resolveByUrl.resolves({
+    space: {id: 'sid-1', name: 'test-space', slug: 'test-space'},
+    team: {id: 'tid-1', name: 'teambao1', slug: 'teambao1'},
+    url: 'https://byterover.dev/teambao1/test-space.git',
   })
 }
 
@@ -1826,25 +1808,10 @@ describe('VcHandler', () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.isInitialized.resolves(false)
       deps.tokenStore.load.resolves(validToken)
-      deps.teamService.getTeams.resolves({
-        teams: [
-          {displayName: 'Teambao1', id: 'tid-1', isActive: true, isDefault: false, name: 'Teambao1', slug: 'teambao1'},
-        ],
-        total: 1,
-      })
-      deps.spaceService.getSpaces.resolves({
-        spaces: [
-          {
-            id: 'sid-1',
-            isDefault: false,
-            name: 'test-git',
-            slug: 'test-git',
-            teamId: 'tid-1',
-            teamName: 'Teambao1',
-            teamSlug: 'teambao1',
-          },
-        ],
-        total: 1,
+      deps.resolveService.resolveByUrl.resolves({
+        space: {id: 'sid-1', name: 'test-git', slug: 'test-git'},
+        team: {id: 'tid-1', name: 'Teambao1', slug: 'teambao1'},
+        url: 'https://byterover.dev/teambao1/test-git.git',
       })
       makeVcHandler(deps).setup()
 
@@ -1863,23 +1830,10 @@ describe('VcHandler', () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.isInitialized.resolves(false)
       deps.tokenStore.load.resolves(validToken)
-      deps.teamService.getTeams.resolves({
-        teams: [{displayName: 'Acme', id: 'tid-1', isActive: true, isDefault: false, name: 'acme', slug: 'acme'}],
-        total: 1,
-      })
-      deps.spaceService.getSpaces.resolves({
-        spaces: [
-          {
-            id: 'sid-1',
-            isDefault: false,
-            name: 'project',
-            slug: 'project',
-            teamId: 'tid-1',
-            teamName: 'acme',
-            teamSlug: 'acme',
-          },
-        ],
-        total: 1,
+      deps.resolveService.resolveByUrl.resolves({
+        space: {id: 'sid-1', name: 'project', slug: 'project'},
+        team: {id: 'tid-1', name: 'acme', slug: 'acme'},
+        url: 'https://byterover.dev/acme/project.git',
       })
       makeVcHandler(deps).setup()
 
@@ -1894,29 +1848,14 @@ describe('VcHandler', () => {
       expect(cloneArgs.url).to.equal('https://byterover.dev/acme/project.git')
     })
 
-    it('should resolve team name case-insensitively in cogit-style URL', async () => {
+    it('should use canonical URL from resolveService when input URL has casing variants', async () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.isInitialized.resolves(false)
       deps.tokenStore.load.resolves(validToken)
-      deps.teamService.getTeams.resolves({
-        teams: [
-          {displayName: 'Teambao1', id: 'tid-1', isActive: true, isDefault: false, name: 'Teambao1', slug: 'teambao1'},
-        ],
-        total: 1,
-      })
-      deps.spaceService.getSpaces.resolves({
-        spaces: [
-          {
-            id: 'sid-1',
-            isDefault: false,
-            name: 'test-git',
-            slug: 'test-git',
-            teamId: 'tid-1',
-            teamName: 'Teambao1',
-            teamSlug: 'teambao1',
-          },
-        ],
-        total: 1,
+      deps.resolveService.resolveByUrl.resolves({
+        space: {id: 'sid-1', name: 'test-git', slug: 'test-git'},
+        team: {id: 'tid-1', name: 'Teambao1', slug: 'teambao1'},
+        url: 'https://byterover.dev/teambao1/test-git.git',
       })
       makeVcHandler(deps).setup()
 
@@ -1928,43 +1867,11 @@ describe('VcHandler', () => {
       expect(result.spaceName).to.equal('test-git')
     })
 
-    it('should resolve team/space name case-insensitively in user-facing .git URL', async () => {
+    it('should throw INVALID_REMOTE_URL when resolveService returns 404 (slug not found)', async () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.isInitialized.resolves(false)
       deps.tokenStore.load.resolves(validToken)
-      deps.teamService.getTeams.resolves({
-        teams: [{displayName: 'Acme', id: 'tid-1', isActive: true, isDefault: false, name: 'acme', slug: 'acme'}],
-        total: 1,
-      })
-      deps.spaceService.getSpaces.resolves({
-        spaces: [
-          {
-            id: 'sid-1',
-            isDefault: false,
-            name: 'project',
-            slug: 'project',
-            teamId: 'tid-1',
-            teamName: 'acme',
-            teamSlug: 'acme',
-          },
-        ],
-        total: 1,
-      })
-      makeVcHandler(deps).setup()
-
-      const result = await invoke<{gitDir: string; spaceName?: string; teamName?: string}>(deps, VcEvents.CLONE, {
-        url: 'https://byterover.dev/ACME/PROJECT.git',
-      })
-
-      expect(result.teamName).to.equal('acme')
-      expect(result.spaceName).to.equal('project')
-    })
-
-    it('should throw when user-facing .git URL team not found', async () => {
-      const deps = makeDeps(sandbox, projectPath)
-      deps.gitService.isInitialized.resolves(false)
-      deps.tokenStore.load.resolves(validToken)
-      deps.teamService.getTeams.resolves({teams: [], total: 0})
+      deps.resolveService.resolveByUrl.rejects(new ResolveByUrlError(404, 'team not found'))
       makeVcHandler(deps).setup()
 
       try {
@@ -1974,64 +1881,19 @@ describe('VcHandler', () => {
         expect(error).to.be.instanceOf(VcError)
         if (error instanceof VcError) {
           expect(error.code).to.equal(VcErrorCode.INVALID_REMOTE_URL)
-          expect(error.message).to.include('unknown')
+          expect(error.message.toLowerCase()).to.include('not found')
         }
       }
     })
 
-    it('should throw when user-facing .git URL space not found', async () => {
+    it('should pass slug-style URL through resolveService and use canonical URL for clone', async () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.isInitialized.resolves(false)
       deps.tokenStore.load.resolves(validToken)
-      deps.teamService.getTeams.resolves({
-        teams: [{displayName: 'Acme', id: 'tid-1', isActive: true, isDefault: false, name: 'acme', slug: 'acme'}],
-        total: 1,
-      })
-      deps.spaceService.getSpaces.resolves({spaces: [], total: 0})
-      makeVcHandler(deps).setup()
-
-      try {
-        await invoke(deps, VcEvents.CLONE, {url: 'https://byterover.dev/acme/missing.git'})
-        expect.fail('Expected error')
-      } catch (error) {
-        expect(error).to.be.instanceOf(VcError)
-        if (error instanceof VcError) {
-          expect(error.code).to.equal(VcErrorCode.INVALID_REMOTE_URL)
-          expect(error.message).to.include('missing')
-        }
-      }
-    })
-
-    it('should match team by slug when name differs from URL segment', async () => {
-      const deps = makeDeps(sandbox, projectPath)
-      deps.gitService.isInitialized.resolves(false)
-      deps.tokenStore.load.resolves(validToken)
-      deps.teamService.getTeams.resolves({
-        teams: [
-          {
-            displayName: 'Test Release 2.0.0',
-            id: 'tid-1',
-            isActive: true,
-            isDefault: false,
-            name: 'test-release-2.0.0',
-            slug: 'test-release-2-0-0',
-          },
-        ],
-        total: 1,
-      })
-      deps.spaceService.getSpaces.resolves({
-        spaces: [
-          {
-            id: 'sid-1',
-            isDefault: false,
-            name: 'normal-space',
-            slug: 'normal-space',
-            teamId: 'tid-1',
-            teamName: 'test-release-2.0.0',
-            teamSlug: 'test-release-2-0-0',
-          },
-        ],
-        total: 1,
+      deps.resolveService.resolveByUrl.resolves({
+        space: {id: 'sid-1', name: 'normal-space', slug: 'normal-space'},
+        team: {id: 'tid-1', name: 'test-release-2.0.0', slug: 'test-release-2-0-0'},
+        url: 'https://byterover.dev/test-release-2-0-0/normal-space.git',
       })
       makeVcHandler(deps).setup()
 
@@ -2049,23 +1911,10 @@ describe('VcHandler', () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.isInitialized.resolves(false)
       deps.tokenStore.load.resolves(validToken)
-      deps.teamService.getTeams.resolves({
-        teams: [{displayName: 'Acme', id: 'tid-1', isActive: true, isDefault: false, name: 'acme', slug: 'acme'}],
-        total: 1,
-      })
-      deps.spaceService.getSpaces.resolves({
-        spaces: [
-          {
-            id: 'sid-1',
-            isDefault: false,
-            name: 'my-space-v2.0',
-            slug: 'my-space-v2-0',
-            teamId: 'tid-1',
-            teamName: 'acme',
-            teamSlug: 'acme',
-          },
-        ],
-        total: 1,
+      deps.resolveService.resolveByUrl.resolves({
+        space: {id: 'sid-1', name: 'my-space-v2.0', slug: 'my-space-v2-0'},
+        team: {id: 'tid-1', name: 'acme', slug: 'acme'},
+        url: 'https://byterover.dev/acme/my-space-v2-0.git',
       })
       makeVcHandler(deps).setup()
 
@@ -2078,27 +1927,68 @@ describe('VcHandler', () => {
       expect(cloneArgs.url).to.equal('https://byterover.dev/acme/my-space-v2-0.git')
     })
 
-    it('anonymous URL clone proceeds with slug-built URL and skips space-config persistence', async () => {
+    it('anonymous URL clone of public space sends no auth and persists full metadata', async () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.isInitialized.resolves(false)
       deps.tokenStore.load.resolves()
+      deps.resolveService.resolveByUrl.resolves({
+        space: {id: 'sid-1', name: 'space-name', slug: 'space-name'},
+        team: {id: 'tid-1', name: 'teamname', slug: 'teamname'},
+        url: 'https://byterover.dev/teamname/space-name.git',
+      })
       makeVcHandler(deps).setup()
 
       await invoke(deps, VcEvents.CLONE, {
         url: 'https://byterover.dev/teamname/space-name.git',
       })
 
-      // Team/space API not consulted when there is no token
-      expect(deps.teamService.getTeams.notCalled).to.be.true
-      expect(deps.spaceService.getSpaces.notCalled).to.be.true
+      // Backend resolve called once with no sessionKey (anonymous)
+      expect(deps.resolveService.resolveByUrl.calledOnce).to.be.true
+      const [resolveArgs, resolveSession] = deps.resolveService.resolveByUrl.firstCall.args
+      expect(resolveArgs).to.deep.equal({spaceSlug: 'space-name', teamSlug: 'teamname'})
+      expect(resolveSession).to.be.undefined
 
-      // Clone hits the slug-built URL (server is the access authority)
+      // Clone hits the canonical URL from resolveService
       expect(deps.gitService.clone.calledOnce).to.be.true
       const cloneArgs = deps.gitService.clone.firstCall.args[0]
       expect(cloneArgs.url).to.equal('https://byterover.dev/teamname/space-name.git')
 
-      // No team/space IDs known — config is NOT persisted
-      expect(deps.projectConfigStore.write.notCalled).to.be.true
+      // Public-space metadata available to anonymous caller — config IS persisted
+      expect(deps.projectConfigStore.write.calledOnce).to.be.true
+    })
+
+    it('anonymous clone of private space throws NotAuthenticatedError', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(false)
+      deps.tokenStore.load.resolves()
+      deps.resolveService.resolveByUrl.rejects(new ResolveByUrlError(403, 'forbidden'))
+      makeVcHandler(deps).setup()
+
+      try {
+        await invoke(deps, VcEvents.CLONE, {url: 'https://byterover.dev/team/private.git'})
+        expect.fail('Expected NotAuthenticatedError')
+      } catch (error) {
+        expect(error).to.be.instanceOf(NotAuthenticatedError)
+      }
+    })
+
+    it('authed clone of private space (non-member) throws INVALID_REMOTE_URL with access-permission message', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(false)
+      deps.tokenStore.load.resolves(validToken)
+      deps.resolveService.resolveByUrl.rejects(new ResolveByUrlError(403, 'forbidden'))
+      makeVcHandler(deps).setup()
+
+      try {
+        await invoke(deps, VcEvents.CLONE, {url: 'https://byterover.dev/team/private.git'})
+        expect.fail('Expected VcError')
+      } catch (error) {
+        expect(error).to.be.instanceOf(VcError)
+        if (error instanceof VcError) {
+          expect(error.code).to.equal(VcErrorCode.INVALID_REMOTE_URL)
+          expect(error.message.toLowerCase()).to.include('access')
+        }
+      }
     })
 
     it('should clone with spaceId/teamId (legacy space-picker flow)', async () => {
@@ -2344,23 +2234,10 @@ describe('VcHandler', () => {
         userId: 'u1',
       })
       deps.tokenStore.load.resolves(mockToken)
-      deps.teamService.getTeams.resolves({
-        teams: [{displayName: 'Acme', id: 'tid-1', isActive: true, isDefault: false, name: 'acme', slug: 'acme'}],
-        total: 1,
-      })
-      deps.spaceService.getSpaces.resolves({
-        spaces: [
-          {
-            id: 'sid-1',
-            isDefault: false,
-            name: 'project',
-            slug: 'project',
-            teamId: 'tid-1',
-            teamName: 'acme',
-            teamSlug: 'acme',
-          },
-        ],
-        total: 1,
+      deps.resolveService.resolveByUrl.resolves({
+        space: {id: 'sid-1', name: 'project', slug: 'project'},
+        team: {id: 'tid-1', name: 'acme', slug: 'acme'},
+        url: 'https://byterover.dev/acme/project.git',
       })
       makeVcHandler(deps).setup()
 
@@ -2376,11 +2253,16 @@ describe('VcHandler', () => {
       expect(storedUrl).to.equal('https://byterover.dev/acme/project.git')
     })
 
-    it('anonymous remote add proceeds with slug-built URL and skips space-config persistence', async () => {
+    it('anonymous remote add of public space sends no auth and persists full metadata', async () => {
       const deps = makeDeps(sandbox, projectPath)
       deps.gitService.isInitialized.resolves(true)
       deps.gitService.getRemoteUrl.resolves()
       deps.tokenStore.load.resolves()
+      deps.resolveService.resolveByUrl.resolves({
+        space: {id: 'sid-1', name: 'space-name', slug: 'space-name'},
+        team: {id: 'tid-1', name: 'teamname', slug: 'teamname'},
+        url: 'https://byterover.dev/teamname/space-name.git',
+      })
       makeVcHandler(deps).setup()
 
       const result = await invoke<{action: string; url: string}>(
@@ -2393,19 +2275,56 @@ describe('VcHandler', () => {
       expect(result.action).to.equal('add')
       expect(result.url).to.equal('https://byterover.dev/teamname/space-name.git')
 
-      // Team/space API not consulted when there is no token
-      expect(deps.teamService.getTeams.notCalled).to.be.true
-      expect(deps.spaceService.getSpaces.notCalled).to.be.true
+      // Backend resolve called once with no sessionKey (anonymous)
+      expect(deps.resolveService.resolveByUrl.calledOnce).to.be.true
+      const [, resolveSession] = deps.resolveService.resolveByUrl.firstCall.args
+      expect(resolveSession).to.be.undefined
 
-      // Remote written with the slug-built URL
+      // Remote written with the canonical URL
       expect(deps.gitService.addRemote.calledOnce).to.be.true
       expect(deps.gitService.addRemote.firstCall.args[0]).to.include({
         remote: 'origin',
         url: 'https://byterover.dev/teamname/space-name.git',
       })
 
-      // No team/space IDs known — config is NOT persisted
-      expect(deps.projectConfigStore.write.notCalled).to.be.true
+      // Public-space metadata available — config IS persisted
+      expect(deps.projectConfigStore.write.calledOnce).to.be.true
+    })
+
+    it('anonymous remote add of private space throws NotAuthenticatedError', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.getRemoteUrl.resolves()
+      deps.tokenStore.load.resolves()
+      deps.resolveService.resolveByUrl.rejects(new ResolveByUrlError(403, 'forbidden'))
+      makeVcHandler(deps).setup()
+
+      try {
+        await invoke(deps, VcEvents.REMOTE, {subcommand: 'add', url: 'https://byterover.dev/team/private.git'}, CLIENT_ID)
+        expect.fail('Expected NotAuthenticatedError')
+      } catch (error) {
+        expect(error).to.be.instanceOf(NotAuthenticatedError)
+      }
+    })
+
+    it('remote add of unknown URL slugs throws INVALID_REMOTE_URL', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.getRemoteUrl.resolves()
+      // tokenStore.load defaults to a valid token from makeDeps
+      deps.resolveService.resolveByUrl.rejects(new ResolveByUrlError(404, 'team not found'))
+      makeVcHandler(deps).setup()
+
+      try {
+        await invoke(deps, VcEvents.REMOTE, {subcommand: 'add', url: 'https://byterover.dev/nope/nope.git'}, CLIENT_ID)
+        expect.fail('Expected VcError')
+      } catch (error) {
+        expect(error).to.be.instanceOf(VcError)
+        if (error instanceof VcError) {
+          expect(error.code).to.equal(VcErrorCode.INVALID_REMOTE_URL)
+          expect(error.message.toLowerCase()).to.include('not found')
+        }
+      }
     })
 
     it('should throw REMOTE_ALREADY_EXISTS when adding duplicate remote', async () => {
@@ -2509,23 +2428,10 @@ describe('VcHandler', () => {
         userId: 'u1',
       })
       deps.tokenStore.load.resolves(mockToken)
-      deps.teamService.getTeams.resolves({
-        teams: [{displayName: 'Acme', id: 'tid-1', isActive: true, isDefault: false, name: 'acme', slug: 'acme'}],
-        total: 1,
-      })
-      deps.spaceService.getSpaces.resolves({
-        spaces: [
-          {
-            id: 'sid-1',
-            isDefault: false,
-            name: 'project',
-            slug: 'project',
-            teamId: 'tid-1',
-            teamName: 'acme',
-            teamSlug: 'acme',
-          },
-        ],
-        total: 1,
+      deps.resolveService.resolveByUrl.resolves({
+        space: {id: 'sid-1', name: 'project', slug: 'project'},
+        team: {id: 'tid-1', name: 'acme', slug: 'acme'},
+        url: 'https://byterover.dev/acme/project.git',
       })
       makeVcHandler(deps).setup()
 
@@ -2554,23 +2460,10 @@ describe('VcHandler', () => {
         userId: 'u1',
       })
       deps.tokenStore.load.resolves(mockToken)
-      deps.teamService.getTeams.resolves({
-        teams: [{displayName: 'Acme', id: 'tid-1', isActive: true, isDefault: false, name: 'acme', slug: 'acme'}],
-        total: 1,
-      })
-      deps.spaceService.getSpaces.resolves({
-        spaces: [
-          {
-            id: 'sid-1',
-            isDefault: false,
-            name: 'project',
-            slug: 'project',
-            teamId: 'tid-1',
-            teamName: 'acme',
-            teamSlug: 'acme',
-          },
-        ],
-        total: 1,
+      deps.resolveService.resolveByUrl.resolves({
+        space: {id: 'sid-1', name: 'project', slug: 'project'},
+        team: {id: 'tid-1', name: 'acme', slug: 'acme'},
+        url: 'https://byterover.dev/acme/project.git',
       })
       makeVcHandler(deps).setup()
 

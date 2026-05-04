@@ -15,8 +15,7 @@ import {createSandbox, type SinonSandbox, type SinonStub} from 'sinon'
 import type {ITokenStore} from '../../../../../src/server/core/interfaces/auth/i-token-store.js'
 import type {IContextTreeService} from '../../../../../src/server/core/interfaces/context-tree/i-context-tree-service.js'
 import type {IGitService} from '../../../../../src/server/core/interfaces/services/i-git-service.js'
-import type {ISpaceService} from '../../../../../src/server/core/interfaces/services/i-space-service.js'
-import type {ITeamService} from '../../../../../src/server/core/interfaces/services/i-team-service.js'
+import type {IResolveByUrlService} from '../../../../../src/server/core/interfaces/services/i-resolve-by-url-service.js'
 import type {IProjectConfigStore} from '../../../../../src/server/core/interfaces/storage/i-project-config-store.js'
 import type {
   ITransportServer,
@@ -46,8 +45,7 @@ interface TestDeps {
   projectConfigStore: Stubbed<IProjectConfigStore>
   requestHandlers: Record<string, RequestHandler>
   resolveProjectPath: SinonStub
-  spaceService: Stubbed<ISpaceService>
-  teamService: Stubbed<ITeamService>
+  resolveService: Stubbed<IResolveByUrlService>
   tokenStore: Stubbed<ITokenStore>
   transport: Stubbed<ITransportServer>
   vcGitConfigStore: Stubbed<IVcGitConfigStore>
@@ -109,8 +107,13 @@ function makeDeps(sandbox: SinonSandbox, projectPath: string, contextTreeDir: st
   }
 
   const resolveProjectPath = sandbox.stub().returns(projectPath)
-  const teamService: Stubbed<ITeamService> = {getTeams: sandbox.stub().resolves({teams: [], total: 0})}
-  const spaceService: Stubbed<ISpaceService> = {getSpaces: sandbox.stub().resolves({spaces: [], total: 0})}
+  const resolveService: Stubbed<IResolveByUrlService> = {
+    resolveByUrl: sandbox.stub().resolves({
+      space: {id: 'sid', name: 'space', slug: 'space'},
+      team: {id: 'tid', name: 'team', slug: 'team'},
+      url: 'https://byterover.dev/team/space.git',
+    }),
+  }
 
   const tokenStore: Stubbed<ITokenStore> = {
     clear: sandbox.stub().resolves(),
@@ -160,8 +163,7 @@ function makeDeps(sandbox: SinonSandbox, projectPath: string, contextTreeDir: st
     projectConfigStore,
     requestHandlers,
     resolveProjectPath,
-    spaceService,
-    teamService,
+    resolveService,
     tokenStore,
     transport,
     vcGitConfigStore,
@@ -176,8 +178,7 @@ function makeVcHandler(deps: TestDeps): VcHandler {
     gitService: deps.gitService,
     projectConfigStore: deps.projectConfigStore,
     resolveProjectPath: deps.resolveProjectPath,
-    spaceService: deps.spaceService,
-    teamService: deps.teamService,
+    resolveService: deps.resolveService,
     tokenStore: deps.tokenStore,
     transport: deps.transport,
     vcGitConfigStore: deps.vcGitConfigStore,
