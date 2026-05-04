@@ -35,6 +35,12 @@ export class ToolManager {
   /**
    * Tools allowed for curate operations.
    * Uses code_exec only - curate operations available via tools.curate() in sandbox.
+   *
+   * NOTE: Insertion order is load-bearing for Anthropic prompt caching.
+   * `toAiSdkTools` attaches `cacheControl: ephemeral` to the LAST tool in
+   * iteration order, which becomes the cache breakpoint. Reordering this
+   * list (or the per-call sort in `filterToolsForCommand`) silently shifts
+   * the breakpoint and can halve cache hit-rate. Append new tools at the end.
    */
   private static readonly CURATE_TOOL_NAMES = [
     'agentic_map',
@@ -45,7 +51,10 @@ export class ToolManager {
   /**
    * Tools allowed for query operations - only code_exec for programmatic search
    * All search operations (searchKnowledge, glob, grep, readFile) are available
-   * via tools.* SDK inside the sandbox
+   * via tools.* SDK inside the sandbox.
+   *
+   * Same insertion-order contract as CURATE_TOOL_NAMES (Anthropic cache
+   * breakpoint lands on the last tool).
    */
   private static readonly QUERY_TOOL_NAMES = [
     'code_exec',

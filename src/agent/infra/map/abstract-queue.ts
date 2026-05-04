@@ -1,6 +1,6 @@
 import {appendFileSync} from 'node:fs'
 import {mkdir, writeFile} from 'node:fs/promises'
-import {join} from 'node:path'
+import {isAbsolute, join} from 'node:path'
 
 import type {IContentGenerator} from '../../core/interfaces/i-content-generator.js'
 
@@ -111,6 +111,18 @@ export class AbstractGenerationQueue {
    * Add a file to the abstract generation queue.
    */
   enqueue(item: {contextPath: string; fullContent: string}): void {
+    // Background batch writes derive .abstract.md / .overview.md from
+    // contextPath via raw `writeFile`. A relative path would resolve under
+    // process.cwd() rather than the intended context-tree location, and the
+    // failure would be invisible because batch errors are catch-suppressed.
+    // Drop misconfigured items at the entry point with a trace breadcrumb
+    // rather than failing loudly — callers are internal and treat the queue
+    // as fail-open.
+    if (!isAbsolute(item.contextPath)) {
+      queueLog(`enqueue:dropped non-absolute path=${item.contextPath}`)
+      return
+    }
+
     // Guard against paths that must never trigger abstract generation:
     // - derived artifacts (.abstract.md, .overview.md) — would produce .abstract.abstract.md
     // - summary index files (_index.md) — domain/topic summaries, not knowledge nodes

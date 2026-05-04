@@ -2,6 +2,7 @@ import {expect} from 'chai'
 import {mkdir, readFile, rm, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
+import {restore, spy} from 'sinon'
 
 import type {DreamState} from '../../../../src/server/infra/dream/dream-state-schema.js'
 
@@ -31,6 +32,7 @@ describe('DreamStateService', () => {
   })
 
   afterEach(async () => {
+    restore()
     await rm(tempDir, {force: true, recursive: true})
   })
 
@@ -325,6 +327,17 @@ describe('DreamStateService', () => {
     it('returns an empty snapshot when the queue is empty', async () => {
       const snapshot = await service.drainStaleSummaryPaths()
       expect(snapshot).to.deep.equal([])
+    })
+
+    it('does NOT issue a write when the queue is already empty', async () => {
+      // The early-return guard in drainStaleSummaryPaths returns the same
+      // state ref unchanged; update() then skips the disk write. Without
+      // this contract, every empty drain would tmpfile + rename for nothing.
+      const writeSpy = spy(service, 'write')
+
+      await service.drainStaleSummaryPaths()
+
+      expect(writeSpy.called).to.equal(false)
     })
 
     it('different-path enqueue during processing survives', async () => {

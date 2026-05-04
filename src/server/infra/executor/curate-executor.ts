@@ -405,8 +405,12 @@ export class CurateExecutor implements ICurateExecutor {
       const dreamStateService = new DreamStateService({baseDir: path.join(baseDir, BRV_DIR)})
       await dreamStateService.enqueueStaleSummaryPaths(changedPaths)
     } catch {
-      // Fail-open: queue write errors never block curation. The next
-      // curate's enqueue will still capture the same paths via diffStates.
+      // Fail-open: queue write errors never block curation. If this write
+      // fails the changed paths are lost from the deferred queue; they will
+      // only be re-captured if the same files are modified in a later curate
+      // (diffStates compares a fresh pre/post snapshot pair, not a persistent
+      // accumulator) or picked up by dream's own snapshot diff if dream
+      // touches them.
     }
 
     try {

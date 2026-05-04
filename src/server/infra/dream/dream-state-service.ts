@@ -130,7 +130,16 @@ export class DreamStateService {
     return mutex.withLock(async () => {
       const state = await this.read()
       const next = updater(state)
-      await this.write(next)
+      // Skip the write when the updater returned the same state reference.
+      // Existing call sites (drainStaleSummaryPaths on empty queue,
+      // enqueueStaleSummaryPaths with all-duplicate input) already follow
+      // this convention by returning `state` unchanged — making the no-op
+      // contract observable at the disk level avoids a tmpfile + rename on
+      // every empty drain.
+      if (next !== state) {
+        await this.write(next)
+      }
+
       return next
     })
   }
