@@ -8,6 +8,7 @@ import {
   TableHeader,
   TableRow,
 } from '@campfirein/byterover-packages/components/table'
+import {Tooltip, TooltipContent, TooltipTrigger} from '@campfirein/byterover-packages/components/tooltip'
 import {cn} from '@campfirein/byterover-packages/lib/utils'
 import {Trash2} from 'lucide-react'
 
@@ -17,6 +18,7 @@ import type {StoredTask} from '../types/stored-task'
 import {getCurrentActivity} from '../utils/current-activity'
 import {formatProviderModel} from '../utils/format-provider-model'
 import {formatDuration, formatRelative, formatTimeOfDay, shortTaskId} from '../utils/format-time'
+import {isInterrupted} from '../utils/is-interrupted'
 import {displayTaskType, isTerminalStatus} from '../utils/task-status'
 import {StatusPill} from './status-pill'
 import {NoMatchState} from './task-list-empty'
@@ -128,10 +130,12 @@ function TaskRow({
 }) {
   const terminal = isTerminalStatus(task.status)
   const isRunning = !terminal
+  const interrupted = isInterrupted(task)
   const activity = getCurrentActivity(task)
-  return (
+
+  const row = (
     <TableRow
-      className="cursor-pointer [&>td]:align-middle"
+      className={cn('cursor-pointer [&>td]:align-middle', {'opacity-60': interrupted})}
       data-state={isSelected ? 'selected' : undefined}
       onClick={() => onRowClick(task.taskId)}
     >
@@ -186,6 +190,15 @@ function TaskRow({
         {terminal && <RowAction onClick={() => onDelete(task.taskId)} />}
       </TableCell>
     </TableRow>
+  )
+
+  if (!interrupted) return row
+
+  return (
+    <Tooltip>
+      <TooltipTrigger render={row} />
+      <TooltipContent>Daemon was restarted while this task was running. The task did not complete.</TooltipContent>
+    </Tooltip>
   )
 }
 
