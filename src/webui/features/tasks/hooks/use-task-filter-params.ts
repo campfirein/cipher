@@ -2,7 +2,7 @@ import {useCallback, useMemo} from 'react'
 import {useSearchParams} from 'react-router-dom'
 
 import {type StatusFilter} from '../stores/task-store'
-import {type DurationPreset} from '../utils/duration-presets'
+import {type DurationPreset, isDurationPreset} from '../utils/duration-presets'
 
 export interface TaskFilters {
   createdAfter?: number
@@ -18,17 +18,12 @@ export interface TaskFilters {
 }
 
 const STATUS_VALUES = new Set<string>(['all', 'cancelled', 'completed', 'failed', 'running'])
-const DURATION_VALUES = new Set<string>(['all', 'long', 'medium', 'short', 'very-long'])
 const DEFAULT_PAGE_SIZE = 50
 
 const FILTER_PARAM_KEYS = ['status', 'types', 'providers', 'models', 'from', 'to', 'duration', 'q', 'page', 'pageSize'] as const
 
 function isStatusFilter(value: null | string): value is StatusFilter {
   return value !== null && STATUS_VALUES.has(value)
-}
-
-function isDurationPreset(value: null | string): value is DurationPreset {
-  return value !== null && DURATION_VALUES.has(value)
 }
 
 export function useTaskFilterParams(): {
@@ -122,7 +117,7 @@ function parseFilters(params: URLSearchParams): TaskFilters {
   const fromRaw = params.get('from')
   const toRaw = params.get('to')
   return {
-    durationPreset: isDurationPreset(duration) ? duration : 'all',
+    durationPreset: duration !== null && isDurationPreset(duration) ? duration : 'all',
     modelFilter: parseList(params.get('models')),
     page: pageRaw ? Math.max(1, Number.parseInt(pageRaw, 10) || 1) : 1,
     pageSize: pageSizeRaw ? Math.max(1, Number.parseInt(pageSizeRaw, 10) || DEFAULT_PAGE_SIZE) : DEFAULT_PAGE_SIZE,

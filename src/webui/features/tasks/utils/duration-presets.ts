@@ -8,6 +8,12 @@ export const DURATION_PRESETS: ReadonlyArray<{label: string; value: DurationPres
   {label: '> 2m', value: 'very-long'},
 ]
 
+const DURATION_VALUES = new Set<string>(DURATION_PRESETS.map((p) => p.value))
+
+export function isDurationPreset(value: string): value is DurationPreset {
+  return DURATION_VALUES.has(value)
+}
+
 const DURATION_LABEL: Record<DurationPreset, string> = {
   all: 'Any duration',
   long: '30s – 2m',

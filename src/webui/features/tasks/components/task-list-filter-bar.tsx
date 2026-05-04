@@ -4,6 +4,7 @@ import {cn} from '@campfirein/byterover-packages/lib/utils'
 import {Plus, Search} from 'lucide-react'
 
 import type {TaskListAvailableModel, TaskListCounts} from '../../../../shared/transport/events/task-events'
+import type {ProviderDTO} from '../../../../shared/transport/types/dto'
 
 import {TourPointer} from '../../onboarding/components/tour-pointer'
 import {STATUS_FILTERS, type StatusFilter} from '../stores/task-store'
@@ -42,6 +43,7 @@ export interface FilterBarProps {
   onTimeRangeChange: (range: {createdAfter?: number; createdBefore?: number}) => void
   onTypeChange: (next: string[]) => void
   providerFilter: string[]
+  providers: ProviderDTO[]
   searchQuery: string
   statusFilter: StatusFilter
   tourCue?: string
@@ -65,6 +67,7 @@ export function FilterBar({
   onTimeRangeChange,
   onTypeChange,
   providerFilter,
+  providers,
   searchQuery,
   statusFilter,
   tourCue,
@@ -110,6 +113,7 @@ export function FilterBar({
           onTimeRangeChange={onTimeRangeChange}
           onTypeChange={onTypeChange}
           providerFilter={providerFilter}
+          providers={providers}
           typeFilter={typeFilter}
         />
 

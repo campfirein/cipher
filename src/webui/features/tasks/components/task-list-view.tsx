@@ -1,6 +1,6 @@
 import {Button} from '@campfirein/byterover-packages/components/button'
 import {Sheet, SheetContent} from '@campfirein/byterover-packages/components/sheet'
-import {useEffect, useMemo, useState} from 'react'
+import {useCallback, useEffect, useMemo, useState} from 'react'
 import {useSearchParams} from 'react-router-dom'
 
 import type {ComposerType} from './task-composer-types'
@@ -39,13 +39,13 @@ export function TaskListView() {
     })
   }
 
-  const closeTask = () => {
+  const closeTask = useCallback(() => {
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev)
       next.delete('task')
       return next
     })
-  }
+  }, [setSearchParams])
 
   const projectPath = useTransportStore((s) => s.selectedProject)
 
@@ -97,7 +97,7 @@ export function TaskListView() {
     [projectPath, typeFilter, providerFilter, modelFilter, createdAfter, createdBefore, durationRange, debouncedSearch],
   )
 
-  const serverStatus = statusFilterToServer(statusFilter)
+  const serverStatus = useMemo(() => statusFilterToServer(statusFilter), [statusFilter])
   const {data, isLoading} = useGetTasks({
     page,
     pageSize,
@@ -271,6 +271,7 @@ export function TaskListView() {
             clearSelection()
           }}
           providerFilter={providerFilter}
+          providers={providers}
           searchQuery={searchQuery}
           statusFilter={statusFilter}
           tourCue={tourCueLabel && tasks.length > 0 ? tourCueLabel : undefined}

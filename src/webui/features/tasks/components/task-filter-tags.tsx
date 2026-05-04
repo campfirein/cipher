@@ -55,64 +55,85 @@ export function TaskFilterTags({
   typeFilter,
 }: TaskFilterTagsProps) {
   const providerNames = useMemo(() => new Map(providers.map((p) => [p.id, p.name])), [providers])
-  const providerName = (id: string) => providerNames.get(id) ?? id
-  const tags: Array<{key: string; label: string; onRemove: () => void}> = []
 
-  if (statusFilter !== 'all') {
-    tags.push({
-      key: `status:${statusFilter}`,
-      label: `Status: ${STATUS_LABEL[statusFilter]}`,
-      onRemove: () => onStatusChange('all'),
-    })
-  }
+  const tags = useMemo(() => {
+    const result: Array<{key: string; label: string; onRemove: () => void}> = []
 
-  for (const value of typeFilter) {
-    tags.push({
-      key: `type:${value}`,
-      label: `Type: ${TYPE_LABEL[value] ?? value}`,
-      onRemove: () => onTypeChange(typeFilter.filter((v) => v !== value)),
-    })
-  }
+    if (statusFilter !== 'all') {
+      result.push({
+        key: `status:${statusFilter}`,
+        label: `Status: ${STATUS_LABEL[statusFilter]}`,
+        onRemove: () => onStatusChange('all'),
+      })
+    }
 
-  for (const value of providerFilter) {
-    tags.push({
-      key: `provider:${value}`,
-      label: `Provider: ${providerName(value)}`,
-      onRemove: () => onProviderChange(providerFilter.filter((v) => v !== value)),
-    })
-  }
+    for (const value of typeFilter) {
+      result.push({
+        key: `type:${value}`,
+        label: `Type: ${TYPE_LABEL[value] ?? value}`,
+        onRemove: () => onTypeChange(typeFilter.filter((v) => v !== value)),
+      })
+    }
 
-  for (const value of modelFilter) {
-    tags.push({
-      key: `model:${value}`,
-      label: `Model: ${value}`,
-      onRemove: () => onModelChange(modelFilter.filter((v) => v !== value)),
-    })
-  }
+    for (const value of providerFilter) {
+      result.push({
+        key: `provider:${value}`,
+        label: `Provider: ${providerNames.get(value) ?? value}`,
+        onRemove: () => onProviderChange(providerFilter.filter((v) => v !== value)),
+      })
+    }
 
-  if (createdAfter !== undefined || createdBefore !== undefined) {
-    tags.push({
-      key: 'time',
-      label: `Time: ${formatTimeRangeLabel({createdAfter, createdBefore})}`,
-      onRemove: () => onTimeRangeChange({}),
-    })
-  }
+    for (const value of modelFilter) {
+      result.push({
+        key: `model:${value}`,
+        label: `Model: ${value}`,
+        onRemove: () => onModelChange(modelFilter.filter((v) => v !== value)),
+      })
+    }
 
-  if (durationPreset !== 'all') {
-    tags.push({
-      key: `duration:${durationPreset}`,
-      label: `Duration: ${durationPresetLabel(durationPreset)}`,
-      onRemove: () => onDurationChange('all'),
-    })
-  }
+    if (createdAfter !== undefined || createdBefore !== undefined) {
+      result.push({
+        key: 'time',
+        label: `Time: ${formatTimeRangeLabel({createdAfter, createdBefore})}`,
+        onRemove: () => onTimeRangeChange({}),
+      })
+    }
 
-  if (searchQuery.trim()) {
-    tags.push({
-      key: 'search',
-      label: `“${searchQuery.trim()}”`,
-      onRemove: () => onSearchChange(''),
-    })
-  }
+    if (durationPreset !== 'all') {
+      result.push({
+        key: `duration:${durationPreset}`,
+        label: `Duration: ${durationPresetLabel(durationPreset)}`,
+        onRemove: () => onDurationChange('all'),
+      })
+    }
+
+    if (searchQuery.trim()) {
+      result.push({
+        key: 'search',
+        label: `“${searchQuery.trim()}”`,
+        onRemove: () => onSearchChange(''),
+      })
+    }
+
+    return result
+  }, [
+    statusFilter,
+    typeFilter,
+    providerFilter,
+    modelFilter,
+    createdAfter,
+    createdBefore,
+    durationPreset,
+    searchQuery,
+    providerNames,
+    onStatusChange,
+    onTypeChange,
+    onProviderChange,
+    onModelChange,
+    onTimeRangeChange,
+    onDurationChange,
+    onSearchChange,
+  ])
 
   if (tags.length === 0) return null
 

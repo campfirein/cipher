@@ -13,21 +13,15 @@ import {SlidersHorizontal} from 'lucide-react'
 import {useMemo} from 'react'
 
 import type {TaskListAvailableModel} from '../../../../shared/transport/events/task-events'
+import type {ProviderDTO} from '../../../../shared/transport/types/dto'
 
-import {useGetProviders} from '../../provider/api/get-providers'
-import {DURATION_PRESETS, type DurationPreset} from '../utils/duration-presets'
+import {DURATION_PRESETS, type DurationPreset, isDurationPreset} from '../utils/duration-presets'
 import {TaskDateFilterPanel} from './task-date-filter-panel'
 
 const TYPE_OPTIONS = [
   {label: 'Curate', value: 'curate'},
   {label: 'Query', value: 'query'},
 ] as const
-
-const DURATION_VALUES = new Set<string>(DURATION_PRESETS.map((p) => p.value))
-
-function isDurationPreset(value: string): value is DurationPreset {
-  return DURATION_VALUES.has(value)
-}
 
 export interface TaskFilterMenuProps {
   availableModels: TaskListAvailableModel[]
@@ -42,6 +36,7 @@ export interface TaskFilterMenuProps {
   onTimeRangeChange: (range: {createdAfter?: number; createdBefore?: number}) => void
   onTypeChange: (next: string[]) => void
   providerFilter: string[]
+  providers: ProviderDTO[]
   typeFilter: string[]
 }
 
@@ -58,13 +53,10 @@ export function TaskFilterMenu({
   onTimeRangeChange,
   onTypeChange,
   providerFilter,
+  providers,
   typeFilter,
 }: TaskFilterMenuProps) {
-  const {data: providersResponse} = useGetProviders()
-  const providerNames = useMemo(
-    () => new Map((providersResponse?.providers ?? []).map((p) => [p.id, p.name])),
-    [providersResponse],
-  )
+  const providerNames = useMemo(() => new Map(providers.map((p) => [p.id, p.name])), [providers])
   const modelOptions = useMemo(
     () => filterModelOptions(availableModels, providerFilter),
     [availableModels, providerFilter],
