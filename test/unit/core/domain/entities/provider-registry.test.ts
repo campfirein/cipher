@@ -107,6 +107,12 @@ describe('Provider Registry', () => {
       expect(provider?.oauth).to.be.undefined
     })
 
+    it('should not have a defaultModel for byterover (model is resolved at runtime via DEFAULT_LLM_MODEL)', () => {
+      // intentional: model is runtime-resolved so default changes auto-roll without per-user migration.
+      const provider = getProviderById('byterover')
+      expect(provider?.defaultModel).to.be.undefined
+    })
+
     it('should not have oauth config for anthropic yet', () => {
       const provider = getProviderById('anthropic')
       expect(provider?.oauth).to.be.undefined

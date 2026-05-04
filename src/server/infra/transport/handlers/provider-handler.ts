@@ -311,7 +311,14 @@ export class ProviderHandler {
       // "needs setup" and unmounts any in-flight setup flow on the home
       // page. The model:setActive handler activates the provider when the
       // user picks a model, which is the right moment.
-      const willHaveActiveModel = Boolean(provider?.defaultModel)
+      //
+      // byterover bypasses this gate: it has no model fetcher and no
+      // `brv model switch` recovery path, so deferring would strand it as
+      // connected-but-never-active. Its model is resolved at runtime via
+      // DEFAULT_LLM_MODEL in agent-process.ts rather than persisted here,
+      // so future default changes roll out without a per-user migration.
+      const willHaveActiveModel = providerId === 'byterover'
+        || Boolean(provider?.defaultModel)
         || Boolean(await this.providerConfigStore.getActiveModel(providerId))
       await this.providerConfigStore.connectProvider(providerId, {
         activeModel: provider?.defaultModel,

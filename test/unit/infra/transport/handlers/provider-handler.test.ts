@@ -367,6 +367,18 @@ describe('ProviderHandler', () => {
       const connectArgs = providerConfigStore.connectProvider.firstCall.args[1] as Record<string, unknown>
       expect(connectArgs.setAsActive).to.equal(true)
     })
+
+    it('should activate byterover on connect without persisting an activeModel', async () => {
+      // byterover bypasses the gate (no model fetcher, no model-switch recovery path); runtime resolves via DEFAULT_LLM_MODEL.
+      createHandler()
+
+      const handler = transport._handlers.get(ProviderEvents.CONNECT)
+      await handler!({providerId: 'byterover'}, 'client-1')
+
+      const connectArgs = providerConfigStore.connectProvider.firstCall.args[1] as Record<string, unknown>
+      expect(connectArgs.setAsActive).to.equal(true)
+      expect(connectArgs.activeModel).to.be.undefined
+    })
   })
 
   describe('provider:disconnect', () => {

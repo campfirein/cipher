@@ -30,8 +30,10 @@ export function AuthInitializer({children}: {children: React.ReactNode}): React.
   } = useGetAuthState({
     queryConfig: {
       enabled: apiClient !== null,
-      retry: 5,
-      retryDelay: (attemptIndex) => Math.min(500 * 2 ** attemptIndex, 2000),
+      // One retry covers transient blips; the per-attempt timeout is now generous
+      // (3s) so we don't need 5+ retries that would block startup for ~17s when offline.
+      retry: 1,
+      retryDelay: 500,
       staleTime: 2 * 60 * 1000,
     },
   })
