@@ -35,6 +35,7 @@ import {FileSystemService} from '../../../agent/infra/file-system/file-system-se
 import {FolderPackService} from '../../../agent/infra/folder-pack/folder-pack-service.js'
 import {SessionMetadataStore} from '../../../agent/infra/session/session-metadata-store.js'
 import {FileKeyStorage} from '../../../agent/infra/storage/file-key-storage.js'
+import {runWithReviewDisabled} from '../../../agent/infra/tools/implementations/curate-tool-task-context.js'
 import {createSearchKnowledgeService} from '../../../agent/infra/tools/implementations/search-knowledge-service.js'
 import {AuthEvents} from '../../../shared/transport/events/auth-events.js'
 import {decodeGatherContent} from '../../../shared/transport/gather-content.js'
@@ -68,6 +69,7 @@ import {FileCurateLogStore} from '../storage/file-curate-log-store.js'
 import {FileReviewBackupStore} from '../storage/file-review-backup-store.js'
 import {AgentInstanceDiscovery} from '../transport/agent-instance-discovery.js'
 import {createAgentLogger} from './agent-logger.js'
+import {PostWorkRegistry} from './post-work-registry.js'
 import {resolveSessionId} from './session-resolver.js'
 import {validateProviderForTask} from './task-validation.js'
 
@@ -109,6 +111,16 @@ const agentLog = createAgentLogger(process.env.BRV_SESSION_LOG, `[agent-process:
  * - `'record-answer'`: Phase 5 cache write
  */
 const LLM_FREE_TASK_TYPES = new Set<string>(['gather', 'mcp-search', 'record-answer', 'search'])
+
+/**
+ * Holds detached post-curate work so `task:completed` can fire as soon as
+ * the agent body finishes. Drained on shutdown to avoid truncated writes.
+ */
+const postWorkRegistry = new PostWorkRegistry({
+  onError(_projectPath, error) {
+    agentLog(`post-work error: ${error instanceof Error ? error.message : String(error)}`)
+  },
+})
 
 /**
  * Persist a brand-new session's metadata and set it as active.
@@ -464,6 +476,7 @@ async function executeTask(
   const {
     clientCwd, clientId, content, files, folderPath, force,
     logId: routerLogId,
+    reviewDisabled,
     taskId, trigger, type, worktreeRoot,
   } = task
   if (!transport || !agent) return
@@ -484,7 +497,19 @@ async function executeTask(
 
   activeTaskCount++
 
-  try {
+  // Body of the task — extracted so the daemon-stamped reviewDisabled snapshot can be
+  // opened as an AsyncLocalStorage scope around it. Tools that run inside this task
+  // (curate-tool.executeCurate, including the sandbox `tools.curate(...)` path via
+  // CurateService where _context.taskId is not threaded through) read the snapshot
+  // from the ALS scope instead of re-reading .brv/config.json — that read can race
+  // with mid-task user toggles, which is exactly the inconsistency we are eliminating.
+  // We only open the scope when the daemon stamped a value; otherwise consumers fall
+  // back to the file read, preserving behavior for legacy clients without a stamp.
+  const runTaskBody = async (): Promise<void> => {
+    // Re-narrow inside the closure: TypeScript loses the function-scope narrowing
+    // from the early-return guard above once we hand control to a callback.
+    if (!transport || !agent) return
+
     // Only refresh config and hot-swap provider when this is the first concurrent task.
     // Subsequent concurrent tasks reuse cached config to avoid race conditions
     // on provider hot-swap (which replaces SessionManager).
@@ -542,12 +567,24 @@ async function executeTask(
       // Socket dropped — continue executing so we can still emit task:completed/error when socket reconnects
     }
 
+    // Block new tree-writers until any detached Phase 4 from a prior task
+    // on this project drains. `query` / `search` are intentionally NOT
+    // gated — they read the manifest and tolerate a stale snapshot via
+    // `readManifestIfFresh` + rebuild fallback, so blocking them would
+    // be a needless latency hit.
+    if (type === 'curate' || type === 'curate-folder' || type === 'dream') {
+      await postWorkRegistry.awaitProject(projectPath)
+    }
+
     try {
       let result: string
       let logId: string | undefined
+      // Captured during curate / curate-folder; submitted to the registry
+      // after `task:completed` so the user does not wait on Phase 4.
+      let postWork: (() => Promise<void>) | undefined
       switch (type) {
         case 'curate': {
-          result = await curateExecutor.executeWithAgent(agent, {
+          const curateResult = await curateExecutor.runAgentBody(agent, {
             clientCwd,
             content,
             files,
@@ -558,12 +595,14 @@ async function executeTask(
             taskId,
             worktreeRoot,
           })
+          result = curateResult.response
+          postWork = curateResult.finalize
 
           break
         }
 
         case 'curate-folder': {
-          result = await folderPackExecutor.executeWithAgent(agent, {
+          const folderResult = await folderPackExecutor.runAgentBody(agent, {
             clientCwd,
             content,
             folderPath: folderPath!,
@@ -571,6 +610,8 @@ async function executeTask(
             taskId,
             worktreeRoot,
           })
+          result = folderResult.response
+          postWork = folderResult.finalize
 
           break
         }
@@ -609,6 +650,7 @@ async function executeTask(
           const dreamResult = await dreamExecutor.executeWithAgent(agent, {
             priorMtime: eligibility.priorMtime,
             projectRoot: projectPath,
+            ...(reviewDisabled === undefined ? {} : {reviewDisabled}),
             taskId,
             trigger: trigger ?? 'cli',
           })
@@ -700,7 +742,8 @@ async function executeTask(
         }
       }
 
-      // Emit task:completed
+      // Emit task:completed BEFORE the detached Phase 4 so the user sees
+      // the response as soon as the agent body finishes.
       agentLog(`task:completed taskId=${taskId}`)
       try {
         transport.request(TransportTaskEventNames.COMPLETED, {clientId, ...(logId ? {logId} : {}), projectPath, result, taskId})
@@ -708,6 +751,13 @@ async function executeTask(
         agentLog(
           `task:completed send failed taskId=${taskId}: ${error instanceof Error ? error.message : String(error)}`,
         )
+      }
+
+      // Submit detached post-curate work to the registry. Mutex'd per project
+      // and drained on shutdown so SIGTERM mid-work cannot truncate `_index.md`.
+      if (postWork) {
+        agentLog(`post-work queued taskId=${taskId}`)
+        postWorkRegistry.submit(projectPath, postWork)
       }
     } catch (error) {
       // Emit task:error
@@ -723,15 +773,30 @@ async function executeTask(
     } finally {
       cleanupForwarding?.()
     }
+  }
+
+  try {
+    await (reviewDisabled === undefined ? runTaskBody() : runWithReviewDisabled(reviewDisabled, runTaskBody))
   } finally {
     activeTaskCount--
 
-    // Deferred hot-swap: if provider changed while tasks were in-flight,
-    // trigger swap now that all tasks are done
+    // Deferred hot-swap when provider changed mid-task. Wait on detached
+    // Phase 4 first — rebuilding SessionManager during an in-flight
+    // `propagateStaleness` LLM call would silently corrupt Phase 4.
+    // Reserve the swap slot synchronously by clearing the dirty flag now;
+    // a task arriving during the awaitAll wait then sees a clean flag and
+    // skips its inline swap, so only the deferred chain runs hotSwap.
     if (activeTaskCount === 0 && providerConfigDirty && agent && transport) {
-      hotSwapProvider(agent, transport).catch((error) => {
-        agentLog(`deferred hotSwapProvider failed: ${error instanceof Error ? error.message : String(error)}`)
-      })
+      providerConfigDirty = false
+      const swapAgent = agent
+      const swapTransport = transport
+      postWorkRegistry
+        .awaitAll()
+        .then(() => hotSwapProvider(swapAgent, swapTransport))
+        .catch((error: unknown) => {
+          providerConfigDirty = true
+          agentLog(`deferred hotSwapProvider failed: ${error instanceof Error ? error.message : String(error)}`)
+        })
     }
   }
 }
@@ -886,6 +951,18 @@ async function hotSwapProvider(
 
 async function shutdown(): Promise<void> {
   agentLog('Shutting down...')
+
+  // Drain detached Phase 4 BEFORE stopping the agent — `propagateStaleness`
+  // mid-write would otherwise leave `_index.md` truncated on SIGTERM.
+  try {
+    const drainStart = Date.now()
+    const drainResult = await postWorkRegistry.drain(30_000)
+    agentLog(
+      `post-work drain (${Date.now() - drainStart}ms): drained=${drainResult.drained} abandoned=${drainResult.abandoned}`,
+    )
+  } catch (error) {
+    agentLog(`post-work drain failed: ${error instanceof Error ? error.message : String(error)}`)
+  }
 
   try {
     if (agent) {

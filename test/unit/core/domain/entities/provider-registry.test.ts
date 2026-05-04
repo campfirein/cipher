@@ -97,6 +97,11 @@ describe('Provider Registry', () => {
       expect(provider?.oauth).to.be.undefined
     })
 
+    it('should not have a defaultModel for openai-compatible (no sensible placeholder for self-hosted endpoints)', () => {
+      const provider = getProviderById('openai-compatible')
+      expect(provider?.defaultModel).to.be.undefined
+    })
+
     it('should not have oauth config for byterover', () => {
       const provider = getProviderById('byterover')
       expect(provider?.oauth).to.be.undefined

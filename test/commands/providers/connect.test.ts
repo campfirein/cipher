@@ -6,6 +6,7 @@ import {expect} from 'chai'
 import sinon, {restore, stub} from 'sinon'
 
 import ProviderConnect from '../../../src/oclif/commands/providers/connect.js'
+import {STUB_BYTEROVER_AUTH_ERROR} from '../../helpers/provider-fixtures.js'
 
 // ==================== TestableProviderConnectCommand ====================
 
@@ -361,14 +362,14 @@ describe('Provider Connect Command', () => {
         providers: [{id: 'byterover', isConnected: false, name: 'ByteRover', requiresApiKey: false}],
       })
       requestStub.onSecondCall().resolves({
-        error: 'ByteRover Provider requires authentication. Run /login or brv login to sign in',
+        error: STUB_BYTEROVER_AUTH_ERROR,
         success: false,
       })
 
       await createCommand('byterover').run()
 
-      expect(loggedMessages.some((m) => m.includes('authentication'))).to.be.true
-      expect(loggedMessages.some((m) => m.includes('login'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('ByteRover account'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('brv login --api-key'))).to.be.true
     })
 
     it('should show auth error when server resolves SET_ACTIVE with success:false', async () => {
@@ -377,13 +378,14 @@ describe('Provider Connect Command', () => {
         providers: [{id: 'byterover', isConnected: true, name: 'ByteRover', requiresApiKey: false}],
       })
       requestStub.onSecondCall().resolves({
-        error: 'ByteRover Provider requires authentication. Run /login or brv login to sign in',
+        error: STUB_BYTEROVER_AUTH_ERROR,
         success: false,
       })
 
       await createCommand('byterover').run()
 
-      expect(loggedMessages.some((m) => m.includes('authentication'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('ByteRover account'))).to.be.true
+      expect(loggedMessages.some((m) => m.includes('brv login --api-key'))).to.be.true
     })
 
     it('should show fallback error when CONNECT resolves with success:false and no error message', async () => {
@@ -434,7 +436,7 @@ describe('Provider Connect Command', () => {
         providers: [{id: 'byterover', isConnected: false, name: 'ByteRover', requiresApiKey: false}],
       })
       requestStub.onSecondCall().resolves({
-        error: 'ByteRover Provider requires authentication. Run /login or brv login to sign in',
+        error: STUB_BYTEROVER_AUTH_ERROR,
         success: false,
       })
 
@@ -442,7 +444,7 @@ describe('Provider Connect Command', () => {
 
       const json = parseJsonOutput()
       expect(json.success).to.be.false
-      expect(json.data).to.have.property('error')
+      expect(json.data.error).to.equal(STUB_BYTEROVER_AUTH_ERROR)
     })
   })
 

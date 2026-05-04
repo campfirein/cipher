@@ -10,10 +10,8 @@ import type {
   IFolderPackExecutor,
 } from '../../core/interfaces/executor/i-folder-pack-executor.js'
 
-import {FileContextTreeManifestService} from '../context-tree/file-context-tree-manifest-service.js'
 import {FileContextTreeSnapshotService} from '../context-tree/file-context-tree-snapshot-service.js'
-import {FileContextTreeSummaryService} from '../context-tree/file-context-tree-summary-service.js'
-import {diffStates} from '../context-tree/snapshot-diff.js'
+import {propagateSummariesUnderLock} from '../context-tree/propagate-summaries.js'
 
 const LOG_PATH = process.env.BRV_SESSION_LOG
 type BackgroundDrainAgent = ICipherAgent & {drainBackgroundWork?: () => Promise<void>}
@@ -47,7 +45,22 @@ function folderPackLog(message: string): void {
 export class FolderPackExecutor implements IFolderPackExecutor {
   constructor(private readonly folderPackService: IFolderPackService) {}
 
+  /** Synchronous wrapper — runs the agent body and awaits Phase 4 inline. */
   public async executeWithAgent(agent: ICipherAgent, options: FolderPackExecuteOptions): Promise<string> {
+    const {finalize, response} = await this.runAgentBody(agent, options)
+    await finalize()
+    return response
+  }
+
+  /**
+   * Returns the response after the agent body, plus a `finalize` thunk for
+   * Phase 4 (snapshot diff → propagateStaleness → manifest rebuild → drain).
+   * Caller invokes `finalize` exactly once.
+   */
+  public async runAgentBody(
+    agent: ICipherAgent,
+    options: FolderPackExecuteOptions,
+  ): Promise<{finalize: () => Promise<void>; response: string}> {
     const {clientCwd, content, folderPath, projectRoot, taskId, worktreeRoot} = options
 
     // Resolve folder path:
@@ -83,31 +96,19 @@ export class FolderPackExecutor implements IFolderPackExecutor {
     })
 
     // Use iterative extraction strategy (inspired by rlm)
-    // Stores packed folder in sandbox environment and lets agent iteratively query/extract
-    // This avoids token limits entirely - works for folders of any size
     const response = await this.executeIterative(agent, packResult, content, absoluteFolderPath, taskId, tempFileDir)
 
-    if (preState) {
-      try {
-        const postState = await snapshotService.getCurrentState(tempFileDir)
-        const changedPaths = diffStates(preState, postState)
-        if (changedPaths.length > 0) {
-          const summaryService = new FileContextTreeSummaryService()
-          const results = await summaryService.propagateStaleness(changedPaths, agent, tempFileDir, taskId)
-
-          if (results.some((result) => result.actionTaken)) {
-            const manifestService = new FileContextTreeManifestService({baseDirectory: tempFileDir})
-            await manifestService.buildManifest(tempFileDir)
-          }
-        }
-      } catch {
-        // Fail-open: summary/manifest errors never block curation
-      }
+    // Build the Phase 4 thunk. Note: unlike CurateExecutor, the task session
+    // was already deleted inside `executeIterative`'s `finally`, so Phase 4's
+    // `propagateStaleness` runs against the agent's default session. That
+    // is fine for folder-pack — it has no per-task sandbox state to preserve
+    // through Phase 4.
+    const finalize = async (): Promise<void> => {
+      await propagateSummariesUnderLock({agent, baseDir: tempFileDir, preState, snapshotService, taskId})
+      await (agent as BackgroundDrainAgent).drainBackgroundWork?.()
     }
 
-    await (agent as BackgroundDrainAgent).drainBackgroundWork?.()
-
-    return response
+    return {finalize, response}
   }
 
   /**
