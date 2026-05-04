@@ -101,45 +101,146 @@ describe('task transport schemas', () => {
   })
 
   // ========================================================================
-  // M2.08 — pagination, get, delete events
+  // M2.16 — numbered pagination + filter/search
   // ========================================================================
 
-  describe('TaskListRequest / TaskListResponse pagination', () => {
-    it('TaskListRequest accepts before + limit', () => {
+  describe('TaskListRequest filter + numbered pagination (M2.16)', () => {
+    it('accepts numbered pagination: page + pageSize', () => {
       const result = TaskListRequestSchema.safeParse({
-        before: 1_745_432_125_000,
-        limit: 50,
+        page: 2,
+        pageSize: 50,
         projectPath: '/p',
       })
       expect(result.success).to.equal(true)
       if (result.success) {
-        expect(result.data.before).to.equal(1_745_432_125_000)
-        expect(result.data.limit).to.equal(50)
+        expect(result.data.page).to.equal(2)
+        expect(result.data.pageSize).to.equal(50)
       }
     })
 
-    it('TaskListResponse accepts nextCursor', () => {
-      const result = TaskListResponseSchema.safeParse({
-        nextCursor: 1_745_432_120_000,
-        tasks: [],
+    it('rejects dropped cursor fields (before, beforeTaskId, limit)', () => {
+      // Cursor pagination dropped entirely; these legacy fields must be rejected
+      expect(TaskListRequestSchema.safeParse({before: 1_745_432_125_000}).success).to.equal(false)
+      expect(TaskListRequestSchema.safeParse({beforeTaskId: 'abc'}).success).to.equal(false)
+      expect(TaskListRequestSchema.safeParse({limit: 50}).success).to.equal(false)
+    })
+
+    it('enforces page >= 1', () => {
+      expect(TaskListRequestSchema.safeParse({page: 1}).success).to.equal(true)
+      expect(TaskListRequestSchema.safeParse({page: 0}).success).to.equal(false)
+      expect(TaskListRequestSchema.safeParse({page: -1}).success).to.equal(false)
+    })
+
+    it('enforces pageSize bounds (1..1000)', () => {
+      expect(TaskListRequestSchema.safeParse({pageSize: 1}).success).to.equal(true)
+      expect(TaskListRequestSchema.safeParse({pageSize: 1000}).success).to.equal(true)
+      expect(TaskListRequestSchema.safeParse({pageSize: 0}).success).to.equal(false)
+      expect(TaskListRequestSchema.safeParse({pageSize: 1001}).success).to.equal(false)
+    })
+
+    it('accepts searchText', () => {
+      const result = TaskListRequestSchema.safeParse({searchText: 'auth'})
+      expect(result.success).to.equal(true)
+      if (result.success) expect(result.data.searchText).to.equal('auth')
+    })
+
+    it('accepts provider + model arrays', () => {
+      const result = TaskListRequestSchema.safeParse({
+        model: ['gpt-5-pro'],
+        provider: ['openai', 'anthropic'],
       })
       expect(result.success).to.equal(true)
       if (result.success) {
-        expect(result.data.nextCursor).to.equal(1_745_432_120_000)
+        expect(result.data.provider).to.deep.equal(['openai', 'anthropic'])
+        expect(result.data.model).to.deep.equal(['gpt-5-pro'])
       }
     })
 
-    it('Old TaskList shape (no pagination) still parses (back-compat)', () => {
-      expect(TaskListRequestSchema.safeParse({}).success).to.equal(true)
-      expect(TaskListRequestSchema.safeParse({projectPath: '/p'}).success).to.equal(true)
-      expect(TaskListResponseSchema.safeParse({tasks: []}).success).to.equal(true)
+    it('accepts createdAfter + createdBefore (epoch ms)', () => {
+      const result = TaskListRequestSchema.safeParse({
+        createdAfter: 1_745_432_000_000,
+        createdBefore: 1_745_432_999_999,
+      })
+      expect(result.success).to.equal(true)
+      if (result.success) {
+        expect(result.data.createdAfter).to.equal(1_745_432_000_000)
+        expect(result.data.createdBefore).to.equal(1_745_432_999_999)
+      }
     })
 
-    it('TaskListRequest enforces limit bounds (1..1000)', () => {
-      expect(TaskListRequestSchema.safeParse({limit: 1}).success).to.equal(true)
-      expect(TaskListRequestSchema.safeParse({limit: 1000}).success).to.equal(true)
-      expect(TaskListRequestSchema.safeParse({limit: 0}).success).to.equal(false)
-      expect(TaskListRequestSchema.safeParse({limit: 1001}).success).to.equal(false)
+    it('accepts minDurationMs + maxDurationMs', () => {
+      const result = TaskListRequestSchema.safeParse({
+        maxDurationMs: 3_600_000,
+        minDurationMs: 60_000,
+      })
+      expect(result.success).to.equal(true)
+      if (result.success) {
+        expect(result.data.minDurationMs).to.equal(60_000)
+        expect(result.data.maxDurationMs).to.equal(3_600_000)
+      }
+    })
+
+    it('Empty request still parses (all fields optional)', () => {
+      expect(TaskListRequestSchema.safeParse({}).success).to.equal(true)
+    })
+  })
+
+  describe('TaskListResponse numbered pagination + derivative sets (M2.16)', () => {
+    const baseResp = {
+      availableModels: [],
+      availableProviders: [],
+      counts: {all: 0, cancelled: 0, completed: 0, failed: 0, running: 0},
+      page: 1,
+      pageCount: 1,
+      pageSize: 50,
+      tasks: [],
+      total: 0,
+    }
+
+    it('accepts numbered pagination response shape', () => {
+      const result = TaskListResponseSchema.safeParse(baseResp)
+      expect(result.success).to.equal(true)
+    })
+
+    it('rejects dropped cursor response fields (nextCursor, nextCursorTaskId)', () => {
+      // Strict — cursor fields dropped entirely
+      expect(TaskListResponseSchema.safeParse({...baseResp, nextCursor: 1000}).success).to.equal(false)
+      expect(TaskListResponseSchema.safeParse({...baseResp, nextCursorTaskId: 'abc'}).success).to.equal(false)
+    })
+
+    it('counts requires all 5 status keys', () => {
+      const incomplete = {...baseResp, counts: {all: 0, cancelled: 0, completed: 0, failed: 0}}
+      expect(TaskListResponseSchema.safeParse(incomplete).success).to.equal(false)
+    })
+
+    it('counts values must be non-negative integers', () => {
+      expect(
+        TaskListResponseSchema.safeParse({
+          ...baseResp,
+          counts: {all: -1, cancelled: 0, completed: 0, failed: 0, running: 0},
+        }).success,
+      ).to.equal(false)
+    })
+
+    it('availableModels accepts (providerId, modelId) pair shape', () => {
+      const result = TaskListResponseSchema.safeParse({
+        ...baseResp,
+        availableModels: [
+          {modelId: 'gpt-5-pro', providerId: 'openai'},
+          {modelId: 'claude-3-5-sonnet', providerId: 'anthropic'},
+          {modelId: 'claude-3-5-sonnet', providerId: 'bedrock'},
+        ],
+      })
+      expect(result.success).to.equal(true)
+      if (result.success) expect(result.data.availableModels).to.have.lengthOf(3)
+    })
+
+    it('availableModels rejects plain string entries (must be pairs)', () => {
+      const result = TaskListResponseSchema.safeParse({
+        ...baseResp,
+        availableModels: ['gpt-5-pro'],
+      })
+      expect(result.success).to.equal(false)
     })
   })
 

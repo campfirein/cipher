@@ -334,10 +334,11 @@ export class FileTaskHistoryStore implements ITaskHistoryStore {
 
   async list(
     options: {
-      after?: number
-      before?: number
-      limit?: number
+      createdAfter?: number
+      createdBefore?: number
+      model?: string[]
       projectPath?: string
+      provider?: string[]
       status?: TaskHistoryStatus[]
       type?: string[]
     } = {},
@@ -350,14 +351,18 @@ export class FileTaskHistoryStore implements ITaskHistoryStore {
       if (options.projectPath !== undefined && line.projectPath !== options.projectPath) continue
       if (options.status?.length && !options.status.includes(line.status)) continue
       if (options.type?.length && !options.type.includes(line.type)) continue
-      if (options.after !== undefined && line.createdAt < options.after) continue
-      if (options.before !== undefined && line.createdAt > options.before) continue
+      if (options.provider?.length && (line.provider === undefined || !options.provider.includes(line.provider))) {
+        continue
+      }
+
+      if (options.model?.length && (line.model === undefined || !options.model.includes(line.model))) continue
+      if (options.createdAfter !== undefined && line.createdAt < options.createdAfter) continue
+      if (options.createdBefore !== undefined && line.createdAt > options.createdBefore) continue
       matches.push(line)
     }
 
     matches.sort((a, b) => b.createdAt - a.createdAt)
-    const sliced = options.limit === undefined ? matches : matches.slice(0, options.limit)
-    return sliced.map((line) => toTaskListItem(line))
+    return matches.map((line) => toTaskListItem(line))
   }
 
   async save(entry: TaskHistoryEntry): Promise<void> {
