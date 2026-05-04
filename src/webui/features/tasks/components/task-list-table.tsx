@@ -1,5 +1,3 @@
-import type {KeyboardEvent} from 'react'
-
 import {Badge} from '@campfirein/byterover-packages/components/badge'
 import {Button} from '@campfirein/byterover-packages/components/button'
 import {
@@ -45,12 +43,9 @@ function durationOf(task: StoredTask, now: number): string {
 interface TaskTableProps {
   allSelected: boolean
   filtered: StoredTask[]
-  hasNextPage: boolean
-  isFetchingNextPage: boolean
   now: number
   onClearSearch: () => void
   onDelete: (taskId: string) => void
-  onLoadMore: () => void
   onRowClick: (taskId: string) => void
   onToggleSelect: (taskId: string) => void
   onToggleSelectAll: () => void
@@ -62,12 +57,9 @@ interface TaskTableProps {
 export function TaskTable({
   allSelected,
   filtered,
-  hasNextPage,
-  isFetchingNextPage,
   now,
   onClearSearch,
   onDelete,
-  onLoadMore,
   onRowClick,
   onToggleSelect,
   onToggleSelectAll,
@@ -99,51 +91,20 @@ export function TaskTable({
             </TableCell>
           </TableRow>
         ) : (
-          <>
-            {filtered.map((task) => (
-              <TaskRow
-                isSelected={selectedIds.has(task.taskId)}
-                key={task.taskId}
-                now={now}
-                onDelete={onDelete}
-                onRowClick={onRowClick}
-                onToggleSelect={onToggleSelect}
-                task={task}
-              />
-            ))}
-            {hasNextPage && <LoadMoreRow isFetching={isFetchingNextPage} onClick={onLoadMore} />}
-          </>
+          filtered.map((task) => (
+            <TaskRow
+              isSelected={selectedIds.has(task.taskId)}
+              key={task.taskId}
+              now={now}
+              onDelete={onDelete}
+              onRowClick={onRowClick}
+              onToggleSelect={onToggleSelect}
+              task={task}
+            />
+          ))
         )}
       </TableBody>
     </Table>
-  )
-}
-
-function LoadMoreRow({isFetching, onClick}: {isFetching: boolean; onClick: () => void}) {
-  const handleKeyDown = (event: KeyboardEvent) => {
-    if (isFetching) return
-    if (event.key === 'Enter' || event.key === ' ') {
-      event.preventDefault()
-      onClick()
-    }
-  }
-
-  return (
-    <TableRow
-      aria-disabled={isFetching}
-      className={cn(
-        'text-muted-foreground hover:text-foreground hover:bg-muted/50',
-        isFetching ? 'cursor-wait opacity-60' : 'cursor-pointer',
-      )}
-      onClick={isFetching ? undefined : onClick}
-      onKeyDown={handleKeyDown}
-      role="button"
-      tabIndex={isFetching ? -1 : 0}
-    >
-      <TableCell className="mono py-3 text-center text-[11px] uppercase tracking-wider" colSpan={8}>
-        {isFetching ? 'Loading…' : 'Load more'}
-      </TableCell>
-    </TableRow>
   )
 }
 
@@ -184,7 +145,9 @@ function TaskRow({
         <TypeBadge type={task.type} />
       </TableCell>
       <TableCell className="text-foreground max-w-0">
-        <div className="truncate">{task.content || <span className="text-muted-foreground italic">(empty)</span>}</div>
+        <div className="truncate" title={task.content || undefined}>
+          {task.content || <span className="text-muted-foreground italic">(empty)</span>}
+        </div>
         {activity && (
           <div className="text-muted-foreground mono mt-1 flex items-center gap-1.5 text-[11px]">
             <span className="text-blue-400">▸</span>
@@ -224,7 +187,7 @@ function TaskRow({
 
 function TypeBadge({type}: {type: string}) {
   return (
-    <Badge className="text-muted-foreground mono text-[10px] uppercase tracking-wider" variant="outline">
+    <Badge className="text-muted-foreground mono text-[10px] leading-none uppercase tracking-wider" variant="outline">
       {displayTaskType(type)}
     </Badge>
   )

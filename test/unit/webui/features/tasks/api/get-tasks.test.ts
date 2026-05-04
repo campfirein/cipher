@@ -3,97 +3,94 @@ import {createSandbox, type SinonSandbox, type SinonStub} from 'sinon'
 
 import type {BrvApiClient} from '../../../../../../src/webui/lib/api-client.js'
 
-import {TaskEvents, type TaskListResponse} from '../../../../../../src/shared/transport/events/task-events.js'
-import {
-  DEFAULT_PAGE_LIMIT,
-  getNextPageParam,
-  getTasks,
-  initialPageParam,
-} from '../../../../../../src/webui/features/tasks/api/get-tasks.js'
+import {TaskEvents} from '../../../../../../src/shared/transport/events/task-events.js'
+import {getTasks} from '../../../../../../src/webui/features/tasks/api/get-tasks.js'
 import {useTransportStore} from '../../../../../../src/webui/stores/transport-store.js'
 
-describe('get-tasks api', () => {
-  describe('getTasks', () => {
-    let sandbox: SinonSandbox
-    let request: SinonStub
+describe('getTasks', () => {
+  let sandbox: SinonSandbox
+  let request: SinonStub
 
-    beforeEach(() => {
-      sandbox = createSandbox()
-      request = sandbox.stub()
-      useTransportStore.setState({
-        apiClient: {on: sandbox.stub(), request} as unknown as BrvApiClient,
-      })
-    })
-
-    afterEach(() => {
-      sandbox.restore()
-      useTransportStore.setState({apiClient: null})
-    })
-
-    it('emits task:list with the request payload', async () => {
-      request.resolves({tasks: []})
-      await getTasks({limit: 50, projectPath: '/foo'})
-      expect(request.firstCall.args[0]).to.equal(TaskEvents.LIST)
-      expect(request.firstCall.args[1]).to.deep.equal({limit: 50, projectPath: '/foo'})
-    })
-
-    it('forwards before + beforeTaskId for paginated requests', async () => {
-      request.resolves({tasks: []})
-      await getTasks({before: 1234, beforeTaskId: 'tsk-x', limit: 50, projectPath: '/foo'})
-      expect(request.firstCall.args[1]).to.deep.equal({
-        before: 1234,
-        beforeTaskId: 'tsk-x',
-        limit: 50,
-        projectPath: '/foo',
-      })
-    })
-
-    it('throws when not connected to the daemon', async () => {
-      useTransportStore.setState({apiClient: null})
-      try {
-        await getTasks({limit: 50})
-        expect.fail('expected to throw')
-      } catch (error) {
-        expect((error as Error).message).to.equal('Not connected')
-      }
+  beforeEach(() => {
+    sandbox = createSandbox()
+    request = sandbox.stub()
+    useTransportStore.setState({
+      apiClient: {on: sandbox.stub(), request} as unknown as BrvApiClient,
     })
   })
 
-  describe('initialPageParam', () => {
-    it('returns default limit and projectPath when projectPath is provided', () => {
-      expect(initialPageParam('/foo')).to.deep.equal({limit: DEFAULT_PAGE_LIMIT, projectPath: '/foo'})
-    })
-
-    it('omits projectPath when not provided', () => {
-      expect(initialPageParam()).to.deep.equal({limit: DEFAULT_PAGE_LIMIT})
-    })
+  afterEach(() => {
+    sandbox.restore()
+    useTransportStore.setState({apiClient: null})
   })
 
-  describe('getNextPageParam', () => {
-    const lastParam = {limit: 50, projectPath: '/foo'}
-
-    it('returns undefined when lastPage has no nextCursor (last page reached)', () => {
-      const lastPage: TaskListResponse = {tasks: []}
-      expect(getNextPageParam(lastPage, lastParam)).to.equal(undefined)
+  it('emits task:list with the projectPath payload', async () => {
+    request.resolves({
+      availableModels: [],
+      availableProviders: [],
+      counts: {all: 0, cancelled: 0, completed: 0, failed: 0, running: 0},
+      page: 1,
+      pageCount: 1,
+      pageSize: 50,
+      tasks: [],
+      total: 0,
     })
+    await getTasks({projectPath: '/foo'})
+    expect(request.firstCall.args[0]).to.equal(TaskEvents.LIST)
+    expect(request.firstCall.args[1]).to.deep.equal({projectPath: '/foo'})
+  })
 
-    it('returns next-page params when nextCursor is set', () => {
-      const lastPage: TaskListResponse = {nextCursor: 1234, tasks: []}
-      expect(getNextPageParam(lastPage, lastParam)).to.deep.equal({
-        before: 1234,
-        limit: 50,
-        projectPath: '/foo',
-      })
+  it('forwards page + pageSize to the daemon', async () => {
+    request.resolves({
+      availableModels: [],
+      availableProviders: [],
+      counts: {all: 0, cancelled: 0, completed: 0, failed: 0, running: 0},
+      page: 3,
+      pageCount: 5,
+      pageSize: 50,
+      tasks: [],
+      total: 250,
     })
+    await getTasks({page: 3, pageSize: 50, projectPath: '/foo'})
+    expect(request.firstCall.args[1]).to.deep.equal({page: 3, pageSize: 50, projectPath: '/foo'})
+  })
 
-    it('forwards nextCursorTaskId as beforeTaskId tiebreaker', () => {
-      const lastPage: TaskListResponse = {nextCursor: 1234, nextCursorTaskId: 'tsk-x', tasks: []}
-      expect(getNextPageParam(lastPage, lastParam)).to.deep.equal({
-        before: 1234,
-        beforeTaskId: 'tsk-x',
-        limit: 50,
-        projectPath: '/foo',
-      })
+  it('forwards all filter dims (status, type, provider, model, time, duration, search)', async () => {
+    request.resolves({
+      availableModels: [],
+      availableProviders: [],
+      counts: {all: 0, cancelled: 0, completed: 0, failed: 0, running: 0},
+      page: 1,
+      pageCount: 1,
+      pageSize: 50,
+      tasks: [],
+      total: 0,
     })
+    const payload = {
+      createdAfter: 1_700_000_000_000,
+      createdBefore: 1_700_000_999_999,
+      maxDurationMs: 60_000,
+      minDurationMs: 1000,
+      model: ['gpt-5-pro'],
+      page: 1,
+      pageSize: 50,
+      projectPath: '/foo',
+      provider: ['openai'],
+      searchText: 'auth',
+      status: ['error' as const],
+      type: ['curate'],
+    }
+    await getTasks(payload)
+    expect(request.firstCall.args[1]).to.deep.equal(payload)
+  })
+
+  it('throws when not connected to the daemon', async () => {
+    useTransportStore.setState({apiClient: null})
+    try {
+      await getTasks({projectPath: '/foo'})
+      expect.fail('expected to throw')
+    } catch (error) {
+      expect((error as Error).message).to.equal('Not connected')
+    }
   })
 })
