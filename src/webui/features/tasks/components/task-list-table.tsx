@@ -155,7 +155,9 @@ function TaskRow({
         <ProviderChip model={task.model} provider={task.provider} />
       </TableCell>
       <TableCell className="text-foreground max-w-0">
-        <div className="truncate">{task.content || <span className="text-muted-foreground italic">(empty)</span>}</div>
+        <div className="truncate" title={task.content || undefined}>
+          {task.content || <span className="text-muted-foreground italic">(empty)</span>}
+        </div>
         {activity && (
           <div className="text-muted-foreground mono mt-1 flex items-center gap-1.5 text-[11px]">
             <span className="text-blue-400">▸</span>
@@ -204,7 +206,7 @@ function TaskRow({
 
 function TypeBadge({type}: {type: string}) {
   return (
-    <Badge className="text-muted-foreground mono text-[10px] uppercase tracking-wider" variant="outline">
+    <Badge className="text-muted-foreground mono text-[10px] leading-none uppercase tracking-wider" variant="outline">
       {displayTaskType(type)}
     </Badge>
   )

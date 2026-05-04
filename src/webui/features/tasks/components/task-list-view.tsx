@@ -1,6 +1,6 @@
 import {Button} from '@campfirein/byterover-packages/components/button'
 import {Sheet, SheetContent} from '@campfirein/byterover-packages/components/sheet'
-import {useEffect, useMemo, useState} from 'react'
+import {useCallback, useEffect, useMemo, useState} from 'react'
 import {useSearchParams} from 'react-router-dom'
 import {toast} from 'sonner'
 
@@ -9,21 +9,29 @@ import type {ComposerType} from './task-composer-types'
 import {useTransportStore} from '../../../stores/transport-store'
 import {CURATE_EXAMPLE, QUERY_EXAMPLE, TOUR_STEP_LABEL} from '../../onboarding/lib/tour-examples'
 import {useOnboardingStore} from '../../onboarding/stores/onboarding-store'
+import {useGetProviders} from '../../provider/api/get-providers'
 import {useClearCompleted} from '../api/clear-completed'
 import {useDeleteBulkTasks} from '../api/delete-bulk-tasks'
 import {useDeleteTask} from '../api/delete-task'
 import {useGetTasks} from '../api/get-tasks'
+import {useDebouncedValue} from '../hooks/use-debounced-value'
+import {useTaskFilterParams} from '../hooks/use-task-filter-params'
 import {useTickingNow} from '../hooks/use-ticking-now'
 import {useComposerRetryStore} from '../stores/composer-retry-store'
-import {statusMatchesFilter, taskMatchesQuery, useStatusBreakdown, useTaskStore} from '../stores/task-store'
+import {useTaskStore} from '../stores/task-store'
+import {durationPresetToRange} from '../utils/duration-presets'
+import {statusFilterToServer} from '../utils/status-filter-to-server'
 import {isTerminalStatus} from '../utils/task-status'
 import {TaskComposerSheet} from './task-composer'
 import {TaskDetailView} from './task-detail-view'
+import {TaskFilterTags} from './task-filter-tags'
 import {BulkActionsBar} from './task-list-bulk-actions'
 import {EmptyState, LoadingState, PlaceholderCard} from './task-list-empty'
 import {FilterBar} from './task-list-filter-bar'
+import {TaskListPagination} from './task-list-pagination'
 import {TaskTable} from './task-list-table'
 
+// eslint-disable-next-line complexity
 export function TaskListView() {
   const [searchParams, setSearchParams] = useSearchParams()
   const selectedTaskId = searchParams.get('task') ?? undefined
@@ -35,27 +43,88 @@ export function TaskListView() {
     })
   }
 
-  const closeTask = () => {
+  const closeTask = useCallback(() => {
     setSearchParams((prev) => {
       const next = new URLSearchParams(prev)
       next.delete('task')
       return next
     })
-  }
+  }, [setSearchParams])
 
   const projectPath = useTransportStore((s) => s.selectedProject)
 
-  const tasks = useTaskStore((s) => s.tasks)
-  const statusFilter = useTaskStore((s) => s.statusFilter)
-  const setStatusFilter = useTaskStore((s) => s.setStatusFilter)
-  const searchQuery = useTaskStore((s) => s.searchQuery)
-  const setSearchQuery = useTaskStore((s) => s.setSearchQuery)
   const clearCompleted = useTaskStore((s) => s.clearCompleted)
   const removeTask = useTaskStore((s) => s.removeTask)
 
-  const breakdown = useStatusBreakdown()
-  const {isLoading} = useGetTasks({projectPath: projectPath || undefined})
+  const {
+    clearAllFilters,
+    filters,
+    setDurationPreset,
+    setModelFilter,
+    setPage,
+    setPageSize,
+    setProviderFilter,
+    setSearchQuery,
+    setStatusFilter,
+    setTimeRange,
+    setTypeFilter,
+  } = useTaskFilterParams()
+  const {data: providersResponse} = useGetProviders()
+  const providers = providersResponse?.providers ?? []
+  const {
+    createdAfter,
+    createdBefore,
+    durationPreset,
+    modelFilter,
+    page,
+    pageSize,
+    providerFilter,
+    searchQuery,
+    statusFilter,
+    typeFilter,
+  } = filters
+
+  const durationRange = useMemo(() => durationPresetToRange(durationPreset), [durationPreset])
+  const debouncedSearch = useDebouncedValue(searchQuery, 300)
+
+  const nonStatusFilters = useMemo(
+    () => ({
+      projectPath: projectPath || undefined,
+      ...(typeFilter.length > 0 ? {type: typeFilter} : {}),
+      ...(providerFilter.length > 0 ? {provider: providerFilter} : {}),
+      ...(modelFilter.length > 0 ? {model: modelFilter} : {}),
+      ...(createdAfter === undefined ? {} : {createdAfter}),
+      ...(createdBefore === undefined ? {} : {createdBefore}),
+      ...durationRange,
+      ...(debouncedSearch.trim() ? {searchText: debouncedSearch.trim()} : {}),
+    }),
+    [projectPath, typeFilter, providerFilter, modelFilter, createdAfter, createdBefore, durationRange, debouncedSearch],
+  )
+
+  const serverStatus = useMemo(() => statusFilterToServer(statusFilter), [statusFilter])
+  const {data, isLoading} = useGetTasks({
+    page,
+    pageSize,
+    ...nonStatusFilters,
+    ...(serverStatus ? {status: serverStatus} : {}),
+  })
+
+  const {data: countsData} = useGetTasks({page: 1, pageSize: 1, ...nonStatusFilters})
+
+  const tasks = data?.tasks ?? []
+  const breakdown = countsData?.counts ?? {all: 0, cancelled: 0, completed: 0, failed: 0, running: 0}
+  const availableProviders = data?.availableProviders ?? []
+  const availableModels = data?.availableModels ?? []
   const now = useTickingNow(breakdown.running > 0)
+  const hasActiveFilters =
+    statusFilter !== 'all' ||
+    typeFilter.length > 0 ||
+    providerFilter.length > 0 ||
+    modelFilter.length > 0 ||
+    createdAfter !== undefined ||
+    createdBefore !== undefined ||
+    durationPreset !== 'all' ||
+    searchQuery.trim().length > 0
 
   const deleteMutation = useDeleteTask()
   const deleteBulkMutation = useDeleteBulkTasks()
@@ -93,8 +162,6 @@ export function TaskListView() {
 
   const closeComposer = () => setComposer({open: false})
 
-  // Pick up retry seeds from the task-detail "Try again" CTA. Both normal and
-  // tour mode use this composer now, so the seed flow is shared.
   const retrySeed = useComposerRetryStore((s) => s.seed)
   const consumeRetry = useComposerRetryStore((s) => s.consume)
 
@@ -110,23 +177,19 @@ export function TaskListView() {
     if (openDetail) openTask(taskId)
   }
 
-  // O(1) taskId → task lookup. Replaces repeated tasks.find() in bulk action paths.
   const taskMap = useMemo(() => new Map(tasks.map((task) => [task.taskId, task])), [tasks])
 
   const filtered = useMemo(
     () =>
-      tasks
-        .filter((task) => statusMatchesFilter(task.status, statusFilter))
-        .filter((task) => taskMatchesQuery(task, searchQuery))
-        .sort((a, b) => {
-          const aActive = isTerminalStatus(a.status) ? 1 : 0
-          const bActive = isTerminalStatus(b.status) ? 1 : 0
-          if (aActive !== bActive) return aActive - bActive
-          const aRef = a.completedAt ?? a.startedAt ?? a.createdAt
-          const bRef = b.completedAt ?? b.startedAt ?? b.createdAt
-          return bRef - aRef
-        }),
-    [tasks, statusFilter, searchQuery],
+      [...tasks].sort((a, b) => {
+        const aActive = isTerminalStatus(a.status) ? 1 : 0
+        const bActive = isTerminalStatus(b.status) ? 1 : 0
+        if (aActive !== bActive) return aActive - bActive
+        const aRef = a.completedAt ?? a.startedAt ?? a.createdAt
+        const bRef = b.completedAt ?? b.startedAt ?? b.createdAt
+        return bRef - aRef
+      }),
+    [tasks],
   )
 
   const allFilteredSelected = filtered.length > 0 && filtered.every((task) => selectedIds.has(task.taskId))
@@ -212,20 +275,67 @@ export function TaskListView() {
         />
       ) : (
         <FilterBar
+          availableModels={availableModels}
+          availableProviders={availableProviders}
           breakdown={breakdown}
+          createdAfter={createdAfter}
+          createdBefore={createdBefore}
+          durationPreset={durationPreset}
+          modelFilter={modelFilter}
+          onDurationChange={(next) => {
+            setDurationPreset(next)
+            clearSelection()
+          }}
+          onModelChange={(next) => {
+            setModelFilter(next)
+            clearSelection()
+          }}
           onNewTask={openComposer}
+          onProviderChange={(next) => {
+            setProviderFilter(next)
+            clearSelection()
+          }}
           onSearchChange={setSearchQuery}
           onStatusChange={(filter) => {
             setStatusFilter(filter)
             clearSelection()
           }}
+          onTimeRangeChange={(next) => {
+            setTimeRange(next)
+            clearSelection()
+          }}
+          onTypeChange={(next) => {
+            setTypeFilter(next)
+            clearSelection()
+          }}
+          providerFilter={providerFilter}
+          providers={providers}
           searchQuery={searchQuery}
           statusFilter={statusFilter}
-          // Coachmark moves between the empty-state CTA and the header CTA so
-          // we never highlight both simultaneously.
           tourCue={tourCueLabel && tasks.length > 0 ? tourCueLabel : undefined}
+          typeFilter={typeFilter}
         />
       )}
+
+      <TaskFilterTags
+        createdAfter={createdAfter}
+        createdBefore={createdBefore}
+        durationPreset={durationPreset}
+        modelFilter={modelFilter}
+        onClearAll={clearAllFilters}
+        onDurationChange={setDurationPreset}
+        onModelChange={setModelFilter}
+        onProviderChange={setProviderFilter}
+        onSearchChange={setSearchQuery}
+        onStatusChange={setStatusFilter}
+        onTimeRangeChange={setTimeRange}
+        onTypeChange={setTypeFilter}
+        providerFilter={providerFilter}
+        providers={providers}
+        searchQuery={searchQuery}
+        statusFilter={statusFilter}
+        typeFilter={typeFilter}
+      />
 
       {isLoading ? (
         <PlaceholderCard>
@@ -233,7 +343,12 @@ export function TaskListView() {
         </PlaceholderCard>
       ) : tasks.length === 0 ? (
         <PlaceholderCard withDots>
-          <EmptyState onNewTask={openComposer} tourCue={tourCueLabel} />
+          <EmptyState
+            hasActiveFilters={hasActiveFilters}
+            onClearFilters={clearAllFilters}
+            onNewTask={openComposer}
+            tourCue={tourCueLabel}
+          />
         </PlaceholderCard>
       ) : (
         <TaskTable
@@ -248,6 +363,17 @@ export function TaskListView() {
           searchQuery={searchQuery}
           selectedIds={selectedIds}
           statusFilter={statusFilter}
+        />
+      )}
+
+      {data && (
+        <TaskListPagination
+          onPageChange={setPage}
+          onPageSizeChange={setPageSize}
+          page={data.page}
+          pageCount={data.pageCount}
+          pageSize={data.pageSize}
+          total={data.total}
         />
       )}
 
