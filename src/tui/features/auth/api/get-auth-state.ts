@@ -9,9 +9,12 @@ export const getAuthState = (): Promise<AuthGetStateResponse> => {
   const {apiClient} = useTransportStore.getState()
   if (!apiClient) return Promise.reject(new Error('Not connected'))
 
-  // Use 500ms timeout to fail fast if handler not ready yet
-  // React Query will retry automatically with exponential backoff
-  return apiClient.request<AuthGetStateResponse>(AuthEvents.GET_STATE, undefined, {timeout: 500})
+  // The daemon-side handler does a network round-trip to /user/me. Measured
+  // p99 across multiple networks ranges 1.2-3.1s with occasional outliers,
+  // so 4000ms gives ~1.3x headroom over the worst observed sample with
+  // margin left for slower connections (mobile, international, VPN).
+  // React Query retries once on failure for transient blips.
+  return apiClient.request<AuthGetStateResponse>(AuthEvents.GET_STATE, undefined, {timeout: 4000})
 }
 
 export const getAuthStateQueryOptions = () =>
