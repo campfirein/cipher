@@ -1037,7 +1037,8 @@ describe('ProviderHandler', () => {
         const result = await handler!({providerId: 'byterover'}, 'client-1')
 
         expect(result.success).to.be.false
-        expect(result.error).to.include('authentication')
+        expect(result.error).to.include('ByteRover account')
+        expect(result.error).to.include('brv login --api-key')
       })
 
       it('should succeed when connecting byterover with valid auth', async () => {
@@ -1069,7 +1070,8 @@ describe('ProviderHandler', () => {
         const result = await handler!({providerId: 'byterover'}, 'client-1')
 
         expect(result.success).to.be.false
-        expect(result.error).to.include('authentication')
+        expect(result.error).to.include('ByteRover account')
+        expect(result.error).to.include('brv login --api-key')
       })
 
       it('should succeed when setting byterover active with valid auth', async () => {

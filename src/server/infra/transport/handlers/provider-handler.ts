@@ -52,6 +52,17 @@ import {
   ProviderCallbackTimeoutError,
 } from '../../provider-oauth/index.js'
 
+const BYTEROVER_AUTH_REQUIRED_MESSAGE = [
+  'ByteRover Provider requires a ByteRover account.',
+  '',
+  '  • Interactive shell: brv login',
+  '  • Headless / SSH / CI: create an account at https://app.byterover.dev,',
+  '    generate an API key at https://app.byterover.dev/settings/keys, then:',
+  '      brv login --api-key <key>',
+  '',
+  'Once signed in, retry: brv providers connect byterover',
+].join('\n')
+
 async function defaultValidateOpenAICompatibleEndpoint(params: {
   apiKey: string
   baseUrl: string
@@ -257,7 +268,7 @@ export class ProviderHandler {
       const {apiKey, baseUrl, providerId} = data
 
       if (providerId === 'byterover' && !this.isByteRoverAuthSatisfied()) {
-        return {error: 'ByteRover Provider requires authentication. Run /login or brv login to sign in', success: false}
+        return {error: BYTEROVER_AUTH_REQUIRED_MESSAGE, success: false}
       }
 
       // Verify openai-compatible endpoint is reachable before persisting anything —
@@ -388,7 +399,7 @@ export class ProviderHandler {
       ProviderEvents.SET_ACTIVE,
       async (data) => {
         if (data.providerId === 'byterover' && !this.isByteRoverAuthSatisfied()) {
-          return {error: 'ByteRover Provider requires authentication. Run /login or brv login to sign in', success: false}
+          return {error: BYTEROVER_AUTH_REQUIRED_MESSAGE, success: false}
         }
 
         await this.providerConfigStore.setActiveProvider(data.providerId)
