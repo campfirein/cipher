@@ -24,6 +24,7 @@ import {toSnakeCase} from '../../../../server/utils/file-helpers.js'
 import {deriveImpactFromLoss, detectStructuralLoss} from '../../../core/domain/knowledge/conflict-detector.js'
 import {resolveStructuralLoss} from '../../../core/domain/knowledge/conflict-resolver.js'
 import {ToolName} from '../../../core/domain/tools/constants.js'
+import {getCurrentReviewDisabled} from './curate-tool-task-context.js'
 
 /**
  * Called after each successful context file write so callers can
@@ -469,7 +470,13 @@ export interface CurateOutput {
  * @param filePath - Absolute path to the context tree file being modified
  * @param basePath - Context tree base path (e.g., '.brv/context-tree')
  */
-async function backupBeforeWrite(filePath: string, basePath: string): Promise<void> {
+async function backupBeforeWrite(filePath: string, basePath: string, reviewDisabled: boolean): Promise<void> {
+  // Honor `brv review --disable`: backups exist solely to support review rejection
+  // (restore from backup). With reviews disabled, they are dead state — skip creation
+  // so review-backups/ stays empty. Snapshot taken once at executeCurate top so all
+  // ops in this tool call observe a consistent value even if the user toggles mid-task.
+  if (reviewDisabled) return
+
   try {
     const brvDir = dirname(resolve(basePath))
     const relativePath = relative(resolve(basePath), resolve(filePath))
@@ -484,6 +491,30 @@ async function backupBeforeWrite(filePath: string, basePath: string): Promise<vo
     await DirectoryManager.writeFileAtomic(backupPath, content)
   } catch {
     // Best-effort: backup failure must never block curate operations
+  }
+}
+
+/**
+ * Type guard: narrows an unknown JSON value to a shape that may carry the
+ * `reviewDisabled` flag. Used as the fallback when the agent process has no
+ * AsyncLocalStorage scope (direct sandbox callers without a TaskExecute).
+ */
+function hasReviewDisabledField(value: unknown): value is {reviewDisabled?: unknown} {
+  return typeof value === 'object' && value !== null
+}
+
+/**
+ * Reads `<brvDir>/config.json` and returns the `reviewDisabled` flag.
+ * Returns false (review enabled) on any error so a missing/corrupt config never
+ * silently swallows backups that protect the rejection path.
+ */
+async function isReviewDisabledForBrvDir(brvDir: string): Promise<boolean> {
+  try {
+    const raw = await DirectoryManager.readFile(join(brvDir, 'config.json'))
+    const parsed: unknown = JSON.parse(raw)
+    return hasReviewDisabledField(parsed) && parsed.reviewDisabled === true
+  } catch {
+    return false
   }
 }
 
@@ -880,6 +911,7 @@ function maxImpact(
 async function executeUpdate(
   basePath: string,
   operation: Operation,
+  reviewDisabled: boolean,
   onAfterWrite?: WriteCallback,
   runtimeSignalStore?: IRuntimeSignalStore,
   logger?: ILogger,
@@ -990,7 +1022,7 @@ async function executeUpdate(
       summary,
       timestamps,
     })
-    await backupBeforeWrite(contextPath, basePath)
+    await backupBeforeWrite(contextPath, basePath, reviewDisabled)
     await DirectoryManager.writeFileAtomic(contextPath, contextContent)
     onAfterWrite?.(contextPath, contextContent)
 
@@ -1031,6 +1063,7 @@ async function executeUpdate(
 async function executeUpsert(
   basePath: string,
   operation: Operation,
+  reviewDisabled: boolean,
   onAfterWrite?: WriteCallback,
   runtimeSignalStore?: IRuntimeSignalStore,
   logger?: ILogger,
@@ -1082,7 +1115,7 @@ async function executeUpsert(
 
     if (exists) {
       // File exists - delegate to UPDATE logic
-      const result = await executeUpdate(basePath, {...operation, type: 'UPDATE'}, onAfterWrite, runtimeSignalStore, logger)
+      const result = await executeUpdate(basePath, {...operation, type: 'UPDATE'}, reviewDisabled, onAfterWrite, runtimeSignalStore, logger)
       // Return with UPSERT type but indicate it was an update
       return {
         ...result,
@@ -1117,6 +1150,7 @@ async function executeUpsert(
 async function executeMerge(
   basePath: string,
   operation: Operation,
+  reviewDisabled: boolean,
   onAfterWrite?: WriteCallback,
   runtimeSignalStore?: IRuntimeSignalStore,
   logger?: ILogger,
@@ -1229,8 +1263,8 @@ async function executeMerge(
     const previousSummary = targetParsedContent.summary
 
     // Backup both files before merge modifies target and deletes source
-    await backupBeforeWrite(targetContextPath, basePath)
-    await backupBeforeWrite(sourceContextPath, basePath)
+    await backupBeforeWrite(targetContextPath, basePath, reviewDisabled)
+    await backupBeforeWrite(sourceContextPath, basePath, reviewDisabled)
 
     // Capture source sidecar signals BEFORE any destructive operation so a
     // mid-flow crash cannot leave the target unmerged with an orphaned
@@ -1321,6 +1355,7 @@ async function executeMerge(
 async function executeDelete(
   basePath: string,
   operation: Operation,
+  reviewDisabled: boolean,
   runtimeSignalStore?: IRuntimeSignalStore,
   logger?: ILogger,
 ): Promise<OperationResult> {
@@ -1358,7 +1393,7 @@ async function executeDelete(
         // Best-effort: summary extraction failure must never block delete
       }
 
-      await backupBeforeWrite(filePath, basePath)
+      await backupBeforeWrite(filePath, basePath, reviewDisabled)
       await DirectoryManager.deleteFile(filePath)
       await deleteDerivedSiblings(filePath)
 
@@ -1417,7 +1452,7 @@ async function executeDelete(
       // Best-effort: summary extraction failure must never block delete
     }
 
-    await Promise.all(mdFiles.map((f) => backupBeforeWrite(f, basePath)))
+    await Promise.all(mdFiles.map((f) => backupBeforeWrite(f, basePath, reviewDisabled)))
     await DirectoryManager.deleteTopicRecursive(fullPath)
 
     // Dual-write: drop sidecar entries for every markdown file that was
@@ -1490,8 +1525,20 @@ export async function executeCurate(
 
   const {basePath, operations} = parseResult.data
 
+  // Prefer the daemon-stamped value (snapshotted at task-create on the daemon side,
+  // forwarded via TaskExecute, opened as an AsyncLocalStorage scope in agent-process so
+  // it propagates through any async chain — direct tool call, sandbox `tools.curate(...)`
+  // via CurateService, or ingest-resource-tool). The `.brv/config.json` read is the
+  // fall-back for callers outside any scope. Sharing one value across daemon
+  // (CurateLogHandler) and agent (this tool) keeps reviewStatus and backups consistent:
+  // without it, a user toggle mid-task could mark ops as pending review (daemon snapshot
+  // held) while skipping backups (agent re-read picks up new value), making rejection
+  // un-restorable.
+  const scopedReviewDisabled = getCurrentReviewDisabled()
+  const reviewDisabled = scopedReviewDisabled ?? (await isReviewDisabledForBrvDir(dirname(resolve(basePath))))
+
   const onAfterWrite: undefined | WriteCallback = abstractQueue
-    ? (contextPath, content) => { abstractQueue.enqueue({contextPath, fullContent: content}) }
+    ? (contextPath, content) => abstractQueue.enqueue({contextPath, fullContent: content})
     : undefined
 
   const applied: OperationResult[] = []
@@ -1516,7 +1563,7 @@ export async function executeCurate(
       }
 
       case 'DELETE': {
-        result = await executeDelete(basePath, operation, runtimeSignalStore, logger)
+        result = await executeDelete(basePath, operation, reviewDisabled, runtimeSignalStore, logger)
 
         if (result.status === 'success') summary.deleted++
 
@@ -1524,7 +1571,7 @@ export async function executeCurate(
       }
 
       case 'MERGE': {
-        result = await executeMerge(basePath, operation, onAfterWrite, runtimeSignalStore, logger)
+        result = await executeMerge(basePath, operation, reviewDisabled, onAfterWrite, runtimeSignalStore, logger)
 
         if (result.status === 'success') summary.merged++
 
@@ -1532,7 +1579,7 @@ export async function executeCurate(
       }
 
       case 'UPDATE': {
-        result = await executeUpdate(basePath, operation, onAfterWrite, runtimeSignalStore, logger)
+        result = await executeUpdate(basePath, operation, reviewDisabled, onAfterWrite, runtimeSignalStore, logger)
 
         if (result.status === 'success') summary.updated++
 
@@ -1540,7 +1587,7 @@ export async function executeCurate(
       }
 
       case 'UPSERT': {
-        result = await executeUpsert(basePath, operation, onAfterWrite, runtimeSignalStore, logger)
+        result = await executeUpsert(basePath, operation, reviewDisabled, onAfterWrite, runtimeSignalStore, logger)
 
         // UPSERT counts as either added or updated based on what happened
         if (result.status === 'success') {

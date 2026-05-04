@@ -647,6 +647,135 @@ describe('CurateLogHandler', () => {
       await handlerWithBadCallback.onTaskCompleted('task-abc', 'done', makeTask())
     })
   })
+
+  // ==========================================================================
+  // reviewDisabled — `brv review --disable`
+  // ==========================================================================
+
+  describe('reviewDisabled', () => {
+    it('does not mark operations as pending review when task.reviewDisabled=true', async () => {
+      const handlerWithToggle = new CurateLogHandler(() => store)
+
+      await handlerWithToggle.onTaskCreate(makeTask({reviewDisabled: true}))
+      handlerWithToggle.onToolResult('task-abc', {
+        result: {
+          applied: [
+            {confidence: 'low', impact: 'high', needsReview: true, path: '/a.md', reason: 'uncertain', status: 'success', type: 'UPDATE'},
+            {confidence: 'high', impact: 'high', needsReview: true, path: '/b.md', reason: 'irreversible', status: 'success', type: 'DELETE'},
+          ],
+        },
+        sessionId: 'sess-1',
+        success: true,
+        taskId: 'task-abc',
+        toolName: 'curate',
+      } as never)
+
+      await handlerWithToggle.onTaskCompleted('task-abc', 'done', makeTask({reviewDisabled: true}))
+
+      const completed: CurateLogEntry = store.save.secondCall.args[0]
+      expect(completed.operations[0].reviewStatus).to.be.undefined
+      expect(completed.operations[1].reviewStatus).to.be.undefined
+    })
+
+    it('still marks operations as pending review when task.reviewDisabled=false', async () => {
+      const handlerWithToggle = new CurateLogHandler(() => store)
+
+      await handlerWithToggle.onTaskCreate(makeTask({reviewDisabled: false}))
+      handlerWithToggle.onToolResult('task-abc', {
+        result: {
+          applied: [
+            {confidence: 'low', impact: 'high', needsReview: true, path: '/a.md', status: 'success', type: 'UPDATE'},
+          ],
+        },
+        sessionId: 'sess-1',
+        success: true,
+        taskId: 'task-abc',
+        toolName: 'curate',
+      } as never)
+      await handlerWithToggle.onTaskCompleted('task-abc', 'done', makeTask({reviewDisabled: false}))
+
+      const completed: CurateLogEntry = store.save.secondCall.args[0]
+      expect(completed.operations[0].reviewStatus).to.equal('pending')
+    })
+
+    it('treats undefined task.reviewDisabled as enabled (fail-open)', async () => {
+      const handlerWithToggle = new CurateLogHandler(() => store)
+
+      await handlerWithToggle.onTaskCreate(makeTask())
+      handlerWithToggle.onToolResult('task-abc', {
+        result: {applied: [{needsReview: true, path: '/a.md', status: 'success', type: 'DELETE'}]},
+        sessionId: 'sess-1',
+        success: true,
+        taskId: 'task-abc',
+        toolName: 'curate',
+      } as never)
+      await handlerWithToggle.onTaskCompleted('task-abc', 'done', makeTask())
+
+      const completed: CurateLogEntry = store.save.secondCall.args[0]
+      expect(completed.operations[0].reviewStatus).to.equal('pending')
+    })
+
+    it('skips firing onPendingReviews callback when task.reviewDisabled=true', async () => {
+      const notifications: Array<{pendingCount: number}> = []
+      const handlerWithToggle = new CurateLogHandler(
+        () => store,
+        (info) => notifications.push({pendingCount: info.pendingCount}),
+      )
+
+      await handlerWithToggle.onTaskCreate(makeTask({reviewDisabled: true}))
+      handlerWithToggle.onToolResult('task-abc', {
+        result: {
+          applied: [{needsReview: true, path: '/a.md', status: 'success', type: 'DELETE'}],
+        },
+        sessionId: 'sess-1',
+        success: true,
+        taskId: 'task-abc',
+        toolName: 'curate',
+      } as never)
+
+      await handlerWithToggle.onTaskCompleted('task-abc', 'done', makeTask({reviewDisabled: true}))
+
+      expect(notifications).to.have.lengthOf(0)
+    })
+
+    it('reports zero pendingReviewCount via getTaskCompletionData when disabled', async () => {
+      const handlerWithToggle = new CurateLogHandler(() => store)
+
+      await handlerWithToggle.onTaskCreate(makeTask({reviewDisabled: true}))
+      handlerWithToggle.onToolResult('task-abc', {
+        result: {applied: [{needsReview: true, path: '/a.md', status: 'success', type: 'DELETE'}]},
+        sessionId: 'sess-1',
+        success: true,
+        taskId: 'task-abc',
+        toolName: 'curate',
+      } as never)
+
+      expect(handlerWithToggle.getTaskCompletionData('task-abc')).to.deep.equal({})
+    })
+
+    it('snapshots task.reviewDisabled at create time — mid-task TaskInfo mutation does not affect onToolResult', async () => {
+      const handlerWithToggle = new CurateLogHandler(() => store)
+      const task = makeTask({reviewDisabled: true})
+
+      await handlerWithToggle.onTaskCreate(task)
+
+      // Simulate user toggling between create and tool-result. The handler must
+      // ignore mutations to the original TaskInfo because it snapshotted on create.
+      task.reviewDisabled = false
+
+      handlerWithToggle.onToolResult('task-abc', {
+        result: {applied: [{needsReview: true, path: '/a.md', status: 'success', type: 'DELETE'}]},
+        sessionId: 'sess-1',
+        success: true,
+        taskId: 'task-abc',
+        toolName: 'curate',
+      } as never)
+      await handlerWithToggle.onTaskCompleted('task-abc', 'done', task)
+
+      const completed: CurateLogEntry = store.save.secondCall.args[0]
+      expect(completed.operations[0].reviewStatus).to.be.undefined
+    })
+  })
 })
 
 }) // end curate-log-handler

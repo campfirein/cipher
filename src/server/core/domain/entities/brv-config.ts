@@ -15,6 +15,7 @@ export type BrvConfigParams = {
   createdAt: string
   cwd?: string
   ide?: Agent
+  reviewDisabled?: boolean
   spaceId?: string
   spaceName?: string
   teamId?: string
@@ -88,6 +89,7 @@ const isBrvConfigJson = (json: unknown): json is BrvConfigFromJson => {
   if (obj.cipherAgentSystemPrompt !== undefined && typeof obj.cipherAgentSystemPrompt !== 'string') return false
   if (obj.cipherAgentModes !== undefined && !Array.isArray(obj.cipherAgentModes)) return false
   if (obj.version !== undefined && typeof obj.version !== 'string') return false
+  if (obj.reviewDisabled !== undefined && typeof obj.reviewDisabled !== 'boolean') return false
 
   return true
 }
@@ -104,6 +106,7 @@ export class BrvConfig {
   public readonly createdAt: string
   public readonly cwd?: string
   public readonly ide?: Agent
+  public readonly reviewDisabled?: boolean
   public readonly spaceId?: string
   public readonly spaceName?: string
   public readonly teamId?: string
@@ -122,6 +125,7 @@ export class BrvConfig {
     this.createdAt = params.createdAt
     this.cwd = params.cwd
     this.ide = params.ide
+    this.reviewDisabled = params.reviewDisabled
     this.spaceId = params.spaceId
     this.spaceName = params.spaceName
     this.teamId = params.teamId
@@ -214,6 +218,7 @@ export class BrvConfig {
       createdAt: this.createdAt,
       cwd: this.cwd,
       ide: this.ide,
+      reviewDisabled: this.reviewDisabled,
       spaceId: this.spaceId,
       spaceName: this.spaceName,
       teamId: this.teamId,
@@ -236,6 +241,27 @@ export class BrvConfig {
   }
 
   /**
+   * Creates a new BrvConfig with the reviewDisabled flag updated, preserving all other fields.
+   */
+  public withReviewDisabled(reviewDisabled: boolean): BrvConfig {
+    return new BrvConfig({
+      chatLogPath: this.chatLogPath,
+      cipherAgentContext: this.cipherAgentContext,
+      cipherAgentModes: this.cipherAgentModes,
+      cipherAgentSystemPrompt: this.cipherAgentSystemPrompt,
+      createdAt: this.createdAt,
+      cwd: this.cwd,
+      ide: this.ide,
+      reviewDisabled,
+      spaceId: this.spaceId,
+      spaceName: this.spaceName,
+      teamId: this.teamId,
+      teamName: this.teamName,
+      version: this.version,
+    })
+  }
+
+  /**
    * Creates a new BrvConfig with space fields replaced, preserving all other fields.
    */
   public withSpace(space: Space): BrvConfig {
@@ -247,6 +273,7 @@ export class BrvConfig {
       createdAt: new Date().toISOString(),
       cwd: this.cwd,
       ide: this.ide,
+      reviewDisabled: this.reviewDisabled,
       spaceId: space.id,
       spaceName: space.name,
       teamId: space.teamId,
@@ -267,6 +294,7 @@ export class BrvConfig {
       createdAt: this.createdAt,
       cwd: this.cwd,
       ide: this.ide,
+      reviewDisabled: this.reviewDisabled,
       spaceId: this.spaceId,
       spaceName: this.spaceName,
       teamId: this.teamId,
