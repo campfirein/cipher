@@ -299,12 +299,12 @@ describe('services-adapter — live write to tempdir via real executeCurate', ()
     expect(summaryLine, 'merged summary must mention SameSite fact').to.include('SameSite=Strict')
   })
 
-  // R-4 hotfix (PHASE-2.5-PLAN.md §3.1): two new facts in one batch sharing
-  // the same subject MUST consolidate into one file via the UPSERT path
-  // (which routes the second through executeUpdate's safe merge), NOT
-  // silently overwrite the first one (which would happen with type:'ADD'
-  // because executeAdd has no fileExists check — same class of bug as R-1).
-  it('two same-subject ADDs in one batch merge into ONE file via UPSERT (R-4 collision safety)', async () => {
+  // R-4 + Phase B batching (PR578-TOKEN-REGRESSION-FIX-PLAN.md §3.1):
+  // two same-subject ADDs share `(path, title)` after Phase A coarsening
+  // and now batch into ONE operation via Phase B's `byTarget` map. Both
+  // facts are emitted in the operation's `facts[]` array; one file, two
+  // facts, one write — no UPSERT-collision sequencing needed.
+  it('two same-subject ADDs in one batch produce ONE operation with both facts (Phase B batching)', async () => {
     const services = buildLiveServices({
       agent: stubAgent(),
       basePath,
@@ -318,29 +318,34 @@ describe('services-adapter — live write to tempdir via real executeCurate', ()
       },
       {
         action: 'add',
-        // SAME subject as above — would collide if both went through ADD.
+        // SAME subject as above — both decisions resolve to the same target
+        // (path: project/auth, title: auth) and Phase B batches them.
         fact: {category: 'project', statement: 'JWT tokens use httpOnly cookies', subject: 'auth'},
       },
     ])
 
-    // Both ops report success (one ADDs the file, the second UPSERTs into it).
+    // Phase B: 2 decisions → 1 batched operation.
     expect(result.summary.failed, JSON.stringify(result.applied)).to.equal(0)
-    expect(result.applied).to.have.length(2)
-    for (const op of result.applied) {
-      expect(op.status).to.equal('success')
-    }
+    expect(result.applied).to.have.length(1)
+    expect(result.applied[0].status).to.equal('success')
 
-    // The file must live at <category>/<subject>/<subject>.md (R-4 title-from-subject).
+    // The file lives at <category>/<topic>/<topic>.md where topic =
+    // derivePrefixTopic(subject). For single-token subject 'auth' the topic
+    // equals the subject — same path as legacy.
     const filePath = join(basePath, 'project', 'auth', 'auth.md')
     const content = await readFile(filePath, 'utf8')
 
-    // BOTH facts must be preserved in the merged file. If R-4 still used
-    // type:'ADD', the second would have blind-overwritten the first.
-    expect(content, 'first fact must survive collision').to.include('expire after 24 hours')
+    // BOTH facts must be present in the merged file's body.
+    expect(content, 'first fact must survive batching').to.include('expire after 24 hours')
     expect(content, 'second fact must be present').to.include('httpOnly cookies')
   })
 
-  it('R-4 derives ADD filename from fact.subject when present', async () => {
+  // Phase A coarsening (PR578 §3.1): filename is derived from the subject's
+  // FIRST underscore-token (the prefix-cluster topic), not the full subject.
+  // 'jwt_token_expiry' → topic 'jwt' → file at project/jwt/jwt.md.
+  // This collapses related subjects (jwt_token_expiry, jwt_storage, etc.)
+  // into one folder/file instead of scattering them.
+  it('Phase A derives ADD filename from subject prefix-cluster topic', async () => {
     const services = buildLiveServices({
       agent: stubAgent(),
       basePath,
@@ -354,8 +359,8 @@ describe('services-adapter — live write to tempdir via real executeCurate', ()
       },
     ])
 
-    // Filename is <subject>.md, NOT a truncation of the statement.
-    const expected = join(basePath, 'project', 'jwt_token_expiry', 'jwt_token_expiry.md')
+    // Filename is <topic>.md where topic = derivePrefixTopic('jwt_token_expiry') = 'jwt'.
+    const expected = join(basePath, 'project', 'jwt', 'jwt.md')
     await readFile(expected, 'utf8') // throws if missing — that's the assertion
   })
 
@@ -380,11 +385,15 @@ describe('services-adapter — live write to tempdir via real executeCurate', ()
       },
     ])
 
-    const filePath = join(basePath, 'project', 'jwt_expiry', 'jwt_expiry.md')
+    // After Phase A coarsening: subject 'jwt_expiry' → topic 'jwt' →
+    // path project/jwt/jwt.md. Subject 'rate_limit' → topic 'rate' →
+    // path project/rate/rate.md. Different prefixes → distinct files.
+    const filePath = join(basePath, 'project', 'jwt', 'jwt.md')
     const content = await readFile(filePath, 'utf8')
 
     // Writer uses YAML flow-style arrays (`tags: [a, b]`) per markdown-writer.ts:194.
-    // Tags: category + subject
+    // Tags/keywords still derive from the full subject (preserved in fact body),
+    // not from the coarsened topic.
     expect(content, 'tags include category').to.match(/tags:\s*\[[^\]]*\bproject\b/)
     expect(content, 'tags include subject').to.match(/tags:\s*\[[^\]]*\bjwt_expiry\b/)
 
@@ -392,8 +401,8 @@ describe('services-adapter — live write to tempdir via real executeCurate', ()
     expect(content, 'keywords include subject').to.match(/keywords:\s*\[[^\]]*\bjwt_expiry\b/)
     expect(content, 'keywords include content token').to.match(/keywords:\s*\[[^\]]*\btokens\b/)
 
-    // Relations: 3-segment path linking the sibling
-    expect(content, 'relations include sibling').to.match(/related:\s*\[[^\]]*project\/rate_limit\/rate_limit\.md/)
+    // Relations: 3-segment path to the sibling's coarsened location.
+    expect(content, 'relations include coarsened sibling').to.match(/related:\s*\[[^\]]*project\/rate\/rate\.md/)
   })
 
   // R-2 SLUG PARITY (PHASE-2.5-PLAN review P1): subjects with HYPHENS
@@ -446,7 +455,8 @@ describe('services-adapter — live write to tempdir via real executeCurate', ()
       },
     ])
 
-    const filePath = join(basePath, 'project', 'jwt_expiry', 'jwt_expiry.md')
+    // Phase A: subject 'jwt_expiry' → topic 'jwt' → file at project/jwt/jwt.md.
+    const filePath = join(basePath, 'project', 'jwt', 'jwt.md')
     const content = await readFile(filePath, 'utf8')
     expect(content, 'Reason includes cur-<id>').to.include('Curated from cur-1777347876578')
     expect(content, 'Reason includes provenance').to.include('text:"cli-text"')
@@ -469,7 +479,8 @@ describe('services-adapter — live write to tempdir via real executeCurate', ()
       {action: 'add', fact: {category: 'project', statement: 'seed fact', subject: 'shared_subject'}},
     ])
 
-    // Now an UPDATE decision with a placeholder reason from detectConflicts.
+    // Phase A: subject 'shared_subject' → topic 'shared' → file at project/shared/shared.md.
+    // The UPDATE's existingId must reference the actual on-disk path.
     const services = buildLiveServices({
       agent: stubAgent(),
       basePath,
@@ -481,13 +492,13 @@ describe('services-adapter — live write to tempdir via real executeCurate', ()
     await services.write!([
       {
         action: 'update',
-        existingId: 'project/shared_subject/shared_subject.md',
+        existingId: 'project/shared/shared.md',
         fact: {category: 'project', statement: 'new related fact', subject: 'shared_subject'},
-        reason: 'subject "shared_subject" already present at project/shared_subject/shared_subject.md',
+        reason: 'subject "shared_subject" already present at project/shared/shared.md',
       },
     ])
 
-    const filePath = join(basePath, 'project', 'shared_subject', 'shared_subject.md')
+    const filePath = join(basePath, 'project', 'shared', 'shared.md')
     const content = await readFile(filePath, 'utf8')
     // Envelope must be present (review P2 — pre-fix this was missing entirely on UPDATE).
     expect(content, 'UPDATE Reason includes cur-<id>').to.include('Curated from cur-1777347889041')
@@ -532,7 +543,7 @@ describe('services-adapter — live write to tempdir via real executeCurate', ()
   })
 
   it('NEW-1: cross-batch UPDATE merge (Scenario 4 reproducer) produces ZERO dangling related paths', async () => {
-    // Pre-seed an existing file at project/jwt_expiry/jwt_expiry.md
+    // Pre-seed an existing file at project/jwt/jwt.md (Phase A: 'jwt_expiry' → topic 'jwt').
     const seed = buildLiveServices({
       agent: stubAgent(),
       basePath,
@@ -544,9 +555,9 @@ describe('services-adapter — live write to tempdir via real executeCurate', ()
 
     // Now simulate Scenario 4 step B: 2 decisions with DIFFERENT subjects all
     // matched to the existing file by lookupSubject → both UPDATE-route to
-    // jwt_expiry.md. Their `related` would normally cross-link each other
-    // as separate sibling files; post-fix they must not.
-    const matchedExistingId = 'project/jwt_expiry/jwt_expiry.md'
+    // jwt.md. Their `related` would normally cross-link each other as separate
+    // sibling files; post-fix they must not.
+    const matchedExistingId = 'project/jwt/jwt.md'
     const services = buildLiveServices({
       agent: stubAgent(),
       basePath,
@@ -558,7 +569,7 @@ describe('services-adapter — live write to tempdir via real executeCurate', ()
       {action: 'update', existingId: matchedExistingId, fact: {category: 'project', statement: 'cookies', subject: 'jwt_storage'}},
     ])
 
-    const file = join(basePath, 'project', 'jwt_expiry', 'jwt_expiry.md')
+    const file = join(basePath, 'project', 'jwt', 'jwt.md')
     const content = await readFile(file, 'utf8')
 
     const m = content.match(/^related:\s*\[(.*?)\]/m)
@@ -568,6 +579,190 @@ describe('services-adapter — live write to tempdir via real executeCurate', ()
       // Phantom paths like 'project/jwt_storage/jwt_storage.md' would throw
       // here pre-fix. Promise.all surfaces any missing file as ENOENT.
       await Promise.all(paths.map((relPath) => readFile(join(basePath, relPath), 'utf8')))
+    }
+  })
+
+  // ────────────────────────────────────────────────────────────────────
+  // Phase A coarsening + Phase B batching (PR578-TOKEN-REGRESSION-FIX-PLAN.md)
+  // ────────────────────────────────────────────────────────────────────
+
+  it('Phase A+B: 5 different-subject auth_* facts in shared category collapse to 1 file with 5 facts', async () => {
+    const services = buildLiveServices({
+      agent: stubAgent(),
+      basePath,
+      lookupSubject: async () => [], // cold-start: no existing matches
+    })
+
+    await services.write!([
+      {action: 'add', fact: {category: 'project', statement: 'Login at /auth/login',                   subject: 'auth_login_endpoint'}},
+      {action: 'add', fact: {category: 'project', statement: 'Tokens in httpOnly cookies',             subject: 'auth_token_storage'}},
+      {action: 'add', fact: {category: 'project', statement: 'TTL 24h',                                subject: 'auth_token_expiration'}},
+      {action: 'add', fact: {category: 'project', statement: 'req.user attached after JWT decode',     subject: 'auth_handler_request_user'}},
+      {action: 'add', fact: {category: 'project', statement: 'Auth middleware runs before rate-limit', subject: 'auth_middleware_precedence'}},
+    ])
+
+    const file = join(basePath, 'project', 'auth', 'auth.md')
+    const content = await readFile(file, 'utf8')
+
+    // All five statements must be present in the merged file body.
+    expect(content).to.include('Login at /auth/login')
+    expect(content).to.include('httpOnly cookies')
+    expect(content).to.include('TTL 24h')
+    expect(content).to.include('req.user attached')
+    expect(content).to.include('runs before rate-limit')
+
+    // No sibling folders created — the 5 distinct subjects all coarsened to 'auth'.
+    const siblings = await readdir(join(basePath, 'project'))
+    expect(siblings).to.deep.equal(['auth'])
+  })
+
+  it('Phase A: different-prefix subjects stay in separate folders (no over-collapse)', async () => {
+    const services = buildLiveServices({
+      agent: stubAgent(),
+      basePath,
+      lookupSubject: async () => [],
+    })
+
+    await services.write!([
+      {action: 'add', fact: {category: 'project', statement: 'a', subject: 'auth_jwt'}},
+      {action: 'add', fact: {category: 'project', statement: 'b', subject: 'database_pg'}},
+      {action: 'add', fact: {category: 'project', statement: 'c', subject: 'cache_redis'}},
+    ])
+
+    const dirs = (await readdir(join(basePath, 'project'))).sort()
+    expect(dirs).to.deep.equal(['auth', 'cache', 'database'])
+  })
+
+  it('Phase B: mixed UPDATE+UPSERT bucket resolves to UPDATE (UPDATE wins)', async () => {
+    // Pre-seed a file at project/auth/auth.md.
+    const seed = buildLiveServices({
+      agent: stubAgent(),
+      basePath,
+      lookupSubject: async () => [],
+    })
+    await seed.write!([
+      {action: 'add', fact: {category: 'project', statement: 'pre-existing fact', subject: 'auth_existing'}},
+    ])
+
+    const services = buildLiveServices({
+      agent: stubAgent(),
+      basePath,
+      lookupSubject: async () => [],
+    })
+
+    // Both decisions resolve to (path: project/auth, title: auth) — same bucket.
+    // One has existingId (UPDATE), one is fresh (UPSERT). Type resolution: UPDATE wins.
+    await services.write!([
+      {action: 'update', existingId: 'project/auth/auth.md', fact: {category: 'project', statement: 'updated existing', subject: 'auth_existing'}},
+      {action: 'add',                                          fact: {category: 'project', statement: 'new related fact', subject: 'auth_new'}},
+    ])
+
+    const content = await readFile(join(basePath, 'project', 'auth', 'auth.md'), 'utf8')
+    // The pre-existing fact survives R-1 merge (UPDATE path was taken).
+    expect(content, 'pre-existing fact preserved by R-1 merge').to.include('pre-existing fact')
+    // The new fact was added in the same operation.
+    expect(content, 'new fact present').to.include('new related fact')
+  })
+
+  it('Phase B: per-fact reason envelopes preserved in joined reason field (R-3)', async () => {
+    const services = buildLiveServices({
+      agent: stubAgent(),
+      basePath,
+      logId: 'cur-batch-reason',
+      lookupSubject: async () => [],
+      provenance: {name: 'cli-text', type: 'text'},
+      taskId: 'task-batch-reason',
+    })
+
+    // Three different-subject decisions that all coarsen to project/auth/auth.md.
+    await services.write!([
+      {action: 'add', fact: {category: 'project', statement: 'first auth fact',  subject: 'auth_alpha'}},
+      {action: 'add', fact: {category: 'project', statement: 'second auth fact', subject: 'auth_beta'}},
+      {action: 'add', fact: {category: 'project', statement: 'third auth fact',  subject: 'auth_gamma'}},
+    ])
+
+    const content = await readFile(join(basePath, 'project', 'auth', 'auth.md'), 'utf8')
+    // The per-fact envelope text appears for each subject — joined-newlines
+    // preserved each decision's R-3 audit trail.
+    expect(content, 'envelope mentions auth_alpha').to.include('"auth_alpha"')
+    expect(content, 'envelope mentions auth_beta').to.include('"auth_beta"')
+    expect(content, 'envelope mentions auth_gamma').to.include('"auth_gamma"')
+    // All envelopes share the same correlation id (one curate run).
+    const occurrences = content.split('Curated from cur-batch-reason').length - 1
+    expect(occurrences, 'one envelope per decision in the bucket').to.equal(3)
+  })
+
+  it('Phase A+B: handles empty, undefined, and underscore-only subjects (resolves review-block #3)', async () => {
+    const services = buildLiveServices({
+      agent: stubAgent(),
+      basePath,
+      lookupSubject: async () => [],
+    })
+    await services.write!([
+      {action: 'add', fact: {category: 'project', statement: 'a', subject: ''}},
+      {action: 'add', fact: {category: 'project', statement: 'b', subject: undefined}},
+      {action: 'add', fact: {category: 'project', statement: 'c', subject: '_'}},
+    ])
+    // All three derive topic = undefined → fall back to 'misc'.
+    const file = join(basePath, 'project', 'misc', 'misc.md')
+    const content = await readFile(file, 'utf8')
+    expect(content).to.include('a')
+    expect(content).to.include('b')
+    expect(content).to.include('c')
+  })
+
+  it('Phase A: same prefix in different categories stays in separate folders (resolves review-block #5)', async () => {
+    const services = buildLiveServices({
+      agent: stubAgent(),
+      basePath,
+      lookupSubject: async () => [],
+    })
+    await services.write!([
+      {action: 'add', fact: {category: 'project',    statement: 'project auth fact',    subject: 'auth_jwt'}},
+      {action: 'add', fact: {category: 'convention', statement: 'convention auth fact', subject: 'auth_jwt'}},
+    ])
+    // Same prefix-topic, different category → different paths, no batching.
+    await readFile(join(basePath, 'project',    'auth', 'auth.md'), 'utf8') // throws if missing
+    await readFile(join(basePath, 'convention', 'auth', 'auth.md'), 'utf8') // throws if missing
+  })
+
+  it('Phase B: large bucket — 8 same-prefix facts UPDATE existing file without R-1 structural loss (resolves review-block #4)', async () => {
+    // Pre-seed file with 2 existing facts (both 'auth_existing_*' subjects coarsen to project/auth/auth.md).
+    const seed = buildLiveServices({
+      agent: stubAgent(),
+      basePath,
+      lookupSubject: async () => [],
+    })
+    await seed.write!([
+      {action: 'add', fact: {category: 'project', statement: 'pre-existing fact A', subject: 'auth_existing_a'}},
+      {action: 'add', fact: {category: 'project', statement: 'pre-existing fact B', subject: 'auth_existing_b'}},
+    ])
+
+    const services = buildLiveServices({
+      agent: stubAgent(),
+      basePath,
+      lookupSubject: async () => [],
+    })
+
+    // 2 UPDATE + 6 ADD, all coarsen to project/auth/auth.md → bucket of size 8.
+    // Bucket contains UPDATE → operation type is UPDATE → executeUpdate runs R-1
+    // structural-loss merge over all 8 facts.
+    await services.write!([
+      {action: 'update', existingId: 'project/auth/auth.md', fact: {category: 'project', statement: 'updated A', subject: 'auth_existing_a'}},
+      {action: 'update', existingId: 'project/auth/auth.md', fact: {category: 'project', statement: 'updated B', subject: 'auth_existing_b'}},
+      ...['c', 'd', 'e', 'f', 'g', 'h'].map((suffix) => ({
+        action: 'add' as const,
+        fact: {category: 'project' as const, statement: `new fact ${suffix}`, subject: `auth_new_${suffix}`},
+      })),
+    ])
+
+    const content = await readFile(join(basePath, 'project', 'auth', 'auth.md'), 'utf8')
+    // Pre-existing facts survive the merge (R-1 structural-loss handling).
+    expect(content, 'pre-existing fact A survived R-1 merge').to.match(/pre-existing fact A|updated A/)
+    expect(content, 'pre-existing fact B survived R-1 merge').to.match(/pre-existing fact B|updated B/)
+    // All 6 new facts are present.
+    for (const suffix of ['c', 'd', 'e', 'f', 'g', 'h']) {
+      expect(content, `new fact ${suffix} present`).to.include(`new fact ${suffix}`)
     }
   })
 })

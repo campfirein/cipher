@@ -101,6 +101,30 @@ function parseExistingIdForUpdate(existingId: string): undefined | {path: string
   return {path, title}
 }
 
+/**
+ * Phase A coarsening (PR578-TOKEN-REGRESSION-FIX-PLAN.md §3.1) — derive a
+ * topic from a subject's first underscore-token. Replaces the old per-subject
+ * topic derivation that scattered conceptually-related facts into distinct
+ * folders (e.g. `auth_login_endpoint`, `auth_token_storage` → 2 folders).
+ *
+ *   "auth_login_endpoint" → "auth"
+ *   "rate_limit_default"  → "rate"
+ *   "redis"               → "redis"   (single-token: unchanged)
+ *   "_foo"                → "foo"     (filter drops empty leading segment)
+ *   ""                    → undefined (caller falls back to 'misc')
+ *   undefined             → undefined (caller falls back to 'misc')
+ *
+ * Why first-token: the LLM extractor consistently uses snake_case subjects
+ * where the first segment is the conceptual category. First-token clustering
+ * preserves that grouping deterministically, no LLM call required. Subsequent
+ * same-prefix curates land in the same folder by construction (same input →
+ * same path).
+ */
+function derivePrefixTopic(subject: string | undefined): string | undefined {
+  if (!subject) return undefined
+  return subject.split('_').find(Boolean)
+}
+
 function parseFactsFromLlmResponse(content: string): ExtractedFact[] {
   // Strip code fences if the LLM wrapped the JSON despite instructions.
   const cleaned = content
@@ -232,47 +256,31 @@ export function buildLiveServices(deps: BuildLiveServicesDeps): NodeServices {
       // `domain/topic/subtopic` (2-3 segments) — see curate-tool.ts:689.
       // A single segment like "auth" is rejected with "Invalid path format".
       //
-      // ADD path: derive both segments from the fact:
-      //   - domain = fact.category (or 'extracted' for facts without
-      //     a category — Phase 2 may add LLM-driven domain inference)
-      //   - topic  = fact.subject  (or 'misc' if missing)
-      //   - title  = short human label from the statement (curate-tool
-      //              snake-cases it into the leaf file name)
-      //
       // UPDATE path: honor `existingId` (the path of the matched existing
       // file, supplied by detectConflicts via the existing-memory loader).
       // executeUpdate looks up `${path}/${snake_case(title)}.md`, so we
       // must split existingId back into path + title rather than deriving
-      // a fresh title from the new statement (which would point to a file
-      // that doesn't exist).
+      // a fresh title (which would point to a file that doesn't exist).
       //
-      // NEW-1 (PHASE-2.6-PLAN.md §3.2): two-pass shape — Pass 1 resolves
-      // each decision's target (path,title); Pass 2 builds operations and
-      // computes `relations` via deriveRelatedFromResolved, which knows
-      // when two decisions resolve to the same on-disk file (UPSERT
-      // collision OR cross-batch UPDATE merge) and filters those out so
-      // `related` never references a file that won't be materialized.
+      // ADD/UPSERT path (Phase A coarsening, PR578 fix plan §3.1):
+      //   - domain = fact.category (or 'extracted' for uncategorized facts)
+      //   - topic  = derivePrefixTopic(fact.subject) (first underscore-token)
+      //              or 'misc' when subject is missing
+      //   - title  = topic (so multiple subjects sharing a prefix collide
+      //              on the same target file at `${domain}/${topic}/${topic}.md`)
       //
-      // We also set `summary` since it's required for ADD/UPDATE per the
-      // OperationSchema description in curate-tool.ts.
-      const deriveTitle = (d: typeof decisions[number]): string => {
-        // R-4 (PHASE-2.5-PLAN.md §3.1): derive title from `fact.subject`
-        // when present — it's a clean snake_case slug the LLM already
-        // extracted, so the file naturally lives at <domain>/<subject>/<subject>.md
-        // (matching the topic folder). Falls back to a word-boundary
-        // truncation of statement when subject is missing.
-        if (d.fact.subject) return d.fact.subject
-        const words = d.fact.statement.split(/\s+/)
-        const out: string[] = []
-        let len = 0
-        for (const w of words) {
-          if (len + w.length > 60) break
-          out.push(w)
-          len += w.length + 1
-        }
-
-        return out.join(' ').trim() || 'fact'
-      }
+      // Two-pass shape (NEW-1, PHASE-2.6-PLAN §3.2):
+      //   Pass 1 resolves each decision's (path, title, type).
+      //   Pass 2 (Phase B batching, PR578 §3.1): groups resolved[] by
+      //          `${path}/${title}` and emits one operation per bucket
+      //          with merged facts/keywords/tags/relations/reasons.
+      //          deriveRelatedFromResolved is unioned across the bucket so
+      //          cross-links never reference non-materialized files.
+      //
+      // R-4 / NEW-2 UPSERT consolidation is unchanged in spirit but operates
+      // on a coarser key. Same-prefix subjects (e.g. 'auth_login_endpoint',
+      // 'auth_token_storage') now share path+title and batch in Pass 2.
+      // Cross-prefix subjects stay in distinct folders.
 
       // Pass 1: resolve target path/title/type for every decision.
       const resolved: Array<ResolvedDecision & {type: 'ADD' | 'UPDATE' | 'UPSERT'}> = decisions.map((d) => {
@@ -284,57 +292,81 @@ export function buildLiveServices(deps: BuildLiveServicesDeps): NodeServices {
           return {decision: d, path: updateTarget.path, title: updateTarget.title, type: 'UPDATE'}
         }
 
-        // R-4 (PHASE-2.5-PLAN.md §3.1) + NEW-2 (PHASE-2.6-PLAN.md §3.3 —
-        // accepted behavior): use UPSERT instead of ADD so two facts in
-        // the same batch with the same subject (which would target identical
-        // paths post-R-4) consolidate via executeUpdate's safe merge path
-        // (R-1 machinery) instead of silently overwriting (executeAdd has
-        // no fileExists check).
-        //
-        // UPSERT consolidation is INTENTIONAL: when detectConflicts'
-        // lookupSubject fuzzy-matches multiple distinct subjects to the
-        // same existing file (e.g. 'jwt_storage', 'jwt_ttl' both match an
-        // existing JWT entry), all of them merge into that single file via
-        // R-1's structural-loss resolution. Phase 3 UAT showed split-into-
-        // siblings; Phase 4+ shows merge-into-one. The merge behavior is
-        // more consistent with the lookupSubject contract and reduces
-        // fragmentation for tightly-coupled concepts. If sibling-split
-        // becomes desirable for some categories, that's a Phase 6+
-        // enhancement (subject-distinctness threshold).
         const domain = d.fact.category ?? 'extracted'
-        const topic = d.fact.subject ?? 'misc'
-        return {decision: d, path: `${domain}/${topic}`, title: deriveTitle(d), type: 'UPSERT'}
+        const topic = derivePrefixTopic(d.fact.subject) ?? 'misc'
+        return {decision: d, path: `${domain}/${topic}`, title: topic, type: 'UPSERT'}
       })
 
-      // Pass 2: build operations. `relations` uses deriveRelatedFromResolved
-      // so cross-links never point at non-materialized files.
-      const operations = resolved.map((r) => ({
-        confidence: 'high' as const,
-        content: {
-          facts: [
-            {
-              category: r.decision.fact.category,
-              statement: r.decision.fact.statement,
-              subject: r.decision.fact.subject,
-            },
-          ],
-          // R-2 (PHASE-2.5-PLAN.md §3.3): deterministic metadata derivation
-          // from data already in hand. No LLM call.
-          keywords: deriveKeywords(r.decision.fact),
-          relations: deriveRelatedFromResolved(r, resolved),
-          tags: deriveTags(r.decision.fact),
-        },
-        impact: 'low' as const,
-        path: r.path,
-        // R-3 (PHASE-2.5-PLAN.md §3.4): build the provenance envelope with
-        // cur-<logId> + source provenance + statement preview. d.reason
-        // (if present, e.g. UPDATE conflict-detector placeholder) is
-        // appended as `Decision: <text>` INSIDE the envelope, never bypasses it.
-        reason: buildReason(r.decision, deps.taskId, deps.logId, provenance),
-        summary: r.decision.fact.statement.slice(0, 200),
-        title: r.title,
-        type: r.type,
-      }))
+      // Pass 2 (Phase B): aggregate decisions by (path, title) → one operation
+      // per target file with merged `facts`. Phase A's coarsening produces
+      // the collisions; Phase B consumes them.
+      const targetKey = (r: typeof resolved[number]): string => `${r.path}/${r.title}`
+
+      const byTarget = new Map<string, Array<typeof resolved[number]>>()
+      for (const r of resolved) {
+        const key = targetKey(r)
+        const bucket = byTarget.get(key) ?? []
+        bucket.push(r)
+        byTarget.set(key, bucket)
+      }
+
+      const operations = [...byTarget.values()].map((rs) => {
+        // Type resolution: UPDATE wins over UPSERT. A bucket can mix UPDATE
+        // (existingId hit, R-1 merge contract) with UPSERT (new path, fresh
+        // write). UPDATE must take precedence so executeUpdate's structural-
+        // loss merge runs.
+        const type: 'ADD' | 'UPDATE' | 'UPSERT' = rs.some((r) => r.type === 'UPDATE') ? 'UPDATE' : rs[0].type
+        const primary = rs[0]
+
+        const facts = rs.map((r) => ({
+          category: r.decision.fact.category,
+          statement: r.decision.fact.statement,
+          subject: r.decision.fact.subject,
+        }))
+
+        // R-2 (PHASE-2.5-PLAN §3.3): deterministic metadata derivation. No
+        // LLM call. Union keywords/tags across the bucket; cap keywords at 8
+        // (existing schema limit, see metadata-derivers.ts).
+        const keywords = [...new Set(rs.flatMap((r) => deriveKeywords(r.decision.fact)))].slice(0, 8)
+        const tags = [...new Set(rs.flatMap((r) => deriveTags(r.decision.fact)))]
+
+        // NEW-1: union relations across all bucket members so cross-link
+        // coverage isn't lost. deriveRelatedFromResolved already filters to
+        // materialized files, so cross-batch UPDATE merges remain correct.
+        const relations = [...new Set(rs.flatMap((r) => deriveRelatedFromResolved(r, resolved)))]
+
+        // R-3 (PHASE-2.5-PLAN §3.4): join per-fact reason envelopes with
+        // newlines so each decision's audit-trail context survives. `reason`
+        // is written to the markdown body's `## Reason` section
+        // (markdown-writer.ts:550-552), NOT to YAML frontmatter — multi-line
+        // strings are safe.
+        const reason = rs
+          .map((r) => buildReason(r.decision, deps.taskId, deps.logId, provenance))
+          .join('\n')
+
+        // Summary is a machine-facing preview; truncation mid-statement after
+        // join is intentional. Reviewers read `## Reason` for full context.
+        const summary = facts
+          .map((f) => f.statement)
+          .join('; ')
+          .slice(0, 200)
+
+        // Phase-6+ enhancement (deferred): if rs.length exceeds ~20, consider
+        // splitting back to per-subject buckets to bound executeUpdate's
+        // structural-loss work. Empirically buckets are <10 facts; not gating
+        // the initial fix.
+
+        return {
+          confidence: 'high' as const,
+          content: {facts, keywords, relations, tags},
+          impact: 'low' as const,
+          path: primary.path,
+          reason,
+          summary,
+          title: primary.title,
+          type,
+        }
+      })
 
       const result = await executeCurate({basePath: deps.basePath, operations})
 
