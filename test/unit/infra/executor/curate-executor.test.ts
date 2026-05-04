@@ -14,6 +14,33 @@ import {restore, stub} from 'sinon'
 import type {ICipherAgent} from '../../../../src/agent/core/interfaces/i-cipher-agent.js'
 
 import {LocalSandbox} from '../../../../src/agent/infra/sandbox/local-sandbox.js'
+
+/**
+ * Mock cipher agent used by the runAgentBody / finalize split tests.
+ * Hoisted to module scope (consistent-function-scoping lint rule).
+ */
+function buildSplitTestAgent(): ICipherAgent {
+  return {
+    cancel: stub().resolves(false),
+    createTaskSession: stub().resolves('session-id'),
+    deleteSandboxVariable: stub(),
+    deleteSandboxVariableOnSession: stub(),
+    deleteSession: stub().resolves(true),
+    deleteTaskSession: stub().resolves(),
+    execute: stub().resolves(''),
+    executeOnSession: stub().resolves('curated'),
+    generate: stub().resolves({content: '', toolCalls: [], usage: {inputTokens: 0, outputTokens: 0}}),
+    getSessionMetadata: stub().resolves(),
+    getState: stub().returns({currentIteration: 0, executionHistory: [], executionState: 'idle', toolCallsExecuted: 0}),
+    listPersistedSessions: stub().resolves([]),
+    reset: stub(),
+    setSandboxVariable: stub(),
+    setSandboxVariableOnSession: stub(),
+    start: stub().resolves(),
+    stream: stub().resolves({[Symbol.asyncIterator]: () => ({next: () => Promise.resolve({done: true, value: undefined})})}),
+  } as unknown as ICipherAgent
+}
+
 import {FileValidationError} from '../../../../src/server/core/domain/errors/task-error.js'
 import {FileContextTreeManifestService} from '../../../../src/server/infra/context-tree/file-context-tree-manifest-service.js'
 import {FileContextTreeSnapshotService} from '../../../../src/server/infra/context-tree/file-context-tree-snapshot-service.js'
@@ -373,6 +400,93 @@ describe('CurateExecutor (regression)', () => {
       expect(promptArg).to.include('Recon already computed in')
       expect(promptArg).to.include(expectedReconVar)
       expect(promptArg).to.include('Do NOT call tools.curation.recon')
+    })
+  })
+
+  describe('runAgentBody / finalize split', () => {
+    // runAgentBody must return the response BEFORE Phase 4 runs so the daemon
+    // can fire `task:completed` early and queue finalize for background work.
+    // Under cascade-defer (ENG-2485), Phase 4 is enqueueStaleSummaryPaths +
+    // buildManifest — it must NEVER call propagateStaleness inline.
+
+    it('returns the agent response without running Phase 4 first', async () => {
+      const agent = buildSplitTestAgent()
+      stub(FileContextTreeSnapshotService.prototype, 'getCurrentState')
+        .onFirstCall()
+        .resolves(new Map())
+        .onSecondCall()
+        .resolves(new Map([['auth/jwt.md', {hash: 'h', size: 1}]]))
+      const propagateStalenessStub = stub(
+        FileContextTreeSummaryService.prototype,
+        'propagateStaleness',
+      ).resolves([])
+      const buildManifestStub = stub(FileContextTreeManifestService.prototype, 'buildManifest').resolves()
+      const enqueueStub = stub(DreamStateService.prototype, 'enqueueStaleSummaryPaths').resolves()
+      stub(DreamStateService.prototype, 'incrementCurationCount').resolves()
+
+      const executor = new CurateExecutor()
+      const {finalize, response} = await executor.runAgentBody(agent, {
+        clientCwd: '/p',
+        content: 'capture',
+        projectRoot: '/p',
+        taskId: 't1',
+      })
+
+      // Phase 4 must NOT have run yet — response was returned immediately.
+      expect(response).to.equal('curated')
+      expect(enqueueStub.called).to.be.false
+      expect(buildManifestStub.called).to.be.false
+      expect((agent.deleteTaskSession as ReturnType<typeof stub>).called).to.be.false
+
+      // finalize() runs Phase 4: enqueue + manifest rebuild + session cleanup.
+      // ENG-2485 invariant: propagateStaleness MUST NOT run on the curate path.
+      await finalize()
+      expect(enqueueStub.calledOnce).to.be.true
+      expect(buildManifestStub.calledOnce).to.be.true
+      expect(propagateStalenessStub.called).to.be.false
+      expect((agent.deleteTaskSession as ReturnType<typeof stub>).calledOnce).to.be.true
+    })
+
+    it('cleans up the task session if the agent body throws (no finalize returned)', async () => {
+      const agent = buildSplitTestAgent()
+      ;(agent.executeOnSession as ReturnType<typeof stub>).rejects(new Error('agent failed'))
+
+      const executor = new CurateExecutor()
+      try {
+        await executor.runAgentBody(agent, {clientCwd: '/p', content: 'x', taskId: 't2'})
+        expect.fail('should have thrown')
+      } catch (error) {
+        expect((error as Error).message).to.equal('agent failed')
+      }
+
+      // Even on agent body failure, the session must be cleaned up — no leak.
+      expect((agent.deleteTaskSession as ReturnType<typeof stub>).calledOnceWithExactly('session-id')).to.be.true
+    })
+
+    it('executeWithAgent (backwards-compat wrapper) still runs Phase 4 inline before returning', async () => {
+      const agent = buildSplitTestAgent()
+      stub(FileContextTreeSnapshotService.prototype, 'getCurrentState')
+        .onFirstCall()
+        .resolves(new Map())
+        .onSecondCall()
+        .resolves(new Map([['auth/jwt.md', {hash: 'h', size: 1}]]))
+      stub(FileContextTreeSummaryService.prototype, 'propagateStaleness').resolves([])
+      stub(FileContextTreeManifestService.prototype, 'buildManifest').resolves()
+      const enqueueStub = stub(DreamStateService.prototype, 'enqueueStaleSummaryPaths').resolves()
+      stub(DreamStateService.prototype, 'incrementCurationCount').resolves()
+
+      const executor = new CurateExecutor()
+      const result = await executor.executeWithAgent(agent, {
+        clientCwd: '/p',
+        content: 'x',
+        projectRoot: '/p',
+        taskId: 't3',
+      })
+
+      expect(result).to.equal('curated')
+      // Wrapper awaits finalize internally — cascade-defer enqueue ran by the
+      // time we get here.
+      expect(enqueueStub.calledOnce).to.be.true
     })
   })
 })

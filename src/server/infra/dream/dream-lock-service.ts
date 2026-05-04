@@ -10,10 +10,9 @@ type DreamLockServiceOptions = {
 }
 
 /**
- * PID-based lock for dream execution.
- *
- * Lock file contains the owning process PID. Staleness is determined by mtime.
- * Uses write-then-verify to handle race conditions between concurrent acquirers.
+ * PID-based file lock for context-tree writers (dream and curate's detached
+ * post-work). Lock file holds the owner PID; staleness is mtime-based. Uses
+ * write-then-verify to settle races between concurrent acquirers.
  */
 export class DreamLockService {
   private readonly lockFilePath: string

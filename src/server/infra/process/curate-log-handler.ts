@@ -16,6 +16,13 @@ type TaskState = {
   entry: CurateLogEntry
   operations: CurateLogOperation[]
   projectPath: string
+  /**
+   * Snapshot of the project's `reviewDisabled` flag captured at task-create time.
+   * Held for the task lifetime so onToolResult and onTaskCompleted observe a single value
+   * even if the user toggles it mid-task. Sourced from `task.reviewDisabled`, which the
+   * daemon stamps once at the task-create boundary.
+   */
+  reviewDisabled: boolean
 }
 
 const CURATE_TASK_TYPES = ['curate', 'curate-folder'] as const
@@ -96,6 +103,9 @@ export class CurateLogHandler implements ITaskLifecycleHook {
   /**
    * @param createStore - Optional factory for testing. Default: FileCurateLogStore.
    * @param onPendingReviews - Optional callback fired when curate completes with pending review ops.
+   *
+   * Whether reviews are disabled is read directly from `task.reviewDisabled` (snapshotted by
+   * the daemon at task-create time). Undefined means review enabled (fail-open).
    */
   constructor(
     private readonly createStore?: (projectPath: string) => ICurateLogStore,
@@ -210,7 +220,8 @@ export class CurateLogHandler implements ITaskLifecycleHook {
     // Caching `entry` here lets onTaskCompleted/onTaskError rebuild the final entry
     // without a getById round-trip — so completion is never lost even if this initial
     // save fails.
-    this.tasks.set(task.taskId, {entry, operations: [], projectPath: task.projectPath})
+    const reviewDisabled = task.reviewDisabled ?? false
+    this.tasks.set(task.taskId, {entry, operations: [], projectPath: task.projectPath, reviewDisabled})
     this.activeTaskCount.set(task.projectPath, (this.activeTaskCount.get(task.projectPath) ?? 0) + 1)
 
     // Fire-and-forget: logId is already known, save is best-effort.
@@ -252,7 +263,7 @@ export class CurateLogHandler implements ITaskLifecycleHook {
 
     const ops = extractCurateOperations(payload)
     for (const op of ops) {
-      if (op.needsReview && op.status === 'success') {
+      if (op.needsReview && op.status === 'success' && !state.reviewDisabled) {
         op.reviewStatus = 'pending'
       }
 
