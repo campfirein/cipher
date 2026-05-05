@@ -202,7 +202,7 @@ function convertAssistantMessage(msg: InternalMessage): ModelMessage | undefined
 
   // Reasoning must come first — providers that consume it expect it at the
   // start of the assistant turn, before any text/tool-call output.
-  if (hasReasoning && msg.reasoning) {
+  if (msg.reasoning) {
     parts.push({text: msg.reasoning, type: 'reasoning'})
   }
 

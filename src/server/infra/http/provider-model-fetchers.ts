@@ -552,7 +552,11 @@ export class ChatBasedModelFetcher implements IProviderModelFetcher {
             continue
           }
 
-          // Other axios errors (429, 5xx, network timeouts) mean the key was accepted.
+          // Axios errors that are not 401/403/400/404 (e.g. 429, 5xx, or
+          // network-level errors with no response like ECONNREFUSED) are
+          // treated as "key accepted" — either auth was passed (429/5xx) or
+          // we can't determine otherwise (no response). Optimistic: prefer a
+          // false-positive valid over a false-negative invalid.
           return {isValid: true}
         }
 

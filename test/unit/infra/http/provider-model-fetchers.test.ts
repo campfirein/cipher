@@ -163,96 +163,96 @@ describe('OpenAIModelFetcher', () => {
     // glm-4.7 isn't on the coding-plan tier but glm-4.5 is.
 
     afterEach(() => {
-    restore()
-  })
+      restore()
+    })
 
-  it('returns isValid:true on the first model that succeeds', async () => {
-    const post = stub(axios, 'post').resolves({data: {}, status: 200})
-    const fetcher = new ChatBasedModelFetcher('https://api.example.com/v1', 'X', ['model-a', 'model-b'])
+    it('returns isValid:true on the first model that succeeds', async () => {
+      const post = stub(axios, 'post').resolves({data: {}, status: 200})
+      const fetcher = new ChatBasedModelFetcher('https://api.example.com/v1', 'X', ['model-a', 'model-b'])
 
-    const result = await fetcher.validateApiKey('sk-good')
-    expect(result).to.deep.equal({isValid: true})
-    expect(post.callCount).to.equal(1)
-  })
+      const result = await fetcher.validateApiKey('sk-good')
+      expect(result).to.deep.equal({isValid: true})
+      expect(post.callCount).to.equal(1)
+    })
 
-  it('skips a 400 model-not-found and retries with the next model', async () => {
-    const post = stub(axios, 'post')
-    post.onFirstCall().rejects(makeAxiosErr(400))
-    post.onSecondCall().resolves({data: {}, status: 200})
-    const fetcher = new ChatBasedModelFetcher('https://api.z.ai/api/coding/paas/v4', 'GLM Coding Plan', ['glm-4.7', 'glm-4.5'])
+    it('skips a 400 model-not-found and retries with the next model', async () => {
+      const post = stub(axios, 'post')
+      post.onFirstCall().rejects(makeAxiosErr(400))
+      post.onSecondCall().resolves({data: {}, status: 200})
+      const fetcher = new ChatBasedModelFetcher('https://api.z.ai/api/coding/paas/v4', 'GLM Coding Plan', ['glm-4.7', 'glm-4.5'])
 
-    const result = await fetcher.validateApiKey('sk-good')
-    expect(result).to.deep.equal({isValid: true})
-    expect(post.callCount).to.equal(2)
-  })
+      const result = await fetcher.validateApiKey('sk-good')
+      expect(result).to.deep.equal({isValid: true})
+      expect(post.callCount).to.equal(2)
+    })
 
-  it('skips 404 model-not-found and retries', async () => {
-    const post = stub(axios, 'post')
-    post.onFirstCall().rejects(makeAxiosErr(404))
-    post.onSecondCall().resolves({data: {}, status: 200})
-    const fetcher = new ChatBasedModelFetcher('https://api.example.com/v1', 'X', ['a', 'b'])
+    it('skips 404 model-not-found and retries', async () => {
+      const post = stub(axios, 'post')
+      post.onFirstCall().rejects(makeAxiosErr(404))
+      post.onSecondCall().resolves({data: {}, status: 200})
+      const fetcher = new ChatBasedModelFetcher('https://api.example.com/v1', 'X', ['a', 'b'])
 
-    const result = await fetcher.validateApiKey('sk-good')
-    expect(result.isValid).to.equal(true)
-    expect(post.callCount).to.equal(2)
-  })
+      const result = await fetcher.validateApiKey('sk-good')
+      expect(result.isValid).to.equal(true)
+      expect(post.callCount).to.equal(2)
+    })
 
-  it('returns isValid:false on 401 even if later models would have worked', async () => {
-    const post = stub(axios, 'post').rejects(makeAxiosErr(401))
-    const fetcher = new ChatBasedModelFetcher('https://api.example.com/v1', 'X', ['a', 'b'])
+    it('returns isValid:false on 401 even if later models would have worked', async () => {
+      const post = stub(axios, 'post').rejects(makeAxiosErr(401))
+      const fetcher = new ChatBasedModelFetcher('https://api.example.com/v1', 'X', ['a', 'b'])
 
-    const result = await fetcher.validateApiKey('sk-bad')
-    expect(result.error).to.equal('Invalid API key')
-    expect(result.isValid).to.equal(false)
-    expect(post.callCount).to.equal(1) // short-circuits, doesn't try b
-  })
+      const result = await fetcher.validateApiKey('sk-bad')
+      expect(result.error).to.equal('Invalid API key')
+      expect(result.isValid).to.equal(false)
+      expect(post.callCount).to.equal(1) // short-circuits, doesn't try b
+    })
 
-  it('returns isValid:false on 403', async () => {
-    stub(axios, 'post').rejects(makeAxiosErr(403))
-    const fetcher = new ChatBasedModelFetcher('https://api.example.com/v1', 'X', ['a'])
+    it('returns isValid:false on 403', async () => {
+      stub(axios, 'post').rejects(makeAxiosErr(403))
+      const fetcher = new ChatBasedModelFetcher('https://api.example.com/v1', 'X', ['a'])
 
-    const result = await fetcher.validateApiKey('sk-no-perm')
-    expect(result.error).to.equal('API key does not have required permissions')
-    expect(result.isValid).to.equal(false)
-  })
+      const result = await fetcher.validateApiKey('sk-no-perm')
+      expect(result.error).to.equal('API key does not have required permissions')
+      expect(result.isValid).to.equal(false)
+    })
 
-  it('treats 429 (rate limit) as key-accepted', async () => {
-    stub(axios, 'post').rejects(makeAxiosErr(429))
-    const fetcher = new ChatBasedModelFetcher('https://api.example.com/v1', 'X', ['a'])
+    it('treats 429 (rate limit) as key-accepted', async () => {
+      stub(axios, 'post').rejects(makeAxiosErr(429))
+      const fetcher = new ChatBasedModelFetcher('https://api.example.com/v1', 'X', ['a'])
 
-    const result = await fetcher.validateApiKey('sk-rate-limited')
-    expect(result).to.deep.equal({isValid: true})
-  })
+      const result = await fetcher.validateApiKey('sk-rate-limited')
+      expect(result).to.deep.equal({isValid: true})
+    })
 
-  it('treats 5xx as key-accepted (server-side issue, not auth)', async () => {
-    stub(axios, 'post').rejects(makeAxiosErr(503))
-    const fetcher = new ChatBasedModelFetcher('https://api.example.com/v1', 'X', ['a'])
+    it('treats 5xx as key-accepted (server-side issue, not auth)', async () => {
+      stub(axios, 'post').rejects(makeAxiosErr(503))
+      const fetcher = new ChatBasedModelFetcher('https://api.example.com/v1', 'X', ['a'])
 
-    const result = await fetcher.validateApiKey('sk-good')
-    expect(result.isValid).to.equal(true)
-  })
+      const result = await fetcher.validateApiKey('sk-good')
+      expect(result.isValid).to.equal(true)
+    })
 
-  it('returns isValid:false with last error if all models 400/404', async () => {
-    const post = stub(axios, 'post')
-    post.onFirstCall().rejects(makeAxiosErr(400))
-    post.onSecondCall().rejects(makeAxiosErr(404))
-    const fetcher = new ChatBasedModelFetcher('https://api.example.com/v1', 'X', ['a', 'b'])
+    it('returns isValid:false with last error if all models 400/404', async () => {
+      const post = stub(axios, 'post')
+      post.onFirstCall().rejects(makeAxiosErr(400))
+      post.onSecondCall().rejects(makeAxiosErr(404))
+      const fetcher = new ChatBasedModelFetcher('https://api.example.com/v1', 'X', ['a', 'b'])
 
-    const result = await fetcher.validateApiKey('sk-???')
-    expect(result.isValid).to.equal(false)
-    expect(post.callCount).to.equal(2)
-  })
+      const result = await fetcher.validateApiKey('sk-???')
+      expect(result.isValid).to.equal(false)
+      expect(post.callCount).to.equal(2)
+    })
 
-  it('falls back to default model when knownModels is empty', async () => {
-    const post = stub(axios, 'post').resolves({data: {}, status: 200})
-    const fetcher = new ChatBasedModelFetcher('https://api.example.com/v1', 'X', [])
+    it('falls back to default model when knownModels is empty', async () => {
+      const post = stub(axios, 'post').resolves({data: {}, status: 200})
+      const fetcher = new ChatBasedModelFetcher('https://api.example.com/v1', 'X', [])
 
-    const result = await fetcher.validateApiKey('sk-good')
-    expect(result).to.deep.equal({isValid: true})
-    expect(post.calledOnce).to.be.true
-    // Should have used 'default' as the fallback model id
-    const body = post.firstCall.args[1] as {model: string}
-    expect(body.model).to.equal('default')
-  })
-  })
+      const result = await fetcher.validateApiKey('sk-good')
+      expect(result).to.deep.equal({isValid: true})
+      expect(post.calledOnce).to.be.true
+      // Should have used 'default' as the fallback model id
+      const body = post.firstCall.args[1] as {model: string}
+      expect(body.model).to.equal('default')
+    })
+    })
 })

@@ -19,6 +19,10 @@ function getProviderOptions(tool: unknown): Record<string, unknown> | undefined 
 
 const EPHEMERAL_CACHE_CONTROL = {anthropic: {cacheControl: {type: 'ephemeral'}}}
 
+// File tests two unrelated exports (toAiSdkTools, toModelMessages); each
+// gets its own top-level describe per the reviewer's structural feedback.
+/* eslint-disable mocha/max-top-level-suites */
+
 describe('toAiSdkTools — anthropic cache_control on last tool', () => {
   it('returns undefined when tools is undefined or empty', () => {
     expect(toAiSdkTools()).to.equal(undefined)
@@ -53,8 +57,9 @@ describe('toAiSdkTools — anthropic cache_control on last tool', () => {
     expect(getProviderOptions(result?.lastTool)).to.equal(undefined)
     expect(getProviderOptions(result?.middleTool)).to.deep.equal(EPHEMERAL_CACHE_CONTROL)
   })
+})
 
-  describe('toModelMessages — reasoning round-trip', () => {
+describe('toModelMessages — reasoning round-trip', () => {
   // DeepSeek-R1 rejects with "The reasoning_content in the thinking mode
   // must be passed back to the API" if a prior assistant turn's reasoning
   // is not present when the conversation history is replayed.
@@ -129,5 +134,16 @@ describe('toAiSdkTools — anthropic cache_control on last tool', () => {
     const result = toModelMessages(messages)
     expect(result.find((m) => m.role === 'assistant')).to.equal(undefined)
   })
+
+  it('emits a message with only a reasoning part when text and toolCalls are absent', () => {
+    const messages: InternalMessage[] = [
+      {content: null, reasoning: 'silent think', role: 'assistant'},
+    ]
+    const result = toModelMessages(messages)
+    const assistant = result.find((m) => m.role === 'assistant')
+    expect(assistant).to.exist
+    const parts = assistant?.content as Array<{type: string}>
+    expect(parts).to.have.length(1)
+    expect(parts[0].type).to.equal('reasoning')
   })
 })
