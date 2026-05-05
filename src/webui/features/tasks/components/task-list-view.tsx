@@ -71,7 +71,10 @@ export function TaskListView() {
   } = useTaskFilterParams()
   const {data: providersResponse} = useGetProviders()
   const providers = providersResponse?.providers ?? []
-  const providerNames = useMemo(() => new Map(providers.map((p) => [p.id, p.name])), [providers])
+  const providerNames = useMemo(
+    () => new Map((providersResponse?.providers ?? []).map((p) => [p.id, p.name])),
+    [providersResponse],
+  )
   const {
     createdAfter,
     createdBefore,
