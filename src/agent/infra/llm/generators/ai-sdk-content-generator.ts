@@ -111,6 +111,7 @@ export class AiSdkContentGenerator implements IContentGenerator {
       content: result.text,
       finishReason: mapFinishReason(result.finishReason, toolCalls.length > 0),
       rawResponse: result.response,
+      ...(result.reasoningText && {reasoning: result.reasoningText}),
       toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
       usage: {
         completionTokens: result.usage.outputTokens ?? 0,
