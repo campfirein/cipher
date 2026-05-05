@@ -705,6 +705,7 @@ export function createMockTransportClient(
     connect: sandbox.stub().resolves(),
     disconnect: sandbox.stub().resolves(),
     getClientId: sandbox.stub().returns('mock-client-id'),
+    getDaemonVersion: sandbox.stub(),
     getState: sandbox.stub().returns('connected'),
     isConnected: sandbox.stub().resolves(true),
     joinRoom: sandbox.stub().resolves(),

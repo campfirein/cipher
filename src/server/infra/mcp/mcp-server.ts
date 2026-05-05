@@ -5,6 +5,7 @@ import {
   createDaemonReconnector,
   type DaemonReconnectorHandle,
   type ITransportClient,
+  versionsAreEquivalent,
 } from '@campfirein/brv-transport-client'
 import {McpServer} from '@modelcontextprotocol/sdk/server/mcp.js'
 import {StdioServerTransport} from '@modelcontextprotocol/sdk/server/stdio.js'
@@ -87,12 +88,14 @@ export class ByteRoverMcpServer {
       () => this.client,
       () => this.getWorkingDirectory(),
       getStartupProjectContext,
+      config.version,
     )
     registerBrvCurateTool(
       this.server,
       () => this.client,
       () => this.getWorkingDirectory(),
       getStartupProjectContext,
+      config.version,
     )
   }
 
@@ -122,6 +125,7 @@ export class ByteRoverMcpServer {
     this.log(`Connected to brv instance at ${result.projectRoot}`)
     this.log(`Client ID: ${result.client.getClientId()}`)
     this.log(`Initial connection state: ${result.client.getState()}`)
+    this.logDaemonVersionDrift(result.client.getDaemonVersion?.())
 
     // Auto-reconnect on disconnect (shared logic from brv-transport-client)
     this.reconnectorHandle = createDaemonReconnector(result.client, {
@@ -129,6 +133,7 @@ export class ByteRoverMcpServer {
       onReconnected: (newClient: ITransportClient) => {
         this.client = newClient
         this.log(`Reconnected successfully! Client ID: ${newClient.getClientId()}`)
+        this.logDaemonVersionDrift(newClient.getDaemonVersion?.())
         this.sendAgentName()
       },
       onStateChange: (state: ConnectionState) => {
@@ -206,6 +211,19 @@ export class ByteRoverMcpServer {
    */
   private log(msg: string): void {
     process.stderr.write(`[brv-mcp] ${msg}\n`)
+  }
+
+  /**
+   * Logs a one-line drift notice when the running daemon's version differs
+   * from this MCP's. Helps users notice an out-of-sync IDE without forcing
+   * a reconnect — the protocol is backward-compatible across the gap.
+   */
+  private logDaemonVersionDrift(daemonVersion: string | undefined): void {
+    if (daemonVersion && !versionsAreEquivalent(this.config.version, daemonVersion)) {
+      this.log(
+        `connected to daemon ${daemonVersion}; this MCP is ${this.config.version} (backward-compatible protocol)`,
+      )
+    }
   }
 
   /**

@@ -2,6 +2,21 @@
 
 All notable user-facing changes to ByteRover CLI will be documented in this file.
 
+## [3.10.3]
+
+### Fixed
+- **No more silent daemon-version mismatches.** After upgrading `brv`, the background daemon could keep running on the older version and you'd have no way to tell, leading to confusing "why doesn't this new feature work?" moments. The REPL header now shows `[outdated, daemon vX.Y.Z]` next to the version when this happens, and replies from the MCP tools (`brv-query`, `brv-curate`) include a short note when the daemon and CLI are mismatched. Run `brv restart` to align, or restart your IDE for the MCP side.
+
+## [3.10.2]
+
+### Changed
+- **`brv curate` is faster and cheaper.** Curate now batches its smaller LLM calls together and reuses the unchanging parts of the prompt across calls. Anthropic users save 21-30% on token cost, OpenAI users around 8%, and big-folder curates finish noticeably sooner.
+- **Clearer sign-in error for ByteRover.** When you try to use ByteRover without being signed in, the error now lists every option: `brv login` for interactive shells, plus a signup URL, an API-key URL, and `brv login --api-key` for headless or CI environments.
+
+### Fixed
+- **ByteRover provider activates on connect.** Picking ByteRover used to leave it "connected but inactive", so `brv curate` would still say "no provider connected". Activation now happens right away.
+- **No more spurious "signed out" on slow networks.** The startup auth check timed out after 500 ms, well below a real round-trip on home Wi-Fi, mobile, or VPN. Timeout is now 4 seconds with a single retry, so transient blips no longer look like a logout.
+
 ## [3.10.1]
 
 ### Added
