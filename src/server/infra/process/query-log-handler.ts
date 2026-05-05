@@ -70,14 +70,14 @@ export class QueryLogHandler implements ITaskLifecycleHook {
     const state = this.tasks.get(taskId)
     if (!state?.queryResult) return {}
 
-    const out: Record<string, unknown> = {
-      matchedDocs: state.queryResult.matchedDocs,
-      tier: state.queryResult.tier,
-    }
     // Flatten the QueryExecutorResult's nested shape onto the task:completed payload so
     // it matches the public RecallResult contract (flat `durationMs` / `topScore`).
-    if (state.queryResult.timing !== undefined) {
-      out.durationMs = state.queryResult.timing.durationMs
+    // `timing` is always populated by every QueryExecutor branch, so no guard.
+    // `searchMetadata` is omitted on cache hits (Tier 0/1), so guard before extracting.
+    const out: Record<string, unknown> = {
+      durationMs: state.queryResult.timing.durationMs,
+      matchedDocs: state.queryResult.matchedDocs,
+      tier: state.queryResult.tier,
     }
 
     if (state.queryResult.searchMetadata !== undefined) {

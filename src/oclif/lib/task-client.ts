@@ -31,7 +31,8 @@ import {writeJsonResponse} from './json-response.js'
  * lifecycle hooks (`getTaskCompletionData`):
  * - `logId` — query/curate log id
  * - `pendingReviewCount` — HITL signal from CurateLogHandler
- * - `matchedDocs`/`tier`/`timing`/`searchMetadata` — query recall metadata from QueryLogHandler
+ * - `matchedDocs`/`tier`/`durationMs`/`topScore` — query recall metadata from QueryLogHandler
+ *   (flattened from QueryExecutorResult's nested timing/searchMetadata)
  *
  * All fields are optional — older daemons or non-query tasks omit them.
  */
