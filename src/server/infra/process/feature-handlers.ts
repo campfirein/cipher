@@ -44,6 +44,7 @@ import {createHubKeychainStore} from '../hub/hub-keychain-store.js'
 import {HubRegistryConfigStore} from '../hub/hub-registry-config-store.js'
 import {HttpSpaceService} from '../space/http-space-service.js'
 import {FileCurateLogStore} from '../storage/file-curate-log-store.js'
+import {FileGlobalConfigStore} from '../storage/file-global-config-store.js'
 import {FileReviewBackupStore} from '../storage/file-review-backup-store.js'
 import {createTokenStore} from '../storage/token-store.js'
 import {HttpTeamService} from '../team/http-team-service.js'
@@ -53,6 +54,7 @@ import {
   ConfigHandler,
   ConnectorsHandler,
   ContextTreeHandler,
+  GlobalConfigHandler,
   HubHandler,
   InitHandler,
   LocationsHandler,
@@ -119,6 +121,11 @@ export async function setupFeatureHandlers({
 
   // Global handlers (no project context needed)
   new ConfigHandler({transport}).setup()
+
+  new GlobalConfigHandler({
+    globalConfigStore: new FileGlobalConfigStore(),
+    transport,
+  }).setup()
 
   new AuthHandler({
     authService: new OAuthService(authConfig),
