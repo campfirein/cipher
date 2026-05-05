@@ -414,6 +414,35 @@ describe('ConnectionCoordinator', () => {
 
       expect(result).to.deep.equal({error: 'ClientManager not available', success: false})
     })
+
+    it('should include daemonVersion in ack when coordinator was constructed with one', () => {
+      // The daemon reads its own version from package.json at startup and
+      // surfaces it via the register ack. Clients use this to drive version-
+      // drift indicators (TUI header, MCP tool footer) without an extra round-trip.
+      const helper3 = makeStubTransportServer(sandbox)
+      const coord3 = new ConnectionCoordinator({
+        clientManager: makeStubClientManager(sandbox),
+        daemonVersion: '3.10.0',
+        taskRouter: makeStubTaskRouter(sandbox),
+        transport: helper3.transport,
+      })
+      coord3.setup()
+
+      const handler = helper3.requestHandlers.get(TransportClientEventNames.REGISTER)
+      const result = handler!({clientType: 'tui', projectPath: '/app'}, 'client-1')
+
+      expect(result).to.deep.equal({daemonVersion: '3.10.0', success: true})
+    })
+
+    it('should omit daemonVersion in ack when coordinator was not given one', () => {
+      // Backward compat: pre-fix daemons (and tests that don't wire the version)
+      // continue to send `{success: true}` only.
+      const handler = transportHelper.requestHandlers.get(TransportClientEventNames.REGISTER)
+
+      const result = handler!({clientType: 'tui', projectPath: '/app'}, 'client-1')
+
+      expect(result).to.deep.equal({success: true})
+    })
   })
 
   // ==========================================================================

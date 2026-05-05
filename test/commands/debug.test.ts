@@ -124,6 +124,7 @@ function makeMockClient(state: ReturnType<typeof makeDaemonState>): ITransportCl
   return {
     disconnect: stub().resolves(),
     getClientId: stub().returns('debug-client'),
+    getDaemonVersion: stub(),
     getState: stub().returns('connected'),
     isConnected: stub().resolves(true),
     on: stub().returns(() => {}),

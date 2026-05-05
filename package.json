@@ -12,7 +12,7 @@
     "coding-assistant",
     "knowledge-management"
   ],
-  "version": "3.10.1",
+  "version": "3.10.3",
   "author": "ByteRover",
   "bin": {
     "brv": "./bin/run.js"
@@ -33,7 +33,7 @@
     "@ai-sdk/vercel": "^1.0.33",
     "@ai-sdk/xai": "^2.0.57",
     "@anthropic-ai/sdk": "^0.70.1",
-    "@campfirein/brv-transport-client": "github:campfirein/brv-transport-client#1.0.0",
+    "@campfirein/brv-transport-client": "github:campfirein/brv-transport-client#1.1.0",
     "@campfirein/byterover-packages": "github:campfirein/byterover-packages#1.0.2",
     "@google/genai": "^1.29.0",
     "@inkjs/ui": "^2.0.0",
@@ -47,7 +47,7 @@
     "@tanstack/react-query": "^5.90.20",
     "@types/react-syntax-highlighter": "^15.5.13",
     "ai": "^5.0.129",
-    "axios": "1.15.0",
+    "axios": "1.16.0",
     "chalk": "^5.6.2",
     "date-fns": "^4.1.0",
     "diff": "^9.0.0",
@@ -77,8 +77,8 @@
     "react": "^19.2.1",
     "react-diff-viewer-continued": "^4.2.0",
     "react-dom": "^19.2.1",
-    "react-reconciler": "0.33.0",
     "react-markdown": "^10.1.0",
+    "react-reconciler": "0.33.0",
     "react-router-dom": "^7.13.0",
     "react-syntax-highlighter": "^16.1.1",
     "remark-frontmatter": "^5.0.0",

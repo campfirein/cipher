@@ -404,6 +404,10 @@ async function main(): Promise<void> {
     const transportHandlers = new TransportHandlers({
       agentPool,
       clientManager,
+      // The version we read at startup gets relayed in the client:register ack
+      // so peer clients (TUI / MCP) can render drift indicators without an
+      // extra round-trip.
+      daemonVersion: version,
       // Resolves the project's review-disabled flag once at task-create. The result
       // is stamped onto TaskInfo + TaskExecute so daemon hooks (CurateLogHandler) and
       // the agent process (curate-tool backups, dream review entries) all observe a

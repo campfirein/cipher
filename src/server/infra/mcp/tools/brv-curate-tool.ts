@@ -6,6 +6,7 @@ import {randomUUID} from 'node:crypto'
 import {z} from 'zod'
 
 import {TransportTaskEventNames} from '../../../core/domain/transport/schemas.js'
+import {appendDriftFooter} from './drift-footer.js'
 import {associateProjectWithRetry, type McpStartupProjectContext, resolveMcpTaskContext} from './mcp-project-context.js'
 import {resolveClientCwd} from './resolve-client-cwd.js'
 import {cwdField} from './shared-schema.js'
@@ -47,6 +48,7 @@ export function registerBrvCurateTool(
   getClient: () => ITransportClient | undefined,
   getWorkingDirectory: () => string | undefined,
   getStartupProjectContext: () => McpStartupProjectContext | undefined,
+  clientVersion: string,
 ): void {
   server.registerTool(
     'brv-curate',
@@ -121,10 +123,11 @@ export function registerBrvCurateTool(
         const logId = ack?.logId
         const modeDescription = hasFolder ? 'folder pack' : 'curation'
         const logSuffix = logId ? `, logId: ${logId}` : ''
+        const queuedMessage = `✓ Context queued for ${modeDescription} (taskId: ${taskId}${logSuffix}). The curation will be processed asynchronously.`
         return {
           content: [
             {
-              text: `✓ Context queued for ${modeDescription} (taskId: ${taskId}${logSuffix}). The curation will be processed asynchronously.`,
+              text: appendDriftFooter(queuedMessage, clientVersion, client.getDaemonVersion?.()),
               type: 'text' as const,
             },
           ],
