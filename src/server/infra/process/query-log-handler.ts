@@ -61,6 +61,32 @@ export class QueryLogHandler implements ITaskLifecycleHook {
     }
   }
 
+  /**
+   * Expose query metadata via the lifecycle-hook contract so TaskRouter can merge it into
+   * the task:completed payload sent to the originating client. Returning {} when no metadata
+   * is available keeps the merge a no-op and lets the daemon emit task:completed unchanged.
+   */
+  getTaskCompletionData(taskId: string): Record<string, unknown> {
+    const state = this.tasks.get(taskId)
+    if (!state?.queryResult) return {}
+
+    const out: Record<string, unknown> = {
+      matchedDocs: state.queryResult.matchedDocs,
+      tier: state.queryResult.tier,
+    }
+    // Flatten the QueryExecutorResult's nested shape onto the task:completed payload so
+    // it matches the public RecallResult contract (flat `durationMs` / `topScore`).
+    if (state.queryResult.timing !== undefined) {
+      out.durationMs = state.queryResult.timing.durationMs
+    }
+
+    if (state.queryResult.searchMetadata !== undefined) {
+      out.topScore = state.queryResult.searchMetadata.topScore
+    }
+
+    return out
+  }
+
   async onTaskCancelled(taskId: string, _task: TaskInfo): Promise<void> {
     const state = this.tasks.get(taskId)
     if (!state) return
