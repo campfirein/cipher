@@ -2,6 +2,11 @@
 
 All notable user-facing changes to ByteRover CLI will be documented in this file.
 
+## [3.10.3]
+
+### Fixed
+- **No more silent daemon-version mismatches.** After upgrading `brv`, the background daemon could keep running on the older version and you'd have no way to tell, leading to confusing "why doesn't this new feature work?" moments. The REPL header now shows `[outdated, daemon vX.Y.Z]` next to the version when this happens, and replies from the MCP tools (`brv-query`, `brv-curate`) include a short note when the daemon and CLI are mismatched. Run `brv restart` to align, or restart your IDE for the MCP side.
+
 ## [3.10.2]
 
 ### Changed
