@@ -62,7 +62,7 @@ npm run dev:ui                       # Vite dev server for the web UI
 - `shared/` — Cross-module: constants, types, transport events, utils
 - `tui/` — React/Ink TUI: app (router/pages), components, features (23 modules, including vc, worktree, source, hub, curate), hooks, lib, providers, stores
 - `webui/` — Browser dashboard (React/Vite). Entry `src/webui/index.tsx`; `features/` (15 panels), `pages/` (8 pages: home, changes, configuration, contexts, tasks, analytics, project-selector, not-found), `layouts/`, `stores/`. Connects to the daemon via Socket.IO; no imports from `server/`, `agent/`, or `tui/` (same boundary rule)
-- `oclif/` — Commands grouped by topic (`vc/`, `hub/`, `worktree/`, `source/`, `space/`, `review/`, `connectors/`, `curate/`, `model/`, `providers/`, `swarm/`, `query-log/`) + top-level `.ts` commands (incl. `webui.ts`); hooks, lib (daemon-client, task-client, json-response)
+- `oclif/` — Commands grouped by topic (`vc/`, `hub/`, `worktree/`, `source/`, `space/`, `review/`, `connectors/`, `curate/`, `model/`, `providers/`, `swarm/`, `query-log/`) + top-level `.ts` commands (`webui`, `dream`, `review`, `search`, `locations`, `query`, `login`, `logout`, `init`, `mcp`, `pull`, `push`, `restart`, `status`, `debug`); hooks, lib (daemon-client, task-client, json-response)
 
 **Import boundary** (ESLint-enforced): `tui/` must not import from `server/`, `agent/`, or `oclif/`. Use transport events or `shared/`.
 
