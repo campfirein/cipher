@@ -53,6 +53,7 @@ interface TaskTableProps {
   onRowClick: (taskId: string) => void
   onToggleSelect: (taskId: string) => void
   onToggleSelectAll: () => void
+  providerNames: Map<string, string>
   searchQuery: string
   selectedIds: Set<string>
   statusFilter: StatusFilter
@@ -67,6 +68,7 @@ export function TaskTable({
   onRowClick,
   onToggleSelect,
   onToggleSelectAll,
+  providerNames,
   searchQuery,
   selectedIds,
   statusFilter,
@@ -104,6 +106,7 @@ export function TaskTable({
               onDelete={onDelete}
               onRowClick={onRowClick}
               onToggleSelect={onToggleSelect}
+              providerNames={providerNames}
               task={task}
             />
           ))
@@ -119,6 +122,7 @@ function TaskRow({
   onDelete,
   onRowClick,
   onToggleSelect,
+  providerNames,
   task,
 }: {
   isSelected: boolean
@@ -126,6 +130,7 @@ function TaskRow({
   onDelete: (taskId: string) => void
   onRowClick: (taskId: string) => void
   onToggleSelect: (taskId: string) => void
+  providerNames: Map<string, string>
   task: StoredTask
 }) {
   const terminal = isTerminalStatus(task.status)
@@ -152,7 +157,11 @@ function TaskRow({
         <TypeBadge type={task.type} />
       </TableCell>
       <TableCell>
-        <ProviderChip model={task.model} provider={task.provider} />
+        <ProviderChip
+          model={task.model}
+          provider={task.provider}
+          providerName={task.provider ? providerNames.get(task.provider) : undefined}
+        />
       </TableCell>
       <TableCell className="text-foreground max-w-0">
         <div className="truncate" title={task.content || undefined}>
@@ -212,8 +221,8 @@ function TypeBadge({type}: {type: string}) {
   )
 }
 
-function ProviderChip({model, provider}: {model?: string; provider?: string}) {
-  const label = formatProviderModel(provider, model)
+function ProviderChip({model, provider, providerName}: {model?: string; provider?: string; providerName?: string}) {
+  const label = formatProviderModel(provider, model, providerName)
   if (!label) return null
   return (
     <Badge className="text-muted-foreground mono max-w-full truncate text-[10px] tracking-wider" title={label} variant="outline">
