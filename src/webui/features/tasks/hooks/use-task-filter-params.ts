@@ -18,7 +18,7 @@ export interface TaskFilters {
 }
 
 const STATUS_VALUES = new Set<string>(['all', 'cancelled', 'completed', 'failed', 'running'])
-const DEFAULT_PAGE_SIZE = 50
+const DEFAULT_PAGE_SIZE = 20
 
 const FILTER_PARAM_KEYS = ['status', 'types', 'providers', 'models', 'from', 'to', 'duration', 'q', 'page', 'pageSize'] as const
 

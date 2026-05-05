@@ -25,4 +25,18 @@ describe('formatProviderModel', () => {
     expect(formatProviderModel('', 'gpt-5-pro')).to.equal(undefined)
     expect(formatProviderModel('openai', '')).to.equal('openai')
   })
+
+  it('uses providerName when provided for byterover-internal', () => {
+    expect(formatProviderModel('byterover', undefined, 'ByteRover')).to.equal('ByteRover')
+  })
+
+  it('uses providerName when provided for external <provider>:<model>', () => {
+    expect(formatProviderModel('openai', 'gpt-5-pro', 'OpenAI')).to.equal('OpenAI:gpt-5-pro')
+  })
+
+  it('falls back to provider id when providerName is empty or missing', () => {
+    expect(formatProviderModel('openai', 'gpt-5-pro')).to.equal('openai:gpt-5-pro')
+    expect(formatProviderModel('openai', 'gpt-5-pro', '')).to.equal('openai:gpt-5-pro')
+    expect(formatProviderModel('byterover', undefined, '')).to.equal('byterover')
+  })
 })

@@ -71,6 +71,7 @@ export function TaskListView() {
   } = useTaskFilterParams()
   const {data: providersResponse} = useGetProviders()
   const providers = providersResponse?.providers ?? []
+  const providerNames = useMemo(() => new Map(providers.map((p) => [p.id, p.name])), [providers])
   const {
     createdAfter,
     createdBefore,
@@ -360,28 +361,32 @@ export function TaskListView() {
           onRowClick={openTask}
           onToggleSelect={toggleSelect}
           onToggleSelectAll={toggleSelectAll}
+          providerNames={providerNames}
           searchQuery={searchQuery}
           selectedIds={selectedIds}
           statusFilter={statusFilter}
         />
       )}
 
-      {data && (
-        <TaskListPagination
-          onPageChange={setPage}
-          onPageSizeChange={setPageSize}
-          page={data.page}
-          pageCount={data.pageCount}
-          pageSize={data.pageSize}
-          total={data.total}
-        />
-      )}
-
-      {finishedCount > 0 && (
-        <div className="flex items-center justify-end px-1">
-          <Button onClick={handleClearCompleted} size="xs" variant="ghost">
-            Clear finished ({finishedCount})
-          </Button>
+      {(data || finishedCount > 0) && (
+        <div className="flex items-center justify-between gap-3 px-1">
+          {data ? (
+            <TaskListPagination
+              onPageChange={setPage}
+              onPageSizeChange={setPageSize}
+              page={data.page}
+              pageCount={data.pageCount}
+              pageSize={data.pageSize}
+              total={data.total}
+            />
+          ) : (
+            <span />
+          )}
+          {finishedCount > 0 && (
+            <Button onClick={handleClearCompleted} size="xs" variant="ghost">
+              Clear finished ({finishedCount})
+            </Button>
+          )}
         </div>
       )}
 
