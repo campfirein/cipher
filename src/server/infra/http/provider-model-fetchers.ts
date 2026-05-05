@@ -505,42 +505,72 @@ export class ChatBasedModelFetcher implements IProviderModelFetcher {
   }
 
   async validateApiKey(apiKey: string): Promise<{error?: string; isValid: boolean}> {
-    try {
-      await axios.post(
-        `${this.baseUrl}/chat/completions`,
-        {
-          max_tokens: 1,
-          messages: [{content: 'hi', role: 'user'}],
-          model: this.knownModels[0]?.id ?? 'default',
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${apiKey}`,
-            'Content-Type': 'application/json',
+    // Iterate through known models so a single missing model on a tier (e.g.
+    // GLM Coding Plan doesn't yet serve the latest glm-4.7) doesn't
+    // misclassify a valid key as invalid. We accept the key as soon as ANY
+    // model responds successfully, OR returns a non-auth error like 429/5xx
+    // (which still proves the key passed auth).
+    const candidates = this.knownModels.length > 0 ? this.knownModels : [{id: 'default'}]
+    let lastNonAuthError: unknown
+
+    for (const candidate of candidates) {
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        await axios.post(
+          `${this.baseUrl}/chat/completions`,
+          {
+            max_tokens: 1,
+            messages: [{content: 'hi', role: 'user'}],
+            model: candidate.id,
           },
-          httpAgent: ProxyConfig.getProxyAgent(),
-          httpsAgent: ProxyConfig.getProxyAgent(),
-          proxy: false,
-          timeout: 15_000,
-        },
-      )
+          {
+            headers: {
+              Authorization: `Bearer ${apiKey}`,
+              'Content-Type': 'application/json',
+            },
+            httpAgent: ProxyConfig.getProxyAgent(),
+            httpsAgent: ProxyConfig.getProxyAgent(),
+            proxy: false,
+            timeout: 15_000,
+          },
+        )
 
-      return {isValid: true}
-    } catch (error) {
-      if (isAxiosError(error)) {
-        if (error.response?.status === 401) {
-          return {error: 'Invalid API key', isValid: false}
-        }
-
-        if (error.response?.status === 403) {
-          return {error: 'API key does not have required permissions', isValid: false}
-        }
-
-        // Other errors (429, 400, etc.) mean the key was accepted
         return {isValid: true}
-      }
+      } catch (error) {
+        if (isAxiosError(error)) {
+          if (error.response?.status === 401) {
+            return {error: 'Invalid API key', isValid: false}
+          }
 
-      return {error: error instanceof Error ? error.message : 'Unknown error', isValid: false}
+          if (error.response?.status === 403) {
+            return {error: 'API key does not have required permissions', isValid: false}
+          }
+
+          // 400/404 may mean "model not available on this tier" — try next.
+          if (error.response?.status === 400 || error.response?.status === 404) {
+            lastNonAuthError = error
+            continue
+          }
+
+          // Axios errors that are not 401/403/400/404 (e.g. 429, 5xx, or
+          // network-level errors with no response like ECONNREFUSED) are
+          // treated as "key accepted" — either auth was passed (429/5xx) or
+          // we can't determine otherwise (no response). Optimistic: prefer a
+          // false-positive valid over a false-negative invalid.
+          return {isValid: true}
+        }
+
+        lastNonAuthError = error
+      }
+    }
+
+    // Every candidate model returned 400/404 or a non-axios error and none
+    // gave us a positive auth signal. Treat the key as inconclusive — but
+    // since 401/403 was never observed, surface the last error so the user
+    // can see the real cause (often a model-availability issue, not auth).
+    return {
+      error: lastNonAuthError instanceof Error ? lastNonAuthError.message : 'Validation failed for all known models',
+      isValid: false,
     }
   }
 }

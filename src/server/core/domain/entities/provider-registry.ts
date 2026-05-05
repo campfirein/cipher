@@ -171,7 +171,7 @@ export const PROVIDER_REGISTRY: Readonly<Record<string, ProviderDefinition>> = {
     priority: 17,
   },
   'glm-coding-plan': {
-    apiKeyUrl: 'https://docs.z.ai/devpack/overview',
+    apiKeyUrl: 'https://z.ai/manage-apikey/apikey-list',
     baseUrl: 'https://api.z.ai/api/coding/paas/v4',
     category: 'other',
     defaultModel: 'glm-4.7',

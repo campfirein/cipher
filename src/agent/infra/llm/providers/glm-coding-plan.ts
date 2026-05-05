@@ -13,7 +13,7 @@ import type {GeneratorFactoryConfig, ProviderModule} from './types.js'
 import {AiSdkContentGenerator} from '../generators/ai-sdk-content-generator.js'
 
 export const glmCodingPlanProvider: ProviderModule = {
-  apiKeyUrl: 'https://docs.z.ai/devpack/overview',
+  apiKeyUrl: 'https://z.ai/manage-apikey/apikey-list',
   authType: 'api-key',
   baseUrl: 'https://api.z.ai/api/coding/paas/v4',
   category: 'other',
