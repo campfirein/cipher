@@ -429,6 +429,84 @@ describe('Query Command', () => {
       expect(completedEvent).to.exist
       expect(completedEvent!.data).to.have.property('result', 'JSON answer')
     })
+
+    it('should surface matchedDocs, tier, durationMs, and topScore in completed event when present', async () => {
+      const eventHandlers: Map<string, Array<(data: unknown) => void>> = new Map()
+      ;(mockClient.on as sinon.SinonStub).callsFake((event: string, handler: (data: unknown) => void) => {
+        if (!eventHandlers.has(event)) eventHandlers.set(event, [])
+        eventHandlers.get(event)!.push(handler)
+        return () => {}
+      })
+      ;(mockClient.requestWithAck as sinon.SinonStub).callsFake(async (event: string, payload: {taskId: string}) => {
+        if (event === 'state:getProviderConfig') return {activeProvider: 'anthropic'}
+        setTimeout(() => {
+          const completedHandlers = eventHandlers.get('task:completed')
+          if (completedHandlers) {
+            for (const handler of completedHandlers) {
+              handler({
+                durationMs: 184,
+                matchedDocs: [
+                  {path: 'auth/jwt-tokens.md', score: 0.92, title: 'JWT tokens'},
+                  {path: 'billing/stripe-webhooks.md', score: 0.78, title: 'Stripe webhooks'},
+                ],
+                result: 'cached answer',
+                taskId: payload.taskId,
+                tier: 2,
+                topScore: 0.92,
+              })
+            }
+          }
+        }, 10)
+        return {taskId: payload.taskId}
+      })
+
+      await createJsonCommand('test query').run()
+
+      const lines = parseJsonOutput()
+      const completedEvent = lines.find((l) => (l.data as Record<string, unknown>).event === 'completed')
+      expect(completedEvent, 'completed event should exist').to.exist
+      const data = completedEvent!.data as Record<string, unknown>
+      expect(data).to.have.property('result', 'cached answer')
+      expect(data).to.have.property('tier', 2)
+      expect(data).to.have.property('durationMs', 184)
+      expect(data).to.have.property('topScore', 0.92)
+      expect(data).to.have.deep.property('matchedDocs', [
+        {path: 'auth/jwt-tokens.md', score: 0.92, title: 'JWT tokens'},
+        {path: 'billing/stripe-webhooks.md', score: 0.78, title: 'Stripe webhooks'},
+      ])
+    })
+
+    it('should omit matchedDocs/tier/durationMs/topScore from completed event when absent (graceful)', async () => {
+      const eventHandlers: Map<string, Array<(data: unknown) => void>> = new Map()
+      ;(mockClient.on as sinon.SinonStub).callsFake((event: string, handler: (data: unknown) => void) => {
+        if (!eventHandlers.has(event)) eventHandlers.set(event, [])
+        eventHandlers.get(event)!.push(handler)
+        return () => {}
+      })
+      ;(mockClient.requestWithAck as sinon.SinonStub).callsFake(async (event: string, payload: {taskId: string}) => {
+        if (event === 'state:getProviderConfig') return {activeProvider: 'anthropic'}
+        setTimeout(() => {
+          const completedHandlers = eventHandlers.get('task:completed')
+          if (completedHandlers) {
+            // Older daemon: only emits result + taskId, no enriched fields
+            for (const handler of completedHandlers) handler({result: 'plain answer', taskId: payload.taskId})
+          }
+        }, 10)
+        return {taskId: payload.taskId}
+      })
+
+      await createJsonCommand('test query').run()
+
+      const lines = parseJsonOutput()
+      const completedEvent = lines.find((l) => (l.data as Record<string, unknown>).event === 'completed')
+      expect(completedEvent).to.exist
+      const data = completedEvent!.data as Record<string, unknown>
+      expect(data).to.have.property('result', 'plain answer')
+      expect(data).to.not.have.property('matchedDocs')
+      expect(data).to.not.have.property('tier')
+      expect(data).to.not.have.property('durationMs')
+      expect(data).to.not.have.property('topScore')
+    })
   })
 
   // ==================== Connection Errors ====================
