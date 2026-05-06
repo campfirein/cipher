@@ -187,6 +187,33 @@ describe('GlobalConfig', () => {
     })
   })
 
+  describe('withAnalytics()', () => {
+    it('should produce a new instance with the given analytics value', () => {
+      const original = GlobalConfig.create(validDeviceId)
+      const updated = original.withAnalytics(true)
+
+      expect(updated.analytics).to.equal(true)
+      expect(updated.deviceId).to.equal(validDeviceId)
+      expect(updated.version).to.equal(GLOBAL_CONFIG_VERSION)
+    })
+
+    it('should not mutate the original instance', () => {
+      const original = GlobalConfig.create(validDeviceId)
+      original.withAnalytics(true)
+
+      expect(original.analytics).to.equal(false)
+    })
+
+    it('should return a new instance even when value matches current', () => {
+      const original = GlobalConfig.create(validDeviceId)
+      const same = original.withAnalytics(false)
+
+      expect(same).to.not.equal(original)
+      expect(same.analytics).to.equal(false)
+      expect(same.deviceId).to.equal(original.deviceId)
+    })
+  })
+
   describe('immutability', () => {
     it('should have readonly properties', () => {
       const config = GlobalConfig.create(validDeviceId)

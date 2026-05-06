@@ -115,4 +115,19 @@ export class GlobalConfig {
       version: this.version,
     }
   }
+
+  /**
+   * Returns a new GlobalConfig with the analytics flag set to the given value.
+   * deviceId and version are preserved. The original instance is not mutated.
+   *
+   * @param value - The new analytics value
+   * @returns A new GlobalConfig instance
+   */
+  public withAnalytics(value: boolean): GlobalConfig {
+    return new GlobalConfig({
+      analytics: value,
+      deviceId: this.deviceId,
+      version: this.version,
+    })
+  }
 }

@@ -62,18 +62,17 @@ export class GlobalConfigHandler {
 
   private async setAnalytics(analytics: boolean): Promise<GlobalConfigSetAnalyticsResponse> {
     const existing = await this.globalConfigStore.read()
-    const current = existing ?? GlobalConfig.create(randomUUID())
-    const previous = current.analytics
+    const previous = existing?.analytics ?? false
 
+    // Idempotent fast path: short-circuit before generating a deviceId.
+    // If existing is undefined and the requested value matches the default
+    // (false), no file is created — the next GET will seed.
     if (previous === analytics) {
       return {current: previous, previous}
     }
 
-    const updated = GlobalConfig.fromJson({...current.toJson(), analytics})
-    if (!updated) {
-      throw new Error('Failed to construct updated GlobalConfig')
-    }
-
+    const current = existing ?? GlobalConfig.create(randomUUID())
+    const updated = current.withAnalytics(analytics)
     await this.globalConfigStore.write(updated)
     return {current: updated.analytics, previous}
   }

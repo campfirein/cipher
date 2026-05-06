@@ -12,6 +12,12 @@ import {
 } from '../../../shared/transport/events/global-config-events.js'
 import {type DaemonClientOptions, formatConnectionError, withDaemonRetry} from '../../lib/daemon-client.js'
 
+// The disclosure markdown is a static asset (PM/legal own its copy) that the
+// build copies into dist/server/templates/sections/. Reading it as a file from
+// oclif is a runtime fs read, not a TypeScript import, so the oclif-server
+// boundary rule is preserved. If a future need surfaces the disclosure to
+// other surfaces (e.g. the M1.7 webui rendering it as HTML), consider moving
+// the asset under src/shared/ or serving it via a daemon transport event.
 const here = dirname(fileURLToPath(import.meta.url))
 const DISCLOSURE_PATH = resolve(here, '../../../server/templates/sections/analytics-disclosure.md')
 

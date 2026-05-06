@@ -1,5 +1,6 @@
 import {Command, Flags} from '@oclif/core'
 
+import {PRIVACY_POLICY_URL} from '../../../shared/constants/privacy.js'
 import {
   GlobalConfigEvents,
   type GlobalConfigGetResponse,
@@ -16,7 +17,7 @@ Analytics is opt-in (default: off). When enabled, ByteRover collects anonymous
 usage telemetry (event names, CLI version, OS, Node version, environment) to
 improve the product. No content of your queries, files, or memory is collected.
 
-Privacy policy: https://byterover.dev/privacy  (placeholder until M1.5)
+Privacy policy: ${PRIVACY_POLICY_URL}  (placeholder until M1.5)
 Toggle: brv analytics enable | brv analytics disable`
   public static examples = ['<%= config.bin %> <%= command.id %>', '<%= config.bin %> <%= command.id %> --format json']
   public static flags = {
