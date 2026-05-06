@@ -41,6 +41,12 @@ export type SupportedFileType = (typeof SUPPORTED_FILE_TYPES)[number]
  * Defines what features a specific model supports.
  */
 export interface ModelCapabilities {
+  /**
+   * Whether the model accepts the sampling parameters `temperature`, `top_p`, and `top_k`.
+   * When false, callers must omit these from the request — Claude Opus 4.7 returns 400
+   * on any non-default value. Defaults to true when omitted.
+   */
+  acceptsSamplingParameters?: boolean
   /** Whether the model supports audio input */
   supportsAudio: boolean
   /** Whether the model supports image input */

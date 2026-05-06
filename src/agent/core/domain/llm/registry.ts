@@ -36,6 +36,21 @@ export const LLM_REGISTRY: Record<LLMProvider, ProviderInfo> = {
     models: [
       // Claude 4.x series
       {
+        capabilities: {
+          acceptsSamplingParameters: false,
+          supportsAudio: false,
+          supportsImages: true,
+          supportsPdf: true,
+          supportsStreaming: true,
+        },
+        charsPerToken: 3.5,
+        displayName: 'Claude Opus 4.7',
+        maxInputTokens: 200_000,
+        maxOutputTokens: 128_000,
+        name: 'claude-opus-4-7',
+        supportedFileTypes: ['image', 'pdf'],
+      },
+      {
         capabilities: {supportsAudio: false, supportsImages: true, supportsPdf: true, supportsStreaming: true},
         charsPerToken: 3.5,
         displayName: 'Claude Opus 4.6',
@@ -720,4 +735,42 @@ export function resolveRegistryProvider(
 export function acceptsAnyModel(provider: LLMProvider): boolean {
   // OpenAI provider type accepts arbitrary models (OpenRouter, direct OpenAI, xAI, etc.)
   return provider === 'openai'
+}
+
+/**
+ * Strip an OpenRouter-style `provider/` prefix from a model id.
+ * Returns the input unchanged if no slash is present.
+ */
+function stripRouterPrefix(modelId: string): string {
+  const slash = modelId.lastIndexOf('/')
+  return slash === -1 ? modelId : modelId.slice(slash + 1)
+}
+
+/**
+ * Check whether a model accepts the sampling parameters `temperature`, `top_p`,
+ * and `top_k`.
+ *
+ * Some models (e.g. Claude Opus 4.7) reject any non-default value with a 400
+ * error — callers must omit these parameters entirely when this returns false.
+ *
+ * Handles both bare model ids (`claude-opus-4-7`) and OpenRouter-style prefixed
+ * ids (`anthropic/claude-opus-4-7`). Unknown models default to true so we don't
+ * regress arbitrary OpenRouter-routed models.
+ */
+export function modelAcceptsSamplingParameters(modelId: string): boolean {
+  const bare = stripRouterPrefix(modelId)
+
+  for (const provider of PROVIDER_TYPES) {
+    const info = getModelInfo(provider, bare)
+    if (info) {
+      return info.capabilities.acceptsSamplingParameters !== false
+    }
+  }
+
+  // Family-level fallback: catches date-suffixed snapshots not yet in the registry
+  // (e.g. `claude-opus-4-7-20260101`). Extend this list as new families deprecate
+  // sampling params.
+  if (bare.startsWith('claude-opus-4-7')) return false
+
+  return true
 }

@@ -50,6 +50,12 @@ export function prependCachedSystemMessage(systemPrompt: string | undefined, mes
 export interface AiSdkContentGeneratorConfig {
   /** Characters per token ratio for token estimation */
   charsPerToken?: number
+  /**
+   * Drop the sampling request parameters (`temperature`, `top_p`, `top_k`)
+   * before calling the model. Set when targeting models that reject these
+   * (e.g. Claude Opus 4.7 returns 400 on any non-default value).
+   */
+  excludeSamplingParameters?: boolean
   /** AI SDK LanguageModel instance */
   model: LanguageModel
 }
@@ -64,11 +70,13 @@ export interface AiSdkContentGeneratorConfig {
  */
 export class AiSdkContentGenerator implements IContentGenerator {
   private readonly charsPerToken: number
+  private readonly excludeSamplingParameters: boolean
   private readonly model: LanguageModel
 
   constructor(config: AiSdkContentGeneratorConfig) {
     this.model = config.model
     this.charsPerToken = config.charsPerToken ?? DEFAULT_CHARS_PER_TOKEN
+    this.excludeSamplingParameters = config.excludeSamplingParameters ?? false
   }
 
   public estimateTokensSync(content: string): number {
@@ -84,10 +92,8 @@ export class AiSdkContentGenerator implements IContentGenerator {
       maxRetries: 0, // RetryableContentGenerator handles retries
       messages,
       model: this.model,
-      temperature: request.config.temperature,
+      ...this.buildSamplingParams(request.config),
       ...(tools && {tools}),
-      ...(request.config.topK !== undefined && {topK: request.config.topK}),
-      ...(request.config.topP !== undefined && {topP: request.config.topP}),
     })
 
     // Map AI SDK tool calls to our ToolCall format
@@ -129,10 +135,8 @@ export class AiSdkContentGenerator implements IContentGenerator {
       maxRetries: 0,
       messages,
       model: this.model,
-      temperature: request.config.temperature,
+      ...this.buildSamplingParams(request.config),
       ...(tools && {tools}),
-      ...(request.config.topK !== undefined && {topK: request.config.topK}),
-      ...(request.config.topP !== undefined && {topP: request.config.topP}),
     })
 
     // Accumulate tool calls during streaming
@@ -200,6 +204,21 @@ export class AiSdkContentGenerator implements IContentGenerator {
           break
         }
       }
+    }
+  }
+
+  /**
+   * Build the sampling-parameter slice for an AI SDK request. Returns an
+   * empty object when the model-level exclusion is set, so callers can spread
+   * the result into the request payload without conditionally emitting fields.
+   */
+  private buildSamplingParams(config: GenerateContentRequest['config']): Record<string, number> {
+    if (this.excludeSamplingParameters) return {}
+
+    return {
+      ...(config.temperature !== undefined && {temperature: config.temperature}),
+      ...(config.topK !== undefined && {topK: config.topK}),
+      ...(config.topP !== undefined && {topP: config.topP}),
     }
   }
 }
