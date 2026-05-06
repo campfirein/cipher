@@ -2,6 +2,19 @@
 
 All notable user-facing changes to ByteRover CLI will be documented in this file.
 
+## [3.11.0]
+
+### Added
+- **DeepSeek and GLM Coding Plan as LLM providers.** Pick DeepSeek (`deepseek-chat`, `deepseek-reasoner`) or Z.AI's GLM Coding Plan subscription tier in `brv providers connect` or the web provider picker. The existing `glm` provider stays for pay-per-token users so subscription and pay-as-you-go tiers don't collide.
+- **Recall metadata in `brv query --format json`.** The JSON envelope now includes `matchedDocs`, `tier`, `durationMs`, and `topScore`, so scripts and IDE bridges can show evidence of what the answer was drawn from.
+
+### Fixed
+- **Reasoning shows up for DeepSeek-R1 and Reasoner.** Thinking output now streams correctly and is carried back into follow-up turns. Previously the second turn of any multi-step query failed with a "reasoning_content must be passed back" error from DeepSeek.
+- **Claude Opus 4.7 no longer fails with a 400 error.** Opus 4.7 rejects `temperature`, `top_p`, and `top_k`; the CLI now drops those before sending to Anthropic and OpenRouter (and warns once). Opus 4.6 and other Claude models are unchanged.
+- **GLM Coding Plan API-key validation works on the coding-plan tier.** Validation now tries each known model in turn instead of giving up after the first model-not-found, so a valid key is no longer reported as invalid. The "Get your API key" link also points straight to the key page in both the TUI and the web UI.
+- **OpenClaude icon shows in `brv webui`.** The LocalWebUI agent grid used to render OpenClaude as a missing icon; it now uses a monochrome SVG that matches the other connectors.
+- **Security dependency update.** Refreshed `package-lock.json` to clear several `npm audit` advisories.
+
 ## [3.10.3]
 
 ### Fixed
