@@ -34,7 +34,7 @@ Or download our self-hosted PDF version of the paper [here](https://byterover.de
 - 🖥️ Interactive TUI with REPL interface (React/Ink)
 - 🧠 Context tree and knowledge storage management
 - 🔀 Git-like version control for the context tree (branch, commit, merge, push/pull)
-- 🤖 18 LLM providers (Anthropic, OpenAI, Google, Groq, Mistral, xAI, and more)
+- 🤖 20 LLM providers (Anthropic, OpenAI, Google, Groq, Mistral, xAI, DeepSeek, and more)
 - 🛠️ 24 built-in agent tools (code exec, file ops, knowledge search, memory management)
 - 🔄 Cloud sync with push/pull
 - 👀 Review workflow for curate operations (approve/reject pending changes)
@@ -220,7 +220,7 @@ Run `brv --help` for the full command reference.
 <details>
 <summary><h2>Supported LLM Providers</h2></summary>
 
-ByteRover CLI supports 18 LLM providers out of the box. Connect and switch providers from the dashboard, or use `brv providers connect` / `brv providers switch`.
+ByteRover CLI supports 20 LLM providers out of the box. Connect and switch providers from the dashboard, or use `brv providers connect` / `brv providers switch`.
 
 | Provider | Description |
 |----------|-------------|
@@ -233,6 +233,7 @@ ByteRover CLI supports 18 LLM providers out of the box. Connect and switch provi
 | Cerebras | Fast inference |
 | Cohere | Command models |
 | DeepInfra | Open-source model hosting |
+| DeepSeek | DeepSeek V3 and R1 reasoning models |
 | OpenRouter | Multi-provider gateway |
 | Perplexity | Search-augmented models |
 | TogetherAI | Open-source model hosting |
@@ -240,6 +241,7 @@ ByteRover CLI supports 18 LLM providers out of the box. Connect and switch provi
 | Minimax | Minimax models |
 | Moonshot | Kimi models |
 | GLM | GLM models |
+| GLM Coding Plan | GLM models on Z.AI Coding Plan subscription |
 | OpenAI-Compatible | Any OpenAI-compatible API |
 | ByteRover | ByteRover's hosted models |
 

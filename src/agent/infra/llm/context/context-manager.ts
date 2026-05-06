@@ -185,10 +185,18 @@ export class ContextManager<T> {
    *
    * @param content - Message content (text or null if only tool calls)
    * @param toolCalls - Optional tool calls made by the assistant
+   * @param reasoning - Optional reasoning/thinking trace from the model.
+   *   Required to round-trip for providers like DeepSeek-R1 that reject
+   *   the next turn unless reasoning_content is replayed.
    */
-  public async addAssistantMessage(content: null | string, toolCalls?: InternalMessage['toolCalls']): Promise<void> {
+  public async addAssistantMessage(
+    content: null | string,
+    toolCalls?: InternalMessage['toolCalls'],
+    reasoning?: string,
+  ): Promise<void> {
     const message: InternalMessage = {
       content,
+      ...(reasoning && {reasoning}),
       role: 'assistant',
       toolCalls,
     }
