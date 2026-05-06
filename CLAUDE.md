@@ -109,7 +109,7 @@ npm run dev:ui                       # Vite dev server for the web UI
 
 - Tools: definitions in `resources/tools/*.txt`, implementations in `infra/tools/implementations/`, registry in `infra/tools/tool-registry.ts`
 - Tool categories: file ops (read/write/edit/glob/grep/list-dir), bash (exec/output), knowledge (create/expand/search), memory (read/write/edit/delete/list), swarm (query/store), todos (read/write), curate, code exec, batch, detect domains, kill process, search history
-- LLM: 20 providers in `infra/llm/providers/`; compression strategies in `infra/llm/context/compression/`
+- LLM: 21 providers in `infra/llm/providers/` (incl. deepseek, glm, glm-coding-plan); compression strategies in `infra/llm/context/compression/`
 - System prompts: contributor pattern (XML sections) in `infra/system-prompt/`
 - Map/memory: `infra/map/` (agentic map, context-tree store, LLM map memory, worker pool); `infra/memory/` (memory-manager, deduplicator)
 - Storage: file-based blob (`infra/blob/`) and key storage (`infra/storage/`) — no SQLite
@@ -146,6 +146,7 @@ npm run dev:ui                       # Vite dev server for the web UI
 - `BRV_QUEUE_TRACE` — set to `1` to log queue/agent map traces (cipher-agent, abstract-queue)
 - `BRV_SESSION_LOG` — file path for daemon/agent session logs (auto-set by `brv-server`; can override for debugging)
 - `BRV_E2E_MODE` — `true` switches the daemon to e2e-friendly stdio handling
+- `BRV_AGENT_PROCESS_PATH` / `BRV_AGENT_PORT` / `BRV_AGENT_PROJECT_PATH` — auto-set by the daemon when forking agent child processes; do not set manually
 
 ## Stack
 
