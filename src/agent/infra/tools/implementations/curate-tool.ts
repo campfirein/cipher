@@ -997,6 +997,11 @@ async function executeUpdate(
 
     // Extract previous summary from existing file's frontmatter (for review UI)
     const existingParsed = existingContent ? MarkdownWriter.parseContent(existingContent, title) : null
+    if (existingParsed?.relations) {
+      // Drop legacy dangling refs before conflict-detection; otherwise resolver unions them back.
+      existingParsed.relations = existingParsed.relations.filter((r) => !isExcludedFromSync(r))
+    }
+
     const previousSummary = existingParsed?.summary
 
     // Detect structural loss and auto-resolve: merge back anything the LLM dropped

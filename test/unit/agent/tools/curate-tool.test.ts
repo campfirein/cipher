@@ -636,6 +636,56 @@ describe('Curate Tool', () => {
       expect(content).to.not.include('sunrise_cafe_menu.abstract.md')
       expect(content).to.not.include('sunrise_cafe_menu.overview.md')
     })
+
+    it('strips legacy derived-artifact entries from existing related: on UPDATE (conflict-resolver path)', async () => {
+      // Pre-seed a file whose related: already contains a stale .abstract.md
+      // entry (legacy data from before the fix). UPDATE must not union it
+      // back through resolveStructuralLoss.
+      const tool = createCurateTool()
+      const targetDir = join(basePath, 'operations/cafe')
+      await fs.mkdir(targetDir, {recursive: true})
+      const seedPath = join(targetDir, 'menu_notes.md')
+      const seed = [
+        '---',
+        'title: Menu Notes',
+        'summary: original notes',
+        'tags: []',
+        'related: [operations/cafe/sunrise_cafe_menu.md, operations/cafe/sunrise_cafe_menu.abstract.md]',
+        'keywords: []',
+        "createdAt: '2026-04-01T00:00:00.000Z'",
+        "updatedAt: '2026-04-10T00:00:00.000Z'",
+        '---',
+        '## Reason\nseed',
+        '## Raw Concept\n**Task:** seed',
+      ].join('\n')
+      await fs.writeFile(seedPath, seed, 'utf8')
+
+      const result = (await tool.execute({
+        basePath,
+        operations: [
+          {
+            confidence: 'high',
+            content: {
+              keywords: [],
+              relations: ['operations/cafe/ingredient_sourcing.md'],
+              snippets: ['updated notes'],
+              tags: [],
+            },
+            impact: 'low',
+            path: 'operations/cafe',
+            reason: 'testing UPDATE relations filter',
+            title: 'Menu Notes',
+            type: 'UPDATE',
+          },
+        ],
+      })) as CurateOutput
+
+      expect(result.applied[0].status).to.equal('success')
+      const written = await fs.readFile(seedPath, 'utf8')
+      expect(written).to.include('operations/cafe/sunrise_cafe_menu.md')
+      expect(written).to.include('operations/cafe/ingredient_sourcing.md')
+      expect(written).to.not.include('sunrise_cafe_menu.abstract.md')
+    })
   })
 
   describe('Multiple Operations', () => {

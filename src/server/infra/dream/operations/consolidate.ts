@@ -677,7 +677,8 @@ async function addRelatedLinks(filePath: string, relatedPaths: string[]): Promis
     }
   }
 
-  // No existing frontmatter — add one with related field
+  // No existing frontmatter — add one with related field, unless filter left nothing to add.
+  if (incoming.length === 0) return
   const yaml = yamlDump({related: incoming}, {flowLevel: 1, lineWidth: -1, sortKeys: false}).trimEnd()
   await atomicWrite(filePath, `---\n${yaml}\n---\n${content}`)
 }
