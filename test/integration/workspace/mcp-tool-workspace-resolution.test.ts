@@ -40,6 +40,7 @@ function makeStubTransportClient(sandbox: SinonSandbox): ITransportClient & {req
     connect: sandbox.stub().resolves(),
     disconnect: sandbox.stub().resolves(),
     getClientId: sandbox.stub().returns('mcp-client-1'),
+    getDaemonVersion: sandbox.stub(),
     getState: sandbox.stub().returns('connected'),
     isConnected: sandbox.stub().resolves(true),
     joinRoom: sandbox.stub().resolves(),

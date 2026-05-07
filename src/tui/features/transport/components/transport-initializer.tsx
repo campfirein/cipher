@@ -26,7 +26,7 @@ interface TransportInitializerProps {
 }
 
 export function TransportInitializer({children}: TransportInitializerProps): React.ReactNode {
-  const {incrementReconnectCount, setClient, setConnectionState, setError} = useTransportStore()
+  const {incrementReconnectCount, setClient, setConnectionState, setDaemonVersion, setError} = useTransportStore()
 
   useEffect(() => {
     let mounted = true
@@ -117,6 +117,9 @@ export function TransportInitializer({children}: TransportInitializerProps): Rea
 
         // Set client in store (this also creates apiClient)
         setClient(newClient)
+        // Capture daemon version from register ack so the header can render
+        // a drift indicator when the daemon was started by a different brv build.
+        setDaemonVersion(newClient.getDaemonVersion?.())
 
         // Auto-reconnect on disconnect (shared logic from brv-transport-client)
         reconnectorHandle = createDaemonReconnector(newClient, {
@@ -125,6 +128,9 @@ export function TransportInitializer({children}: TransportInitializerProps): Rea
             if (!mounted) return
             registerEventHandlers(reconnectedClient)
             setClient(reconnectedClient)
+            // Refresh on reconnect — the daemon may have been replaced by a
+            // peer client at a different version.
+            setDaemonVersion(reconnectedClient.getDaemonVersion?.())
             logTransportEvent('_reconnect', {clientId: reconnectedClient.getClientId(), state: 'success'})
           },
           onStateChange(state: ConnectionState, client: ITransportClient) {
@@ -170,7 +176,7 @@ export function TransportInitializer({children}: TransportInitializerProps): Rea
         })
       }
     }
-  }, [incrementReconnectCount, setClient, setConnectionState, setError])
+  }, [incrementReconnectCount, setClient, setConnectionState, setDaemonVersion, setError])
 
   return <>{children}</>
 }

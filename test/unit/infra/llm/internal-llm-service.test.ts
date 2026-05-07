@@ -788,8 +788,13 @@ describe('AgentLLMService', () => {
 
       await service.completeTask('Analyze this image', {imageData})
 
-      // Verify imageData was passed to addUserMessage
-      expect(addUserMessageStub.calledWith('Analyze this image', imageData)).to.be.true
+      // Verify imageData was passed to addUserMessage. The first argument now
+      // includes a `<dateTime>` prefix injected at iteration 0 to keep the
+      // system prefix byte-stable for prompt caching, so we match by suffix.
+      expect(addUserMessageStub.calledOnce).to.be.true
+      const [firstArg, secondArg] = addUserMessageStub.firstCall.args as [string, typeof imageData]
+      expect(firstArg).to.match(/<dateTime>.*<\/dateTime>\n\nAnalyze this image$/s)
+      expect(secondArg).to.equal(imageData)
     })
   })
 })

@@ -6,6 +6,7 @@ import {randomUUID} from 'node:crypto'
 import {z} from 'zod'
 
 import {TransportTaskEventNames} from '../../../core/domain/transport/schemas.js'
+import {appendDriftFooter} from './drift-footer.js'
 import {associateProjectWithRetry, type McpStartupProjectContext, resolveMcpTaskContext} from './mcp-project-context.js'
 import {resolveClientCwd} from './resolve-client-cwd.js'
 import {cwdField} from './shared-schema.js'
@@ -27,6 +28,7 @@ export function registerBrvQueryTool(
   getClient: () => ITransportClient | undefined,
   getWorkingDirectory: () => string | undefined,
   getStartupProjectContext: () => McpStartupProjectContext | undefined,
+  clientVersion: string,
 ): void {
   server.registerTool(
     'brv-query',
@@ -85,7 +87,7 @@ export function registerBrvQueryTool(
         const result = await resultPromise
 
         return {
-          content: [{text: result, type: 'text' as const}],
+          content: [{text: appendDriftFooter(result, clientVersion, client.getDaemonVersion?.()), type: 'text' as const}],
         }
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error)

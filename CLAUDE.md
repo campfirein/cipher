@@ -61,8 +61,8 @@ npm run dev:ui                       # Vite dev server for the web UI
 - `server/` — Daemon infrastructure: `config/`, `core/` (domain/interfaces), `infra/` (31 modules, including vc, git, hub, mcp, cogit, project, provider-oauth, space, dream, webui), `templates/`, `utils/`
 - `shared/` — Cross-module: constants, types, transport events, utils
 - `tui/` — React/Ink TUI: app (router/pages), components, features (23 modules, including vc, worktree, source, hub, curate), hooks, lib, providers, stores
-- `webui/` — Browser dashboard (React/Vite). Entry `src/webui/index.tsx`; `features/` (15 panels), `pages/` (home, changes, configuration, contexts, tasks, analytics, project-selector), `layouts/`, `stores/`. Connects to the daemon via Socket.IO; no imports from `server/`, `agent/`, or `tui/` (same boundary rule)
-- `oclif/` — Commands grouped by topic (`vc/`, `hub/`, `worktree/`, `source/`, `space/`, `review/`, `connectors/`, `curate/`, `model/`, `providers/`, `swarm/`, `query-log/`) + top-level `.ts` commands (incl. `webui.ts`); hooks, lib (daemon-client, task-client, json-response)
+- `webui/` — Browser dashboard (React/Vite). Entry `src/webui/index.tsx`; `features/` (15 panels), `pages/` (8 pages: home, changes, configuration, contexts, tasks, analytics, project-selector, not-found), `layouts/`, `stores/`. Connects to the daemon via Socket.IO; no imports from `server/`, `agent/`, or `tui/` (same boundary rule)
+- `oclif/` — Commands grouped by topic (`vc/`, `hub/`, `worktree/`, `source/`, `space/`, `review/`, `connectors/`, `curate/`, `model/`, `providers/`, `swarm/`, `query-log/`) + top-level `.ts` commands (`webui`, `dream`, `review`, `search`, `locations`, `query`, `login`, `logout`, `init`, `mcp`, `pull`, `push`, `restart`, `status`, `debug`); hooks, lib (daemon-client, task-client, json-response)
 
 **Import boundary** (ESLint-enforced): `tui/` must not import from `server/`, `agent/`, or `oclif/`. Use transport events or `shared/`.
 
@@ -101,14 +101,15 @@ npm run dev:ui                       # Vite dev server for the web UI
 - Canonical project resolver: `resolveProject()` in `server/infra/project/` — priority `flag > direct > linked > walked-up > null`. `projectRoot` and `worktreeRoot` are threaded through transport schemas, task routing, and all executors
 - All commands are daemon-routed: `oclif/` and `tui/` never import from `server/`
 - Oclif: `src/oclif/commands/{vc,worktree,source}/`; TUI: `src/tui/features/{vc,worktree,source}/`; slash commands (`vc-*`, `worktree`, `source`) in `src/tui/features/commands/definitions/`
-- `brv curate` blocks execution by default and rejects overlapping runs for the same project; pass `--detach` to run in background. Behavioral contract lives in `src/server/templates/sections/` (`brv-instructions.md`, `workflow.md`, `skill/SKILL.md`) — the in-daemon agent reads these at runtime
+- `brv curate` runs Phases 1–3 in the foreground and detaches Phase 4 (post-curate finalization: summary regeneration, manifest rebuild) to the daemon's `PostWorkRegistry`, which serializes per project and coordinates with `dream-lock-service.ts` to prevent concurrent `_index.md` writes. `--detach` makes the entire run background. Overlapping curate runs for the same project are still rejected. Behavioral contract lives in `src/server/templates/sections/` (`brv-instructions.md`, `workflow.md`, `skill/SKILL.md`) — the in-daemon agent reads these at runtime
+- `brv review [--disable | --enable]` — toggle the project-scoped HITL review log; `brv review pending` lists items, `brv review approve <id>` / `brv review reject <id>` resolve them. When disabled, sync curate skips the "X operations require review" prompt, detached curate stops emitting per-operation review markers, and `brv dream` no longer surfaces `needsReview` operations. The flag is snapshotted at task creation and propagated via `AsyncLocalStorage` (`resolveReviewDisabled`) so mid-task toggles do not race
 - `brv login` defaults to OAuth (interactive provider picker); pass `--api-key` only for CI. `brv logout` clears credentials
 
 ### Agent (`src/agent/`)
 
 - Tools: definitions in `resources/tools/*.txt`, implementations in `infra/tools/implementations/`, registry in `infra/tools/tool-registry.ts`
 - Tool categories: file ops (read/write/edit/glob/grep/list-dir), bash (exec/output), knowledge (create/expand/search), memory (read/write/edit/delete/list), swarm (query/store), todos (read/write), curate, code exec, batch, detect domains, kill process, search history
-- LLM: 20 providers in `infra/llm/providers/`; compression strategies in `infra/llm/context/compression/`
+- LLM: 21 providers in `infra/llm/providers/` (incl. deepseek, glm, glm-coding-plan); compression strategies in `infra/llm/context/compression/`
 - System prompts: contributor pattern (XML sections) in `infra/system-prompt/`
 - Map/memory: `infra/map/` (agentic map, context-tree store, LLM map memory, worker pool); `infra/memory/` (memory-manager, deduplicator)
 - Storage: file-based blob (`infra/blob/`) and key storage (`infra/storage/`) — no SQLite
@@ -142,6 +143,10 @@ npm run dev:ui                       # Vite dev server for the web UI
 - `BRV_UI_SOURCE` — `submodule` | `package` — forces Vite's shared-UI resolution mode
 - `BRV_DATA_DIR` — override the global data dir (default `~/.brv`)
 - `BRV_GIT_REMOTE_BASE_URL` — override git remote base URL (beta vs prod testing)
+- `BRV_QUEUE_TRACE` — set to `1` to log queue/agent map traces (cipher-agent, abstract-queue)
+- `BRV_SESSION_LOG` — file path for daemon/agent session logs (auto-set by `brv-server`; can override for debugging)
+- `BRV_E2E_MODE` — `true` switches the daemon to e2e-friendly stdio handling
+- `BRV_AGENT_PROCESS_PATH` / `BRV_AGENT_PORT` / `BRV_AGENT_PROJECT_PATH` — auto-set by the daemon when forking agent child processes; do not set manually
 
 ## Stack
 

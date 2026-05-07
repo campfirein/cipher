@@ -150,12 +150,16 @@ export class FileContributor implements SystemPromptContributor {
   private renderTemplateVariables(template: string, context: ContributorContext): string {
     let result = template
 
-    // Build variables from context
+    // Build variables from context.
+    // Note: a `datetime` template variable is intentionally NOT exposed here.
+    // Per-call timestamps must never enter the system prompt — they would
+    // poison the prefix cache from that byte onward. The current date/time
+    // is injected once into the iter-0 user message instead (see
+    // agent-llm-service.ts).
     /* eslint-disable camelcase */
     const variables: Record<string, string> = {
       available_markers: context.availableMarkers ? Object.keys(context.availableMarkers).join(', ') : '',
       available_tools: context.availableTools?.join(', ') ?? '',
-      datetime: `<dateTime>Current date and time: ${new Date().toISOString()}</dateTime>`,
     }
     /* eslint-enable camelcase */
 

@@ -70,6 +70,14 @@ export interface GenerateContentResponse {
   finishReason: 'error' | 'max_tokens' | 'stop' | 'tool_calls'
   /** Raw response from provider (for debugging) */
   rawResponse?: unknown
+  /**
+   * Reasoning / thinking text emitted by the model (e.g. DeepSeek-R1's
+   * `reasoning_content`, OpenAI o1's reasoning summary). Required to be
+   * passed back to the API on the next turn for some providers — DeepSeek-R1
+   * rejects the next call with "The reasoning_content in the thinking mode
+   * must be passed back to the API" if absent.
+   */
+  reasoning?: string
   /** Tool calls requested by the model */
   toolCalls?: ToolCall[]
   /** Token usage statistics */

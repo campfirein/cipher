@@ -2,6 +2,7 @@ import {expect} from 'chai'
 import {mkdir, readFile, rm, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
+import {restore, spy} from 'sinon'
 
 import type {DreamState} from '../../../../src/server/infra/dream/dream-state-schema.js'
 
@@ -13,6 +14,7 @@ function makeState(overrides: Partial<DreamState> = {}): DreamState {
     lastDreamAt: null,
     lastDreamLogId: null,
     pendingMerges: [],
+    staleSummaryPaths: [],
     totalDreams: 0,
     version: 1,
     ...overrides,
@@ -30,6 +32,7 @@ describe('DreamStateService', () => {
   })
 
   afterEach(async () => {
+    restore()
     await rm(tempDir, {force: true, recursive: true})
   })
 
@@ -215,6 +218,186 @@ describe('DreamStateService', () => {
       const final = await service.read()
       expect(final.curationsSinceDream).to.equal(5)
       expect(final.totalDreams).to.equal(5)
+    })
+  })
+
+  // ==========================================================================
+  // enqueueStaleSummaryPaths — defer summary cascade
+  // ==========================================================================
+
+  describe('enqueueStaleSummaryPaths', () => {
+    it('appends new paths to an empty queue', async () => {
+      await service.enqueueStaleSummaryPaths(['auth/jwt/token.md', 'billing/webhooks/stripe.md'])
+      const state = await service.read()
+      expect(state.staleSummaryPaths.map((e) => e.path)).to.deep.equal([
+        'auth/jwt/token.md',
+        'billing/webhooks/stripe.md',
+      ])
+    })
+
+    it('stamps each entry with enqueuedAt at the moment of the call', async () => {
+      const before = Date.now()
+      await service.enqueueStaleSummaryPaths(['auth/jwt/token.md'])
+      const after = Date.now()
+
+      const state = await service.read()
+      expect(state.staleSummaryPaths).to.have.lengthOf(1)
+      const [entry] = state.staleSummaryPaths
+      expect(entry.enqueuedAt).to.be.at.least(before)
+      expect(entry.enqueuedAt).to.be.at.most(after)
+    })
+
+    it('dedups entries by path (keeps oldest enqueuedAt)', async () => {
+      await service.enqueueStaleSummaryPaths(['auth/jwt/token.md'])
+      const firstState = await service.read()
+      const firstStamp = firstState.staleSummaryPaths[0].enqueuedAt
+
+      // ensure the second call's Date.now() is strictly later
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 5)
+      })
+
+      await service.enqueueStaleSummaryPaths(['auth/jwt/token.md', 'billing/webhooks/stripe.md'])
+      const secondState = await service.read()
+
+      expect(secondState.staleSummaryPaths).to.have.lengthOf(2)
+      const tokenEntry = secondState.staleSummaryPaths.find((e) => e.path === 'auth/jwt/token.md')
+      expect(tokenEntry?.enqueuedAt, 'oldest enqueuedAt preserved on dedup').to.equal(firstStamp)
+    })
+
+    it('preserves other state fields when enqueuing', async () => {
+      await service.write(makeState({
+        curationsSinceDream: 7,
+        totalDreams: 2,
+      }))
+
+      await service.enqueueStaleSummaryPaths(['auth/jwt/token.md'])
+
+      const state = await service.read()
+      expect(state.curationsSinceDream).to.equal(7)
+      expect(state.totalDreams).to.equal(2)
+      expect(state.staleSummaryPaths).to.have.lengthOf(1)
+    })
+
+    it('is a no-op for an empty input array', async () => {
+      await service.enqueueStaleSummaryPaths([])
+      const state = await service.read()
+      expect(state.staleSummaryPaths).to.deep.equal([])
+    })
+
+    it('dedups within-batch duplicates so a single call cannot insert the same path twice', async () => {
+      // The contract is "dedup by path". A caller passing a non-unique array
+      // (e.g. multiple changedPaths within a single curate that round-trip
+      // through the same parent dir) must NOT produce duplicate queue entries.
+      await service.enqueueStaleSummaryPaths(['auth/jwt.md', 'auth/jwt.md', 'auth/jwt.md'])
+
+      const state = await service.read()
+      expect(state.staleSummaryPaths).to.have.lengthOf(1)
+      expect(state.staleSummaryPaths[0].path).to.equal('auth/jwt.md')
+    })
+
+    it('does not lose entries when 10 enqueues run concurrently', async () => {
+      const paths = Array.from({length: 10}, (_, i) => `domain/topic-${i}.md`)
+      await Promise.all(paths.map((p) => service.enqueueStaleSummaryPaths([p])))
+      const state = await service.read()
+      const stored = state.staleSummaryPaths.map((e) => e.path).sort()
+      expect(stored).to.deep.equal([...paths].sort())
+    })
+  })
+
+  // ==========================================================================
+  // drainStaleSummaryPaths — snapshot-and-clear pattern
+  // ==========================================================================
+
+  describe('drainStaleSummaryPaths', () => {
+    it('returns the current snapshot of paths AND clears the queue atomically', async () => {
+      await service.enqueueStaleSummaryPaths(['auth/jwt/token.md', 'billing/webhooks/stripe.md'])
+
+      const snapshot = await service.drainStaleSummaryPaths()
+      expect(snapshot.sort()).to.deep.equal([
+        'auth/jwt/token.md',
+        'billing/webhooks/stripe.md',
+      ])
+
+      // queue is empty after drain — the same RMW that read it cleared it
+      const state = await service.read()
+      expect(state.staleSummaryPaths).to.deep.equal([])
+    })
+
+    it('returns an empty snapshot when the queue is empty', async () => {
+      const snapshot = await service.drainStaleSummaryPaths()
+      expect(snapshot).to.deep.equal([])
+    })
+
+    it('does NOT issue a write when the queue is already empty', async () => {
+      // The early-return guard in drainStaleSummaryPaths returns the same
+      // state ref unchanged; update() then skips the disk write. Without
+      // this contract, every empty drain would tmpfile + rename for nothing.
+      const writeSpy = spy(service, 'write')
+
+      await service.drainStaleSummaryPaths()
+
+      expect(writeSpy.called).to.equal(false)
+    })
+
+    it('different-path enqueue during processing survives', async () => {
+      await service.enqueueStaleSummaryPaths(['auth/jwt/token.md'])
+      const snapshot = await service.drainStaleSummaryPaths()
+      expect(snapshot).to.deep.equal(['auth/jwt/token.md'])
+
+      // simulate a curate enqueue happening WHILE the dream is processing
+      await service.enqueueStaleSummaryPaths(['billing/webhooks/stripe.md'])
+
+      const state = await service.read()
+      expect(state.staleSummaryPaths.map((e) => e.path)).to.deep.equal(['billing/webhooks/stripe.md'])
+    })
+
+    it('drain on an empty queue returns an empty snapshot and leaves enqueues untouched', async () => {
+      const snapshot = await service.drainStaleSummaryPaths()
+      expect(snapshot).to.deep.equal([])
+
+      await service.enqueueStaleSummaryPaths(['auth/jwt/token.md'])
+
+      const state = await service.read()
+      expect(state.staleSummaryPaths.map((e) => e.path)).to.deep.equal(['auth/jwt/token.md'])
+    })
+
+    it('preserves other state fields when draining', async () => {
+      await service.write(makeState({
+        curationsSinceDream: 3,
+        totalDreams: 1,
+      }))
+      await service.enqueueStaleSummaryPaths(['auth/jwt/token.md'])
+      await service.drainStaleSummaryPaths()
+
+      const state = await service.read()
+      expect(state.curationsSinceDream).to.equal(3)
+      expect(state.totalDreams).to.equal(1)
+      expect(state.staleSummaryPaths).to.deep.equal([])
+    })
+
+    it('preserves a same-path enqueue made after the drain (no race loss)', async () => {
+      // Repro of the race the reviewer flagged on PR #551:
+      //   1. Dream drains queue containing X.
+      //   2. Concurrent curate touches X again — enqueue should record it.
+      //   3. Dream finishes propagation.
+      //   4. The post-drain enqueue MUST survive so the next dream picks it up.
+      // Atomic drain (queue cleared upfront) makes the post-drain enqueue see
+      // an empty queue, so it always appends fresh.
+      await service.enqueueStaleSummaryPaths(['auth/jwt/token.md'])
+
+      // (1) Dream drains — entries removed atomically.
+      const snapshot = await service.drainStaleSummaryPaths()
+      expect(snapshot).to.deep.equal(['auth/jwt/token.md'])
+
+      // (2) A curate touches the same path during dream propagation.
+      await service.enqueueStaleSummaryPaths(['auth/jwt/token.md'])
+
+      // (3) Dream finishes — no clear() to call; entries already removed at (1).
+
+      // (4) The path enqueued at (2) survives.
+      const state = await service.read()
+      expect(state.staleSummaryPaths.map((e) => e.path)).to.deep.equal(['auth/jwt/token.md'])
     })
   })
 })

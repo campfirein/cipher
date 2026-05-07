@@ -149,6 +149,8 @@ export interface BillingFreeUserLimitDTO {
 // ============================================================================
 
 export interface ProviderDTO {
+  /** Currently selected model for this provider, if any. Absent means connected but model not yet picked. */
+  activeModel?: string
   apiKeyUrl?: string
   authMethod?: 'api-key' | 'oauth'
   category: 'other' | 'popular'
