@@ -55,6 +55,7 @@ import {createTokenStore} from '../storage/token-store.js'
 import {HttpTeamService} from '../team/http-team-service.js'
 import {FsTemplateLoader} from '../template/fs-template-loader.js'
 import {
+  AnalyticsHandler,
   AuthHandler,
   ConfigHandler,
   ConnectorsHandler,
@@ -158,6 +159,10 @@ export async function setupFeatureHandlers({
     queue: new BoundedQueue(),
     superPropsResolver: new SuperPropertiesResolver(globalConfigStore),
   })
+
+  // M2.6: route incoming analytics:track events from non-forked clients
+  // (TUI, oclif, MCP, webui) to the same singleton.
+  new AnalyticsHandler({analyticsClient, transport}).setup()
 
   new AuthHandler({
     authService: new OAuthService(authConfig),
