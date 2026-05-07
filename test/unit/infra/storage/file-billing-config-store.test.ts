@@ -7,72 +7,79 @@ import {join} from 'node:path'
 import {FileBillingConfigStore} from '../../../../src/server/infra/storage/file-billing-config-store.js'
 
 describe('FileBillingConfigStore', () => {
-  let configDir: string
+  let baseDir: string
   let configPath: string
   let store: FileBillingConfigStore
 
   beforeEach(async () => {
-    configDir = await mkdtemp(join(tmpdir(), 'brv-billing-config-'))
-    configPath = join(configDir, 'billing.json')
-    store = new FileBillingConfigStore({
-      getConfigDir: () => configDir,
-      getConfigPath: () => configPath,
-    })
+    baseDir = await mkdtemp(join(tmpdir(), 'brv-billing-config-'))
+    configPath = join(baseDir, 'brv-provider.json')
+    store = new FileBillingConfigStore({baseDir})
   })
 
   afterEach(async () => {
-    await rm(configDir, {force: true, recursive: true})
+    await rm(baseDir, {force: true, recursive: true})
   })
 
-  describe('getPinnedOrganizationId', () => {
+  describe('getPinnedTeamId', () => {
     it('returns undefined when the config file does not exist', async () => {
-      expect(await store.getPinnedOrganizationId()).to.equal(undefined)
+      expect(await store.getPinnedTeamId()).to.equal(undefined)
     })
 
     it('returns undefined when the file is corrupted', async () => {
       const {writeFile} = await import('node:fs/promises')
       await writeFile(configPath, '{not valid json', 'utf8')
-      expect(await store.getPinnedOrganizationId()).to.equal(undefined)
+      expect(await store.getPinnedTeamId()).to.equal(undefined)
     })
 
     it('returns the previously-written organization id', async () => {
-      await store.setPinnedOrganizationId('org-123')
-      expect(await store.getPinnedOrganizationId()).to.equal('org-123')
+      await store.setPinnedTeamId('org-123')
+      expect(await store.getPinnedTeamId()).to.equal('org-123')
     })
 
     it('returns undefined after the pin is cleared', async () => {
-      await store.setPinnedOrganizationId('org-123')
-      await store.setPinnedOrganizationId(undefined)
-      expect(await store.getPinnedOrganizationId()).to.equal(undefined)
+      await store.setPinnedTeamId('org-123')
+      await store.setPinnedTeamId(undefined)
+      expect(await store.getPinnedTeamId()).to.equal(undefined)
     })
   })
 
-  describe('setPinnedOrganizationId', () => {
-    it('creates the config directory if it does not exist', async () => {
-      const nestedDir = join(configDir, 'nested')
-      const nestedPath = join(nestedDir, 'billing.json')
-      const nestedStore = new FileBillingConfigStore({
-        getConfigDir: () => nestedDir,
-        getConfigPath: () => nestedPath,
-      })
+  describe('setPinnedTeamId', () => {
+    it('creates the base directory if it does not exist', async () => {
+      const nestedDir = join(baseDir, 'nested')
+      const nestedStore = new FileBillingConfigStore({baseDir: nestedDir})
 
-      await nestedStore.setPinnedOrganizationId('org-1')
+      await nestedStore.setPinnedTeamId('org-1')
 
-      expect(existsSync(nestedPath)).to.equal(true)
+      expect(existsSync(join(nestedDir, 'brv-provider.json'))).to.equal(true)
     })
 
     it('persists pretty-printed JSON', async () => {
-      await store.setPinnedOrganizationId('org-456')
+      await store.setPinnedTeamId('org-456')
       const content = await readFile(configPath, 'utf8')
       expect(content).to.contain('\n')
-      expect(JSON.parse(content)).to.deep.equal({pinnedOrganizationId: 'org-456'})
+      expect(JSON.parse(content)).to.deep.equal({billing: {pinnedTeamId: 'org-456'}})
     })
 
     it('omits the field when cleared so the file stays minimal', async () => {
-      await store.setPinnedOrganizationId('org-999')
-      await store.setPinnedOrganizationId(undefined)
+      await store.setPinnedTeamId('org-999')
+      await store.setPinnedTeamId(undefined)
       const content = await readFile(configPath, 'utf8')
       expect(JSON.parse(content)).to.deep.equal({})
     })
+
+    it('writes to the configured base directory, not a global path', async () => {
+      const otherBase = await mkdtemp(join(tmpdir(), 'brv-billing-other-'))
+      const otherStore = new FileBillingConfigStore({baseDir: otherBase})
+
+      await store.setPinnedTeamId('org-A')
+      await otherStore.setPinnedTeamId('org-B')
+
+      expect(await store.getPinnedTeamId()).to.equal('org-A')
+      expect(await otherStore.getPinnedTeamId()).to.equal('org-B')
+
+      await rm(otherBase, {force: true, recursive: true})
+    })
   })
+
 })

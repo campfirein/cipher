@@ -1,12 +1,18 @@
-import type {BillingFreeUserLimitDTO, BillingUsageDTO} from '../types/dto.js'
+import type {BillingFreeUserLimitDTO, BillingUsageDTO, StatusBillingDTO} from '../types/dto.js'
 
 export const BillingEvents = {
   GET_FREE_USER_LIMIT: 'billing:getFreeUserLimit',
-  GET_PINNED_ORGANIZATION: 'billing:getPinnedOrganization',
+  GET_PINNED_TEAM: 'billing:getPinnedTeam',
   GET_USAGE: 'billing:getUsage',
   LIST_USAGE: 'billing:listUsage',
-  SET_PINNED_ORGANIZATION: 'billing:setPinnedOrganization',
+  RESOLVE: 'billing:resolve',
+  SET_PINNED_TEAM: 'billing:setPinnedTeam',
 } as const
+
+export interface BillingResolveResponse {
+  billing?: StatusBillingDTO
+  error?: string
+}
 
 export interface BillingGetUsageRequest {
   /** Organization (team) whose usage should be reported. */
@@ -30,17 +36,18 @@ export interface BillingGetFreeUserLimitResponse {
   limit?: BillingFreeUserLimitDTO
 }
 
-export interface BillingGetPinnedOrganizationResponse {
+export interface BillingGetPinnedTeamResponse {
+  error?: string
   /** When undefined, no pin is set and the consumer should fall back to its workspace default. */
-  organizationId?: string
+  teamId?: string
 }
 
-export interface BillingSetPinnedOrganizationRequest {
+export interface BillingSetPinnedTeamRequest {
   /** Pass `undefined` (or omit) to clear the pin. */
-  organizationId?: string
+  teamId?: string
 }
 
-export interface BillingSetPinnedOrganizationResponse {
+export interface BillingSetPinnedTeamResponse {
   error?: string
   success: boolean
 }

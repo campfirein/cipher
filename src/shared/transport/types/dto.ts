@@ -220,6 +220,21 @@ export interface ProjectLocationDTO {
 // ============================================================================
 // Status DTOs
 // ============================================================================
+
+export type StatusBillingSource = 'free' | 'other-provider' | 'paid'
+
+export type StatusBillingDTO =
+  | {activeProvider?: string; source: 'other-provider'}
+  | {
+      organizationId: string
+      organizationName?: string
+      remaining?: number
+      source: 'paid'
+      tier?: BillingTier
+      total?: number
+    }
+  | {remaining?: number; source: 'free'; total?: number}
+
 export interface StatusDTO {
   /** Current state of the background abstract generation queue, if active */
   abstractQueue?: {
@@ -229,6 +244,8 @@ export interface StatusDTO {
     processing: boolean
   }
   authStatus: 'expired' | 'logged_in' | 'not_logged_in' | 'unknown'
+  /** Resolved billing source for the byterover provider (omitted on transport/billing failure). */
+  billing?: StatusBillingDTO
   contextTreeChanges?: ContextTreeChanges
   /** Absolute path to the context tree directory (e.g., '/Users/foo/project/.brv/context-tree') */
   contextTreeDir?: string

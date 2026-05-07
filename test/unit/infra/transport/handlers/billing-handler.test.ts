@@ -1,13 +1,18 @@
 import {expect} from 'chai'
 import {createSandbox, type SinonSandbox} from 'sinon'
 
+import type {IProviderConfigStore} from '../../../../../src/server/core/interfaces/i-provider-config-store.js'
 import type {IBillingService} from '../../../../../src/server/core/interfaces/services/i-billing-service.js'
 import type {IBillingConfigStore} from '../../../../../src/server/core/interfaces/storage/i-billing-config-store.js'
+import type {IProjectConfigStore} from '../../../../../src/server/core/interfaces/storage/i-project-config-store.js'
 import type {BillingFreeUserLimitDTO, BillingUsageDTO} from '../../../../../src/shared/transport/types/dto.js'
 
+import {TransportDaemonEventNames} from '../../../../../src/server/core/domain/transport/schemas.js'
 import {BillingHandler} from '../../../../../src/server/infra/transport/handlers/billing-handler.js'
 import {BillingEvents} from '../../../../../src/shared/transport/events/billing-events.js'
 import {createMockAuthStateStore, createMockTransportServer} from '../../../../helpers/mock-factories.js'
+
+const PROJECT_A = '/proj-A'
 
 const usageFixture = (overrides: Partial<BillingUsageDTO> = {}): BillingUsageDTO => ({
   addOnRemaining: 0,
@@ -40,6 +45,8 @@ describe('BillingHandler', () => {
   let getFreeUserLimitStub: ReturnType<SinonSandbox['stub']>
   let getPinnedStub: ReturnType<SinonSandbox['stub']>
   let setPinnedStub: ReturnType<SinonSandbox['stub']>
+  let storeFactoryStub: ReturnType<SinonSandbox['stub']>
+  let resolveProjectPathStub: ReturnType<SinonSandbox['stub']>
 
   beforeEach(() => {
     sandbox = createSandbox()
@@ -54,9 +61,11 @@ describe('BillingHandler', () => {
       getUsages: getUsagesStub as IBillingService['getUsages'],
     }
     billingConfigStore = {
-      getPinnedOrganizationId: getPinnedStub as IBillingConfigStore['getPinnedOrganizationId'],
-      setPinnedOrganizationId: setPinnedStub as IBillingConfigStore['setPinnedOrganizationId'],
+      getPinnedTeamId: getPinnedStub as IBillingConfigStore['getPinnedTeamId'],
+      setPinnedTeamId: setPinnedStub as IBillingConfigStore['setPinnedTeamId'],
     }
+    storeFactoryStub = sandbox.stub().returns(billingConfigStore)
+    resolveProjectPathStub = sandbox.stub().returns(PROJECT_A)
   })
 
   afterEach(() => {
@@ -64,10 +73,23 @@ describe('BillingHandler', () => {
   })
 
   function createHandler(options?: {isAuthenticated?: boolean}): BillingHandler {
+    const projectConfigStore = {
+      exists: sandbox.stub().resolves(false),
+      getModifiedTime: sandbox.stub().resolves(),
+      read: sandbox.stub().resolves({}),
+      write: sandbox.stub().resolves(),
+    } as unknown as IProjectConfigStore
+    const providerConfigStore = {
+      getActiveProvider: sandbox.stub().resolves(''),
+    } as unknown as IProviderConfigStore
+
     const handler = new BillingHandler({
       authStateStore: createMockAuthStateStore(sandbox, options),
-      billingConfigStore,
+      billingConfigStoreFactory: storeFactoryStub as unknown as (projectPath: string) => IBillingConfigStore,
       billingService,
+      projectConfigStore,
+      providerConfigStore,
+      resolveProjectPath: resolveProjectPathStub as unknown as (clientId: string) => string | undefined,
       transport,
     })
     handler.setup()
@@ -216,53 +238,79 @@ describe('BillingHandler', () => {
     })
   })
 
-  describe('billing:getPinnedOrganization', () => {
+  describe('billing:getPinnedTeam', () => {
     it('registers the handler on setup', () => {
       createHandler()
-      expect(transport._handlers.has(BillingEvents.GET_PINNED_ORGANIZATION)).to.equal(true)
+      expect(transport._handlers.has(BillingEvents.GET_PINNED_TEAM)).to.equal(true)
     })
 
-    it('returns the persisted organization id', async () => {
+    it('resolves the project from the client and returns the persisted team id', async () => {
       getPinnedStub.resolves('org-pinned')
       createHandler()
 
-      const handler = transport._handlers.get(BillingEvents.GET_PINNED_ORGANIZATION)
+      const handler = transport._handlers.get(BillingEvents.GET_PINNED_TEAM)
       const result = await handler!(undefined, 'client-1')
 
-      expect(result).to.deep.equal({organizationId: 'org-pinned'})
+      expect(resolveProjectPathStub.calledOnceWith('client-1')).to.equal(true)
+      expect(storeFactoryStub.calledOnceWith(PROJECT_A)).to.equal(true)
+      expect(result).to.deep.equal({teamId: 'org-pinned'})
     })
 
     it('returns an empty envelope when no pin is set', async () => {
       getPinnedStub.resolves()
       createHandler()
 
-      const handler = transport._handlers.get(BillingEvents.GET_PINNED_ORGANIZATION)
+      const handler = transport._handlers.get(BillingEvents.GET_PINNED_TEAM)
       const result = await handler!(undefined, 'client-1')
 
       expect(result).to.deep.equal({})
     })
-  })
 
-  describe('billing:setPinnedOrganization', () => {
-    it('registers the handler on setup', () => {
+    it('returns an error envelope when the client has no project association', async () => {
+      resolveProjectPathStub.returns()
       createHandler()
-      expect(transport._handlers.has(BillingEvents.SET_PINNED_ORGANIZATION)).to.equal(true)
+
+      const handler = transport._handlers.get(BillingEvents.GET_PINNED_TEAM)
+      const result = await handler!(undefined, 'client-1')
+
+      expect(getPinnedStub.called).to.equal(false)
+      expect(result).to.have.property('error').that.matches(/project/i)
+      expect(result).to.not.have.property('teamId')
     })
 
-    it('writes the new pin and returns success', async () => {
+    it('returns an error envelope when the store throws', async () => {
+      getPinnedStub.rejects(new Error('disk read error'))
       createHandler()
 
-      const handler = transport._handlers.get(BillingEvents.SET_PINNED_ORGANIZATION)
-      const result = await handler!({organizationId: 'org-new'}, 'client-1')
+      const handler = transport._handlers.get(BillingEvents.GET_PINNED_TEAM)
+      const result = await handler!(undefined, 'client-1')
 
+      expect(result).to.deep.equal({error: 'disk read error'})
+    })
+  })
+
+  describe('billing:setPinnedTeam', () => {
+    it('registers the handler on setup', () => {
+      createHandler()
+      expect(transport._handlers.has(BillingEvents.SET_PINNED_TEAM)).to.equal(true)
+    })
+
+    it('writes the new pin to the resolved project store and returns success', async () => {
+      createHandler()
+
+      const handler = transport._handlers.get(BillingEvents.SET_PINNED_TEAM)
+      const result = await handler!({teamId: 'org-new'}, 'client-1')
+
+      expect(resolveProjectPathStub.calledOnceWith('client-1')).to.equal(true)
+      expect(storeFactoryStub.calledOnceWith(PROJECT_A)).to.equal(true)
       expect(setPinnedStub.calledOnceWith('org-new')).to.equal(true)
       expect(result).to.deep.equal({success: true})
     })
 
-    it('clears the pin when organizationId is omitted', async () => {
+    it('clears the pin when teamId is omitted', async () => {
       createHandler()
 
-      const handler = transport._handlers.get(BillingEvents.SET_PINNED_ORGANIZATION)
+      const handler = transport._handlers.get(BillingEvents.SET_PINNED_TEAM)
       const result = await handler!({}, 'client-1')
 
       expect(setPinnedStub.calledOnceWith()).to.equal(true)
@@ -273,10 +321,80 @@ describe('BillingHandler', () => {
       setPinnedStub.rejects(new Error('disk full'))
       createHandler()
 
-      const handler = transport._handlers.get(BillingEvents.SET_PINNED_ORGANIZATION)
-      const result = await handler!({organizationId: 'org-new'}, 'client-1')
+      const handler = transport._handlers.get(BillingEvents.SET_PINNED_TEAM)
+      const result = await handler!({teamId: 'org-new'}, 'client-1')
 
       expect(result).to.deep.equal({error: 'disk full', success: false})
     })
+
+    it('broadcasts the new pin with projectPath on success', async () => {
+      createHandler()
+
+      const handler = transport._handlers.get(BillingEvents.SET_PINNED_TEAM)
+      await handler!({teamId: 'org-new'}, 'client-1')
+
+      expect(
+        transport.broadcast.calledOnceWith(TransportDaemonEventNames.BILLING_PIN_CHANGED, {
+          projectPath: PROJECT_A,
+          teamId: 'org-new',
+        }),
+      ).to.equal(true)
+    })
+
+    it('broadcasts a clear payload (still scoped by projectPath)', async () => {
+      createHandler()
+
+      const handler = transport._handlers.get(BillingEvents.SET_PINNED_TEAM)
+      await handler!({}, 'client-1')
+
+      expect(
+        transport.broadcast.calledOnceWith(TransportDaemonEventNames.BILLING_PIN_CHANGED, {
+          projectPath: PROJECT_A,
+        }),
+      ).to.equal(true)
+    })
+
+    it('does not broadcast when the store throws', async () => {
+      setPinnedStub.rejects(new Error('disk full'))
+      createHandler()
+
+      const handler = transport._handlers.get(BillingEvents.SET_PINNED_TEAM)
+      await handler!({organizationId: 'org-new'}, 'client-1')
+
+      expect(transport.broadcast.called).to.equal(false)
+    })
   })
+
+  describe('billing:resolve', () => {
+    it('registers the handler on setup', () => {
+      createHandler()
+      expect(transport._handlers.has(BillingEvents.RESOLVE)).to.equal(true)
+    })
+
+    it('returns a billing DTO when the chain resolves', async () => {
+      getUsagesStub.resolves([
+        usageFixture({organizationId: 'org-acme', organizationName: 'Acme Corp', remaining: 87_600, tier: 'PRO'}),
+      ])
+      getPinnedStub.resolves('org-acme')
+      createHandler()
+
+      const handler = transport._handlers.get(BillingEvents.RESOLVE)
+      const result = await handler!(undefined, 'client-1')
+
+      expect(result.billing).to.be.an('object')
+      expect(result.error).to.equal(undefined)
+    })
+
+    it('returns undefined billing with an error when no project context is available', async () => {
+      resolveProjectPathStub.returns()
+      createHandler()
+
+      const handler = transport._handlers.get(BillingEvents.RESOLVE)
+      const result = await handler!(undefined, 'client-1')
+
+      expect(result.billing).to.equal(undefined)
+      expect(result.error).to.match(/project/i)
+    })
+  })
+
 })

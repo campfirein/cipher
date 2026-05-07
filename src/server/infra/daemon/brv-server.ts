@@ -50,6 +50,7 @@ import {
 import {getGlobalDataDir} from '../../utils/global-data-path.js'
 import {getProjectDataDir} from '../../utils/path-utils.js'
 import {crashLog, processLog} from '../../utils/process-logger.js'
+import {createBillingStateHandler} from '../billing/billing-state-endpoint.js'
 import {ClientManager} from '../client/client-manager.js'
 import {ProjectConfigStore} from '../config/file-config-store.js'
 import {readContextTreeRemoteUrl} from '../context-tree/read-context-tree-remote.js'
@@ -68,6 +69,7 @@ import {clearStaleProviderConfig, resolveProviderConfig} from '../provider/provi
 import {ProjectRouter} from '../routing/project-router.js'
 import {AuthStateStore} from '../state/auth-state-store.js'
 import {ProjectStateLoader} from '../state/project-state-loader.js'
+import {FileBillingConfigStore} from '../storage/file-billing-config-store.js'
 import {FileCurateLogStore} from '../storage/file-curate-log-store.js'
 import {FileProviderConfigStore} from '../storage/file-provider-config-store.js'
 import {FileReviewBackupStore} from '../storage/file-review-backup-store.js'
@@ -614,11 +616,19 @@ async function main(): Promise<void> {
       resolveProviderConfig({authStateStore, providerConfigStore, providerKeychainStore, tokenRefreshManager}),
     )
 
+    const billingConfigStoreFactory = (projectPath: string) =>
+      new FileBillingConfigStore({baseDir: join(projectPath, BRV_DIR)})
+    transportServer.onRequest(
+      TransportStateEventNames.GET_BILLING_CONFIG,
+      createBillingStateHandler(billingConfigStoreFactory),
+    )
+
     // Feature handlers (auth, init, status, push, pull, etc.) require async OIDC discovery.
     // Placed after daemon:getState so the debug endpoint is available immediately,
     // without waiting for OIDC discovery (~400ms).
     await setupFeatureHandlers({
       authStateStore,
+      billingConfigStoreFactory,
       broadcastToProject(projectPath, event, data) {
         broadcastToProjectRoom(projectRegistry, projectRouter, projectPath, event, data)
       },

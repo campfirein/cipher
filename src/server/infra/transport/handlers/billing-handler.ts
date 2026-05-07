@@ -1,55 +1,67 @@
 import type {BillingUsageDTO} from '../../../../shared/transport/types/dto.js'
+import type {BillingPinChangedPayload} from '../../../core/domain/transport/schemas.js'
+import type {IProviderConfigStore} from '../../../core/interfaces/i-provider-config-store.js'
 import type {IBillingService} from '../../../core/interfaces/services/i-billing-service.js'
 import type {IAuthStateStore} from '../../../core/interfaces/state/i-auth-state-store.js'
 import type {IBillingConfigStore} from '../../../core/interfaces/storage/i-billing-config-store.js'
+import type {IProjectConfigStore} from '../../../core/interfaces/storage/i-project-config-store.js'
 import type {ITransportServer} from '../../../core/interfaces/transport/i-transport-server.js'
+import type {ProjectPathResolver} from './handler-types.js'
 
 import {
   BillingEvents,
   type BillingGetFreeUserLimitResponse,
-  type BillingGetPinnedOrganizationResponse,
+  type BillingGetPinnedTeamResponse,
   type BillingGetUsageRequest,
   type BillingGetUsageResponse,
   type BillingListUsageResponse,
-  type BillingSetPinnedOrganizationRequest,
-  type BillingSetPinnedOrganizationResponse,
+  type BillingResolveResponse,
+  type BillingSetPinnedTeamRequest,
+  type BillingSetPinnedTeamResponse,
 } from '../../../../shared/transport/events/billing-events.js'
+import {TransportDaemonEventNames} from '../../../core/domain/transport/schemas.js'
 import {getErrorMessage} from '../../../utils/error-helpers.js'
+import {resolveBillingForProject} from '../../billing/resolve-billing-source.js'
+import {resolveRequiredProjectPath} from './handler-types.js'
 
 export interface BillingHandlerDeps {
   authStateStore: IAuthStateStore
-  billingConfigStore: IBillingConfigStore
+  billingConfigStoreFactory: (projectPath: string) => IBillingConfigStore
   billingService: IBillingService
+  projectConfigStore: IProjectConfigStore
+  providerConfigStore: IProviderConfigStore
+  resolveProjectPath: ProjectPathResolver
   transport: ITransportServer
 }
 
 const NOT_AUTHENTICATED_ERROR = 'Billing data requires sign-in. Run /login or brv login to sign in.'
 
-/**
- * Handles billing:* events. Reads usage data from the upstream billing
- * service for the authenticated user, and persists the user's pinned billing
- * organization. Errors flow back as an envelope (`{error}`) so the webui can
- * render inline status without try/catch on every call.
- */
 export class BillingHandler {
   private readonly authStateStore: IAuthStateStore
-  private readonly billingConfigStore: IBillingConfigStore
+  private readonly billingConfigStoreFactory: (projectPath: string) => IBillingConfigStore
   private readonly billingService: IBillingService
+  private readonly projectConfigStore: IProjectConfigStore
+  private readonly providerConfigStore: IProviderConfigStore
+  private readonly resolveProjectPath: ProjectPathResolver
   private readonly transport: ITransportServer
 
   constructor(deps: BillingHandlerDeps) {
     this.authStateStore = deps.authStateStore
-    this.billingConfigStore = deps.billingConfigStore
+    this.billingConfigStoreFactory = deps.billingConfigStoreFactory
     this.billingService = deps.billingService
+    this.projectConfigStore = deps.projectConfigStore
+    this.providerConfigStore = deps.providerConfigStore
+    this.resolveProjectPath = deps.resolveProjectPath
     this.transport = deps.transport
   }
 
   setup(): void {
+    this.setupGetFreeUserLimit()
+    this.setupGetPinnedTeam()
     this.setupGetUsage()
     this.setupListUsage()
-    this.setupGetFreeUserLimit()
-    this.setupGetPinnedOrganization()
-    this.setupSetPinnedOrganization()
+    this.setupResolve()
+    this.setupSetPinnedTeam()
   }
 
   private setupGetFreeUserLimit(): void {
@@ -71,12 +83,18 @@ export class BillingHandler {
     )
   }
 
-  private setupGetPinnedOrganization(): void {
-    this.transport.onRequest<undefined, BillingGetPinnedOrganizationResponse>(
-      BillingEvents.GET_PINNED_ORGANIZATION,
-      async () => {
-        const organizationId = await this.billingConfigStore.getPinnedOrganizationId()
-        return organizationId === undefined ? {} : {organizationId}
+  private setupGetPinnedTeam(): void {
+    this.transport.onRequest<undefined, BillingGetPinnedTeamResponse>(
+      BillingEvents.GET_PINNED_TEAM,
+      async (_, clientId) => {
+        try {
+          const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
+          const store = this.billingConfigStoreFactory(projectPath)
+          const teamId = await store.getPinnedTeamId()
+          return teamId === undefined ? {} : {teamId}
+        } catch (error) {
+          return {error: getErrorMessage(error)}
+        }
       },
     )
   }
@@ -126,12 +144,36 @@ export class BillingHandler {
     })
   }
 
-  private setupSetPinnedOrganization(): void {
-    this.transport.onRequest<BillingSetPinnedOrganizationRequest, BillingSetPinnedOrganizationResponse>(
-      BillingEvents.SET_PINNED_ORGANIZATION,
-      async (data) => {
+  private setupResolve(): void {
+    this.transport.onRequest<undefined, BillingResolveResponse>(BillingEvents.RESOLVE, async (_, clientId) => {
+      try {
+        const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
+        const billing = await resolveBillingForProject({
+          authStateStore: this.authStateStore,
+          billingConfigStoreFactory: this.billingConfigStoreFactory,
+          billingService: this.billingService,
+          projectConfigStore: this.projectConfigStore,
+          projectPath,
+          providerConfigStore: this.providerConfigStore,
+        })
+        return {billing}
+      } catch (error) {
+        return {error: getErrorMessage(error)}
+      }
+    })
+  }
+
+  private setupSetPinnedTeam(): void {
+    this.transport.onRequest<BillingSetPinnedTeamRequest, BillingSetPinnedTeamResponse>(
+      BillingEvents.SET_PINNED_TEAM,
+      async (data, clientId) => {
         try {
-          await this.billingConfigStore.setPinnedOrganizationId(data.organizationId)
+          const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
+          const store = this.billingConfigStoreFactory(projectPath)
+          await store.setPinnedTeamId(data.teamId)
+          const payload: BillingPinChangedPayload =
+            data.teamId === undefined ? {projectPath} : {projectPath, teamId: data.teamId}
+          this.transport.broadcast(TransportDaemonEventNames.BILLING_PIN_CHANGED, payload)
           return {success: true}
         } catch (error) {
           return {error: getErrorMessage(error), success: false}

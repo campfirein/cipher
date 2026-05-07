@@ -1,69 +1,70 @@
-import {existsSync} from 'node:fs'
 import {mkdir, readFile, writeFile} from 'node:fs/promises'
 import {join} from 'node:path'
 
 import type {IBillingConfigStore} from '../../core/interfaces/storage/i-billing-config-store.js'
 
-import {getGlobalConfigDir} from '../../utils/global-config-path.js'
-
-export interface FileBillingConfigStoreDeps {
-  readonly getConfigDir: () => string
-  readonly getConfigPath: () => string
+export interface FileBillingConfigStoreOptions {
+  baseDir: string
 }
 
-const BILLING_CONFIG_FILE = 'billing.json'
+const PROVIDER_CONFIG_FILE = 'brv-provider.json'
 
-const defaultDeps: FileBillingConfigStoreDeps = {
-  getConfigDir: getGlobalConfigDir,
-  getConfigPath: () => join(getGlobalConfigDir(), BILLING_CONFIG_FILE),
+interface ProviderConfigJson {
+  billing?: {
+    pinnedTeamId?: string
+  }
 }
 
-interface BillingConfigJson {
-  pinnedOrganizationId?: string
-}
-
-/**
- * File-backed persistence for the user's billing preferences. Stored alongside
- * the global config (~/.config/brv on Linux, ~/Library/Application Support/brv
- * on macOS, %APPDATA%\brv on Windows) so the pin survives across workspaces
- * and daemon restarts.
- */
 export class FileBillingConfigStore implements IBillingConfigStore {
-  private readonly deps: FileBillingConfigStoreDeps
+  private readonly baseDir: string
+  private readonly configPath: string
 
-  public constructor(deps: FileBillingConfigStoreDeps = defaultDeps) {
-    this.deps = deps
+  public constructor(options: FileBillingConfigStoreOptions) {
+    this.baseDir = options.baseDir
+    this.configPath = join(options.baseDir, PROVIDER_CONFIG_FILE)
   }
 
-  public async getPinnedOrganizationId(): Promise<string | undefined> {
+  public async getPinnedTeamId(): Promise<string | undefined> {
     const json = await this.readJson()
-    return json.pinnedOrganizationId
+    return json.billing?.pinnedTeamId
   }
 
-  public async setPinnedOrganizationId(organizationId: string | undefined): Promise<void> {
-    const next: BillingConfigJson = {}
-    if (organizationId !== undefined) next.pinnedOrganizationId = organizationId
+  public async setPinnedTeamId(teamId: string | undefined): Promise<void> {
+    const json = await this.readJson()
+    const billing = {...json.billing}
+    if (teamId === undefined) {
+      delete billing.pinnedTeamId
+    } else {
+      billing.pinnedTeamId = teamId
+    }
 
-    await mkdir(this.deps.getConfigDir(), {recursive: true})
-    await writeFile(this.deps.getConfigPath(), JSON.stringify(next, null, 2), 'utf8')
+    const next: ProviderConfigJson = {...json, billing}
+    if (Object.keys(billing).length === 0) delete next.billing
+    await this.writeJson(next)
   }
 
-  private async readJson(): Promise<BillingConfigJson> {
-    const path = this.deps.getConfigPath()
-    if (!existsSync(path)) return {}
-
+  private async readJson(): Promise<ProviderConfigJson> {
     try {
-      const content = await readFile(path, 'utf8')
+      const content = await readFile(this.configPath, 'utf8')
       const parsed: unknown = JSON.parse(content)
-      if (parsed && typeof parsed === 'object' && 'pinnedOrganizationId' in parsed) {
-        const value = (parsed as {pinnedOrganizationId?: unknown}).pinnedOrganizationId
-        if (typeof value === 'string') return {pinnedOrganizationId: value}
+      if (!isRecord(parsed)) return {}
+      const result: ProviderConfigJson = {}
+      if (isRecord(parsed.billing) && typeof parsed.billing.pinnedTeamId === 'string') {
+        result.billing = {pinnedTeamId: parsed.billing.pinnedTeamId}
       }
 
-      return {}
+      return result
     } catch {
-      // Corrupted file or read error — caller treats as "no pin".
       return {}
     }
   }
+
+  private async writeJson(json: ProviderConfigJson): Promise<void> {
+    await mkdir(this.baseDir, {recursive: true})
+    await writeFile(this.configPath, JSON.stringify(json, null, 2), 'utf8')
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
 }

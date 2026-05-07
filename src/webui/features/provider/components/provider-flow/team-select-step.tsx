@@ -3,23 +3,22 @@ import {Button} from '@campfirein/byterover-packages/components/button'
 import {DialogDescription, DialogHeader, DialogTitle} from '@campfirein/byterover-packages/components/dialog'
 import {Skeleton} from '@campfirein/byterover-packages/components/skeleton'
 import {cn} from '@campfirein/byterover-packages/lib/utils'
-import {Building2, Check, ChevronLeft, LoaderCircle} from 'lucide-react'
-import {ReactNode, useState} from 'react'
+import {Check, ChevronLeft, Info, LoaderCircle} from 'lucide-react'
+import {ReactNode, useMemo, useState} from 'react'
 import {toast} from 'sonner'
 
-import type {BillingTier, TeamDTO} from '../../../../../shared/transport/types/dto'
+import type {BillingTier, BillingUsageDTO, TeamDTO} from '../../../../../shared/transport/types/dto'
 
 import {formatError} from '../../../../lib/error-messages'
 import {initials} from '../../../../utils/initials'
 import {useAuthStore} from '../../../auth/stores/auth-store'
-import {useGetPinnedOrganization} from '../../api/get-pinned-organization'
+import {useGetPinnedTeam} from '../../api/get-pinned-team'
 import {useListBillingUsage} from '../../api/list-billing-usage'
 import {useListTeams} from '../../api/list-teams'
-import {useSetPinnedOrganization} from '../../api/set-pinned-organization'
+import {useSetPinnedTeam} from '../../api/set-pinned-team'
 import {getBillingTone} from '../../utils/get-billing-tone'
+import {hasPaidTeam} from '../../utils/has-paid-team'
 import {CreditsPill} from '../credits-pill'
-
-const WORKSPACE_DEFAULT_VALUE = '__workspace_default__' as const
 
 interface TeamSelectStepProps {
   onBack: () => void
@@ -63,12 +62,24 @@ function TeamRow({
       {credits}
       <div
         className={cn(
-          'grid size-[18px] shrink-0 place-items-center rounded-full border transition-colors',
+          'grid size-4.5 shrink-0 place-items-center rounded-full border transition-colors',
           selected ? 'bg-primary-foreground border-primary-foreground' : 'border-border',
         )}
       >
         {selected && <Check className="text-background size-3" strokeWidth={3} />}
       </div>
+    </button>
+  )
+}
+
+function BackButton({onBack}: {onBack: () => void}) {
+  return (
+    <button
+      className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 self-start text-xs"
+      onClick={onBack}
+      type="button"
+    >
+      <ChevronLeft className="size-3" /> Back
     </button>
   )
 }
@@ -101,7 +112,7 @@ function RowBadge({children, className}: {children: ReactNode; className?: strin
   return (
     <Badge
       className={cn(
-        'h-[18px] rounded-sm px-1.5 text-[11px] font-medium leading-none',
+        'h-4.5 rounded-sm px-1.5 text-[11px] font-medium leading-none',
         className ?? 'border-primary-foreground/40 bg-primary-foreground/15 text-primary-foreground',
       )}
       variant="outline"
@@ -122,75 +133,95 @@ function TierBadge({isTrialing, tier}: {isTrialing: boolean; tier: BillingTier})
 
 export function TeamSelectStep({onBack, onComplete}: TeamSelectStepProps) {
   const workspaceTeamId = useAuthStore((s) => s.brvConfig?.teamId)
-  const workspaceTeamName = useAuthStore((s) => s.brvConfig?.teamName)
 
   const {data: teamsData, error: teamsError, isLoading: teamsLoading} = useListTeams()
-  const {data: pinnedData, isLoading: pinnedLoading} = useGetPinnedOrganization()
-  const setPinned = useSetPinnedOrganization()
+  const {data: pinnedData, isLoading: pinnedLoading} = useGetPinnedTeam()
+  const setPinned = useSetPinnedTeam()
 
   const teams: TeamDTO[] = teamsData?.teams ?? []
   const {data: usageData} = useListBillingUsage()
-  const usageByTeam = usageData?.usage ?? {}
+  const usageByTeam = useMemo(() => usageData?.usage ?? {}, [usageData?.usage])
 
-  const pinnedOrganizationId = pinnedData?.organizationId
-  const initialSelection = pinnedOrganizationId ?? WORKSPACE_DEFAULT_VALUE
-  const [selection, setSelection] = useState<string>(initialSelection)
+  const pinnedOrganizationId = pinnedData?.teamId
+  const [selection, setSelection] = useState<string | undefined>(pinnedOrganizationId)
 
   const isPersisting = setPinned.isPending
   const isLoading = teamsLoading || pinnedLoading
-  const dirty = selection !== initialSelection
-  const canConfirm = dirty && !isPersisting
+  const dirty = selection !== pinnedOrganizationId
+  const canConfirm = dirty && selection !== undefined && !isPersisting
+
+  const workspaceFallback = useMemo<BillingUsageDTO | undefined>(() => {
+    if (isLoading) return
+    const workspaceUsage = workspaceTeamId ? usageByTeam[workspaceTeamId] : undefined
+    return workspaceUsage && workspaceUsage.tier !== 'FREE' ? workspaceUsage : undefined
+  }, [isLoading, workspaceTeamId, usageByTeam])
+
+  const showFreeTierView = !isLoading && !teamsError && !hasPaidTeam(usageByTeam)
 
   async function confirm() {
-    const next = selection === WORKSPACE_DEFAULT_VALUE ? undefined : selection
+    if (selection === undefined) return
     try {
-      const result = await setPinned.mutateAsync(next)
+      const result = await setPinned.mutateAsync(selection)
       if (!result.success) {
         toast.error(result.error ?? 'Failed to update billing team.')
         return
       }
 
-      toast.success(next ? 'Billing team changed.' : 'Reverted to workspace default.')
+      const selectedTeam = teams.find((t) => t.id === selection)
+      toast.success(`ByteRover usage will be billed to ${selectedTeam?.displayName ?? selection}.`)
       onComplete()
     } catch (error) {
       toast.error(formatError(error, 'Failed to update billing team.'))
     }
   }
 
+  if (showFreeTierView) {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col gap-5">
+        <DialogHeader>
+          <BackButton onBack={onBack} />
+          <DialogTitle>ByteRover billing</DialogTitle>
+          <DialogDescription>
+            You don&apos;t belong to any paid teams. ByteRover usage uses your free monthly credits.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="border-border mt-auto flex items-center justify-end gap-2 border-t pt-3">
+          <Button onClick={onComplete}>Got it</Button>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-5">
       <DialogHeader>
-        <button
-          className="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 self-start text-xs"
-          onClick={onBack}
-          type="button"
-        >
-          <ChevronLeft className="size-3" /> Back
-        </button>
+        <BackButton onBack={onBack} />
         <DialogTitle>Pick a team to bill</DialogTitle>
         <DialogDescription>
-          ByteRover credits are charged to a team. Pick a default, or follow the workspace.
+          ByteRover credits are charged to a team. Pick which team this project should bill.
         </DialogDescription>
       </DialogHeader>
+
+      <div className="border-border bg-muted/30 flex items-start gap-2 rounded-md border px-3 py-2">
+        <Info className="text-muted-foreground mt-0.5 size-3.5 shrink-0" />
+        <p className="text-muted-foreground text-xs leading-snug">
+          {workspaceFallback ? (
+            <>
+              ByteRover usage falls back to{' '}
+              <span className="text-foreground font-medium">{workspaceFallback.organizationName}</span> (matched from
+              this workspace).
+            </>
+          ) : (
+            <>ByteRover usage falls back to your free monthly credits.</>
+          )}
+        </p>
+      </div>
 
       {teamsError ? (
         <p className="text-destructive text-sm">{formatError(teamsError, 'Failed to load teams.')}</p>
       ) : (
         <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto pr-4 -mr-4 [scrollbar-gutter:stable]">
-          <TeamRow
-            avatar={
-              <div className="bg-muted/50 grid size-7 shrink-0 place-items-center overflow-hidden rounded-md">
-                <Building2 className="text-muted-foreground size-4" />
-              </div>
-            }
-            meta={
-              workspaceTeamName ? `Resolves per workspace · today: ${workspaceTeamName}` : 'Resolves per workspace.'
-            }
-            name="Use workspace default"
-            onSelect={() => setSelection(WORKSPACE_DEFAULT_VALUE)}
-            selected={selection === WORKSPACE_DEFAULT_VALUE}
-          />
-
           {isLoading && teams.length === 0 ? (
             <>
               <Skeleton className="h-12" />
@@ -222,9 +253,6 @@ export function TeamSelectStep({onBack, onComplete}: TeamSelectStepProps) {
       )}
 
       <div className="border-border flex items-center justify-end gap-2 border-t pt-3">
-        <Button disabled={isPersisting} onClick={onComplete} variant="ghost">
-          Skip
-        </Button>
         <Button disabled={!canConfirm} onClick={() => confirm()}>
           {isPersisting ? <LoaderCircle className="size-4 animate-spin" /> : 'Confirm'}
         </Button>

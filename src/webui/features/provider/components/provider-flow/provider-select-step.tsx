@@ -10,7 +10,7 @@ import type {ProviderDTO} from '../../../../../shared/transport/types/dto'
 
 import {useAuthStore} from '../../../auth/stores/auth-store'
 import {useGetEnvironmentConfig} from '../../../config/api/get-environment-config'
-import {useGetPinnedOrganization} from '../../api/get-pinned-organization'
+import {useGetPinnedTeam} from '../../api/get-pinned-team'
 import {useBillingDisplay} from '../../hooks/use-billing-display'
 import {buildTopUpUrl} from '../../utils/build-top-up-url'
 import {formatCredits} from '../../utils/format-credits'
@@ -62,7 +62,7 @@ function ExhaustedAlert({remaining, topUpUrl}: {remaining: number; topUpUrl?: st
 export function ProviderSelectStep({onSelect, providers}: ProviderSelectStepProps) {
   const [search, setSearch] = useState('')
   const teamId = useAuthStore((s) => s.brvConfig?.teamId)
-  const {data: pinnedData} = useGetPinnedOrganization()
+  const {data: pinnedData} = useGetPinnedTeam()
 
   const byteRoverActive = useMemo(
     () => providers.find((p) => p.id === BYTEROVER_PROVIDER_ID && p.isCurrent),
@@ -71,7 +71,7 @@ export function ProviderSelectStep({onSelect, providers}: ProviderSelectStepProp
   // Reads from the same warm bulk-billing cache the header subscribes to —
   // no extra round trip on dialog open.
   const {billingSource: usage, billingTone, paidOrg} = useBillingDisplay({
-    preferredOrgId: pinnedData?.organizationId ?? teamId,
+    preferredOrgId: pinnedData?.teamId ?? teamId,
   })
   const isExhausted = byteRoverActive !== undefined && billingTone === 'danger' && usage !== undefined
 

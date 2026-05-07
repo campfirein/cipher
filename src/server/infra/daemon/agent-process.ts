@@ -26,7 +26,15 @@ import {join} from 'node:path'
 
 import type {ISearchKnowledgeService} from '../../../agent/infra/sandbox/tools-sdk.js'
 import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
-import type {ProviderConfigResponse, TaskExecute} from '../../core/domain/transport/schemas.js'
+import type {type BillingPinChangedPayload, type BillingStateResponse,
+  type PaidOrganizationsResponse,
+  ProviderConfigResponse,
+  TaskExecute,
+  TransportAgentEventNames,
+  TransportDaemonEventNames,
+  TransportStateEventNames,
+  TransportTaskEventNames,
+} from '../../core/domain/transport/schemas.js'
 import type {IRuntimeSignalStore} from '../../core/interfaces/storage/i-runtime-signal-store.js'
 
 import {SESSIONS_DIR} from '../../../agent/core/domain/session/session-metadata.js'
@@ -42,12 +50,7 @@ import {getCurrentConfig} from '../../config/environment.js'
 import {BRV_DIR, DEFAULT_LLM_MODEL, PROJECT} from '../../constants.js'
 import {serializeTaskError, TaskError, TaskErrorCode} from '../../core/domain/errors/task-error.js'
 import {loadSources} from '../../core/domain/source/source-schema.js'
-import {
-  TransportAgentEventNames,
-  TransportDaemonEventNames,
-  TransportStateEventNames,
-  TransportTaskEventNames,
-} from '../../core/domain/transport/schemas.js'
+import {resolveBillingTeamId} from '../billing/resolve-billing-team.js'
 import {FileContextTreeArchiveService} from '../context-tree/file-context-tree-archive-service.js'
 import {RuntimeSignalStore} from '../context-tree/runtime-signal-store.js'
 import {DreamLockService} from '../dream/dream-lock-service.js'
@@ -146,6 +149,8 @@ async function activateExistingSession(sessionId: string, providerId: string): P
 let cachedSessionKey = ''
 let cachedBrvConfig: BrvConfig | undefined
 let cachedTeamId = ''
+let cachedPinnedOrgId: string | undefined
+let cachedPaidOrgIds: readonly string[] = []
 let cachedSpaceId = ''
 let cachedActiveProvider = ''
 let cachedActiveModel = ''
@@ -211,16 +216,20 @@ async function start(): Promise<void> {
     sessionKey?: string
   }
 
-  const [configResult, authResult, providerResult] = await Promise.all([
+  const [configResult, authResult, providerResult, billingResult, paidOrgsResult] = await Promise.all([
     transport.requestWithAck<ProjectConfigResponse>(TransportStateEventNames.GET_PROJECT_CONFIG, {projectPath}),
     transport.requestWithAck<AuthResponse>(TransportStateEventNames.GET_AUTH),
     transport.requestWithAck<ProviderConfigResponse>(TransportStateEventNames.GET_PROVIDER_CONFIG),
+    transport.requestWithAck<BillingStateResponse>(TransportStateEventNames.GET_BILLING_CONFIG, {projectPath}),
+    transport.requestWithAck<PaidOrganizationsResponse>(TransportStateEventNames.GET_PAID_ORGANIZATIONS),
   ])
 
   cachedBrvConfig = configResult.brvConfig
   cachedTeamId = configResult.teamId ?? ''
   cachedSpaceId = configResult.spaceId ?? ''
   cachedSessionKey = authResult.sessionKey ?? ''
+  cachedPinnedOrgId = billingResult.pinnedTeamId
+  cachedPaidOrgIds = paidOrgsResult.organizationIds
 
   agentLog('Initial config loaded from state server')
 
@@ -242,6 +251,11 @@ async function start(): Promise<void> {
   transport.on(TransportDaemonEventNames.PROVIDER_UPDATED, () => {
     providerConfigDirty = true
     providerFetchRetries = 0
+  })
+
+  transport.on<BillingPinChangedPayload>(TransportDaemonEventNames.BILLING_PIN_CHANGED, (data) => {
+    if (data.projectPath !== projectPath) return
+    cachedPinnedOrgId = data.teamId
   })
 
   // 4. Provider config resolved by daemon (API key, base URL, headers, etc.)
@@ -286,7 +300,12 @@ async function start(): Promise<void> {
     projectIdProvider: () => PROJECT,
     sessionKeyProvider: () => cachedSessionKey,
     spaceIdProvider: () => cachedSpaceId,
-    teamIdProvider: () => cachedTeamId,
+    teamIdProvider: () =>
+      resolveBillingTeamId({
+        paidOrganizationIds: cachedPaidOrgIds,
+        pinnedTeamId: cachedPinnedOrgId,
+        workspaceTeamId: cachedTeamId || undefined,
+      }) ?? '',
     transportClient: transport,
   })
 

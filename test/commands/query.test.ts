@@ -177,6 +177,8 @@ describe('Query Command', () => {
       })
       ;(mockClient.requestWithAck as sinon.SinonStub).callsFake(async (event: string, payload: {taskId: string}) => {
         if (event === 'state:getProviderConfig') return {activeProvider: 'anthropic'}
+        if (event === 'billing:resolve') return {}
+        if (event === 'config:getEnvironment') return {}
         setTimeout(() => {
           const handlers = eventHandlers.get('task:completed')
           if (handlers) {
@@ -189,9 +191,9 @@ describe('Query Command', () => {
       await createCommand('What is the architecture?').run()
 
       const requestStub = mockClient.requestWithAck as sinon.SinonStub
-      expect(requestStub.calledTwice).to.be.true
-      const [event, payload] = requestStub.secondCall.args
-      expect(event).to.equal('task:create')
+      const taskCreateCall = requestStub.getCalls().find((c) => c.args[0] === 'task:create')
+      expect(taskCreateCall, 'expected task:create to be called').to.exist
+      const payload = taskCreateCall!.args[1]
       expect(payload).to.have.property('content', 'What is the architecture?')
       expect(payload).to.have.property('type', 'query')
       expect(payload).to.have.property('taskId').that.is.a('string')
@@ -214,6 +216,8 @@ describe('Query Command', () => {
       })
       ;(mockClient.requestWithAck as sinon.SinonStub).callsFake(async (event: string, payload: {taskId: string}) => {
         if (event === 'state:getProviderConfig') return {activeProvider: 'anthropic'}
+        if (event === 'billing:resolve') return {}
+        if (event === 'config:getEnvironment') return {}
         setTimeout(() => {
           const handlers = eventHandlers.get('task:completed')
           if (handlers) {
@@ -225,8 +229,11 @@ describe('Query Command', () => {
 
       await createCommand('What is scoped here?').run()
 
-      const [, payload] = (mockClient.requestWithAck as sinon.SinonStub).secondCall.args
-      expect(payload).to.include({
+      const taskCreateCall = (mockClient.requestWithAck as sinon.SinonStub)
+        .getCalls()
+        .find((c) => c.args[0] === 'task:create')
+      expect(taskCreateCall, 'expected task:create to be called').to.exist
+      expect(taskCreateCall!.args[1]).to.include({
         clientCwd: worktreeRoot,
         projectPath: projectRoot,
         worktreeRoot,
@@ -242,6 +249,8 @@ describe('Query Command', () => {
       })
       ;(mockClient.requestWithAck as sinon.SinonStub).callsFake(async (event: string, payload: {taskId: string}) => {
         if (event === 'state:getProviderConfig') return {activeProvider: 'anthropic'}
+        if (event === 'billing:resolve') return {}
+        if (event === 'config:getEnvironment') return {}
         setTimeout(() => {
           const handlers = eventHandlers.get('task:completed')
           if (handlers) {
@@ -265,6 +274,8 @@ describe('Query Command', () => {
       })
       ;(mockClient.requestWithAck as sinon.SinonStub).callsFake(async (event: string, payload: {taskId: string}) => {
         if (event === 'state:getProviderConfig') return {activeProvider: 'anthropic'}
+        if (event === 'billing:resolve') return {}
+        if (event === 'config:getEnvironment') return {}
         setTimeout(() => {
           // Fire llmservice:response first, then task:completed
           const responseHandlers = eventHandlers.get('llmservice:response')
@@ -296,6 +307,8 @@ describe('Query Command', () => {
       })
       ;(mockClient.requestWithAck as sinon.SinonStub).callsFake(async (event: string, payload: {taskId: string}) => {
         if (event === 'state:getProviderConfig') return {activeProvider: 'anthropic'}
+        if (event === 'billing:resolve') return {}
+        if (event === 'config:getEnvironment') return {}
         setTimeout(() => {
           // llmservice:response fires first WITHOUT the attribution footer
           const responseHandlers = eventHandlers.get('llmservice:response')
@@ -334,6 +347,8 @@ describe('Query Command', () => {
       })
       ;(mockClient.requestWithAck as sinon.SinonStub).callsFake(async (event: string, payload: {taskId: string}) => {
         if (event === 'state:getProviderConfig') return {activeProvider: 'anthropic'}
+        if (event === 'billing:resolve') return {}
+        if (event === 'config:getEnvironment') return {}
         setTimeout(() => {
           const responseHandlers = eventHandlers.get('llmservice:response')
           if (responseHandlers) {
@@ -372,6 +387,8 @@ describe('Query Command', () => {
       })
       ;(mockClient.requestWithAck as sinon.SinonStub).callsFake(async (event: string, payload: {taskId: string}) => {
         if (event === 'state:getProviderConfig') return {activeProvider: 'anthropic'}
+        if (event === 'billing:resolve') return {}
+        if (event === 'config:getEnvironment') return {}
         setTimeout(() => {
           const handlers = eventHandlers.get('task:completed')
           if (handlers) {
@@ -399,6 +416,8 @@ describe('Query Command', () => {
       })
       ;(mockClient.requestWithAck as sinon.SinonStub).callsFake(async (event: string, payload: {taskId: string}) => {
         if (event === 'state:getProviderConfig') return {activeProvider: 'anthropic'}
+        if (event === 'billing:resolve') return {}
+        if (event === 'config:getEnvironment') return {}
         setTimeout(() => {
           const responseHandlers = eventHandlers.get('llmservice:response')
           if (responseHandlers) {
@@ -489,6 +508,8 @@ describe('Query Command', () => {
       })
       ;(mockClient.requestWithAck as sinon.SinonStub).callsFake(async (event: string, payload: {taskId: string}) => {
         if (event === 'state:getProviderConfig') return {activeProvider: 'anthropic'}
+        if (event === 'billing:resolve') return {}
+        if (event === 'config:getEnvironment') return {}
         setTimeout(() => {
           const handlers = eventHandlers.get('task:completed')
           if (handlers) {
@@ -512,6 +533,8 @@ describe('Query Command', () => {
       })
       ;(mockClient.requestWithAck as sinon.SinonStub).callsFake(async (event: string, payload: {taskId: string}) => {
         if (event === 'state:getProviderConfig') return {activeProvider: 'anthropic'}
+        if (event === 'billing:resolve') return {}
+        if (event === 'config:getEnvironment') return {}
         setTimeout(() => {
           const handlers = eventHandlers.get('task:completed')
           if (handlers) {
@@ -538,6 +561,8 @@ describe('Query Command', () => {
       })
       ;(mockClient.requestWithAck as sinon.SinonStub).callsFake(async (event: string, payload: {taskId: string}) => {
         if (event === 'state:getProviderConfig') return {activeProvider: 'anthropic'}
+        if (event === 'billing:resolve') return {}
+        if (event === 'config:getEnvironment') return {}
         setTimeout(() => {
           const handlers = eventHandlers.get('task:completed')
           if (handlers) {

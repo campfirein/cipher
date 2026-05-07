@@ -13,7 +13,7 @@ import {useGetEnvironmentConfig} from '../features/config/api/get-environment-co
 import {HelpMenu} from '../features/onboarding/components/help-menu'
 import {ProjectDropdown} from '../features/project/components/project-dropdown'
 import {useGetActiveProviderConfig} from '../features/provider/api/get-active-provider-config'
-import {useGetPinnedOrganization} from '../features/provider/api/get-pinned-organization'
+import {useGetPinnedTeam} from '../features/provider/api/get-pinned-team'
 import {useGetProviders} from '../features/provider/api/get-providers'
 import {useListTeams} from '../features/provider/api/list-teams'
 import {ProviderFlowDialog} from '../features/provider/components/provider-flow'
@@ -61,7 +61,7 @@ export function Header() {
   const {data: providersData} = useGetProviders()
   const {data: activeConfig} = useGetActiveProviderConfig()
   const teamId = useAuthStore((s) => s.brvConfig?.teamId)
-  const {data: pinnedData} = useGetPinnedOrganization()
+  const {data: pinnedData} = useGetPinnedTeam()
 
   const activeProvider = providersData?.providers.find((p) => p.isCurrent)
   const isByteRoverActive = activeProvider?.id === BYTEROVER_PROVIDER_ID
@@ -71,7 +71,7 @@ export function Header() {
   useListTeams()
 
   const {billingSource, billingTone, paidOrg, showCreditPill: hasBillingData} = useBillingDisplay({
-    preferredOrgId: pinnedData?.organizationId ?? teamId,
+    preferredOrgId: pinnedData?.teamId ?? teamId,
   })
   const showCreditPill = isByteRoverActive && hasBillingData
 
