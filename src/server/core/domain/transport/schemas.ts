@@ -957,3 +957,20 @@ export type AgentRestartRequest = z.infer<typeof AgentRestartRequestSchema>
 export type AgentRestartResponse = z.infer<typeof AgentRestartResponseSchema>
 export type AgentNewSessionRequest = z.infer<typeof AgentNewSessionRequestSchema>
 export type AgentNewSessionResponse = z.infer<typeof AgentNewSessionResponseSchema>
+
+// ============================================================================
+// Analytics Events (analytics:track)
+// ============================================================================
+
+/**
+ * Wire-level validation for analytics:track payloads. Identity and super
+ * properties are stamped daemon-side on receipt; per-event property
+ * schemas (cli_invocation, mcp_tool_called, …) are designed in M2.8.
+ * The handler validates only the wire shape here.
+ */
+export const AnalyticsTrackPayloadSchema = z.object({
+  event: z.string().min(1),
+  properties: z.record(z.string(), z.unknown()).optional(),
+})
+
+export type AnalyticsTrackPayload = z.infer<typeof AnalyticsTrackPayloadSchema>

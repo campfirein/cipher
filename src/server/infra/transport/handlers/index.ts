@@ -1,3 +1,5 @@
+export {AnalyticsHandler} from './analytics-handler.js'
+export type {AnalyticsHandlerDeps} from './analytics-handler.js'
 export {AuthHandler} from './auth-handler.js'
 export type {AuthHandlerDeps} from './auth-handler.js'
 export {ConfigHandler} from './config-handler.js'
