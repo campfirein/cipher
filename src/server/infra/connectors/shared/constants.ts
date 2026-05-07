@@ -41,10 +41,11 @@ export const extractInstalledAgentFromBrvSection = (content: string): string | u
   const brvSection = sliceBrvSection(content)
   if (brvSection === undefined) return undefined
 
-  const tagIdx = brvSection.indexOf(BRV_RULE_TAG)
+  const tagWithDelimiter = `${BRV_RULE_TAG} `
+  const tagIdx = brvSection.indexOf(tagWithDelimiter)
   if (tagIdx === -1) return undefined
 
-  const afterTag = brvSection.slice(tagIdx + BRV_RULE_TAG.length)
+  const afterTag = brvSection.slice(tagIdx + tagWithDelimiter.length)
   const newlineIdx = afterTag.indexOf('\n')
   const agentLine = newlineIdx === -1 ? afterTag : afterTag.slice(0, newlineIdx)
   const agent = agentLine.trim()

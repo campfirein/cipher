@@ -22,17 +22,17 @@ describe('shared/constants', () => {
       expect(extractInstalledAgentFromBrvSection(content)).to.equal('Augment Code')
     })
 
-    it('returns null when the BRV section has no footer (legacy file)', () => {
+    it('returns undefined when the BRV section has no footer (legacy file)', () => {
       const content = `${BRV_RULE_MARKERS.START}\nrule body without footer\n${BRV_RULE_MARKERS.END}`
       expect(extractInstalledAgentFromBrvSection(content)).to.equal(undefined)
     })
 
-    it('returns null when start marker is missing', () => {
+    it('returns undefined when start marker is missing', () => {
       const content = `rule body\n---\n${BRV_RULE_TAG} Codex\n${BRV_RULE_MARKERS.END}`
       expect(extractInstalledAgentFromBrvSection(content)).to.equal(undefined)
     })
 
-    it('returns null when end marker is missing', () => {
+    it('returns undefined when end marker is missing', () => {
       const content = `${BRV_RULE_MARKERS.START}\nrule body\n---\n${BRV_RULE_TAG} Codex`
       expect(extractInstalledAgentFromBrvSection(content)).to.equal(undefined)
     })
@@ -42,13 +42,18 @@ describe('shared/constants', () => {
       expect(extractInstalledAgentFromBrvSection(content)).to.equal(undefined)
     })
 
-    it('returns null when end marker precedes start marker', () => {
+    it('returns undefined when end marker precedes start marker', () => {
       const content = `${BRV_RULE_MARKERS.END}\nstuff\n${BRV_RULE_MARKERS.START}\n${BRV_RULE_TAG} Codex`
       expect(extractInstalledAgentFromBrvSection(content)).to.equal(undefined)
     })
 
-    it('returns null when the footer line is blank after the tag', () => {
+    it('returns undefined when the footer line is blank after the tag', () => {
       const content = wrapWithBrvSection(`${BRV_RULE_TAG} `)
+      expect(extractInstalledAgentFromBrvSection(content)).to.equal(undefined)
+    })
+
+    it('does not match a malformed tag with no space delimiter (e.g. "...CLI forXxx")', () => {
+      const content = wrapWithBrvSection(`${BRV_RULE_TAG}Xxx`)
       expect(extractInstalledAgentFromBrvSection(content)).to.equal(undefined)
     })
   })
