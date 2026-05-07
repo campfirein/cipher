@@ -627,7 +627,7 @@ async function main(): Promise<void> {
     // Feature handlers (auth, init, status, push, pull, etc.) require async OIDC discovery.
     // Placed after daemon:getState so the debug endpoint is available immediately,
     // without waiting for OIDC discovery (~400ms).
-    await setupFeatureHandlers({
+    const {analyticsClient} = await setupFeatureHandlers({
       authStateStore,
       broadcastToProject(projectPath, event, data) {
         broadcastToProjectRoom(projectRegistry, projectRouter, projectPath, event, data)
@@ -650,9 +650,17 @@ async function main(): Promise<void> {
     await authStateStore.loadToken()
     authStateStore.startPolling()
 
+    // Fire `daemon_start` AFTER loadToken() so IdentityResolver sees the real
+    // auth state. Doing it inside setupFeatureHandlers (before loadToken) would
+    // stamp every daemon_start anonymously even for logged-in users.
+    analyticsClient.track('daemon_start')
+
     // 11. Start idle timer + register signal handlers
     idleTimeoutPolicy.start()
 
+    // TODO(M4): await analyticsClient.flush() and ship the batch before exit.
+    // Today, queued events are dropped on SIGTERM/SIGINT — acceptable per the
+    // M2 ticket scope ("in-memory only"); revisit when the network sender lands.
     process.once('SIGTERM', () => {
       log('SIGTERM received')
       shutdownHandler.shutdown().catch((error: unknown) => {

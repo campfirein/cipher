@@ -8,6 +8,7 @@
 import {access} from 'node:fs/promises'
 import {join} from 'node:path'
 
+import type {IAnalyticsClient} from '../../core/interfaces/analytics/i-analytics-client.js'
 import type {IConnectorManager} from '../../core/interfaces/connectors/i-connector-manager.js'
 import type {IProviderConfigStore} from '../../core/interfaces/i-provider-config-store.js'
 import type {IProviderKeychainStore} from '../../core/interfaces/i-provider-keychain-store.js'
@@ -22,6 +23,10 @@ import {getAuthConfig} from '../../config/auth.config.js'
 import {getCurrentConfig} from '../../config/environment.js'
 import {API_V1_PATH, BRV_DIR} from '../../constants.js'
 import {getProjectDataDir} from '../../utils/path-utils.js'
+import {AnalyticsClient} from '../analytics/analytics-client.js'
+import {BoundedQueue} from '../analytics/bounded-queue.js'
+import {IdentityResolver} from '../analytics/identity-resolver.js'
+import {SuperPropertiesResolver} from '../analytics/super-properties-resolver.js'
 import {OAuthService} from '../auth/oauth-service.js'
 import {OidcDiscoveryService} from '../auth/oidc-discovery-service.js'
 import {SystemBrowserLauncher} from '../browser/system-browser-launcher.js'
@@ -88,6 +93,17 @@ export interface FeatureHandlersOptions {
 }
 
 /**
+ * Result of setting up feature handlers. The daemon-scoped analytics
+ * client is returned so the caller (brv-server.ts) can fire `daemon_start`
+ * AFTER auth state is loaded — emitting it inside this function would
+ * stamp the event with anonymous identity even for logged-in users,
+ * because authStateStore.loadToken() runs after setupFeatureHandlers.
+ */
+export interface SetupFeatureHandlersResult {
+  readonly analyticsClient: IAnalyticsClient
+}
+
+/**
  * Setup all feature handlers on the transport server.
  * These handlers implement the TUI ↔ Server event contract (auth:*, config:*, status:*, etc.).
  */
@@ -103,7 +119,7 @@ export async function setupFeatureHandlers({
   resolveProjectPath,
   transport,
   webuiPort,
-}: FeatureHandlersOptions): Promise<void> {
+}: FeatureHandlersOptions): Promise<SetupFeatureHandlersResult> {
   const envConfig = getCurrentConfig()
   const tokenStore = createTokenStore()
   const projectConfigStore = new ProjectConfigStore()
@@ -122,10 +138,26 @@ export async function setupFeatureHandlers({
   // Global handlers (no project context needed)
   new ConfigHandler({transport}).setup()
 
-  new GlobalConfigHandler({
-    globalConfigStore: new FileGlobalConfigStore(),
-    transport,
-  }).setup()
+  // GlobalConfig: handler retains a sync-cached `analytics` flag so M2.5's
+  // AnalyticsClient.isEnabled can be a sync getter (file reads are async).
+  // refreshCache() must complete BEFORE AnalyticsClient is constructed so
+  // the very first track() call (daemon_start) sees the correct flag.
+  const globalConfigStore = new FileGlobalConfigStore()
+  const globalConfigHandler = new GlobalConfigHandler({globalConfigStore, transport})
+  globalConfigHandler.setup()
+  await globalConfigHandler.refreshCache()
+
+  // M2.5: assemble the daemon-scoped analytics client. Construction happens
+  // here because the resolvers and queue share the same `globalConfigStore`
+  // instance already in scope. The `daemon_start` event is NOT fired here —
+  // it is fired by the caller (brv-server.ts) after authStateStore.loadToken()
+  // resolves so the event reflects the real identity instead of anonymous.
+  const analyticsClient: IAnalyticsClient = new AnalyticsClient({
+    identityResolver: new IdentityResolver(authStateStore, globalConfigStore),
+    isEnabled: () => globalConfigHandler.getCachedAnalytics(),
+    queue: new BoundedQueue(),
+    superPropsResolver: new SuperPropertiesResolver(globalConfigStore),
+  })
 
   new AuthHandler({
     authService: new OAuthService(authConfig),
@@ -331,4 +363,6 @@ export async function setupFeatureHandlers({
   new SourceHandler({ resolveProjectPath, transport }).setup()
 
   log('Feature handlers registered')
+
+  return {analyticsClient}
 }

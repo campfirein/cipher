@@ -92,9 +92,6 @@ Disable any time with: brv analytics disable`
       return
     }
 
-    // TODO(M2): when IAnalyticsClient lands, emit `analytics_enabled` as
-    // the first event after this write — opt-in itself is the first
-    // opt-in event (industry practice).
     this.log('Analytics enabled')
   }
 
