@@ -458,6 +458,7 @@ describe('Query Command', () => {
       })
       ;(mockClient.requestWithAck as sinon.SinonStub).callsFake(async (event: string, payload: {taskId: string}) => {
         if (event === 'state:getProviderConfig') return {activeProvider: 'anthropic'}
+        if (event === 'billing:resolve') return {}
         setTimeout(() => {
           const completedHandlers = eventHandlers.get('task:completed')
           if (completedHandlers) {
@@ -504,10 +505,10 @@ describe('Query Command', () => {
       })
       ;(mockClient.requestWithAck as sinon.SinonStub).callsFake(async (event: string, payload: {taskId: string}) => {
         if (event === 'state:getProviderConfig') return {activeProvider: 'anthropic'}
+        if (event === 'billing:resolve') return {}
         setTimeout(() => {
           const completedHandlers = eventHandlers.get('task:completed')
           if (completedHandlers) {
-            // Older daemon: only emits result + taskId, no enriched fields
             for (const handler of completedHandlers) handler({result: 'plain answer', taskId: payload.taskId})
           }
         }, 10)
