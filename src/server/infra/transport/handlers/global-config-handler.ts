@@ -26,10 +26,11 @@ export interface GlobalConfigHandlerDeps {
  *
  * Maintains a SYNC in-process cache of the analytics flag for consumers
  * that need a synchronous getter (M2.5's AnalyticsClient.isEnabled). The
- * cache is populated at construction (eager initial read) and refreshed
- * after every successful SET_ANALYTICS write. Transport responses still
- * read fresh from disk — the cache is purely an in-process bridge for
- * sync consumers.
+ * cache is populated by an explicit `await refreshCache()` (the daemon
+ * bootstrap awaits this once before constructing AnalyticsClient) and
+ * refreshed after every successful SET_ANALYTICS write or GET seed.
+ * Transport responses still read fresh from disk — the cache is purely
+ * an in-process bridge for sync consumers.
  */
 export class GlobalConfigHandler {
   private cachedAnalytics: boolean | undefined
@@ -75,7 +76,12 @@ export class GlobalConfigHandler {
       const existing = await this.globalConfigStore.read()
       this.cachedAnalytics = existing?.analytics ?? false
     } catch {
-      // Best-effort — leave cache at default false on read failure
+      // Fail-safe: explicitly set the cache to false on any read failure so
+      // a subsequent getCachedAnalytics() does NOT throw. Production
+      // FileGlobalConfigStore catches its own errors and never throws, but
+      // we MUST handle a hypothetical store that does — otherwise a
+      // bootstrap read failure would crash the daemon when track() runs.
+      this.cachedAnalytics = false
     }
   }
 

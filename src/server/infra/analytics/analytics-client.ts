@@ -19,10 +19,19 @@ export interface AnalyticsClientDeps {
  * (identity).
  *
  * `track()` is sync per the M2.1 interface — when enabled, the actual
- * resolve+enqueue work is fire-and-forget via `void this.trackAsync()`,
+ * resolve+enqueue work is fire-and-forget via the async trackAsync,
  * matching the established `auth-state-store.ts` pattern. Errors during
- * the async work are silently swallowed: analytics MUST NOT crash the
- * consumer, and per ticket scope no error reporting surface exists yet.
+ * the async work (resolver rejection, queue push failure) are silently
+ * swallowed: analytics MUST NOT crash a correctly-configured consumer,
+ * and per ticket scope no error reporting surface exists yet.
+ *
+ * The no-crash guarantee covers ASYNC errors only. The sync `isEnabled()`
+ * callback is called directly; if it throws, the throw propagates to the
+ * caller. This is intentional: `isEnabled` is wired to
+ * GlobalConfigHandler.getCachedAnalytics(), which throws when invoked
+ * before `refreshCache()` has populated the cache. That throw surfaces
+ * a bootstrap-misconfiguration bug loudly rather than silently miscounting.
+ * Callers MUST ensure the cache is populated before the first `track()`.
  *
  * When disabled, `track()` is a true no-op: no resolver calls, no
  * allocations beyond the function call frame.

@@ -8,6 +8,7 @@ import {join} from 'node:path'
 
 import type {AuthToken} from '../../../src/server/core/domain/entities/auth-token.js'
 import type {IAuthStateReader} from '../../../src/server/core/interfaces/analytics/i-identity-resolver.js'
+import type {IGlobalConfigStore} from '../../../src/server/core/interfaces/storage/i-global-config-store.js'
 
 import {AnalyticsBatch} from '../../../src/server/core/domain/analytics/batch.js'
 import {GlobalConfig} from '../../../src/server/core/domain/entities/global-config.js'
@@ -166,5 +167,28 @@ describe('daemon analytics tracking integration (ticket scenario 6)', () => {
     expect(queue.size()).to.equal(0)
     const batch = await client.flush()
     expect(batch.events).to.deep.equal([])
+  })
+
+  it('should fall back to disabled (not throw) when the config store read rejects during refreshCache', async () => {
+    // FileGlobalConfigStore catches its own errors and never throws, but a
+    // hypothetical alternative implementation might. Verify refreshCache's
+    // catch block leaves the cache in a usable state — getCachedAnalytics
+    // must return false rather than throw, otherwise the daemon would crash
+    // on bootstrap when track() runs.
+    const throwingStore: IGlobalConfigStore = {
+      async read() {
+        throw new Error('read boom')
+      },
+      async write() {
+        // unused in this test
+      },
+    }
+    const transport = createMockTransportServer()
+    const handler = new GlobalConfigHandler({globalConfigStore: throwingStore, transport})
+    handler.setup()
+    await handler.refreshCache()
+
+    expect(() => handler.getCachedAnalytics()).to.not.throw()
+    expect(handler.getCachedAnalytics()).to.equal(false)
   })
 })
