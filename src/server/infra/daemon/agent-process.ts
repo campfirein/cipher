@@ -26,14 +26,12 @@ import {join} from 'node:path'
 
 import type {ISearchKnowledgeService} from '../../../agent/infra/sandbox/tools-sdk.js'
 import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
-import type {type BillingPinChangedPayload, type BillingStateResponse,
-  type PaidOrganizationsResponse,
+import type {
+  BillingPinChangedPayload,
+  BillingStateResponse,
+  PaidOrganizationsResponse,
   ProviderConfigResponse,
   TaskExecute,
-  TransportAgentEventNames,
-  TransportDaemonEventNames,
-  TransportStateEventNames,
-  TransportTaskEventNames,
 } from '../../core/domain/transport/schemas.js'
 import type {IRuntimeSignalStore} from '../../core/interfaces/storage/i-runtime-signal-store.js'
 
@@ -50,6 +48,12 @@ import {getCurrentConfig} from '../../config/environment.js'
 import {BRV_DIR, DEFAULT_LLM_MODEL, PROJECT} from '../../constants.js'
 import {serializeTaskError, TaskError, TaskErrorCode} from '../../core/domain/errors/task-error.js'
 import {loadSources} from '../../core/domain/source/source-schema.js'
+import {
+  TransportAgentEventNames,
+  TransportDaemonEventNames,
+  TransportStateEventNames,
+  TransportTaskEventNames,
+} from '../../core/domain/transport/schemas.js'
 import {resolveBillingTeamId} from '../billing/resolve-billing-team.js'
 import {FileContextTreeArchiveService} from '../context-tree/file-context-tree-archive-service.js'
 import {RuntimeSignalStore} from '../context-tree/runtime-signal-store.js'
