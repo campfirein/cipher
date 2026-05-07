@@ -622,9 +622,11 @@ async function executeCrossReference(action: ConsolidationAction, ctx: ActionCon
   }
 
   // For each file, add the other files to its related frontmatter
+  // Skip derived-artifact targets so we never write related: onto them.
+  const eligibleFiles = action.files.filter((f) => !isExcludedFromSync(f))
   await Promise.all(
-    action.files.map((file) => {
-      const otherFiles = action.files.filter((f) => f !== file)
+    eligibleFiles.map((file) => {
+      const otherFiles = eligibleFiles.filter((f) => f !== file)
       return addRelatedLinks(join(contextTreeDir, file), otherFiles)
     }),
   )
@@ -664,9 +666,13 @@ async function addRelatedLinks(filePath: string, relatedPaths: string[]): Promis
       try {
         const parsed = yamlLoad(yamlBlock) as null | Record<string, unknown>
         if (parsed && typeof parsed === 'object') {
+          const hadRelated = Array.isArray(parsed.related)
           const existing = (Array.isArray(parsed.related) ? (parsed.related as string[]) : [])
             .filter((p) => !isExcludedFromSync(p))
-          parsed.related = [...new Set([...existing, ...incoming])]
+          const merged = [...new Set([...existing, ...incoming])]
+          // Don't introduce a related: [] key into a file that didn't have one.
+          if (!hadRelated && merged.length === 0) return
+          parsed.related = merged
           const newYaml = yamlDump(parsed, {flowLevel: 1, lineWidth: -1, sortKeys: false}).trimEnd()
           await atomicWrite(filePath, `---\n${newYaml}\n---\n${body}`)
           return

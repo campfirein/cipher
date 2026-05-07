@@ -660,6 +660,9 @@ describe('Curate Tool', () => {
       ].join('\n')
       await fs.writeFile(seedPath, seed, 'utf8')
 
+      // Proposed retains the legitimate sibling; only the filtered abstract
+      // would otherwise look "lost". With the fix, lostRelations = 0 and
+      // impact stays 'low'. Without the fix, lostRelations = 1 → 'high'.
       const result = (await tool.execute({
         basePath,
         operations: [
@@ -667,7 +670,7 @@ describe('Curate Tool', () => {
             confidence: 'high',
             content: {
               keywords: [],
-              relations: ['operations/cafe/ingredient_sourcing.md'],
+              relations: ['operations/cafe/sunrise_cafe_menu.md', 'operations/cafe/ingredient_sourcing.md'],
               snippets: ['updated notes'],
               tags: [],
             },
@@ -681,6 +684,7 @@ describe('Curate Tool', () => {
       })) as CurateOutput
 
       expect(result.applied[0].status).to.equal('success')
+      expect(result.applied[0].impact).to.equal('low')
       const written = await fs.readFile(seedPath, 'utf8')
       expect(written).to.include('operations/cafe/sunrise_cafe_menu.md')
       expect(written).to.include('operations/cafe/ingredient_sourcing.md')
