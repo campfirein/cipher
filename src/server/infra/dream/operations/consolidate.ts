@@ -23,6 +23,7 @@ import type {ConsolidationAction} from '../dream-response-schemas.js'
 import type {DreamState, PendingMerge} from '../dream-state-schema.js'
 
 import {warnSidecarFailure} from '../../../core/domain/knowledge/sidecar-logging.js'
+import {isExcludedFromSync} from '../../context-tree/derived-artifact.js'
 import {ConsolidateResponseSchema} from '../dream-response-schemas.js'
 import {parseDreamResponse} from '../parse-dream-response.js'
 
@@ -639,6 +640,9 @@ async function executeCrossReference(action: ConsolidationAction, ctx: ActionCon
 }
 
 async function addRelatedLinks(filePath: string, relatedPaths: string[]): Promise<void> {
+  // Skip paths that won't be pushed — they'd be dangling refs on remote.
+  const incoming = relatedPaths.filter((p) => !isExcludedFromSync(p))
+
   let content: string
   try {
     content = await readFile(filePath, 'utf8')
@@ -660,8 +664,9 @@ async function addRelatedLinks(filePath: string, relatedPaths: string[]): Promis
       try {
         const parsed = yamlLoad(yamlBlock) as null | Record<string, unknown>
         if (parsed && typeof parsed === 'object') {
-          const existing = Array.isArray(parsed.related) ? (parsed.related as string[]) : []
-          parsed.related = [...new Set([...existing, ...relatedPaths])]
+          const existing = (Array.isArray(parsed.related) ? (parsed.related as string[]) : [])
+            .filter((p) => !isExcludedFromSync(p))
+          parsed.related = [...new Set([...existing, ...incoming])]
           const newYaml = yamlDump(parsed, {flowLevel: 1, lineWidth: -1, sortKeys: false}).trimEnd()
           await atomicWrite(filePath, `---\n${newYaml}\n---\n${body}`)
           return
@@ -673,7 +678,7 @@ async function addRelatedLinks(filePath: string, relatedPaths: string[]): Promis
   }
 
   // No existing frontmatter — add one with related field
-  const yaml = yamlDump({related: relatedPaths}, {flowLevel: 1, lineWidth: -1, sortKeys: false}).trimEnd()
+  const yaml = yamlDump({related: incoming}, {flowLevel: 1, lineWidth: -1, sortKeys: false}).trimEnd()
   await atomicWrite(filePath, `---\n${yaml}\n---\n${content}`)
 }
 

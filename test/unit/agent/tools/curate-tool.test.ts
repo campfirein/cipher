@@ -600,6 +600,44 @@ describe('Curate Tool', () => {
     })
   })
 
+  describe('Relations filtering', () => {
+    it('drops derived-artifact paths (.abstract.md, .overview.md) from relations on ADD', async () => {
+      const tool = createCurateTool()
+
+      const result = (await tool.execute({
+        basePath,
+        operations: [
+          {
+            confidence: 'high',
+            content: {
+              keywords: [],
+              relations: [
+                'operations/cafe/sunrise_cafe_menu.md',
+                'operations/cafe/sunrise_cafe_menu.abstract.md',
+                'operations/cafe/sunrise_cafe_menu.overview.md',
+              ],
+              snippets: ['weekend brunch service'],
+              tags: [],
+            },
+            impact: 'low',
+            path: 'operations/cafe',
+            reason: 'testing relations filter',
+            title: 'Weekend Brunch',
+            type: 'ADD',
+          },
+        ],
+      })) as CurateOutput
+
+      expect(result.applied[0].status).to.equal('success')
+
+      const writtenPath = join(basePath, 'operations/cafe/weekend_brunch.md')
+      const content = await fs.readFile(writtenPath, 'utf8')
+      expect(content).to.include('operations/cafe/sunrise_cafe_menu.md')
+      expect(content).to.not.include('sunrise_cafe_menu.abstract.md')
+      expect(content).to.not.include('sunrise_cafe_menu.overview.md')
+    })
+  })
+
   describe('Multiple Operations', () => {
     it('should process multiple operations and return accurate summary', async () => {
       const tool = createCurateTool()

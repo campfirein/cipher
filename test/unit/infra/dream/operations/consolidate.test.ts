@@ -305,6 +305,33 @@ describe('consolidate', () => {
     expect(oauth).to.include('auth/jwt.md')
   })
 
+  it('CROSS_REFERENCE drops derived-artifact paths and cleans pre-existing dangling refs', async () => {
+    // Pre-seed jwt.md with a stale reference to an .abstract.md sibling — it
+    // shouldn't be there (push filtering would strip the file) and the next
+    // CROSS_REFERENCE touch should clean it up.
+    await createMdFile(ctxDir, 'auth/jwt.md', '# JWT', {
+      keywords: [], related: ['auth/legacy.abstract.md'], tags: [], title: 'JWT',
+    })
+    await createMdFile(ctxDir, 'auth/oauth.md', '# OAuth', {keywords: [], related: [], tags: [], title: 'OAuth'})
+
+    // LLM groups jwt.md with both a real sibling AND derived artifacts that
+    // should never end up in `related:` because they don't sync to remote.
+    agent.executeOnSession.resolves(llmResponse([{
+      files: ['auth/jwt.md', 'auth/oauth.md', 'auth/intro.overview.md', 'auth/intro.abstract.md'],
+      reason: 'Cross-reference auth topics',
+      type: 'CROSS_REFERENCE',
+    }]))
+
+    await consolidate(['auth/jwt.md', 'auth/oauth.md'], deps)
+
+    const jwt = await readFile(join(ctxDir, 'auth/jwt.md'), 'utf8')
+    expect(jwt).to.include('auth/oauth.md')
+    expect(jwt).to.not.include('auth/intro.overview.md')
+    expect(jwt).to.not.include('auth/intro.abstract.md')
+    // Pre-existing dangling ref opportunistically cleaned
+    expect(jwt).to.not.include('auth/legacy.abstract.md')
+  })
+
   it('returns empty operations for SKIP actions', async () => {
     await createMdFile(ctxDir, 'auth/unrelated.md', '# Unrelated')
 
