@@ -44,6 +44,7 @@ export class TeamHandler {
           id: team.id,
           isDefault: team.isDefault,
           name: team.name,
+          slug: team.slug,
         }))
         return {teams: dtos}
       } catch (error) {

@@ -9,7 +9,14 @@ import {TeamEvents} from '../../../../../src/shared/transport/events/team-events
 import {createMockAuthStateStore, createMockTransportServer} from '../../../../helpers/mock-factories.js'
 
 const teamFixture = (
-  overrides: Partial<{avatarUrl: string; displayName: string; id: string; isDefault: boolean; name: string}> = {},
+  overrides: Partial<{
+    avatarUrl: string
+    displayName: string
+    id: string
+    isDefault: boolean
+    name: string
+    slug: string
+  }> = {},
 ) =>
   new Team({
     avatarUrl: '',
@@ -57,7 +64,7 @@ describe('TeamHandler', () => {
     expect(transport._handlers.has(TeamEvents.LIST)).to.equal(true)
   })
 
-  it('returns the user\'s teams as DTOs when authenticated', async () => {
+  it("returns the user's teams as DTOs when authenticated", async () => {
     getTeamsStub.resolves({
       teams: [
         teamFixture({
@@ -66,8 +73,16 @@ describe('TeamHandler', () => {
           id: 'team-1',
           isDefault: true,
           name: 'acme',
+          slug: 'acme-corp',
         }),
-        teamFixture({avatarUrl: '', displayName: 'Personal', id: 'team-2', isDefault: false, name: 'personal'}),
+        teamFixture({
+          avatarUrl: '',
+          displayName: 'Personal',
+          id: 'team-2',
+          isDefault: false,
+          name: 'personal',
+          slug: 'personal',
+        }),
       ],
       total: 2,
     })
@@ -85,8 +100,16 @@ describe('TeamHandler', () => {
           id: 'team-1',
           isDefault: true,
           name: 'acme',
+          slug: 'acme-corp',
         },
-        {avatarUrl: '', displayName: 'Personal', id: 'team-2', isDefault: false, name: 'personal'},
+        {
+          avatarUrl: '',
+          displayName: 'Personal',
+          id: 'team-2',
+          isDefault: false,
+          name: 'personal',
+          slug: 'personal',
+        },
       ],
     })
   })

@@ -229,6 +229,7 @@ export class InitHandler {
         id: t.id,
         isDefault: t.isDefault,
         name: t.name,
+        slug: t.slug,
       })),
     }
   }

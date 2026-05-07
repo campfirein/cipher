@@ -9,7 +9,7 @@ export interface FileBillingConfigStoreOptions {
 
 const PROVIDER_CONFIG_FILE = 'brv-provider.json'
 
-interface ProviderConfigJson {
+interface ProviderConfigJson extends Record<string, unknown> {
   billing?: {
     pinnedTeamId?: string
   }
@@ -48,9 +48,11 @@ export class FileBillingConfigStore implements IBillingConfigStore {
       const content = await readFile(this.configPath, 'utf8')
       const parsed: unknown = JSON.parse(content)
       if (!isRecord(parsed)) return {}
-      const result: ProviderConfigJson = {}
+      const result: ProviderConfigJson = {...parsed}
       if (isRecord(parsed.billing) && typeof parsed.billing.pinnedTeamId === 'string') {
         result.billing = {pinnedTeamId: parsed.billing.pinnedTeamId}
+      } else {
+        delete result.billing
       }
 
       return result

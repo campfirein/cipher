@@ -47,6 +47,7 @@ export interface TeamDTO {
   id: string
   isDefault: boolean
   name: string
+  slug: string
 }
 
 export interface SpaceDTO {

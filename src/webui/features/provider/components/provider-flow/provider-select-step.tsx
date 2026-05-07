@@ -11,6 +11,7 @@ import type {ProviderDTO} from '../../../../../shared/transport/types/dto'
 import {useAuthStore} from '../../../auth/stores/auth-store'
 import {useGetEnvironmentConfig} from '../../../config/api/get-environment-config'
 import {useGetPinnedTeam} from '../../api/get-pinned-team'
+import {useListTeams} from '../../api/list-teams'
 import {useBillingDisplay} from '../../hooks/use-billing-display'
 import {buildTopUpUrl} from '../../utils/build-top-up-url'
 import {formatCredits} from '../../utils/format-credits'
@@ -76,7 +77,9 @@ export function ProviderSelectStep({onSelect, providers}: ProviderSelectStepProp
   const isExhausted = byteRoverActive !== undefined && billingTone === 'danger' && usage !== undefined
 
   const {data: envConfig} = useGetEnvironmentConfig()
-  const topUpUrl = buildTopUpUrl({teamName: paidOrg?.organizationName, webAppUrl: envConfig?.webAppUrl})
+  const {data: teamsData} = useListTeams()
+  const teamSlug = teamsData?.teams?.find((t) => t.id === paidOrg?.organizationId)?.slug
+  const topUpUrl = buildTopUpUrl({teamSlug, webAppUrl: envConfig?.webAppUrl})
 
   const filtered = useMemo(() => {
     const ordered = orderProviders(providers)

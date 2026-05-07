@@ -84,7 +84,7 @@ describe('insufficient-credits helpers', () => {
       expect(msg).to.not.include('--team')
     })
 
-    it('throws a team-flavored message with available teams when a paid source is exhausted', async () => {
+    it('throws a team-flavored message listing other paid teams (excluding the exhausted one)', async () => {
       ;(mockClient.requestWithAck as sinon.SinonStub).withArgs(BillingEvents.LIST_USAGE).resolves({
         usage: {
           'org-acme': {organizationId: 'org-acme', organizationName: 'Acme Corp', remaining: 0, tier: 'PRO'},
@@ -104,8 +104,9 @@ describe('insufficient-credits helpers', () => {
       const msg = (thrown as InsufficientCreditsError).message
       expect(msg).to.include('out of credits')
       expect(msg).to.include('--team')
-      expect(msg).to.include('Acme Corp')
       expect(msg).to.include('Beta Labs')
+      expect(msg).to.not.include('Acme Corp')
+      expect(msg).to.not.include('Personal')
     })
 
     it('omits the available-teams suffix when the team fetch fails', async () => {

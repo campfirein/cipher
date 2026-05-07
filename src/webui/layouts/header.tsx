@@ -67,8 +67,7 @@ export function Header() {
   const isByteRoverActive = activeProvider?.id === BYTEROVER_PROVIDER_ID
   const providerLabel = buildProviderLabel(activeProvider, activeConfig)
 
-  // Warm the team-picker cache so opening the provider dialog has no spinner.
-  useListTeams()
+  const {data: teamsData} = useListTeams()
 
   const {billingSource, billingTone, paidOrg, showCreditPill: hasBillingData} = useBillingDisplay({
     preferredOrgId: pinnedData?.teamId ?? teamId,
@@ -76,7 +75,8 @@ export function Header() {
   const showCreditPill = isByteRoverActive && hasBillingData
 
   const {data: envConfig} = useGetEnvironmentConfig()
-  const topUpUrl = buildTopUpUrl({teamName: paidOrg?.organizationName, webAppUrl: envConfig?.webAppUrl})
+  const teamSlug = teamsData?.teams?.find((t) => t.id === paidOrg?.organizationId)?.slug
+  const topUpUrl = buildTopUpUrl({teamSlug, webAppUrl: envConfig?.webAppUrl})
 
   let triggerToneClass = ''
   if (!activeProvider) triggerToneClass = TRIGGER_TONE_CLASS.warn

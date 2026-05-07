@@ -30,7 +30,8 @@ export async function ensureBillingFunds(deps: EnsureBillingFundsDeps): Promise<
     )
   }
 
-  const teams = await fetchPaidTeamNames(deps.client)
+  const currentTeamId = 'organizationId' in deps.billing ? deps.billing.organizationId : undefined
+  const teams = await fetchOtherPaidTeamNames(deps.client, currentTeamId)
   const suffix = teams.length > 0 ? ` Available teams: ${teams.join(', ')}.` : ''
   throw new InsufficientCreditsError(
     'ByteRover billing team is out of credits. Top up the team, or switch billing target with ' +
@@ -39,11 +40,11 @@ export async function ensureBillingFunds(deps: EnsureBillingFundsDeps): Promise<
   )
 }
 
-async function fetchPaidTeamNames(client: ITransportClient): Promise<string[]> {
+async function fetchOtherPaidTeamNames(client: ITransportClient, excludeTeamId?: string): Promise<string[]> {
   try {
     const response = await client.requestWithAck<BillingListUsageResponse>(BillingEvents.LIST_USAGE)
     return Object.values(response.usage ?? {})
-      .filter((usage) => usage.tier !== 'FREE')
+      .filter((usage) => usage.tier !== 'FREE' && usage.organizationId !== excludeTeamId)
       .map((usage) => usage.organizationName)
   } catch {
     return []
