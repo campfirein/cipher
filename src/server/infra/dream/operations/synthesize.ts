@@ -257,6 +257,12 @@ async function writeSynthesisFile(
   }
 
   const sources = candidate.evidence.map((e) => `${e.domain}/_index.md`)
+  // Normalize tags to lowercase kebab-case so card chips and BM25 search see
+  // a consistent label regardless of whether the model honored the prompt's
+  // formatting rule. Empty entries (post-trim) are dropped.
+  const normalizedTags = candidate.tags
+    .map((t) => t.toLowerCase().trim().replaceAll(/\s+/g, '-'))
+    .filter((t) => t.length > 0)
   const now = new Date().toISOString()
   // Field order is enforced by insertion order (yamlDump uses sortKeys:false).
   // Synthesis markers (confidence, sources, synthesized_at, type) come first
@@ -274,7 +280,7 @@ async function writeSynthesisFile(
   frontmatter.type = 'synthesis'
   frontmatter.title = candidate.title
   frontmatter.summary = candidate.summary
-  frontmatter.tags = candidate.tags
+  frontmatter.tags = normalizedTags
   frontmatter.related = []
   frontmatter.keywords = candidate.keywords
   frontmatter.createdAt = now

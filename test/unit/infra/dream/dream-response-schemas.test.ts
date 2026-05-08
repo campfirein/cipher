@@ -167,6 +167,54 @@ describe('dream-response-schemas', () => {
       }
       expect(() => SynthesizeResponseSchema.parse(input)).to.not.throw()
     })
+
+    it('should reject summary longer than 500 characters', () => {
+      const input = {
+        syntheses: [{
+          claim: 'test',
+          confidence: 0.5,
+          evidence: [{domain: 'a', fact: 'f'}],
+          keywords: [],
+          placement: 'a',
+          summary: 'x'.repeat(501),
+          tags: [],
+          title: 'test',
+        }],
+      }
+      expect(() => SynthesizeResponseSchema.parse(input)).to.throw()
+    })
+
+    it('should reject tags array longer than 8 entries', () => {
+      const input = {
+        syntheses: [{
+          claim: 'test',
+          confidence: 0.5,
+          evidence: [{domain: 'a', fact: 'f'}],
+          keywords: [],
+          placement: 'a',
+          summary: '',
+          tags: Array.from({length: 9}, (_, i) => `tag-${i}`),
+          title: 'test',
+        }],
+      }
+      expect(() => SynthesizeResponseSchema.parse(input)).to.throw()
+    })
+
+    it('should reject keywords array longer than 15 entries', () => {
+      const input = {
+        syntheses: [{
+          claim: 'test',
+          confidence: 0.5,
+          evidence: [{domain: 'a', fact: 'f'}],
+          keywords: Array.from({length: 16}, (_, i) => `kw-${i}`),
+          placement: 'a',
+          summary: '',
+          tags: [],
+          title: 'test',
+        }],
+      }
+      expect(() => SynthesizeResponseSchema.parse(input)).to.throw()
+    })
   })
 
   describe('PruneResponseSchema', () => {
