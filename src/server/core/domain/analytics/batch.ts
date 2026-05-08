@@ -1,4 +1,6 @@
 /* eslint-disable camelcase */
+import {z} from 'zod'
+
 import type {AnalyticsEvent} from './event.js'
 import type {Identity} from './identity.js'
 
@@ -17,41 +19,32 @@ export type AnalyticsBatchJson = Readonly<{
   schema_version: 1
 }>
 
-const isIdentity = (value: unknown): value is Identity => {
-  if (typeof value !== 'object' || value === null) return false
-  const obj = value as Record<string, unknown>
-  if (typeof obj.device_id !== 'string' || obj.device_id.trim().length === 0) {
-    return false
-  }
+/**
+ * Wire-validation Zod schemas. Used by `fromJson` to deserialize untrusted
+ * JSON. Zod replaces the previous hand-rolled type guards (which relied on
+ * `as Record<string, unknown>` casts that violate CLAUDE.md's
+ * "avoid `as Type` assertions" rule).
+ */
+const IdentityWireSchema = z.object({
+  device_id: z.string().refine((s) => s.trim().length > 0, {
+    message: 'device_id must be non-empty',
+  }),
+  email: z.string().optional(),
+  name: z.string().optional(),
+  user_id: z.string().optional(),
+})
 
-  if (obj.user_id !== undefined && typeof obj.user_id !== 'string') return false
-  if (obj.email !== undefined && typeof obj.email !== 'string') return false
-  if (obj.name !== undefined && typeof obj.name !== 'string') return false
+const AnalyticsEventWithIdentityWireSchema = z.object({
+  identity: IdentityWireSchema,
+  name: z.string(),
+  properties: z.record(z.string(), z.unknown()),
+  timestamp: z.number(),
+})
 
-  return true
-}
-
-const isAnalyticsEventWithIdentity = (value: unknown): value is AnalyticsEventWithIdentity => {
-  if (typeof value !== 'object' || value === null) return false
-  const obj = value as Record<string, unknown>
-
-  if (typeof obj.name !== 'string') return false
-  if (typeof obj.timestamp !== 'number') return false
-  if (typeof obj.properties !== 'object' || obj.properties === null || Array.isArray(obj.properties)) return false
-  if (!isIdentity(obj.identity)) return false
-
-  return true
-}
-
-const isAnalyticsBatchJson = (json: unknown): json is AnalyticsBatchJson => {
-  if (typeof json !== 'object' || json === null || Array.isArray(json)) return false
-  const obj = json as Record<string, unknown>
-
-  if (obj.schema_version !== 1) return false
-  if (!Array.isArray(obj.events)) return false
-
-  return obj.events.every((event) => isAnalyticsEventWithIdentity(event))
-}
+const AnalyticsBatchJsonSchema = z.object({
+  events: z.array(AnalyticsEventWithIdentityWireSchema),
+  schema_version: z.literal(1),
+})
 
 /**
  * A batch of identity-stamped analytics events. Immutable. Constructed
@@ -79,8 +72,13 @@ export class AnalyticsBatch {
    * input (graceful failure — the caller can drop the batch and log).
    */
   public static fromJson(json: unknown): AnalyticsBatch | undefined {
-    if (!isAnalyticsBatchJson(json)) return undefined
-    return new AnalyticsBatch(json.events)
+    const parsed = AnalyticsBatchJsonSchema.safeParse(json)
+    if (!parsed.success) return undefined
+    // Zod's inferred event shape structurally matches AnalyticsEventWithIdentity
+    // (z.string().optional() is `string | undefined`, equivalent to optional
+    // properties on Identity). TypeScript widens the inferred mutable shape
+    // into the Readonly wrapper without an `as` cast.
+    return new AnalyticsBatch(parsed.data.events)
   }
 
   /**

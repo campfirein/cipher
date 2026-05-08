@@ -5,33 +5,80 @@ import {z} from 'zod'
 import {ALL_EVENT_SCHEMAS} from '../../../../src/shared/analytics/events/index.js'
 
 const FORBIDDEN_FIELD_NAMES: ReadonlySet<string> = new Set([
+  // Secrets / credentials
+  'access_token',
+  // PII identifiers (super-properties carry email/name when authenticated;
+  // event payloads must NEVER repeat them)
+  'address',
+  'api_key',
+  // Filesystem paths (M1 spec: "no file paths")
   'argv',
+  'auth_header',
+  'auth_token',
+  // User content (M1 spec: "no content of queries, files, or memory")
   'content',
+  'cookie',
+  'credential',
   'cwd',
+  'display_name',
   'email',
+  // Errors that may carry paths/secrets/content
   'error_message',
   'file_path',
+  'first_name',
   'folder_path',
   'goal',
   'home_dir',
+  // Network identifiers
   'hostname',
   'ip',
+  'last_name',
   'mac',
   'output',
+  'password',
   'path',
+  'phone',
+  'phone_number',
   'project_path',
   'prompt',
   'query',
   'result',
+  'secret',
+  'session_id',
+  'session_token',
+  'ssn',
   'stack',
+  'token',
+  'username',
   'worktree_root',
 ])
 
-function getShapeFieldNames(schema: z.ZodTypeAny): string[] {
-  // Zod object schemas expose `.shape`. Strip ZodOptional / ZodDefault wrappers
-  // are irrelevant for field-name auditing; we only care about top-level keys.
+/**
+ * Recursively collect every field name reachable from a Zod schema, including
+ * fields inside nested ZodObject, ZodOptional / ZodNullable wrappers, and
+ * ZodArray element schemas. The privacy fixture must audit nested shapes
+ * because adding `{error: {message, code}}` should surface `message` as a
+ * forbidden name even though the top level only declares `error`.
+ */
+function getShapeFieldNames(schema: z.ZodTypeAny, seen: Set<z.ZodTypeAny> = new Set()): string[] {
+  if (seen.has(schema)) return []
+  seen.add(schema)
+
+  if (schema instanceof z.ZodOptional || schema instanceof z.ZodNullable) {
+    return getShapeFieldNames(schema.unwrap() as z.ZodTypeAny, seen)
+  }
+
+  if (schema instanceof z.ZodArray) {
+    return getShapeFieldNames(schema.element as z.ZodTypeAny, seen)
+  }
+
   if (schema instanceof z.ZodObject) {
-    return Object.keys(schema.shape as Record<string, unknown>)
+    const out: string[] = []
+    for (const [key, value] of Object.entries(schema.shape as Record<string, z.ZodTypeAny>)) {
+      out.push(key, ...getShapeFieldNames(value, seen))
+    }
+
+    return out
   }
 
   return []
@@ -62,5 +109,38 @@ describe('analytics privacy fixture (smoke)', () => {
       'task_created',
       'task_failed',
     ])
+  })
+
+  describe('walker coverage (regression guard)', () => {
+    it('should catch a forbidden field name nested inside a ZodObject', () => {
+      // Synthetic bad schema. If the walker stays at top-level, `email` is missed.
+      const nestedBad = z.object({
+        outer: z.object({
+          email: z.string(),
+        }),
+      })
+      const fields = getShapeFieldNames(nestedBad)
+      expect(fields).to.include('email')
+    })
+
+    it('should catch a forbidden field name inside ZodArray element', () => {
+      const arrayBad = z.object({
+        items: z.array(z.object({password: z.string()})),
+      })
+      const fields = getShapeFieldNames(arrayBad)
+      expect(fields).to.include('password')
+    })
+
+    it('should unwrap ZodOptional and ZodNullable when walking', () => {
+      const optionalBad = z.object({
+        wrapper: z.object({token: z.string()}).optional(),
+      })
+      const nullableBad = z.object({
+        // eslint-disable-next-line camelcase
+        wrapper: z.object({api_key: z.string()}).nullable(),
+      })
+      expect(getShapeFieldNames(optionalBad)).to.include('token')
+      expect(getShapeFieldNames(nullableBad)).to.include('api_key')
+    })
   })
 })
