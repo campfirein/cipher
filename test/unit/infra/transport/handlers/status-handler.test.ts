@@ -12,18 +12,26 @@ import {expect} from 'chai'
 import {mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
-import {restore, stub} from 'sinon'
+import {createSandbox, restore, stub} from 'sinon'
 
 import type {CurateLogEntry} from '../../../../../src/server/core/domain/entities/curate-log-entry.js'
+import type {IProviderConfigStore} from '../../../../../src/server/core/interfaces/i-provider-config-store.js'
+import type {IBillingService} from '../../../../../src/server/core/interfaces/services/i-billing-service.js'
+import type {IBillingConfigStore} from '../../../../../src/server/core/interfaces/storage/i-billing-config-store.js'
 import type {StatusDTO} from '../../../../../src/shared/transport/types/dto.js'
 
 import {StatusHandler} from '../../../../../src/server/infra/transport/handlers/status-handler.js'
 import {StatusEvents} from '../../../../../src/shared/transport/events/status-events.js'
-import {createMockTransportServer, type MockTransportServer} from '../../../../helpers/mock-factories.js'
+import {createMockAuthStateStore, createMockTransportServer, type MockTransportServer} from '../../../../helpers/mock-factories.js'
 
 // ==================== Test Helpers ====================
 
 type TestDeps = {
+  billingConfigStore: {
+    getPinnedTeamId: SinonStub
+    setPinnedTeamId: SinonStub
+  }
+  billingService: {getFreeUserLimit: SinonStub; getTiers: SinonStub; getUsages: SinonStub}
   contextTreeService: {delete: SinonStub; exists: SinonStub; hasGitRepo: SinonStub; initialize: SinonStub; resolvePath: SinonStub}
   contextTreeSnapshotService: {
     getChanges: SinonStub
@@ -42,11 +50,21 @@ type TestDeps = {
     save: SinonStub
   }
   projectConfigStore: {exists: SinonStub; getModifiedTime: SinonStub; read: SinonStub; write: SinonStub}
+  providerConfigStore: {getActiveProvider: SinonStub}
   tokenStore: {clear: SinonStub; load: SinonStub; save: SinonStub}
 }
 
 function makeStubs(): TestDeps {
   return {
+    billingConfigStore: {
+      getPinnedTeamId: stub().resolves(),
+      setPinnedTeamId: stub().resolves(),
+    },
+    billingService: {
+      getFreeUserLimit: stub().resolves(),
+      getTiers: stub().resolves([]),
+      getUsages: stub().resolves([]),
+    },
     contextTreeService: {
       delete: stub(),
       exists: stub().resolves(false),
@@ -73,8 +91,11 @@ function makeStubs(): TestDeps {
     projectConfigStore: {
       exists: stub().resolves(false),
       getModifiedTime: stub().resolves(),
-      read: stub(),
-      write: stub(),
+      read: stub().resolves(),
+      write: stub().resolves(),
+    },
+    providerConfigStore: {
+      getActiveProvider: stub().resolves(''),
     },
     tokenStore: {
       clear: stub(),
@@ -82,6 +103,10 @@ function makeStubs(): TestDeps {
       save: stub(),
     },
   }
+}
+
+function authedToken() {
+  return {isValid: () => true, sessionKey: 'session', userEmail: 'user@example.com'}
 }
 
 function makeCompletedEntry(ops: CurateLogEntry['operations']): CurateLogEntry {
@@ -118,16 +143,21 @@ describe('StatusHandler', () => {
     rmSync(testDir, {force: true, recursive: true})
   })
 
-  function createHandler(projectPath?: string): StatusHandler {
+  function createHandler(projectPath?: string, options?: {billingAuthenticated?: boolean}): StatusHandler {
     if (projectPath) {
       resolveProjectPath = stub().returns(projectPath)
     }
 
+    const sandbox = createSandbox()
     const handler = new StatusHandler({
+      authStateStore: createMockAuthStateStore(sandbox, {isAuthenticated: options?.billingAuthenticated ?? true}),
+      billingConfigStoreFactory: () => deps.billingConfigStore as unknown as IBillingConfigStore,
+      billingService: deps.billingService as unknown as IBillingService,
       contextTreeService: deps.contextTreeService,
       contextTreeSnapshotService: deps.contextTreeSnapshotService,
       curateLogStoreFactory: () => deps.curateLogStore,
       projectConfigStore: deps.projectConfigStore,
+      providerConfigStore: deps.providerConfigStore as unknown as IProviderConfigStore,
       resolveProjectPath,
       tokenStore: deps.tokenStore,
       transport,
@@ -550,6 +580,73 @@ describe('StatusHandler', () => {
 
       expect(status.projectRoot).to.equal(explicitRoot)
       expect(status.resolutionSource).to.equal('flag')
+    })
+  })
+
+  describe('billing source', () => {
+    it('returns undefined billing when no token is loaded', async () => {
+      deps.tokenStore.load.resolves()
+      createHandler(undefined, {billingAuthenticated: false})
+
+      const {status} = await callGetHandler()
+
+      expect(status.billing).to.equal(undefined)
+    })
+
+    it('returns other-provider when an authed user is on a non-byterover provider', async () => {
+      deps.tokenStore.load.resolves(authedToken())
+      deps.providerConfigStore.getActiveProvider.resolves('openai')
+      createHandler()
+
+      const {status} = await callGetHandler()
+
+      expect(status.billing).to.deep.equal({activeProvider: 'openai', source: 'other-provider'})
+      expect(deps.billingService.getUsages.called).to.be.false
+    })
+
+    it('builds the paid source when authed on byterover and a pin matches a paid usage', async () => {
+      deps.tokenStore.load.resolves(authedToken())
+      deps.providerConfigStore.getActiveProvider.resolves('byterover')
+      deps.billingConfigStore.getPinnedTeamId.resolves('org-acme')
+      deps.billingService.getUsages.resolves([
+        {
+          addOnRemaining: 0,
+          isTrialing: false,
+          limit: 100_000,
+          limitExceeded: false,
+          organizationId: 'org-acme',
+          organizationName: 'Acme Corp',
+          organizationStatus: 'ACTIVE',
+          percentUsed: 12.4,
+          remaining: 87_600,
+          tier: 'PRO',
+          totalLimit: 100_000,
+          used: 12_400,
+        },
+      ])
+      createHandler()
+
+      const {status} = await callGetHandler()
+
+      expect(status.billing).to.deep.equal({
+        organizationId: 'org-acme',
+        organizationName: 'Acme Corp',
+        remaining: 87_600,
+        source: 'paid',
+        tier: 'PRO',
+        total: 100_000,
+      })
+    })
+
+    it('returns undefined billing when getUsages throws', async () => {
+      deps.tokenStore.load.resolves(authedToken())
+      deps.providerConfigStore.getActiveProvider.resolves('byterover')
+      deps.billingService.getUsages.rejects(new Error('upstream offline'))
+      createHandler()
+
+      const {status} = await callGetHandler()
+
+      expect(status.billing).to.equal(undefined)
     })
   })
 })

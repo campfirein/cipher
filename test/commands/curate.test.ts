@@ -175,10 +175,10 @@ describe('Curate Command', () => {
       await createCommand('test context', '--detach').run()
 
       const requestStub = mockClient.requestWithAck as sinon.SinonStub
-      expect(requestStub.calledTwice).to.be.true
-      expect(requestStub.firstCall.args[0]).to.equal('state:getProviderConfig')
-      const [event, payload] = requestStub.secondCall.args
-      expect(event).to.equal('task:create')
+      const taskCreateCall = requestStub.getCalls().find((c) => c.args[0] === 'task:create')
+      expect(taskCreateCall, 'expected task:create call').to.exist
+      expect(requestStub.getCalls().some((c) => c.args[0] === 'state:getProviderConfig')).to.be.true
+      const payload = taskCreateCall!.args[1]
       expect(payload).to.have.property('content', 'test context')
       expect(payload).to.have.property('type', 'curate')
       expect(payload).to.have.property('taskId').that.is.a('string')
@@ -189,10 +189,10 @@ describe('Curate Command', () => {
       await createCommand('--detach', '-f', 'src/auth.ts', '-f', 'src/utils.ts').run()
 
       const requestStub = mockClient.requestWithAck as sinon.SinonStub
-      expect(requestStub.calledTwice).to.be.true
-      expect(requestStub.firstCall.args[0]).to.equal('state:getProviderConfig')
-      const [event, payload] = requestStub.secondCall.args
-      expect(event).to.equal('task:create')
+      const taskCreateCall = requestStub.getCalls().find((c) => c.args[0] === 'task:create')
+      expect(taskCreateCall, 'expected task:create call').to.exist
+      expect(requestStub.getCalls().some((c) => c.args[0] === 'state:getProviderConfig')).to.be.true
+      const payload = taskCreateCall!.args[1]
       expect(payload).to.have.property('content', '')
       expect(payload).to.have.property('files').that.deep.equals(['src/auth.ts', 'src/utils.ts'])
       expect(payload).to.have.property('type', 'curate')
@@ -202,7 +202,9 @@ describe('Curate Command', () => {
       await createCommand('test context', '--detach', '-f', 'file1.ts', '-f', 'file2.ts').run()
 
       const requestStub = mockClient.requestWithAck as sinon.SinonStub
-      const [, payload] = requestStub.secondCall.args
+      const taskCreateCall = requestStub.getCalls().find((c) => c.args[0] === 'task:create')
+      expect(taskCreateCall, 'expected task:create call').to.exist
+      const payload = taskCreateCall!.args[1]
       expect(payload).to.have.property('content', 'test context')
       expect(payload).to.have.property('files').that.deep.equals(['file1.ts', 'file2.ts'])
     })
@@ -217,7 +219,10 @@ describe('Curate Command', () => {
 
       await createCommand('test context', '--detach', '-f', './auth.ts').run()
 
-      const [, payload] = (mockClient.requestWithAck as sinon.SinonStub).secondCall.args
+      const requestStub = mockClient.requestWithAck as sinon.SinonStub
+      const taskCreateCall = requestStub.getCalls().find((c) => c.args[0] === 'task:create')
+      expect(taskCreateCall, 'expected task:create call').to.exist
+      const payload = taskCreateCall!.args[1]
       expect(payload).to.include({
         clientCwd,
         projectPath: projectRoot,
@@ -236,7 +241,10 @@ describe('Curate Command', () => {
 
       await createCommand('workspace-scoped curate', '--detach').run()
 
-      const [, payload] = (mockClient.requestWithAck as sinon.SinonStub).secondCall.args
+      const requestStub = mockClient.requestWithAck as sinon.SinonStub
+      const taskCreateCall = requestStub.getCalls().find((c) => c.args[0] === 'task:create')
+      expect(taskCreateCall, 'expected task:create call').to.exist
+      const payload = taskCreateCall!.args[1]
       expect(payload).to.include({
         clientCwd,
         projectPath: projectRoot,
