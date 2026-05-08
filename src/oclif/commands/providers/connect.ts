@@ -315,8 +315,6 @@ export default class ProviderConnect extends Command {
     )
   }
 
-  // All prompt methods emit a blank line before rendering for visual spacing between wizard steps.
-
   protected async promptForBaseUrl(signal?: AbortSignal): Promise<string> {
     this.log()
     return input(
