@@ -1,7 +1,7 @@
 /* eslint-disable camelcase */
 import {expect} from 'chai'
 
-import {AnalyticsTrackPayloadSchema} from '../../../../../../src/server/core/domain/transport/schemas.js'
+import {AnalyticsTrackPayloadSchema} from '../../../../../../src/shared/transport/events/analytics-events.js'
 
 describe('AnalyticsTrackPayloadSchema', () => {
   describe('valid payloads', () => {

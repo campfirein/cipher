@@ -1,8 +1,11 @@
 import type {IAnalyticsClient} from '../../../core/interfaces/analytics/i-analytics-client.js'
 import type {ITransportServer} from '../../../core/interfaces/transport/i-transport-server.js'
 
-import {AnalyticsEvents, type AnalyticsTrackRequest} from '../../../../shared/transport/events/analytics-events.js'
-import {AnalyticsTrackPayloadSchema} from '../../../core/domain/transport/schemas.js'
+import {
+  AnalyticsEvents,
+  type AnalyticsTrackPayload,
+  AnalyticsTrackPayloadSchema,
+} from '../../../../shared/transport/events/analytics-events.js'
 
 export interface AnalyticsHandlerDeps {
   analyticsClient: IAnalyticsClient
@@ -31,7 +34,7 @@ export class AnalyticsHandler {
   }
 
   public setup(): void {
-    this.transport.onRequest<AnalyticsTrackRequest, void>(AnalyticsEvents.TRACK, async (data: unknown) => {
+    this.transport.onRequest<AnalyticsTrackPayload, void>(AnalyticsEvents.TRACK, async (data: unknown) => {
       const parsed = AnalyticsTrackPayloadSchema.safeParse(data)
       if (!parsed.success) return
 
