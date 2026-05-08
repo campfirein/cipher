@@ -569,6 +569,46 @@ describe('consolidate', () => {
       expect(titleIdx, 'title should appear before createdAt (canonical order)').to.be.lessThan(createdAtIdx)
     })
 
+    it('TEMPORAL_UPDATE preserves flow-style arrays (no block-style reflow)', async () => {
+      await createCanonicalFile(ctxDir, 'auth/session.md', '# Old session info')
+
+      // Input frontmatter uses flow-style arrays (the canonical CLI format
+      // emitted by markdown-writer with flowLevel: 1). After consolidate
+      // appends consolidated_at, the rewritten file must keep the SAME
+      // flow style — block-style reflow (`- a\n  - b`) silently diverges
+      // from regular brv curate output and recreates the synthesis-vs-regular
+      // inconsistency this work eliminates.
+      const updatedWithFm = [
+        '---',
+        'title: Auth Session',
+        "summary: Updated session handling",
+        'tags: [auth, session, security]',
+        'related: []',
+        'keywords: [session, cookie, jwt]',
+        "createdAt: '2026-04-01T00:00:00.000Z'",
+        "updatedAt: '2026-04-10T00:00:00.000Z'",
+        '---',
+        '# Updated session info',
+      ].join('\n')
+
+      agent.executeOnSession.resolves(llmResponse([{
+        files: ['auth/session.md'],
+        reason: 'Outdated info',
+        type: 'TEMPORAL_UPDATE',
+        updatedContent: updatedWithFm,
+      }]))
+
+      await consolidate(['auth/session.md'], deps)
+
+      const updated = await readFile(join(ctxDir, 'auth/session.md'), 'utf8')
+      expect(updated).to.include('tags: [auth, session, security]')
+      expect(updated).to.include('keywords: [session, cookie, jwt]')
+      expect(updated).to.include('related: []')
+      // Reject block-style reflow
+      expect(updated).to.not.match(/^tags:\s*\n\s+- /m)
+      expect(updated).to.not.match(/^keywords:\s*\n\s+- /m)
+    })
+
     it('CROSS_REFERENCE preserves existing frontmatter field order', async () => {
       await createCanonicalFile(ctxDir, 'auth/session.md', '# Session')
       await createCanonicalFile(ctxDir, 'auth/tokens.md', '# Tokens')

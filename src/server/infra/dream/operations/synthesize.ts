@@ -280,7 +280,7 @@ async function writeSynthesisFile(
   frontmatter.createdAt = now
   frontmatter.updatedAt = now
   /* eslint-enable camelcase */
-  const yaml = yamlDump(frontmatter, {lineWidth: -1, sortKeys: false}).trimEnd()
+  const yaml = yamlDump(frontmatter, {flowLevel: 1, lineWidth: -1, sortKeys: false}).trimEnd()
   const body = [
     `# ${candidate.title}`,
     '',
