@@ -28,7 +28,10 @@ export const SynthesisCandidateSchema = z.object({
     domain: z.string(),
     fact: z.string(),
   })),
+  keywords: z.array(z.string()),
   placement: z.string(),
+  summary: z.string(),
+  tags: z.array(z.string()),
   title: z.string(),
 })
 
