@@ -1,6 +1,6 @@
 import type {ITransportClient} from '@campfirein/brv-transport-client'
 
-import {AnalyticsEvents, type AnalyticsTrackRequest} from '../transport/events/analytics-events.js'
+import {AnalyticsEvents, type AnalyticsTrackPayload} from '../transport/events/analytics-events.js'
 
 /**
  * Fire-and-forget analytics emission for non-forked daemon clients
@@ -15,7 +15,7 @@ export function emitAnalytics(
   event: string,
   properties?: Record<string, unknown>,
 ): void {
-  const payload: AnalyticsTrackRequest = {event, properties}
+  const payload: AnalyticsTrackPayload = {event, properties}
   try {
     client.request(AnalyticsEvents.TRACK, payload)
   } catch {

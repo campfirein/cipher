@@ -32,6 +32,7 @@ import {fileURLToPath} from 'node:url'
 
 import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
 
+import {AnalyticsEventNames} from '../../../shared/analytics/event-names.js'
 import {ReviewEvents} from '../../../shared/transport/events/review-events.js'
 import {
   AGENT_IDLE_CHECK_INTERVAL_MS,
@@ -653,7 +654,7 @@ async function main(): Promise<void> {
     // Fire `daemon_start` AFTER loadToken() so IdentityResolver sees the real
     // auth state. Doing it inside setupFeatureHandlers (before loadToken) would
     // stamp every daemon_start anonymously even for logged-in users.
-    analyticsClient.track('daemon_start')
+    analyticsClient.track(AnalyticsEventNames.DAEMON_START)
 
     // 11. Start idle timer + register signal handlers
     idleTimeoutPolicy.start()

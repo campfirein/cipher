@@ -6,7 +6,7 @@ import type {IAnalyticsClient} from '../../../../../../src/server/core/interface
 
 import {AnalyticsBatch} from '../../../../../../src/server/core/domain/analytics/batch.js'
 import {AnalyticsHandler} from '../../../../../../src/server/infra/transport/handlers/analytics-handler.js'
-import {AnalyticsEvents, type AnalyticsTrackRequest} from '../../../../../../src/shared/transport/events/analytics-events.js'
+import {AnalyticsEvents, type AnalyticsTrackPayload} from '../../../../../../src/shared/transport/events/analytics-events.js'
 import {createMockTransportServer} from '../../../../../helpers/mock-factories.js'
 
 type AnalyticsTrackHandler = (data: unknown, clientId: string) => Promise<void>
@@ -34,7 +34,7 @@ describe('AnalyticsHandler', () => {
     new AnalyticsHandler({analyticsClient, transport}).setup()
 
     const handler = transport._handlers.get(AnalyticsEvents.TRACK) as AnalyticsTrackHandler
-    const payload: AnalyticsTrackRequest = {event: 'cli_invocation', properties: {command_id: 'status'}}
+    const payload: AnalyticsTrackPayload = {event: 'cli_invocation', properties: {command_id: 'status'}}
     await handler(payload, 'client-1')
 
     const trackStub = analyticsClient.track as ReturnType<typeof stub>
