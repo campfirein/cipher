@@ -50,8 +50,16 @@ function stagedDiffFor(h: number, s: number): StagedDiff {
   return 'modified' // h=1, s in {2,3}: INDEX differs from HEAD
 }
 
-function unstagedDiffFor(s: number, w: number): UnstagedDiff {
-  if (s === 0) return undefined // INDEX absent: file is either gone or untracked, not a diff
+function unstagedDiffFor(h: number, s: number, w: number): UnstagedDiff {
+  if (s === 0) {
+    // INDEX absent. For untracked files (h=0) there is no INDEX-vs-WORKDIR diff to report.
+    // For paths whose index entry was removed via `git rm --cached` (h=1, w>0), the
+    // working-tree blob counts as "added" relative to the now-empty INDEX, mirroring what
+    // native `git diff` reports for that state.
+    if (h === 1 && w > 0) return 'added'
+    return undefined
+  }
+
   if (w === 0) return 'deleted' // s>0, WORKDIR absent: INDEX has a blob, disk does not
   // (s=2,w=0) is unreachable by the encoding (s=2 means INDEX==WORKDIR, so WORKDIR
   // absent forces INDEX absent => s=0); the w===0 guard above handles it safely either way.
@@ -84,7 +92,7 @@ export function classifyTuple(h: number, w: number, s: number): RowClassificatio
   validateEncoding(h, w, s)
 
   const stagedDiff = stagedDiffFor(h, s)
-  const unstagedDiff = unstagedDiffFor(s, w)
+  const unstagedDiff = unstagedDiffFor(h, s, w)
   const untracked = s === 0 && w > 0
 
   const files: StatusEntry[] = []

@@ -57,6 +57,7 @@ export const VcEvents = {
   PUSH: 'vc:push',
   REMOTE: 'vc:remote',
   RESET: 'vc:reset',
+  RM: 'vc:rm',
   STATUS: 'vc:status',
 } as const
 
@@ -274,6 +275,41 @@ export interface IVcResetResponse {
   filesUnstaged?: number
   headSha?: string
   mode: VcResetMode
+}
+
+/**
+ * Request shape for `vc:rm` — mirrors `git rm` flag set.
+ * - `filePaths`: positional pathspec list (variadic; may include directory entries when `recursive`)
+ * - `cached`: keep working-tree file, only remove from index (mirrors `git rm --cached`)
+ * - `recursive`: allow directory pathspecs; expand to every tracked file under the prefix
+ * - `force`: bypass the up-to-date safety check
+ * - `dryRun`: project the operation, mutate nothing
+ * - `quiet`: suppress per-file output (handler returns `perFile` either way; oclif/TUI suppresses)
+ * - `ignoreUnmatch`: paths that match nothing produce no error
+ * - `pathspecFromFile`: path to a file containing additional pathspec entries; expanded handler-side
+ * - `pathspecFileNul`: when set with `pathspecFromFile`, split on NUL instead of newline
+ */
+export interface IVcRmRequest {
+  cached?: boolean
+  dryRun?: boolean
+  filePaths: string[]
+  force?: boolean
+  ignoreUnmatch?: boolean
+  pathspecFileNul?: boolean
+  pathspecFromFile?: string
+  quiet?: boolean
+  recursive?: boolean
+}
+
+export interface IVcRmResponse {
+  /** Set when `dryRun` is true so the consumer can word the summary as "Would remove". */
+  dryRun?: boolean
+  filesRemoved: number
+  /**
+   * Per-file lines mirroring `git rm`'s `'rm <path>'` output. Always populated;
+   * the oclif/TUI consumer suppresses these when `--quiet` is set.
+   */
+  perFile: string[]
 }
 
 /**

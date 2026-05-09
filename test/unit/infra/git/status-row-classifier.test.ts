@@ -96,12 +96,15 @@ describe('classifyTuple', () => {
       const c = classifyTuple(1, 1, 0)
       expect(c.dirty).to.equal(true)
       expect(c.staged).to.equal(true)
+      // `untracked` precedence in `files` is preserved; `unstagedDiff` exposes the
+      // INDEX-vs-WORKDIR projection for `vc diff` consumers (HEAD-tracked file with empty
+      // INDEX and present WORKDIR is "added" relative to INDEX, mirroring native git).
       expect(c.files).to.deep.equal([
         {staged: true, status: 'deleted'},
         {staged: false, status: 'untracked'},
       ])
       expect(c.stagedDiff).to.equal('deleted')
-      expect(c.unstagedDiff).to.equal(undefined)
+      expect(c.unstagedDiff).to.equal('added')
     })
 
     it('[1,2,0] git rm --cached then edit workdir', () => {
@@ -113,7 +116,7 @@ describe('classifyTuple', () => {
         {staged: false, status: 'untracked'},
       ])
       expect(c.stagedDiff).to.equal('deleted')
-      expect(c.unstagedDiff).to.equal(undefined)
+      expect(c.unstagedDiff).to.equal('added')
     })
 
     it('[0,0,3] staged add then deleted from disk', () => {

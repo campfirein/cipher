@@ -15,6 +15,7 @@ import {vcPullSubCommand} from './vc-pull.js'
 import {vcPushSubCommand} from './vc-push.js'
 import {vcRemoteSubCommand} from './vc-remote.js'
 import {vcResetSubCommand} from './vc-reset.js'
+import {vcRmSubCommand} from './vc-rm.js'
 import {vcStatusSubCommand} from './vc-status.js'
 
 export const vcCommand: SlashCommand = {
@@ -26,6 +27,7 @@ export const vcCommand: SlashCommand = {
     vcAddSubCommand,
     vcCommitSubCommand,
     vcResetSubCommand,
+    vcRmSubCommand,
     vcFetchSubCommand,
     vcPullSubCommand,
     vcPushSubCommand,

@@ -97,6 +97,21 @@ export type ResetResult = {
   headSha: string
 }
 
+export type RemoveGitParams = BaseGitParams & {
+  cached?: boolean
+  dryRun?: boolean
+  filePaths: string[]
+  force?: boolean
+  ignoreUnmatch?: boolean
+  recursive?: boolean
+}
+
+export type RemoveResult = {
+  filesChanged: number
+  /** Per-file `'rm <path>'` lines mirroring `git rm` output. Always populated. */
+  perFile: string[]
+}
+
 export type CloneGitParams = BaseGitParams & {
   onProgress?: (progress: {loaded: number; phase: string; total?: number}) => void
   url: string
@@ -243,6 +258,15 @@ export interface IGitService {
    * Throws for unrecoverable failures (network error, auth failure, remote not found).
    */
   push(params: PushGitParams): Promise<PushResult>
+  /**
+   * Removes files from the index and (unless `cached`) the working tree, mirroring `git rm`.
+   * - default: rejects when working-tree differs from both HEAD and index unless `force`
+   * - `cached`: skip the unlink step; index-only removal
+   * - `recursive`: directory pathspecs expand to every tracked file under the prefix
+   * - `dryRun`: project the per-path outcome and return without mutating
+   * - `ignoreUnmatch`: paths that do not match anything produce no error
+   */
+  remove(params: RemoveGitParams): Promise<RemoveResult>
   removeRemote(params: RemoveRemoteGitParams): Promise<void>
   /**
    * Resets the index and/or HEAD.

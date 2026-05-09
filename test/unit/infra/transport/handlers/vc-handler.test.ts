@@ -38,6 +38,8 @@ import {
   type IVcMergeResponse,
   type IVcPullResponse,
   type IVcResetResponse,
+  type IVcRmRequest,
+  type IVcRmResponse,
   type IVcStatusResponse,
   VcErrorCode,
   VcEvents,
@@ -110,6 +112,7 @@ function makeDeps(sandbox: SinonSandbox, projectPath: string): TestDeps {
     merge: sandbox.stub().resolves({success: true}),
     pull: sandbox.stub().resolves({success: true}),
     push: sandbox.stub().resolves({success: true}),
+    remove: sandbox.stub().resolves({filesChanged: 0, perFile: []}),
     removeRemote: sandbox.stub().resolves(),
     reset: sandbox.stub().resolves({filesChanged: 0, headSha: 'abc123'}),
     setTrackingBranch: sandbox.stub().resolves(),
@@ -302,6 +305,7 @@ describe('VcHandler', () => {
       expect(registeredEvents).to.include(VcEvents.PULL)
       expect(registeredEvents).to.include(VcEvents.PUSH)
       expect(registeredEvents).to.include(VcEvents.REMOTE)
+      expect(registeredEvents).to.include(VcEvents.RM)
       expect(registeredEvents).to.include(VcEvents.STATUS)
       expect(registeredEvents).to.include(VcEvents.CHECKOUT)
     })
@@ -4680,6 +4684,249 @@ describe('VcHandler', () => {
         })
       } finally {
         cleanupDir(deps.tmpDir)
+      }
+    })
+  })
+
+  describe('handleRm', () => {
+    it('throws GIT_NOT_INITIALIZED when git not initialized', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(false)
+      makeVcHandler(deps).setup()
+
+      try {
+        await invoke<IVcRmResponse>(deps, VcEvents.RM, {filePaths: ['notes.md']})
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(VcError)
+        if (error instanceof VcError) {
+          expect(error.code).to.equal(VcErrorCode.GIT_NOT_INITIALIZED)
+        }
+      }
+    })
+
+    it('calls gitService.remove with filePaths and no flags by default', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.remove.resolves({filesChanged: 1, perFile: ["rm 'notes.md'"]})
+      makeVcHandler(deps).setup()
+
+      const req: IVcRmRequest = {filePaths: ['notes.md']}
+      const result = await invoke<IVcRmResponse>(deps, VcEvents.RM, req)
+
+      expect(deps.gitService.remove.calledOnce).to.be.true
+      const args = deps.gitService.remove.firstCall.args[0]
+      expect(args).to.deep.include({
+        directory: deps.contextTreeDirPath,
+        filePaths: ['notes.md'],
+      })
+      expect(args.cached).to.be.undefined
+      expect(args.recursive).to.be.undefined
+      expect(args.force).to.be.undefined
+      expect(args.dryRun).to.be.undefined
+      expect(args.ignoreUnmatch).to.be.undefined
+      expect(result).to.deep.equal({filesRemoved: 1, perFile: ["rm 'notes.md'"]})
+    })
+
+    it('passes cached flag through to the service', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.remove.resolves({filesChanged: 1, perFile: []})
+      makeVcHandler(deps).setup()
+
+      await invoke<IVcRmResponse>(deps, VcEvents.RM, {cached: true, filePaths: ['notes.md']})
+
+      expect(deps.gitService.remove.firstCall.args[0]).to.deep.include({cached: true})
+    })
+
+    it('passes recursive flag through to the service', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.remove.resolves({filesChanged: 0, perFile: []})
+      makeVcHandler(deps).setup()
+
+      await invoke<IVcRmResponse>(deps, VcEvents.RM, {filePaths: ['docs/'], recursive: true})
+
+      expect(deps.gitService.remove.firstCall.args[0]).to.deep.include({recursive: true})
+    })
+
+    it('passes force flag through to the service', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.remove.resolves({filesChanged: 1, perFile: []})
+      makeVcHandler(deps).setup()
+
+      await invoke<IVcRmResponse>(deps, VcEvents.RM, {filePaths: ['notes.md'], force: true})
+
+      expect(deps.gitService.remove.firstCall.args[0]).to.deep.include({force: true})
+    })
+
+    it('returns dryRun=true and propagates perFile when dryRun is set', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.remove.resolves({
+        filesChanged: 1,
+        perFile: ["rm 'notes.md'"],
+      })
+      makeVcHandler(deps).setup()
+
+      const result = await invoke<IVcRmResponse>(deps, VcEvents.RM, {dryRun: true, filePaths: ['notes.md']})
+
+      expect(deps.gitService.remove.firstCall.args[0]).to.deep.include({dryRun: true})
+      expect(result).to.deep.equal({
+        dryRun: true,
+        filesRemoved: 1,
+        perFile: ["rm 'notes.md'"],
+      })
+    })
+
+    it('passes ignoreUnmatch flag through to the service', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.remove.resolves({filesChanged: 0, perFile: []})
+      makeVcHandler(deps).setup()
+
+      await invoke<IVcRmResponse>(deps, VcEvents.RM, {filePaths: ['nope.md'], ignoreUnmatch: true})
+
+      expect(deps.gitService.remove.firstCall.args[0]).to.deep.include({ignoreUnmatch: true})
+    })
+
+    it('expands pathspecFromFile (newline-separated) and prepends to filePaths', async () => {
+      const tmpFile = join(tmpdir(), `brv-rm-pathspec-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`)
+      writeFileSync(tmpFile, 'a.md\nb.md\n\nc.md\n')
+      try {
+        const deps = makeDeps(sandbox, projectPath)
+        deps.gitService.isInitialized.resolves(true)
+        deps.gitService.remove.resolves({filesChanged: 4, perFile: []})
+        makeVcHandler(deps).setup()
+
+        await invoke<IVcRmResponse>(deps, VcEvents.RM, {filePaths: ['d.md'], pathspecFromFile: tmpFile})
+
+        expect(deps.gitService.remove.firstCall.args[0]).to.deep.include({
+          filePaths: ['a.md', 'b.md', 'c.md', 'd.md'],
+        })
+      } finally {
+        if (existsSync(tmpFile)) rmSync(tmpFile, {force: true})
+      }
+    })
+
+    it('treats an empty pathspec file as a no-op (no paths added)', async () => {
+      const tmpFile = join(tmpdir(), `brv-rm-pathspec-empty-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`)
+      writeFileSync(tmpFile, '   \n\n  \n')
+      try {
+        const deps = makeDeps(sandbox, projectPath)
+        deps.gitService.isInitialized.resolves(true)
+        deps.gitService.remove.resolves({filesChanged: 1, perFile: []})
+        makeVcHandler(deps).setup()
+
+        await invoke<IVcRmResponse>(deps, VcEvents.RM, {filePaths: ['only-positional.md'], pathspecFromFile: tmpFile})
+
+        expect(deps.gitService.remove.firstCall.args[0]).to.deep.include({
+          filePaths: ['only-positional.md'],
+        })
+      } finally {
+        if (existsSync(tmpFile)) rmSync(tmpFile, {force: true})
+      }
+    })
+
+    it('trims surrounding whitespace from each pathspec entry', async () => {
+      const tmpFile = join(tmpdir(), `brv-rm-pathspec-trim-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`)
+      writeFileSync(tmpFile, '  a.md  \n\tb.md\t\n c.md \n')
+      try {
+        const deps = makeDeps(sandbox, projectPath)
+        deps.gitService.isInitialized.resolves(true)
+        deps.gitService.remove.resolves({filesChanged: 3, perFile: []})
+        makeVcHandler(deps).setup()
+
+        await invoke<IVcRmResponse>(deps, VcEvents.RM, {filePaths: [], pathspecFromFile: tmpFile})
+
+        expect(deps.gitService.remove.firstCall.args[0]).to.deep.include({
+          filePaths: ['a.md', 'b.md', 'c.md'],
+        })
+      } finally {
+        if (existsSync(tmpFile)) rmSync(tmpFile, {force: true})
+      }
+    })
+
+    it('NUL-separated pathspec preserves leading/trailing whitespace bytes verbatim', async () => {
+      // `git rm --pathspec-file-nul` reads bytes verbatim; trim would silently mutate
+      // legitimate paths whose names include leading/trailing spaces.
+      const tmpFile = join(tmpdir(), `brv-rm-nul-verbatim-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`)
+      writeFileSync(tmpFile, ' a.md \0\tb.md\t\0c.md')
+      try {
+        const deps = makeDeps(sandbox, projectPath)
+        deps.gitService.isInitialized.resolves(true)
+        deps.gitService.remove.resolves({filesChanged: 3, perFile: []})
+        makeVcHandler(deps).setup()
+
+        await invoke<IVcRmResponse>(deps, VcEvents.RM, {
+          filePaths: [],
+          pathspecFileNul: true,
+          pathspecFromFile: tmpFile,
+        })
+
+        expect(deps.gitService.remove.firstCall.args[0]).to.deep.include({
+          filePaths: [' a.md ', '\tb.md\t', 'c.md'],
+        })
+      } finally {
+        if (existsSync(tmpFile)) rmSync(tmpFile, {force: true})
+      }
+    })
+
+    it('expands pathspecFromFile with NUL separator when pathspecFileNul is set', async () => {
+      const tmpFile = join(tmpdir(), `brv-rm-pathspec-nul-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`)
+      writeFileSync(tmpFile, 'a.md b.md  c.md ')
+      try {
+        const deps = makeDeps(sandbox, projectPath)
+        deps.gitService.isInitialized.resolves(true)
+        deps.gitService.remove.resolves({filesChanged: 3, perFile: []})
+        makeVcHandler(deps).setup()
+
+        await invoke<IVcRmResponse>(deps, VcEvents.RM, {
+          filePaths: [],
+          pathspecFileNul: true,
+          pathspecFromFile: tmpFile,
+        })
+
+        expect(deps.gitService.remove.firstCall.args[0]).to.deep.include({
+          filePaths: ['a.md', 'b.md', 'c.md'],
+        })
+      } finally {
+        if (existsSync(tmpFile)) rmSync(tmpFile, {force: true})
+      }
+    })
+
+    it('surfaces pathspec-from-file read failure as VcError', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      makeVcHandler(deps).setup()
+
+      try {
+        await invoke<IVcRmResponse>(deps, VcEvents.RM, {
+          filePaths: [],
+          pathspecFromFile: '/definitely/does/not/exist.txt',
+        })
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(VcError)
+        if (error instanceof VcError) {
+          expect(error.code).to.equal(VcErrorCode.FILE_NOT_FOUND)
+        }
+      }
+    })
+
+    it('rethrows VcError raised by the service unchanged', async () => {
+      const deps = makeDeps(sandbox, projectPath)
+      deps.gitService.isInitialized.resolves(true)
+      deps.gitService.remove.rejects(new VcError('boom', VcErrorCode.UNCOMMITTED_CHANGES))
+      makeVcHandler(deps).setup()
+
+      try {
+        await invoke<IVcRmResponse>(deps, VcEvents.RM, {filePaths: ['notes.md']})
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(VcError)
+        if (error instanceof VcError) expect(error.code).to.equal(VcErrorCode.UNCOMMITTED_CHANGES)
       }
     })
   })

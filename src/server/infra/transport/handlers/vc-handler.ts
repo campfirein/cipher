@@ -46,6 +46,8 @@ import {
   type IVcRemoteResponse,
   type IVcResetRequest,
   type IVcResetResponse,
+  type IVcRmRequest,
+  type IVcRmResponse,
   type IVcStatusResponse,
   type VcDiffFileStatus,
   type VcDiffMode,
@@ -214,6 +216,7 @@ export class VcHandler {
     this.transport.onRequest<IVcResetRequest, IVcResetResponse>(VcEvents.RESET, (data, clientId) =>
       this.handleReset(data, clientId),
     )
+    this.transport.onRequest<IVcRmRequest, IVcRmResponse>(VcEvents.RM, (data, clientId) => this.handleRm(data, clientId))
 
     this.transport.onRequest<void, IVcStatusResponse>(VcEvents.STATUS, (_data, clientId) => this.handleStatus(clientId))
   }
@@ -291,6 +294,35 @@ export class VcHandler {
       fs.promises.readFile(join(directory, path), 'utf8').catch(() => ''),
     ])
     return {newContent: workingTree, oldContent: stage ?? '', path}
+  }
+
+  /**
+   * Expands `pathspecFromFile` (if present) and prepends its entries to `filePaths`.
+   * Splits on NUL when `pathspecFileNul` is set, on newline otherwise.
+   * File-read failures surface as `VcError(FILE_NOT_FOUND)`.
+   */
+  private async expandRmPathspec(data: IVcRmRequest): Promise<string[]> {
+    if (!data.pathspecFromFile) return [...data.filePaths]
+
+    let raw: string
+    try {
+      raw = await fs.promises.readFile(data.pathspecFromFile, 'utf8')
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      throw new VcError(`Could not read pathspec file '${data.pathspecFromFile}': ${message}`, VcErrorCode.FILE_NOT_FOUND)
+    }
+
+    // Splitting on `\0` is byte-true for the separator (UTF-8 never uses 0x00 inside
+    // a multibyte sequence), so NUL mode preserves any embedded `\n` inside paths
+    // exactly like `git rm --pathspec-file-nul`. Per-chunk content is decoded as
+    // UTF-8 because isomorphic-git's filepath API is string-typed — paths containing
+    // non-UTF-8 byte sequences are not representable through brv's git layer.
+    // Newline mode tolerates `\r\n` and trims whitespace because newline-delimited
+    // files commonly carry it.
+    const fromFile = data.pathspecFileNul
+      ? raw.split('\0').filter((s) => s.length > 0)
+      : raw.split('\n').map((s) => s.trim()).filter((s) => s.length > 0)
+    return [...fromFile, ...data.filePaths]
   }
 
   /**
@@ -1350,6 +1382,34 @@ export class VcHandler {
       }
 
       throw error
+    }
+  }
+
+  private async handleRm(data: IVcRmRequest, clientId: string): Promise<IVcRmResponse> {
+    const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
+    const directory = this.contextTreeService.resolvePath(projectPath)
+
+    const gitInitialized = await this.gitService.isInitialized({directory})
+    if (!gitInitialized) {
+      throw new VcError('ByteRover version control not initialized.', VcErrorCode.GIT_NOT_INITIALIZED)
+    }
+
+    const filePaths = await this.expandRmPathspec(data)
+
+    const result = await this.gitService.remove({
+      cached: data.cached,
+      directory,
+      dryRun: data.dryRun,
+      filePaths,
+      force: data.force,
+      ignoreUnmatch: data.ignoreUnmatch,
+      recursive: data.recursive,
+    })
+
+    return {
+      filesRemoved: result.filesChanged,
+      perFile: result.perFile,
+      ...(data.dryRun ? {dryRun: true} : {}),
     }
   }
 

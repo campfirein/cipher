@@ -42,7 +42,9 @@ import type {
   PullResult,
   PushGitParams,
   PushResult,
+  RemoveGitParams,
   RemoveRemoteGitParams,
+  RemoveResult,
   ResetGitParams,
   ResetResult,
   SetTrackingBranchParams,
@@ -70,6 +72,30 @@ type IsomorphicGitConflictData = {
 
 /** isomorphic-git's MergeConflictError — extends Error with a typed `data` property. */
 type IsomorphicGitMergeConflictError = Error & {data?: IsomorphicGitConflictData}
+
+/**
+ * Strategy for restoring a single path during a failed `remove()` rollback.
+ *
+ * - `noop`: no INDEX entry pre-existed, so there is nothing to rebuild.
+ * - `reset-index`: HEAD exists — call `git.resetIndex({ref: 'HEAD'})`.
+ * - `re-add`: pre-commit repo (no HEAD) but the workdir file is on disk — call `git.add` to re-stage it.
+ *   This covers two cases by design:
+ *     1. Non-cached removal: the catch block has already restored the workdir file from snapshot.
+ *     2. Cached removal: the workdir file was never unlinked, so it is still on disk.
+ * - `fail`: pre-commit repo with no workdir file — the index entry cannot be rebuilt.
+ */
+export type RmRollbackAction = 'fail' | 'noop' | 're-add' | 'reset-index'
+
+export function decideRmRollbackAction(input: {
+  fileExistsInWorkdir: boolean
+  headExists: boolean
+  indexExisted: boolean
+}): RmRollbackAction {
+  if (!input.indexExisted) return 'noop'
+  if (input.headExists) return 'reset-index'
+  if (input.fileExistsInWorkdir) return 're-add'
+  return 'fail'
+}
 
 export class IsomorphicGitService implements IGitService {
   public constructor(private readonly authStateStore: IAuthStateStore) {}
@@ -842,6 +868,211 @@ export class IsomorphicGitService implements IGitService {
 
       throw error
     }
+  }
+
+  async remove(params: RemoveGitParams): Promise<RemoveResult> {
+    const dir = this.requireDirectory(params)
+    const cached = params.cached ?? false
+    const dryRun = params.dryRun ?? false
+    const force = params.force ?? false
+    const ignoreUnmatch = params.ignoreUnmatch ?? false
+    const recursive = params.recursive ?? false
+
+    const matrix = await git.statusMatrix({dir, fs})
+    type Row = {h: number; path: string; s: number; w: number}
+    const rowByPath = new Map<string, Row>()
+    for (const r of matrix) {
+      const path = String(r[0])
+      rowByPath.set(path, {h: r[1], path, s: r[3], w: r[2]})
+    }
+
+    // `git rm` operates on the index: a path with no INDEX entry (s === 0) cannot be removed,
+    // even if it's still in HEAD (e.g. a path already at the post-`git rm --cached` vertex).
+    // Mirroring that, a row counts as tracked here only when its INDEX column is non-zero.
+    const isTracked = (row: Row | undefined): boolean => row !== undefined && row.s !== 0
+
+    const expandedPaths: string[] = []
+    for (const inputPath of params.filePaths) {
+      const trimmed = inputPath.replace(/\/+$/, '')
+      const directRow = rowByPath.get(trimmed)
+      const looksLikeDir =
+        inputPath.endsWith('/') ||
+        (!isTracked(directRow) &&
+          [...rowByPath.values()].some((r) => r.path.startsWith(`${trimmed}/`) && isTracked(r)))
+
+      if (looksLikeDir) {
+        if (!recursive) {
+          throw new GitError(`not removing '${inputPath}' recursively without -r`)
+        }
+
+        const prefix = `${trimmed}/`
+        const matches = [...rowByPath.values()].filter((r) => r.path.startsWith(prefix) && isTracked(r))
+        if (matches.length === 0) {
+          if (!ignoreUnmatch) {
+            throw new GitError(`pathspec '${inputPath}' did not match any file(s) known to git`)
+          }
+        } else {
+          for (const m of matches) {
+            if (!expandedPaths.includes(m.path)) expandedPaths.push(m.path)
+          }
+        }
+      } else if (!isTracked(directRow)) {
+        if (!ignoreUnmatch) {
+          throw new GitError(`pathspec '${inputPath}' did not match any file(s) known to git`)
+        }
+      } else if (!expandedPaths.includes(trimmed)) {
+        expandedPaths.push(trimmed)
+      }
+    }
+
+    if (!force) {
+      for (const p of expandedPaths) {
+        const row = rowByPath.get(p)
+        if (!row) continue
+        const cls = classifyTuple(row.h, row.w, row.s)
+        const stagedDiff = cls.stagedDiff !== undefined
+        const unstagedDiff = cls.unstagedDiff !== undefined
+
+        if (stagedDiff && (cached || unstagedDiff)) {
+          throw new GitError(
+            `error: the following file has staged content different from both the file and the HEAD: ${p}`,
+          )
+        }
+
+        if (!cached && unstagedDiff) {
+          throw new GitError(`error: the following file has local modifications: ${p}`)
+        }
+      }
+    }
+
+    // Mirror `git rm`'s shell-safe single-quote escaping: each `'` in the path becomes `'\''`
+    // (close quote, escaped quote, reopen quote) so the printed line is paste-safe in a shell.
+    const perFile = expandedPaths.map((p) => `rm '${p.replaceAll("'", String.raw`'\''`)}'`)
+
+    if (dryRun) {
+      return {filesChanged: expandedPaths.length, perFile}
+    }
+
+    // Snapshot HEAD existence once so rollback can pick the right strategy:
+    //   - HEAD exists  → restore the index entry with `resetIndex({ref:'HEAD'})`
+    //   - no HEAD yet  → re-stage from the restored workdir blob via `git.add`
+    // Without this, `resetIndex({ref:'HEAD'})` throws in pre-commit repos and the
+    // index entry is silently lost on rollback (mirrors what `resetUnstage` already
+    // handles via its `headSha ? resetIndex : git.remove` fallback).
+    const headExists = await git
+      .resolveRef({dir, fs, ref: 'HEAD'})
+      .then(() => true)
+      .catch(() => false)
+
+    const snapshot = new Map<string, {indexExisted: boolean; workdirContent?: Buffer}>()
+    for (const p of expandedPaths) {
+      const row = rowByPath.get(p)
+      let workdirContent: Buffer | undefined
+      if (!cached && row && row.w !== 0) {
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          workdirContent = await fs.promises.readFile(join(dir, p))
+        } catch (readError) {
+          // Fail fast: if we can't capture the pre-call workdir blob, we can't roll back
+          // safely. Surfacing this BEFORE any mutation prevents data loss in the event
+          // of a partial-failure rollback.
+          const message = readError instanceof Error ? readError.message : String(readError)
+          throw new GitError(`could not snapshot working-tree content for '${p}': ${message}`)
+        }
+      }
+
+      snapshot.set(p, {indexExisted: row !== undefined && row.s !== 0, workdirContent})
+    }
+
+    const completed: string[] = []
+    try {
+      for (const p of expandedPaths) {
+        if (!cached) {
+          const fullPath = join(dir, p)
+          if (fs.existsSync(fullPath)) {
+            // eslint-disable-next-line no-await-in-loop
+            await fs.promises.unlink(fullPath)
+          }
+        }
+
+        // eslint-disable-next-line no-await-in-loop
+        await git.remove({dir, filepath: p, fs})
+        completed.push(p)
+      }
+    } catch (error) {
+      const rollbackFailures: string[] = []
+
+      for (const p of [...completed].reverse()) {
+        const snap = snapshot.get(p)
+        if (!snap) continue
+
+        // Restore workdir first so the pre-commit branch below can re-stage from it.
+        if (!cached && snap.workdirContent) {
+          try {
+            // eslint-disable-next-line no-await-in-loop
+            await fs.promises.writeFile(join(dir, p), snap.workdirContent)
+          } catch {
+            rollbackFailures.push(p)
+            continue
+          }
+        }
+
+        // `cached=true` skipped the unlink step, so the workdir file is still on disk;
+        // for `!cached` we just attempted to restore it from snapshot above. In both
+        // cases, an existsSync check is the source of truth for "can we re-stage from workdir".
+        const fileExistsInWorkdir = fs.existsSync(join(dir, p))
+        const action = decideRmRollbackAction({
+          fileExistsInWorkdir,
+          headExists,
+          indexExisted: snap.indexExisted,
+        })
+
+        try {
+          switch (action) {
+            case 'fail': {
+              rollbackFailures.push(p)
+              break
+            }
+
+            case 'noop': {
+              break
+            }
+
+            case 're-add': {
+              // eslint-disable-next-line no-await-in-loop
+              await git.add({dir, filepath: p, fs})
+              break
+            }
+
+            case 'reset-index': {
+              // eslint-disable-next-line no-await-in-loop
+              await git.resetIndex({dir, filepath: p, fs, ref: 'HEAD'})
+              break
+            }
+
+            default: {
+              // Exhaustiveness check: TypeScript narrows `action` to `never` here, so any
+              // future addition to `RmRollbackAction` will fail to compile until handled above.
+              const _exhaustive: never = action
+              throw new GitError(`unhandled rollback action: ${String(_exhaustive)}`)
+            }
+          }
+        } catch {
+          rollbackFailures.push(p)
+        }
+      }
+
+      if (rollbackFailures.length > 0) {
+        const original = error instanceof Error ? error.message : String(error)
+        throw new GitError(
+          `vc rm failed and rollback was incomplete for: ${rollbackFailures.join(', ')}. Original error: ${original}`,
+        )
+      }
+
+      throw error
+    }
+
+    return {filesChanged: expandedPaths.length, perFile}
   }
 
   async removeRemote(params: RemoveRemoteGitParams): Promise<void> {

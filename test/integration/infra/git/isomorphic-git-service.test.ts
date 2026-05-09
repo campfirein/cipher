@@ -1,7 +1,7 @@
 import {expect} from 'chai'
 import * as git from 'isomorphic-git'
 import fs, {existsSync} from 'node:fs'
-import {mkdir, readFile, rm, unlink, utimes, writeFile} from 'node:fs/promises'
+import {chmod, mkdir, readFile, rm, unlink, utimes, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 import {stub} from 'sinon'
@@ -49,6 +49,35 @@ async function initWithCommit(
   await svc.add({directory: dir, filePaths: [filename]})
   const commit = await svc.commit({directory: dir, message})
   return commit.sha
+}
+
+async function commitFile(svc: IsomorphicGitService, dir: string, filename: string, content: string): Promise<void> {
+  await writeFile(join(dir, filename), content)
+  await svc.add({directory: dir, filePaths: [filename]})
+  await svc.commit({directory: dir, message: `add ${filename}`})
+}
+
+async function rowFor(dir: string, path: string): Promise<[number, number, number] | undefined> {
+  const matrix = await git.statusMatrix({dir, fs})
+  const found = matrix.find((r) => String(r[0]) === path)
+  return found ? [found[1], found[2], found[3]] : undefined
+}
+
+/** Lands `<filename>` at [h=1, w>0, s=0]. When `modified` is given, w>0 differs from HEAD. */
+async function landAtCachedVertex(
+  svc: IsomorphicGitService,
+  dir: string,
+  filename: string,
+  content: string,
+  modified?: string,
+): Promise<void> {
+  await commitFile(svc, dir, filename, content)
+  await svc.remove({cached: true, directory: dir, filePaths: [filename]})
+  if (modified !== undefined) {
+    await writeFile(join(dir, filename), modified)
+    const future = new Date(Date.now() + 2000)
+    await utimes(join(dir, filename), future, future)
+  }
 }
 
 describe('IsomorphicGitService', () => {
@@ -1695,6 +1724,358 @@ describe('IsomorphicGitService', () => {
 
       const content = await service.getBlobContent({directory: testDir, path: 'a.md', ref: {commitish: sha1}})
       expect(content).to.equal('v1\n')
+    })
+  })
+
+  describe('remove()', () => {
+    beforeEach(async () => {
+      await service.init({directory: testDir})
+    })
+
+    it("perFile output escapes apostrophes the way git rm does", async () => {
+      // Native git emits `rm 'foo'\''bar'` for paths containing a single quote.
+      const filename = "weird'name.md"
+      await commitFile(service, testDir, filename, 'x\n')
+
+      const result = await service.remove({directory: testDir, filePaths: [filename]})
+
+      expect(result.perFile).to.deep.equal([String.raw`rm 'weird'\''name.md'`])
+    })
+
+    it('default: removes the file from index AND working tree', async () => {
+      await commitFile(service, testDir, 'a.md', 'hello\n')
+
+      const result = await service.remove({directory: testDir, filePaths: ['a.md']})
+
+      expect(result.filesChanged).to.equal(1)
+      expect(result.perFile).to.deep.equal(["rm 'a.md'"])
+      expect(existsSync(join(testDir, 'a.md'))).to.be.false
+      expect(await rowFor(testDir, 'a.md')).to.deep.equal([1, 0, 0])
+    })
+
+    it('default: rejects path with local modifications without -f', async () => {
+      await commitFile(service, testDir, 'a.md', 'v1\n')
+      await writeFile(join(testDir, 'a.md'), 'v2\n')
+      // Force isomorphic-git to invalidate its stat cache for same-size writes.
+      const future = new Date(Date.now() + 2000)
+      await utimes(join(testDir, 'a.md'), future, future)
+
+      try {
+        await service.remove({directory: testDir, filePaths: ['a.md']})
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(GitError)
+        if (error instanceof Error) expect(error.message).to.include('local modifications')
+      }
+
+      expect(await readFile(join(testDir, 'a.md'), 'utf8')).to.equal('v2\n')
+      expect(await rowFor(testDir, 'a.md')).to.deep.equal([1, 2, 1])
+    })
+
+    it('default: with -f, removes despite local modifications', async () => {
+      await commitFile(service, testDir, 'a.md', 'v1\n')
+      await writeFile(join(testDir, 'a.md'), 'v2\n')
+      const future = new Date(Date.now() + 2000)
+      await utimes(join(testDir, 'a.md'), future, future)
+
+      const result = await service.remove({directory: testDir, filePaths: ['a.md'], force: true})
+
+      expect(result.filesChanged).to.equal(1)
+      expect(existsSync(join(testDir, 'a.md'))).to.be.false
+      expect(await rowFor(testDir, 'a.md')).to.deep.equal([1, 0, 0])
+    })
+
+    it('--cached: removes from index but keeps working-tree file', async () => {
+      await commitFile(service, testDir, 'a.md', 'hello\n')
+
+      const result = await service.remove({cached: true, directory: testDir, filePaths: ['a.md']})
+
+      expect(result.filesChanged).to.equal(1)
+      expect(existsSync(join(testDir, 'a.md'))).to.be.true
+      expect(await readFile(join(testDir, 'a.md'), 'utf8')).to.equal('hello\n')
+      // [h=1, w>0, s=0] vertex; w=1 because workdir matches HEAD content
+      const row = await rowFor(testDir, 'a.md')
+      expect(row?.[0]).to.equal(1)
+      expect(row?.[1]).to.be.greaterThan(0)
+      expect(row?.[2]).to.equal(0)
+    })
+
+    it('rejects untracked path with the standard pathspec error', async () => {
+      await commitFile(service, testDir, 'a.md', 'hello\n')
+
+      try {
+        await service.remove({directory: testDir, filePaths: ['nope.md']})
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(GitError)
+        if (error instanceof Error) expect(error.message).to.include("pathspec 'nope.md' did not match")
+      }
+    })
+
+    it('rejects a path already removed from the index (post-rm-cached) with pathspec error', async () => {
+      // After `git rm --cached`, the path lives at [1, w>0, 0]: still in HEAD,
+      // absent from INDEX. `git rm <same-path>` errors because the index entry is gone.
+      await landAtCachedVertex(service, testDir, 'a.md', 'hello\n')
+
+      try {
+        await service.remove({directory: testDir, filePaths: ['a.md']})
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(GitError)
+        if (error instanceof Error) expect(error.message).to.include("pathspec 'a.md' did not match")
+      }
+    })
+
+    it('--ignore-unmatch: untracked path produces no error and filesChanged stays correct', async () => {
+      await commitFile(service, testDir, 'a.md', 'hello\n')
+
+      const result = await service.remove({
+        directory: testDir,
+        filePaths: ['a.md', 'nope.md'],
+        ignoreUnmatch: true,
+      })
+
+      expect(result.filesChanged).to.equal(1)
+      expect(await rowFor(testDir, 'a.md')).to.deep.equal([1, 0, 0])
+    })
+
+    it('-r: removes every tracked file under a directory pathspec', async () => {
+      await mkdir(join(testDir, 'docs'), {recursive: true})
+      await commitFile(service, testDir, 'docs/a.md', 'a\n')
+      await commitFile(service, testDir, 'docs/b.md', 'b\n')
+      await commitFile(service, testDir, 'keep.md', 'keep\n')
+
+      const result = await service.remove({directory: testDir, filePaths: ['docs/'], recursive: true})
+
+      expect(result.filesChanged).to.equal(2)
+      expect(result.perFile).to.have.members(["rm 'docs/a.md'", "rm 'docs/b.md'"])
+      expect(existsSync(join(testDir, 'docs/a.md'))).to.be.false
+      expect(existsSync(join(testDir, 'docs/b.md'))).to.be.false
+      expect(existsSync(join(testDir, 'keep.md'))).to.be.true
+      expect(await rowFor(testDir, 'keep.md')).to.deep.equal([1, 1, 1])
+    })
+
+    it('directory pathspec without -r is rejected', async () => {
+      await mkdir(join(testDir, 'docs'), {recursive: true})
+      await commitFile(service, testDir, 'docs/a.md', 'a\n')
+
+      try {
+        await service.remove({directory: testDir, filePaths: ['docs/']})
+        expect.fail('Expected error')
+      } catch (error) {
+        expect(error).to.be.instanceOf(GitError)
+        if (error instanceof Error) expect(error.message).to.include('without -r')
+      }
+
+      expect(await rowFor(testDir, 'docs/a.md')).to.deep.equal([1, 1, 1])
+    })
+
+    it('-n / dryRun: reports the would-do plan and changes nothing', async () => {
+      await commitFile(service, testDir, 'a.md', 'hello\n')
+
+      const before = await git.statusMatrix({dir: testDir, fs})
+      const result = await service.remove({directory: testDir, dryRun: true, filePaths: ['a.md']})
+      const after = await git.statusMatrix({dir: testDir, fs})
+
+      expect(result.filesChanged).to.equal(1)
+      expect(result.perFile).to.deep.equal(["rm 'a.md'"])
+      expect(existsSync(join(testDir, 'a.md'))).to.be.true
+      expect(after).to.deep.equal(before)
+    })
+
+    it('multi-path: removes every requested file', async () => {
+      await commitFile(service, testDir, 'a.md', 'a\n')
+      await commitFile(service, testDir, 'b.md', 'b\n')
+
+      const result = await service.remove({directory: testDir, filePaths: ['a.md', 'b.md']})
+
+      expect(result.filesChanged).to.equal(2)
+      expect(existsSync(join(testDir, 'a.md'))).to.be.false
+      expect(existsSync(join(testDir, 'b.md'))).to.be.false
+    })
+
+    it('-r --ignore-unmatch on a directory with no tracked files succeeds with filesChanged=0', async () => {
+      // Repo has only `keep.md` tracked; `empty-dir/` exists on disk but has no tracked content.
+      await commitFile(service, testDir, 'keep.md', 'k\n')
+      await mkdir(join(testDir, 'empty-dir'), {recursive: true})
+
+      const result = await service.remove({
+        directory: testDir,
+        filePaths: ['empty-dir/'],
+        ignoreUnmatch: true,
+        recursive: true,
+      })
+
+      expect(result.filesChanged).to.equal(0)
+      expect(result.perFile).to.deep.equal([])
+      expect(await rowFor(testDir, 'keep.md')).to.deep.equal([1, 1, 1])
+    })
+
+    it('combined -r --cached -f removes from index recursively despite local modifications', async () => {
+      await mkdir(join(testDir, 'docs'), {recursive: true})
+      await commitFile(service, testDir, 'docs/a.md', 'v1\n')
+      await commitFile(service, testDir, 'docs/b.md', 'v1\n')
+      // Modify both workdir files post-commit
+      await writeFile(join(testDir, 'docs/a.md'), 'v2\n')
+      await writeFile(join(testDir, 'docs/b.md'), 'v2\n')
+      const future = new Date(Date.now() + 2000)
+      await utimes(join(testDir, 'docs/a.md'), future, future)
+      await utimes(join(testDir, 'docs/b.md'), future, future)
+
+      const result = await service.remove({
+        cached: true,
+        directory: testDir,
+        filePaths: ['docs/'],
+        force: true,
+        recursive: true,
+      })
+
+      expect(result.filesChanged).to.equal(2)
+      // working tree preserved (cached); INDEX dropped (rm); HEAD still has them
+      expect(existsSync(join(testDir, 'docs/a.md'))).to.be.true
+      expect(existsSync(join(testDir, 'docs/b.md'))).to.be.true
+      expect((await rowFor(testDir, 'docs/a.md'))?.[2]).to.equal(0)
+      expect((await rowFor(testDir, 'docs/b.md'))?.[2]).to.equal(0)
+    })
+
+    it('-r partial-failure in pre-commit repo: rolls back to staged-uncommitted pre-call state', async () => {
+      // Empty repo — no commits, so HEAD does not resolve. Two paths are staged via add()
+      // but never committed. Force the second path's unlink to fail (chmod parent 0o555).
+      // The first path's full pre-call state ([0, 2, 2]) must be restored. If rollback
+      // calls `git.resetIndex({ref:'HEAD'})` and silently swallows the resulting error,
+      // the index entry stays gone and the path ends up at [0, 2, 0] (untracked).
+      await mkdir(join(testDir, 'dirB'), {recursive: true})
+      await writeFile(join(testDir, 'a.md'), 'A\n')
+      await writeFile(join(testDir, 'dirB/b.md'), 'B\n')
+      await service.add({directory: testDir, filePaths: ['a.md', 'dirB/b.md']})
+      expect(await rowFor(testDir, 'a.md')).to.deep.equal([0, 2, 2])
+
+      await chmod(join(testDir, 'dirB'), 0o555)
+
+      try {
+        try {
+          await service.remove({directory: testDir, filePaths: ['a.md', 'dirB/b.md']})
+          expect.fail('Expected error from dirB unlink')
+        } catch {
+          /* expected */
+        }
+
+        expect(existsSync(join(testDir, 'a.md'))).to.be.true
+        expect(await readFile(join(testDir, 'a.md'), 'utf8')).to.equal('A\n')
+        expect(await rowFor(testDir, 'a.md')).to.deep.equal([0, 2, 2])
+      } finally {
+        await chmod(join(testDir, 'dirB'), 0o755)
+      }
+    })
+
+    it('-r partial-failure: rolls back to pre-call state', async () => {
+      await mkdir(join(testDir, 'dirA'), {recursive: true})
+      await mkdir(join(testDir, 'dirB'), {recursive: true})
+      await commitFile(service, testDir, 'dirA/a.md', 'A\n')
+      await commitFile(service, testDir, 'dirB/b.md', 'B\n')
+
+      // Make dirB read-only so unlink(dirB/b.md) fails with EACCES.
+      await chmod(join(testDir, 'dirB'), 0o555)
+
+      try {
+        try {
+          await service.remove({directory: testDir, filePaths: ['dirA/a.md', 'dirB/b.md']})
+          expect.fail('Expected error')
+        } catch {
+          /* expected — rollback should restore dirA/a.md */
+        }
+
+        // Pre-call state restored for dirA/a.md
+        expect(existsSync(join(testDir, 'dirA/a.md'))).to.be.true
+        expect(await readFile(join(testDir, 'dirA/a.md'), 'utf8')).to.equal('A\n')
+        expect(await rowFor(testDir, 'dirA/a.md')).to.deep.equal([1, 1, 1])
+      } finally {
+        await chmod(join(testDir, 'dirB'), 0o755)
+      }
+    })
+  })
+
+  /**
+   * Audit-vertex tests for [h=1, w>0, s=0] (the state produced by `brv vc rm --cached`).
+   * Per ENG-2631: every vc command that interacts with this state must behave correctly
+   * before `--cached` ships. `vc status` is covered separately via the gitignore filter fix.
+   */
+  describe('[h=1, w>0, s=0] audit vertex', () => {
+    beforeEach(async () => {
+      await service.init({directory: testDir})
+    })
+
+    it('vc add re-stages the path back to a clean tracked state', async () => {
+      await landAtCachedVertex(service, testDir, 'a.md', 'hello\n')
+
+      await service.add({directory: testDir, filePaths: ['a.md']})
+
+      // INDEX repopulated with workdir blob (matches HEAD here) → [1, 1, 1]
+      expect(await rowFor(testDir, 'a.md')).to.deep.equal([1, 1, 1])
+    })
+
+    it('vc reset restores the index entry from HEAD', async () => {
+      await landAtCachedVertex(service, testDir, 'a.md', 'hello\n')
+
+      await service.reset({directory: testDir, filePaths: ['a.md']})
+
+      expect(await rowFor(testDir, 'a.md')).to.deep.equal([1, 1, 1])
+    })
+
+    it('vc commit records the deletion when path is at the vertex (mixed with other staged states)', async () => {
+      await commitFile(service, testDir, 'keep.md', 'keep\n')
+      await landAtCachedVertex(service, testDir, 'a.md', 'hello\n')
+      // Mix in another staged change to ensure the cached deletion is preserved alongside it
+      await writeFile(join(testDir, 'new.md'), 'new\n')
+      await service.add({directory: testDir, filePaths: ['new.md']})
+
+      const commit = await service.commit({directory: testDir, message: 'remove a, add new'})
+
+      const headFiles = await git.listFiles({dir: testDir, fs, ref: commit.sha})
+      expect(headFiles).to.not.include('a.md')
+      expect(headFiles).to.include('keep.md')
+      expect(headFiles).to.include('new.md')
+    })
+
+    it('vc diff --staged reports the path as deleted', async () => {
+      await landAtCachedVertex(service, testDir, 'a.md', 'hello\n')
+
+      const staged = await service.listChangedFiles({
+        directory: testDir,
+        from: {commitish: 'HEAD'},
+        to: 'STAGE',
+      })
+
+      expect(staged).to.deep.include({path: 'a.md', status: 'deleted'})
+    })
+
+    it('vc diff (unstaged) reports the path as added', async () => {
+      await landAtCachedVertex(service, testDir, 'a.md', 'hello\n')
+
+      const unstaged = await service.listChangedFiles({
+        directory: testDir,
+        from: 'STAGE',
+        to: 'WORKDIR',
+      })
+
+      expect(unstaged).to.deep.include({path: 'a.md', status: 'added'})
+    })
+
+    it('vc checkout to another branch reaches a clean tracked state on the target', async () => {
+      await commitFile(service, testDir, 'shared.md', 'on main\n')
+      // Create branch `feat` pointing at the same commit and switch to it for a no-op baseline
+      await service.createBranch({branch: 'feat', directory: testDir})
+      // Land shared.md at the vertex on main (we are still on main)
+      await service.remove({cached: true, directory: testDir, filePaths: ['shared.md']})
+      // Verify pre-checkout state
+      expect(await rowFor(testDir, 'shared.md')).to.deep.equal([1, 1, 0])
+
+      await service.checkout({directory: testDir, force: true, ref: 'feat'})
+
+      // After checkout, INDEX is restored from `feat`'s tree (which has shared.md);
+      // working tree content matches HEAD. Resulting state is clean.
+      expect(await rowFor(testDir, 'shared.md')).to.deep.equal([1, 1, 1])
+      expect(existsSync(join(testDir, 'shared.md'))).to.be.true
     })
   })
 })
