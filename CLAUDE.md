@@ -13,6 +13,10 @@ npm run lint                         # ESLint
 npm run typecheck                    # TypeScript (root + src/webui/tsconfig.json)
 npm run build:ui                     # Build the web UI bundle (Vite); runs automatically as part of `build`
 npm run dev:ui                       # Vite dev server for the web UI
+npm run dev:kill                     # Kill the running daemon (re-run before `npm run dev`)
+npm run lint:fix                     # ESLint with --fix
+npm run build:ui:submodule           # Build web UI from the local submodule (vs default published package)
+npm run dev:ui:package               # Vite dev server resolving shared UI from the installed package
 ./bin/dev.js [command]               # Dev mode (ts-node)
 ./bin/run.js [command]               # Prod mode
 ```
@@ -57,8 +61,8 @@ npm run dev:ui                       # Vite dev server for the web UI
 
 ### Source Layout (`src/`)
 
-- `agent/` — LLM agent: `core/` (interfaces/domain), `infra/` (23 modules, including llm, memory, map, swarm, tools, document-parser), `resources/` (prompts YAML, tool `.txt` descriptions)
-- `server/` — Daemon infrastructure: `config/`, `core/` (domain/interfaces), `infra/` (31 modules, including vc, git, hub, mcp, cogit, project, provider-oauth, space, dream, webui), `templates/`, `utils/`
+- `agent/` — LLM agent: `core/` (interfaces/domain), `infra/` (modules including llm, memory, map, swarm, sandbox, session, tools, document-parser), `resources/` (prompts YAML, tool `.txt` descriptions)
+- `server/` — Daemon infrastructure: `config/`, `core/` (domain/interfaces), `infra/` (modules including vc, git, hub, mcp, cogit, connectors, project, provider-oauth, session, space, dream, webui), `templates/`, `utils/`
 - `shared/` — Cross-module: constants, types, transport events, utils
 - `tui/` — React/Ink TUI: app (router/pages), components, features (23 modules, including vc, worktree, source, hub, curate), hooks, lib, providers, stores
 - `webui/` — Browser dashboard (React/Vite). Entry `src/webui/index.tsx`; `features/` (15 panels), `pages/` (8 pages: home, changes, configuration, contexts, tasks, analytics, project-selector, not-found), `layouts/`, `stores/`. Connects to the daemon via Socket.IO; no imports from `server/`, `agent/`, or `tui/` (same boundary rule)
@@ -89,7 +93,7 @@ npm run dev:ui                       # Vite dev server for the web UI
 
 ### VC, Worktrees & Knowledge Sources
 
-- `brv vc` — isomorphic-git version control (add, branch, checkout, clone, commit, config, diff, fetch, init, log, merge, pull, push, remote, reset, status); git plumbing in `server/infra/git/` (`isomorphic-git-service.ts`), VC config store in `server/infra/vc/`
+- `brv vc` — isomorphic-git version control (add, branch, checkout, clone, commit, config, diff, fetch, init, log, merge, pull, push, `remote add|remove|set-url`, reset, status); git plumbing in `server/infra/git/` (`isomorphic-git-service.ts`), VC config store in `server/infra/vc/`
 - `brv worktree` (add/list/remove) — git-style worktree pointer model: `.brv/` is either a real project directory OR a pointer file to a parent project; parent stores registry in `.brv/worktrees/<name>/link.json`
 - `brv source` (add/list/remove) — link another project's context tree as a read-only knowledge source with write isolation
 - `brv search <query>` — pure BM25 retrieval over the context tree (minisearch, no LLM, no token cost); structured results with paths/scores. Pairs with `brv query` (LLM-synthesized answer). Engine: `server/infra/executor/search-executor.ts`
@@ -105,11 +109,20 @@ npm run dev:ui                       # Vite dev server for the web UI
 - `brv review [--disable | --enable]` — toggle the project-scoped HITL review log; `brv review pending` lists items, `brv review approve <id>` / `brv review reject <id>` resolve them. When disabled, sync curate skips the "X operations require review" prompt, detached curate stops emitting per-operation review markers, and `brv dream` no longer surfaces `needsReview` operations. The flag is snapshotted at task creation and propagated via `AsyncLocalStorage` (`resolveReviewDisabled`) so mid-task toggles do not race
 - `brv login` defaults to OAuth (interactive provider picker); pass `--api-key` only for CI. `brv logout` clears credentials
 
+### Other oclif topic groups
+
+- `brv hub install | list | registry (add|list|remove)` — Context Hub (npm-style package manager for context); registry config is per-project
+- `brv space list | switch` — Context Hub spaces (team/space scoping)
+- `brv connectors install | list` — agent-side connector plugins (e.g., OpenClaude registered as a connector)
+- `brv model list | switch` — pick the LLM model for the active provider
+- `brv providers connect | disconnect | list | switch` — provider OAuth / API-key management
+- `brv curate view` — read-only inspect of a curate operation; the main curate entry is the REPL slash command
+
 ### Agent (`src/agent/`)
 
 - Tools: definitions in `resources/tools/*.txt`, implementations in `infra/tools/implementations/`, registry in `infra/tools/tool-registry.ts`
 - Tool categories: file ops (read/write/edit/glob/grep/list-dir), bash (exec/output), knowledge (create/expand/search), memory (read/write/edit/delete/list), swarm (query/store), todos (read/write), curate, code exec, batch, detect domains, kill process, search history
-- LLM: 21 providers in `infra/llm/providers/` (incl. deepseek, glm, glm-coding-plan); compression strategies in `infra/llm/context/compression/`
+- LLM: 20 providers in `infra/llm/providers/` (incl. deepseek, glm, glm-coding-plan); compression strategies in `infra/llm/context/compression/`
 - System prompts: contributor pattern (XML sections) in `infra/system-prompt/`
 - Map/memory: `infra/map/` (agentic map, context-tree store, LLM map memory, worker pool); `infra/memory/` (memory-manager, deduplicator)
 - Storage: file-based blob (`infra/blob/`) and key storage (`infra/storage/`) — no SQLite
