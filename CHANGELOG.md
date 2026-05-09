@@ -2,6 +2,19 @@
 
 All notable user-facing changes to ByteRover CLI will be documented in this file.
 
+## [3.12.0]
+
+### Added
+- **Tasks history in `brv webui`.** Past curate, query, and review tasks now persist per project across daemon restarts (up to 1000 entries), with filters (status, date, duration), pagination, per-task event log, bulk delete, and provider/model attribution.
+
+### Changed
+- **Synthesized files get full semantic frontmatter.** `brv dream synthesize` now writes title, summary, tags, related, keywords, createdAt, updatedAt alongside its synthesis fields, so dashboard context cards no longer render empty.
+- **Consistent flow-style YAML in dream writes.** `brv dream`'s synthesize and consolidate steps now emit `tags: [a, b, c]` arrays like `brv curate`, so `brv vc` diffs stop reflowing brackets each consolidate pass.
+
+### Fixed
+- **`brv push` no longer ships dangling `related:` links.** `*.abstract.md` and `*.overview.md` entries (excluded from sync) are now stripped from `related:` on write; `brv curate` updates also clean pre-existing stale entries.
+- **Security dependency update.** Refreshed `package-lock.json` to clear several `npm audit` advisories.
+
 ## [3.11.0]
 
 ### Added
