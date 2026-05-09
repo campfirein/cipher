@@ -31,6 +31,7 @@ function makePartialRunExecutor(args: {
       logId: string
       out: import('../../../../src/server/infra/dream/dream-log-schema.js').DreamOperation[]
       projectRoot: string
+      reviewDisabled?: boolean
       signal: AbortSignal
       taskId: string
     }): Promise<void> {
@@ -48,7 +49,7 @@ function makePartialRunExecutor(args: {
 }
 
 describe('DreamExecutor', () => {
-  let dreamStateService: {read: SinonStub; update: SinonStub; write: SinonStub}
+  let dreamStateService: {drainStaleSummaryPaths: SinonStub; enqueueStaleSummaryPaths: SinonStub; read: SinonStub; update: SinonStub; write: SinonStub}
   let dreamLogStore: {getNextId: SinonStub; save: SinonStub}
   let dreamLockService: {release: SinonStub; rollback: SinonStub}
   let curateLogStore: {getNextId: SinonStub; list: SinonStub; save: SinonStub}
@@ -63,7 +64,12 @@ describe('DreamExecutor', () => {
 
   beforeEach(() => {
     dreamStateService = {
-      read: stub().resolves({...EMPTY_DREAM_STATE, pendingMerges: []}),
+      // Default drain: empty queue. Tests that exercise the queue override.
+      drainStaleSummaryPaths: stub().resolves([]),
+      // Default enqueue: no-op stub. Used by the executor's catch block to
+      // re-enqueue a drained snapshot if propagation fails.
+      enqueueStaleSummaryPaths: stub().resolves(),
+      read: stub().resolves({...EMPTY_DREAM_STATE, pendingMerges: [], staleSummaryPaths: []}),
       // Default update implementation: read → updater → write, mirroring the real
       // service so tests that count write.callCount stay valid without changes.
       update: stub().callsFake(async (updater: (state: import('../../../../src/server/infra/dream/dream-state-schema.js').DreamState) => import('../../../../src/server/infra/dream/dream-state-schema.js').DreamState) => {
@@ -144,6 +150,24 @@ describe('DreamExecutor', () => {
       const result = formatResult('drm-3500', {consolidated: 0, errors: 0, flaggedForReview: 1, pruned: 0, synthesized: 0})
       expect(result).to.include('1 operations flagged for review')
       expect(result).to.not.include('No changes needed')
+    })
+
+    it('omits the flagged-for-review line when review is disabled', () => {
+      const executor = new DreamExecutor(deps)
+      const formatResult = (executor as unknown as {formatResult(logId: string, summary: import('../../../../src/server/infra/dream/dream-log-schema.js').DreamLogSummary, reviewDisabled: boolean): string}).formatResult.bind(executor)
+
+      const result = formatResult('drm-3600', {consolidated: 1, errors: 0, flaggedForReview: 2, pruned: 0, synthesized: 1}, true)
+      expect(result).to.include('1 consolidated')
+      expect(result).to.include('1 synthesized')
+      expect(result).to.not.include('flagged for review')
+    })
+
+    it('still shows the flagged-for-review line when review is enabled', () => {
+      const executor = new DreamExecutor(deps)
+      const formatResult = (executor as unknown as {formatResult(logId: string, summary: import('../../../../src/server/infra/dream/dream-log-schema.js').DreamLogSummary, reviewDisabled: boolean): string}).formatResult.bind(executor)
+
+      const result = formatResult('drm-3700', {consolidated: 0, errors: 0, flaggedForReview: 3, pruned: 0, synthesized: 0}, false)
+      expect(result).to.include('3 operations flagged for review')
     })
 
     it('formats result with error count and omits no-changes message', () => {
@@ -372,8 +396,8 @@ describe('DreamExecutor', () => {
       ]
 
       // Call private method directly to test dual-write logic
-      await (executor as unknown as {createReviewEntries: (ops: typeof operations, dir: string, taskId: string) => Promise<void>})
-        .createReviewEntries(operations, '/tmp/ctx', 'test-task')
+      await (executor as unknown as {createReviewEntries: (args: {contextTreeDir: string; operations: typeof operations; reviewDisabled: boolean; taskId: string}) => Promise<void>})
+        .createReviewEntries({contextTreeDir: '/tmp/ctx', operations, reviewDisabled: false, taskId: 'test-task'})
 
       expect(curateLogStore.getNextId.calledOnce).to.be.true
       expect(curateLogStore.save.calledOnce).to.be.true
@@ -404,8 +428,8 @@ describe('DreamExecutor', () => {
         },
       ]
 
-      await (executor as unknown as {createReviewEntries: (ops: typeof operations, dir: string, taskId: string) => Promise<void>})
-        .createReviewEntries(operations, '/tmp/ctx', 'test-task')
+      await (executor as unknown as {createReviewEntries: (args: {contextTreeDir: string; operations: typeof operations; reviewDisabled: boolean; taskId: string}) => Promise<void>})
+        .createReviewEntries({contextTreeDir: '/tmp/ctx', operations, reviewDisabled: false, taskId: 'test-task'})
 
       const savedEntry = curateLogStore.save.firstCall.args[0]
       expect(savedEntry.taskId).to.equal('test-task')
@@ -433,8 +457,8 @@ describe('DreamExecutor', () => {
         },
       ]
 
-      await (executor as unknown as {createReviewEntries: (ops: typeof operations, dir: string, taskId: string) => Promise<void>})
-        .createReviewEntries(operations, '/tmp/ctx', 'test-task')
+      await (executor as unknown as {createReviewEntries: (args: {contextTreeDir: string; operations: typeof operations; reviewDisabled: boolean; taskId: string}) => Promise<void>})
+        .createReviewEntries({contextTreeDir: '/tmp/ctx', operations, reviewDisabled: false, taskId: 'test-task'})
 
       const savedEntry = curateLogStore.save.firstCall.args[0]
       expect(savedEntry.operations[0]).to.include({
@@ -495,6 +519,123 @@ describe('DreamExecutor', () => {
       } finally {
         rmSync(projectRoot, {force: true, recursive: true})
       }
+    })
+
+    // ==========================================================================
+    // Stale-summary queue: drain + re-enqueue on propagation failure
+    // ==========================================================================
+
+    it('propagates over A ∪ B union of drained queue and snapshot diff (happy path)', async () => {
+      // The merge at dream-executor.ts is the central correctness invariant of this
+      // PR — anything in EITHER the queue (A) OR dream's own diff (B) must be
+      // propagated, exactly once per path. This test pins that invariant.
+      dreamStateService.drainStaleSummaryPaths.resolves(['queue/path.md'])
+
+      // Real temp project so snapshotService.getCurrentState succeeds. We override
+      // runOperations to write a new file between pre and post snapshots, so the
+      // snapshot diff produces a non-empty list — that becomes the B half of A ∪ B.
+      const projectRoot = mkdtempSync(join(tmpdir(), 'brv-dream-merge-'))
+      const contextTreeDir = join(projectRoot, '.brv', 'context-tree')
+      mkdirSync(contextTreeDir, {recursive: true})
+      const captured: string[][] = []
+
+      class MergeTestExecutor extends DreamExecutor {
+        protected override async runOperations(): Promise<void> {
+          // Mutate the tree so postState differs from preState by 'diff/added.md'.
+          mkdirSync(join(contextTreeDir, 'diff'), {recursive: true})
+          writeFileSync(join(contextTreeDir, 'diff', 'added.md'), '# new from dream')
+        }
+
+        protected override async runStaleSummaryPropagation(opts: {
+          agent: ICipherAgent
+          paths: string[]
+          projectRoot: string
+        }): Promise<void> {
+          captured.push([...opts.paths].sort())
+        }
+      }
+
+      try {
+        const executor = new MergeTestExecutor(deps)
+        await executor.executeWithAgent(agent, {...defaultOptions, projectRoot})
+      } finally {
+        rmSync(projectRoot, {force: true, recursive: true})
+      }
+
+      expect(captured).to.have.lengthOf(1)
+      expect(captured[0]).to.deep.equal(['diff/added.md', 'queue/path.md'])
+      expect(dreamStateService.enqueueStaleSummaryPaths.callCount).to.equal(0)
+    })
+
+    it('dedups paths that appear in both the queue and the snapshot diff (single regeneration)', async () => {
+      dreamStateService.drainStaleSummaryPaths.resolves(['shared/path.md'])
+
+      const projectRoot = mkdtempSync(join(tmpdir(), 'brv-dream-merge-dedup-'))
+      const contextTreeDir = join(projectRoot, '.brv', 'context-tree')
+      mkdirSync(contextTreeDir, {recursive: true})
+      const captured: string[][] = []
+
+      class MergeTestExecutor extends DreamExecutor {
+        protected override async runOperations(): Promise<void> {
+          // Write the SAME path the queue contains — the merge must dedup.
+          mkdirSync(join(contextTreeDir, 'shared'), {recursive: true})
+          writeFileSync(join(contextTreeDir, 'shared', 'path.md'), '# also touched by dream')
+        }
+
+        protected override async runStaleSummaryPropagation(opts: {
+          agent: ICipherAgent
+          paths: string[]
+          projectRoot: string
+        }): Promise<void> {
+          captured.push([...opts.paths].sort())
+        }
+      }
+
+      try {
+        const executor = new MergeTestExecutor(deps)
+        await executor.executeWithAgent(agent, {...defaultOptions, projectRoot})
+      } finally {
+        rmSync(projectRoot, {force: true, recursive: true})
+      }
+
+      expect(captured).to.have.lengthOf(1)
+      expect(captured[0]).to.deep.equal(['shared/path.md'])
+    })
+
+    it('re-enqueues drained snapshot when post-dream propagation throws', async () => {
+      // Atomic drain removes entries upfront. If propagation fails, the catch
+      // block must re-enqueue so the snapshot is not lost.
+      dreamStateService.drainStaleSummaryPaths.resolves([
+        'auth/jwt/token.md',
+        'billing/webhooks/stripe.md',
+      ])
+
+      // Force the propagation block to throw by making the snapshot service fail.
+      // The dream-executor wraps Step 5 in try/catch so the dream itself completes.
+      const projectRoot = mkdtempSync(join(tmpdir(), 'brv-dream-reenqueue-'))
+      try {
+        const executor = new DreamExecutor(deps)
+        // executeWithAgent uses a real FileContextTreeSnapshotService bound to projectRoot.
+        // The directory exists but has no .brv/context-tree, so getCurrentState throws —
+        // exercising the catch block that should re-enqueue the drained snapshot.
+        await executor.executeWithAgent(agent, {...defaultOptions, projectRoot})
+      } finally {
+        rmSync(projectRoot, {force: true, recursive: true})
+      }
+
+      expect(dreamStateService.enqueueStaleSummaryPaths.calledOnce).to.equal(true)
+      expect(dreamStateService.enqueueStaleSummaryPaths.firstCall.args[0]).to.deep.equal([
+        'auth/jwt/token.md',
+        'billing/webhooks/stripe.md',
+      ])
+    })
+
+    it('does not call enqueue when drain returns an empty snapshot (no work to retry)', async () => {
+      // Default drain stub returns [] — no snapshot to preserve on failure.
+      const executor = new DreamExecutor(deps)
+      await executor.executeWithAgent(agent, defaultOptions)
+
+      expect(dreamStateService.enqueueStaleSummaryPaths.callCount).to.equal(0)
     })
 
     // ==========================================================================
@@ -603,6 +744,7 @@ describe('DreamExecutor', () => {
             logId: string
             out: import('../../../../src/server/infra/dream/dream-log-schema.js').DreamOperation[]
             projectRoot: string
+            reviewDisabled?: boolean
             signal: AbortSignal
             taskId: string
           }) => Promise<void>
@@ -646,6 +788,143 @@ describe('DreamExecutor', () => {
         // summary regenerations into the same session as the parent operation.
         expect(propagateStalenessStub.firstCall.args[3]).to.equal(defaultOptions.taskId)
       })
+    })
+  })
+
+  // ── reviewDisabled — `brv review --disable` ────────────────────────────────
+  describe('reviewDisabled', () => {
+    it('skips dream-side review entry creation when options.reviewDisabled=true', async () => {
+      const executor = new DreamExecutor(deps)
+      const operations: import('../../../../src/server/infra/dream/dream-log-schema.js').DreamOperation[] = [
+        {action: 'ARCHIVE', file: 'auth/stale.md', needsReview: true, reason: 'Stale doc', stubPath: '_archived/auth/stale.stub.md', type: 'PRUNE'},
+      ]
+
+      await (executor as unknown as {createReviewEntries: (args: {contextTreeDir: string; operations: typeof operations; reviewDisabled: boolean; taskId: string}) => Promise<void>})
+        .createReviewEntries({contextTreeDir: '/tmp/ctx', operations, reviewDisabled: true, taskId: 'test-task'})
+
+      expect(curateLogStore.save.called).to.be.false
+    })
+
+    it('still creates dream-side review entries when options.reviewDisabled=false', async () => {
+      const executor = new DreamExecutor(deps)
+      const operations: import('../../../../src/server/infra/dream/dream-log-schema.js').DreamOperation[] = [
+        {action: 'ARCHIVE', file: 'auth/stale.md', needsReview: true, reason: 'Stale doc', stubPath: '_archived/auth/stale.stub.md', type: 'PRUNE'},
+      ]
+
+      await (executor as unknown as {createReviewEntries: (args: {contextTreeDir: string; operations: typeof operations; reviewDisabled: boolean; taskId: string}) => Promise<void>})
+        .createReviewEntries({contextTreeDir: '/tmp/ctx', operations, reviewDisabled: false, taskId: 'test-task'})
+
+      expect(curateLogStore.save.calledOnce).to.be.true
+    })
+
+    it('treats omitted options.reviewDisabled as enabled (fail-open)', async () => {
+      const executor = new DreamExecutor(deps)
+      const operations: import('../../../../src/server/infra/dream/dream-log-schema.js').DreamOperation[] = [
+        {action: 'ARCHIVE', file: 'auth/stale.md', needsReview: true, reason: 'Stale doc', stubPath: '_archived/auth/stale.stub.md', type: 'PRUNE'},
+      ]
+
+      // executeWithAgent treats undefined as false; createReviewEntries gets called with the boolean
+      await (executor as unknown as {createReviewEntries: (args: {contextTreeDir: string; operations: typeof operations; reviewDisabled: boolean; taskId: string}) => Promise<void>})
+        .createReviewEntries({contextTreeDir: '/tmp/ctx', operations, reviewDisabled: false, taskId: 'test-task'})
+
+      expect(curateLogStore.save.calledOnce).to.be.true
+    })
+
+    it('runOperations omits reviewBackupStore from consolidate/prune when reviewDisabled=true', async () => {
+      const reviewBackupStore = {save: stub().resolves()}
+      class ProbeExecutor extends DreamExecutor {
+        public capturedReviewBackupStore: unknown
+        public capturedReviewDisabled?: boolean
+
+        protected override async runOperations(args: {
+          agent: ICipherAgent
+          changedFiles: Set<string>
+          contextTreeDir: string
+          logId: string
+          out: import('../../../../src/server/infra/dream/dream-log-schema.js').DreamOperation[]
+          projectRoot: string
+          reviewDisabled?: boolean
+          signal: AbortSignal
+          taskId: string
+        }): Promise<void> {
+          this.capturedReviewDisabled = args.reviewDisabled
+          this.capturedReviewBackupStore =
+            args.reviewDisabled === true ? undefined : (this as unknown as {deps: {reviewBackupStore?: unknown}}).deps.reviewBackupStore
+        }
+      }
+
+      const executor = new ProbeExecutor({...deps, reviewBackupStore})
+      await executor.executeWithAgent(agent, {...defaultOptions, reviewDisabled: true})
+
+      expect(executor.capturedReviewDisabled).to.equal(true)
+      expect(executor.capturedReviewBackupStore).to.be.undefined
+    })
+
+    it('runOperations passes reviewBackupStore through when reviewDisabled=false', async () => {
+      const reviewBackupStore = {save: stub().resolves()}
+      class ProbeExecutor extends DreamExecutor {
+        public capturedReviewBackupStore: unknown
+
+        protected override async runOperations(args: {
+          agent: ICipherAgent
+          changedFiles: Set<string>
+          contextTreeDir: string
+          logId: string
+          out: import('../../../../src/server/infra/dream/dream-log-schema.js').DreamOperation[]
+          projectRoot: string
+          reviewDisabled?: boolean
+          signal: AbortSignal
+          taskId: string
+        }): Promise<void> {
+          this.capturedReviewBackupStore =
+            args.reviewDisabled === true ? undefined : (this as unknown as {deps: {reviewBackupStore?: unknown}}).deps.reviewBackupStore
+        }
+      }
+
+      const executor = new ProbeExecutor({...deps, reviewBackupStore})
+      await executor.executeWithAgent(agent, {...defaultOptions, reviewDisabled: false})
+
+      expect(executor.capturedReviewBackupStore).to.equal(reviewBackupStore)
+    })
+
+    it('snapshots options.reviewDisabled — runOperations and createReviewEntries see the same value', async () => {
+      const reviewBackupStore = {save: stub().resolves()}
+      let capturedRunOpsReviewDisabled: boolean | undefined
+      let capturedCreateReviewEntriesReviewDisabled: boolean | undefined
+
+      class ProbeExecutor extends DreamExecutor {
+        protected override async runOperations(args: {
+          agent: ICipherAgent
+          changedFiles: Set<string>
+          contextTreeDir: string
+          logId: string
+          out: import('../../../../src/server/infra/dream/dream-log-schema.js').DreamOperation[]
+          projectRoot: string
+          reviewDisabled?: boolean
+          signal: AbortSignal
+          taskId: string
+        }): Promise<void> {
+          capturedRunOpsReviewDisabled = args.reviewDisabled
+          // Simulate one needsReview op so the private createReviewEntries is invoked
+          args.out.push({action: 'ARCHIVE', file: 'auth/stale.md', needsReview: true, reason: 'Stale doc', stubPath: '_archived/auth/stale.stub.md', type: 'PRUNE'})
+        }
+      }
+
+      const executor = new ProbeExecutor({...deps, reviewBackupStore})
+
+      // Patch the private createReviewEntries via prototype to capture its reviewDisabled arg
+      type CreateReviewEntriesArgs = {contextTreeDir: string; operations: unknown[]; reviewDisabled: boolean; taskId: string}
+      const proto = Object.getPrototypeOf(Object.getPrototypeOf(executor)) as {createReviewEntries: (args: CreateReviewEntriesArgs) => Promise<void>}
+      const origCreateReviewEntries = proto.createReviewEntries.bind(executor)
+      ;(executor as unknown as {createReviewEntries: (args: CreateReviewEntriesArgs) => Promise<void>}).createReviewEntries = async (args) => {
+        capturedCreateReviewEntriesReviewDisabled = args.reviewDisabled
+        return origCreateReviewEntries(args)
+      }
+
+      await executor.executeWithAgent(agent, {...defaultOptions, reviewDisabled: true})
+
+      expect(capturedRunOpsReviewDisabled).to.equal(true)
+      expect(capturedCreateReviewEntriesReviewDisabled).to.equal(true)
     })
   })
 })

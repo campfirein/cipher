@@ -216,6 +216,87 @@ describe('TaskRouter', () => {
       expect(submittedTask).to.have.property('type', 'curate')
     })
 
+    describe('reviewDisabled stamping', () => {
+      it('stamps reviewDisabled=true on TaskExecute when resolver returns true', async () => {
+        const routerWithResolver = new TaskRouter({
+          agentPool,
+          getAgentForProject,
+          isReviewDisabled: sandbox.stub().resolves(true),
+          projectRegistry,
+          projectRouter,
+          transport: transportHelper.transport,
+        })
+        routerWithResolver.setup()
+
+        const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.CREATE)
+        const request = makeTaskCreateRequest()
+        await handler!(request, 'client-1')
+
+        await new Promise((resolve) => { setTimeout(resolve, 10) })
+
+        const submittedTask = agentPool.submitTask.firstCall.args[0]
+        expect(submittedTask).to.have.property('reviewDisabled', true)
+      })
+
+      it('stamps reviewDisabled=false on TaskExecute when resolver returns false', async () => {
+        const routerWithResolver = new TaskRouter({
+          agentPool,
+          getAgentForProject,
+          isReviewDisabled: sandbox.stub().resolves(false),
+          projectRegistry,
+          projectRouter,
+          transport: transportHelper.transport,
+        })
+        routerWithResolver.setup()
+
+        const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.CREATE)
+        const request = makeTaskCreateRequest()
+        await handler!(request, 'client-1')
+
+        await new Promise((resolve) => { setTimeout(resolve, 10) })
+
+        const submittedTask = agentPool.submitTask.firstCall.args[0]
+        expect(submittedTask).to.have.property('reviewDisabled', false)
+      })
+
+      it('omits reviewDisabled from TaskExecute when no resolver is configured', async () => {
+        const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.CREATE)
+        const request = makeTaskCreateRequest()
+        await handler!(request, 'client-1')
+
+        await new Promise((resolve) => { setTimeout(resolve, 10) })
+
+        const submittedTask = agentPool.submitTask.firstCall.args[0]
+        expect(submittedTask).to.not.have.property('reviewDisabled')
+      })
+
+      it('stamps explicit reviewDisabled=false when resolver throws (fail-open with single concrete value)', async () => {
+        // Returning undefined here would re-introduce the daemon/agent divergence the
+        // snapshot is meant to prevent: daemon stamps no field → CurateLogHandler treats
+        // as enabled (`?? false`), but the agent process opens no ALS scope and may
+        // observe a different value from .brv/config.json. Stamping a concrete `false`
+        // keeps both sides aligned (review enabled, fail-open).
+        const routerWithResolver = new TaskRouter({
+          agentPool,
+          getAgentForProject,
+          isReviewDisabled: sandbox.stub().rejects(new Error('config read failed')),
+          projectRegistry,
+          projectRouter,
+          transport: transportHelper.transport,
+        })
+        routerWithResolver.setup()
+
+        const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.CREATE)
+        const request = makeTaskCreateRequest()
+        await handler!(request, 'client-1')
+
+        await new Promise((resolve) => { setTimeout(resolve, 10) })
+
+        const submittedTask = agentPool.submitTask.firstCall.args[0]
+        expect(submittedTask).to.have.property('reviewDisabled', false)
+      })
+    })
+
     it('should return same taskId for duplicate create (idempotent)', async () => {
       const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.CREATE)
       const request = makeTaskCreateRequest()

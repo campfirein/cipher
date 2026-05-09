@@ -63,18 +63,25 @@ export function toModelMessages(messages: InternalMessage[]): ModelMessage[] {
 /**
  * Convert our ToolSet to AI SDK tool definitions.
  * Tools are declared without `execute` — our agentic loop handles execution.
+ *
+ * The last tool gets `providerOptions.anthropic.cacheControl: ephemeral`,
+ * which makes Anthropic cache the entire tool block (and the system prompt
+ * before it). Non-Anthropic providers ignore the `anthropic` namespace.
  */
 export function toAiSdkTools(tools?: InternalToolSet): Record<string, ReturnType<typeof aiSdkTool>> | undefined {
   if (!tools || Object.keys(tools).length === 0) {
     return undefined
   }
 
+  const entries = Object.entries(tools)
   const result: Record<string, ReturnType<typeof aiSdkTool>> = {}
 
-  for (const [name, def] of Object.entries(tools)) {
+  for (const [index, [name, def]] of entries.entries()) {
+    const isLast = index === entries.length - 1
     result[name] = aiSdkTool({
       description: def.description ?? '',
       inputSchema: jsonSchema(def.parameters as Record<string, unknown>),
+      ...(isLast && {providerOptions: {anthropic: {cacheControl: {type: 'ephemeral'}}}}),
     })
   }
 
@@ -163,27 +170,41 @@ function convertUserMessage(msg: InternalMessage): ModelMessage | undefined {
 
 /**
  * Convert an internal assistant message to AI SDK format.
- * Handles text content and tool calls.
+ * Handles reasoning, text content, and tool calls.
+ *
+ * The reasoning part is required when the message is replayed to providers
+ * that demand the previous turn's thinking trace round-trip back — DeepSeek-R1
+ * rejects requests with "The reasoning_content in the thinking mode must be
+ * passed back to the API" if the assistant message in history lacks the
+ * reasoning that was emitted on the prior turn.
  */
 function convertAssistantMessage(msg: InternalMessage): ModelMessage | undefined {
   const textContent = extractTextContent(msg)
   const hasToolCalls = msg.toolCalls && msg.toolCalls.length > 0
+  const hasReasoning = Boolean(msg.reasoning)
 
-  if (!textContent && !hasToolCalls) {
+  if (!textContent && !hasToolCalls && !hasReasoning) {
     return undefined
   }
 
-  // Simple text-only case
-  if (textContent && !hasToolCalls) {
+  // Simple text-only case (no reasoning, no tools)
+  if (textContent && !hasToolCalls && !hasReasoning) {
     return {content: textContent, role: 'assistant'}
   }
 
-  // Build mixed content array (text + tool calls)
+  // Build mixed content array (reasoning + text + tool calls)
   type AssistantPart =
     | {input: unknown; providerOptions?: Record<string, Record<string, unknown>>; toolCallId: string; toolName: string; type: 'tool-call'}
+    | {text: string; type: 'reasoning'}
     | {text: string; type: 'text'}
 
   const parts: AssistantPart[] = []
+
+  // Reasoning must come first — providers that consume it expect it at the
+  // start of the assistant turn, before any text/tool-call output.
+  if (msg.reasoning) {
+    parts.push({text: msg.reasoning, type: 'reasoning'})
+  }
 
   if (textContent) {
     parts.push({text: textContent, type: 'text'})

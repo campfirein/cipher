@@ -292,6 +292,58 @@ describe('QueryLogHandler', () => {
     })
   })
 
+  // ── getTaskCompletionData ───────────────────────────────────────────────
+
+  describe('getTaskCompletionData', () => {
+    it('should return query metadata flattened to RecallResult shape after setQueryResult was called', async () => {
+      const task = makeTask()
+      await handler.onTaskCreate(task)
+      handler.setQueryResult('task-abc', makeQueryResult())
+
+      const data = handler.getTaskCompletionData('task-abc')
+
+      expect(data).to.deep.equal({
+        durationMs: 450,
+        matchedDocs: [{path: 'design/caching.md', score: 0.95, title: 'Caching Strategy'}],
+        tier: TIER_DIRECT_SEARCH,
+        topScore: 0.95,
+      })
+    })
+
+    it('should return empty object when task does not exist', () => {
+      const data = handler.getTaskCompletionData('unknown-task')
+
+      expect(data).to.deep.equal({})
+    })
+
+    it('should return empty object when setQueryResult was never called', async () => {
+      const task = makeTask()
+      await handler.onTaskCreate(task)
+
+      const data = handler.getTaskCompletionData('task-abc')
+
+      expect(data).to.deep.equal({})
+    })
+
+    it('should omit topScore when searchMetadata is absent (cache hit shape)', async () => {
+      const task = makeTask()
+      await handler.onTaskCreate(task)
+      // Cache hits in QueryExecutor return empty matchedDocs and no searchMetadata.
+      handler.setQueryResult('task-abc', {
+        matchedDocs: [],
+        tier: TIER_DIRECT_SEARCH,
+        timing: {durationMs: 5},
+      })
+
+      const data = handler.getTaskCompletionData('task-abc')
+
+      expect(data.matchedDocs).to.deep.equal([])
+      expect(data.tier).to.equal(TIER_DIRECT_SEARCH)
+      expect(data.durationMs).to.equal(5)
+      expect(data.topScore).to.be.undefined
+    })
+  })
+
   // ── store sharing ────────────────────────────────────────────────────────
 
   describe('store sharing', () => {

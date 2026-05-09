@@ -9,7 +9,8 @@
  * - Grok: `reasoning_content` or `reasoning_details` fields
  * - Gemini via OpenRouter: `reasoning_details` array or `thoughts` field
  * - GLM (Zhipu AI): `reasoning_content` field in API response
- * - Claude/DeepSeek/MiniMax: `<think>...</think>` XML tags in content
+ * - DeepSeek (R1/Reasoner): `reasoning_content` field in API response (OpenAI-compatible)
+ * - Claude/MiniMax: `<think>...</think>` XML tags in content
  */
 
 /**
@@ -132,13 +133,14 @@ export function getModelCapabilities(modelId: string): ModelCapabilities {
     }
   }
 
-  // DeepSeek models use think tags
+  // DeepSeek models — reasoning models stream `reasoning_content` natively
+  // (OpenAI-compatible field), not <think> tags.
   if (id.includes('deepseek')) {
-    // DeepSeek-R1 and reasoning models
     if (id.includes('r1') || id.includes('reasoner')) {
       return {
         reasoning: true,
-        reasoningFormat: 'think-tags',
+        reasoningField: 'reasoning_content',
+        reasoningFormat: 'native-field',
       }
     }
 

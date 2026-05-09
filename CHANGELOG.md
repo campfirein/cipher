@@ -2,6 +2,46 @@
 
 All notable user-facing changes to ByteRover CLI will be documented in this file.
 
+## [3.11.0]
+
+### Added
+- **DeepSeek and GLM Coding Plan as LLM providers.** Pick DeepSeek (`deepseek-chat`, `deepseek-reasoner`) or Z.AI's GLM Coding Plan subscription tier in `brv providers connect` or the web provider picker. The existing `glm` provider stays for pay-per-token users so subscription and pay-as-you-go tiers don't collide.
+- **Recall metadata in `brv query --format json`.** The JSON envelope now includes `matchedDocs`, `tier`, `durationMs`, and `topScore`, so scripts and IDE bridges can show evidence of what the answer was drawn from.
+
+### Fixed
+- **Reasoning shows up for DeepSeek-R1 and Reasoner.** Thinking output now streams correctly and is carried back into follow-up turns. Previously the second turn of any multi-step query failed with a "reasoning_content must be passed back" error from DeepSeek.
+- **Claude Opus 4.7 no longer fails with a 400 error.** Opus 4.7 rejects `temperature`, `top_p`, and `top_k`; the CLI now drops those before sending to Anthropic and OpenRouter (and warns once). Opus 4.6 and other Claude models are unchanged.
+- **GLM Coding Plan API-key validation works on the coding-plan tier.** Validation now tries each known model in turn instead of giving up after the first model-not-found, so a valid key is no longer reported as invalid. The "Get your API key" link also points straight to the key page in both the TUI and the web UI.
+- **OpenClaude icon shows in `brv webui`.** The LocalWebUI agent grid used to render OpenClaude as a missing icon; it now uses a monochrome SVG that matches the other connectors.
+- **Security dependency update.** Refreshed `package-lock.json` to clear several `npm audit` advisories.
+
+## [3.10.3]
+
+### Fixed
+- **No more silent daemon-version mismatches.** After upgrading `brv`, the background daemon could keep running on the older version and you'd have no way to tell, leading to confusing "why doesn't this new feature work?" moments. The REPL header now shows `[outdated, daemon vX.Y.Z]` next to the version when this happens, and replies from the MCP tools (`brv-query`, `brv-curate`) include a short note when the daemon and CLI are mismatched. Run `brv restart` to align, or restart your IDE for the MCP side.
+
+## [3.10.2]
+
+### Changed
+- **`brv curate` is faster and cheaper.** Curate now batches its smaller LLM calls together and reuses the unchanging parts of the prompt across calls. Anthropic users save 21-30% on token cost, OpenAI users around 8%, and big-folder curates finish noticeably sooner.
+- **Clearer sign-in error for ByteRover.** When you try to use ByteRover without being signed in, the error now lists every option: `brv login` for interactive shells, plus a signup URL, an API-key URL, and `brv login --api-key` for headless or CI environments.
+
+### Fixed
+- **ByteRover provider activates on connect.** Picking ByteRover used to leave it "connected but inactive", so `brv curate` would still say "no provider connected". Activation now happens right away.
+- **No more spurious "signed out" on slow networks.** The startup auth check timed out after 500 ms, well below a real round-trip on home Wi-Fi, mobile, or VPN. Timeout is now 4 seconds with a single retry, so transient blips no longer look like a logout.
+
+## [3.10.1]
+
+### Added
+- **`brv review --disable` / `--enable` per project.** Opt a project out of the human-in-the-loop review prompts and backups, or turn them back on. Run `brv review` with no flags to see the current state. Existing `brv review pending / approve / reject` are unchanged.
+
+### Changed
+- **`brv curate` returns to your prompt right away.** The final summary-rebuild step now runs in the background instead of making you wait. Nothing is skipped, just moved off your wait time (about 18 seconds saved on a typical run).
+
+### Fixed
+- **Clearer `brv vc status` and `brv vc pull` errors.** Status now catches a few staged-then-edited file states it used to hide. When a pull, checkout, or merge would overwrite local changes, the error now lists the affected files instead of just saying "local changes would be overwritten."
+- **OpenAI-compatible providers fail loudly when the URL is wrong.** First-time setup for Ollama, LM Studio, and similar providers now checks the base URL up front and shows the error inline. Bad URLs no longer pre-select a placeholder `llama3` model or hang the REPL on disconnect / reconnect.
+
 ## [3.10.0]
 
 ### Added

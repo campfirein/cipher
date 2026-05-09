@@ -257,15 +257,36 @@ async function writeSynthesisFile(
   }
 
   const sources = candidate.evidence.map((e) => `${e.domain}/_index.md`)
+  // Normalize tags to lowercase kebab-case so card chips and BM25 search see
+  // a consistent label regardless of whether the model honored the prompt's
+  // formatting rule. Empty entries (post-trim) are dropped.
+  const normalizedTags = candidate.tags
+    .map((t) => t.toLowerCase().trim().replaceAll(/\s+/g, '-'))
+    .filter((t) => t.length > 0)
+  const now = new Date().toISOString()
+  // Field order is enforced by insertion order (yamlDump uses sortKeys:false).
+  // Synthesis markers (confidence, sources, synthesized_at, type) come first
+  // in the order pre-existing synthesized files use on disk, so re-generating
+  // an old file does not produce a mechanical reorder diff. The seven
+  // semantic fields below mirror the order in markdown-writer.ts's
+  // generateFrontmatter so the on-disk shape matches regular `brv save`
+  // files; cogit then exposes them in DtoV3MemoryCardResource for card-mode
+  // display in the web UI.
   /* eslint-disable camelcase */
-  const frontmatter = {
-    confidence: candidate.confidence,
-    sources,
-    synthesized_at: new Date().toISOString(),
-    type: 'synthesis',
-  }
+  const frontmatter: Record<string, number | string | string[]> = {}
+  frontmatter.confidence = candidate.confidence
+  frontmatter.sources = sources
+  frontmatter.synthesized_at = now
+  frontmatter.type = 'synthesis'
+  frontmatter.title = candidate.title
+  frontmatter.summary = candidate.summary
+  frontmatter.tags = normalizedTags
+  frontmatter.related = []
+  frontmatter.keywords = candidate.keywords
+  frontmatter.createdAt = now
+  frontmatter.updatedAt = now
   /* eslint-enable camelcase */
-  const yaml = yamlDump(frontmatter, {lineWidth: -1, sortKeys: false}).trimEnd()
+  const yaml = yamlDump(frontmatter, {flowLevel: 1, lineWidth: -1, sortKeys: false}).trimEnd()
   const body = [
     `# ${candidate.title}`,
     '',
@@ -344,11 +365,17 @@ function buildPrompt(domains: DomainSummary[], existingSyntheses: string[]): str
     '- Do NOT report trivial or obvious connections (e.g., "both domains use TypeScript").',
     '- Each synthesis must reference at least 2 domains with specific evidence.',
     '- For "placement", choose the domain where this insight is MOST actionable.',
+    '- "summary" is one sentence (≤ 200 chars) describing the insight; this is what the UI shows as a card preview.',
+    '- "tags" are 3-5 short topical labels drawn from the source domains (e.g., "auth", "caching"). Lowercase, kebab-case.',
+    '- "keywords" are 5-10 single words a developer would search for to surface this synthesis.',
     '- If nothing meaningful is found, return an empty array. That is fine — but missing a clear cross-domain pattern is a failure.',
     '',
+    // Keep the JSON shape below in sync with SynthesisCandidateSchema in
+    // dream-response-schemas.ts; the schema rejects responses that omit any
+    // listed field, so adding a field there requires updating this example.
     'Respond with JSON:',
     '```',
-    '{ "syntheses": [{ "title": "...", "claim": "...", "evidence": [{"domain": "...", "fact": "..."}], "confidence": 0.0-1.0, "placement": "..." }] }',
+    '{ "syntheses": [{ "title": "...", "summary": "...", "claim": "...", "evidence": [{"domain": "...", "fact": "..."}], "tags": ["..."], "keywords": ["..."], "confidence": 0.0-1.0, "placement": "..." }] }',
     '```',
   ].join('\n')
 }

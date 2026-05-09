@@ -37,6 +37,13 @@ export type TaskInfo = {
   responseContent?: string
   /** Set on successful completion */
   result?: string
+  /**
+   * Snapshot of the project's review-disabled flag captured at task-create time.
+   * Stamped once at the daemon boundary so daemon (CurateLogHandler) and agent
+   * (curate-tool backups, dream review entries) observe the same value even if
+   * the user toggles the flag mid-task.
+   */
+  reviewDisabled?: boolean
   /** LLM session id set alongside `responseContent` */
   sessionId?: string
   /** Set when agent picks up the task */

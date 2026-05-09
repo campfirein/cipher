@@ -8,6 +8,7 @@ import {createAnthropic} from '@ai-sdk/anthropic'
 
 import type {GeneratorFactoryConfig, ProviderModule} from './types.js'
 
+import {modelAcceptsSamplingParameters} from '../../../core/domain/llm/registry.js'
 import {AiSdkContentGenerator} from '../generators/ai-sdk-content-generator.js'
 
 export const anthropicProvider: ProviderModule = {
@@ -20,6 +21,7 @@ export const anthropicProvider: ProviderModule = {
 
     return new AiSdkContentGenerator({
       charsPerToken: 3.5,
+      excludeSamplingParameters: !modelAcceptsSamplingParameters(config.model),
       model: provider(config.model),
     })
   },

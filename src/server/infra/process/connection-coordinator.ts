@@ -41,6 +41,12 @@ import {broadcastToProjectRoom} from './broadcast-utils.js'
 type ConnectionCoordinatorOptions = {
   agentPool?: IAgentPool
   clientManager?: IClientManager
+  /**
+   * Daemon version surfaced in `client:register` ack. Lets clients render
+   * drift indicators without a separate round-trip. Optional so older
+   * deployments still build.
+   */
+  daemonVersion?: string
   projectRegistry?: IProjectRegistry
   projectRouter?: IProjectRouter
   taskRouter: TaskRouter
@@ -55,6 +61,7 @@ export class ConnectionCoordinator {
   private agentClients: Map<string, string> = new Map()
   private readonly agentPool: IAgentPool | undefined
   private readonly clientManager: IClientManager | undefined
+  private readonly daemonVersion: string | undefined
   private readonly projectRegistry: IProjectRegistry | undefined
   private readonly projectRouter: IProjectRouter | undefined
   private readonly taskRouter: TaskRouter
@@ -64,6 +71,7 @@ export class ConnectionCoordinator {
     this.transport = options.transport
     this.agentPool = options.agentPool
     this.clientManager = options.clientManager
+    this.daemonVersion = options.daemonVersion
     this.projectRouter = options.projectRouter
     this.projectRegistry = options.projectRegistry
     this.taskRouter = options.taskRouter
@@ -252,7 +260,7 @@ export class ConnectionCoordinator {
   private handleClientRegister(
     clientId: string,
     data: {clientType: ClientType; projectPath?: string},
-  ): {error?: string; success: boolean} {
+  ): {daemonVersion?: string; error?: string; success: boolean} {
     if (!this.clientManager) {
       return {error: 'ClientManager not available', success: false}
     }
@@ -276,6 +284,10 @@ export class ConnectionCoordinator {
 
     if (data.projectPath) {
       this.addToProjectRoom(clientId, data.projectPath)
+    }
+
+    if (this.daemonVersion) {
+      return {daemonVersion: this.daemonVersion, success: true}
     }
 
     return {success: true}
@@ -468,10 +480,10 @@ export class ConnectionCoordinator {
   }
 
   private setupClientLifecycleHandlers(): void {
-    this.transport.onRequest<{clientType: ClientType; projectPath?: string}, {error?: string; success: boolean}>(
-      TransportClientEventNames.REGISTER,
-      (data, clientId) => this.handleClientRegister(clientId, data),
-    )
+    this.transport.onRequest<
+      {clientType: ClientType; projectPath?: string},
+      {daemonVersion?: string; error?: string; success: boolean}
+    >(TransportClientEventNames.REGISTER, (data, clientId) => this.handleClientRegister(clientId, data))
 
     this.transport.onRequest<{projectPath: string}, {error?: string; success: boolean}>(
       TransportClientEventNames.ASSOCIATE_PROJECT,

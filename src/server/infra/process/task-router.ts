@@ -98,6 +98,15 @@ export type PreDispatchCheckResult = {eligible: false; skipResult: string} | {el
 
 export type PreDispatchCheck = (task: TaskCreateRequest, projectPath?: string) => Promise<PreDispatchCheckResult>
 
+/**
+ * Resolves whether the review log is disabled for the given project. Called once
+ * at task-create and the result is stamped onto TaskInfo + TaskExecute, so daemon
+ * (CurateLogHandler) and agent (curate backups, dream review entries) observe a
+ * single value across the daemon→agent process boundary. Errors → undefined →
+ * downstream treats as enabled (fail-open).
+ */
+export type IsReviewDisabledResolver = (projectPath: string) => Promise<boolean>
+
 type TaskRouterOptions = {
   agentPool?: IAgentPool
   /** Function to resolve agent clientId for a given project */
@@ -109,6 +118,8 @@ type TaskRouterOptions = {
    * only — keeping pre-M2.09 unit tests unaffected.
    */
   getTaskHistoryStore?: (projectPath: string) => ITaskHistoryStore
+  /** Resolves project's review-disabled flag at task-create. Optional; missing → undefined → enabled. */
+  isReviewDisabled?: IsReviewDisabledResolver
   /** Lifecycle hooks for task events (e.g. CurateLogHandler). */
   lifecycleHooks?: ITaskLifecycleHook[]
   /**
@@ -216,9 +227,19 @@ function matchesListFilters(item: TaskListItem, filters: ListFilterArgs): boolea
     return false
   }
 
-  if (filters.providerFilter && filters.providerFilter.length > 0 && (item.provider === undefined || !filters.providerFilter.includes(item.provider))) return false
+  if (
+    filters.providerFilter &&
+    filters.providerFilter.length > 0 &&
+    (item.provider === undefined || !filters.providerFilter.includes(item.provider))
+  )
+    return false
 
-  if (filters.modelFilter && filters.modelFilter.length > 0 && (item.model === undefined || !filters.modelFilter.includes(item.model))) return false
+  if (
+    filters.modelFilter &&
+    filters.modelFilter.length > 0 &&
+    (item.model === undefined || !filters.modelFilter.includes(item.model))
+  )
+    return false
 
   if (filters.createdAfter !== undefined && item.createdAt < filters.createdAfter) return false
   if (filters.createdBefore !== undefined && item.createdAt > filters.createdBefore) return false
@@ -282,6 +303,7 @@ export class TaskRouter {
   private flushTimer: ReturnType<typeof setTimeout> | undefined
   private readonly getAgentForProject: (projectPath?: string) => string | undefined
   private readonly getTaskHistoryStore: TaskRouterOptions['getTaskHistoryStore']
+  private readonly isReviewDisabled: IsReviewDisabledResolver | undefined
   private readonly lifecycleHooks: ITaskLifecycleHook[]
   private readonly preDispatchCheck: TaskRouterOptions['preDispatchCheck']
   private readonly projectRegistry: IProjectRegistry | undefined
@@ -297,6 +319,7 @@ export class TaskRouter {
     this.agentPool = options.agentPool
     this.getAgentForProject = options.getAgentForProject
     this.getTaskHistoryStore = options.getTaskHistoryStore
+    this.isReviewDisabled = options.isReviewDisabled
     this.lifecycleHooks = options.lifecycleHooks ?? []
     this.preDispatchCheck = options.preDispatchCheck
     this.projectRegistry = options.projectRegistry
@@ -906,7 +929,19 @@ export class TaskRouter {
       clientId,
     )
 
-    // ── Await lifecycle hooks ─────────────────────────────────────────────────
+    // ── Snapshot reviewDisabled + await lifecycle hooks ───────────────────────
+
+    // Snapshot the project's review-disabled flag once at the task-create boundary.
+    // Placed after the synchronous tasks.set/task:created so callers that don't
+    // await the create handler still see the task in this.tasks immediately.
+    // The value is stamped onto TaskInfo (for CurateLogHandler) and TaskExecute
+    // (forwarded to the agent) so both sides observe a single consistent value
+    // even if the user toggles mid-task. Errors → undefined → fail-open enabled.
+    const reviewDisabled = await this.snapshotReviewDisabled(projectPath)
+    const taskAfterSnapshot = this.tasks.get(taskId)
+    if (taskAfterSnapshot && reviewDisabled !== undefined) {
+      this.tasks.set(taskId, {...taskAfterSnapshot, reviewDisabled})
+    }
 
     const logId = await this.runCreateHooks(taskId)
     const task = this.tasks.get(taskId)
@@ -956,6 +991,7 @@ export class TaskRouter {
       ...(data.folderPath ? {folderPath: data.folderPath} : {}),
       ...(data.force === undefined ? {} : {force: data.force}),
       ...(projectPath ? {projectPath} : {}),
+      ...(reviewDisabled === undefined ? {} : {reviewDisabled}),
       taskId,
       type: data.type,
       ...(worktreeRoot ? {worktreeRoot} : {}),
@@ -1395,11 +1431,7 @@ export class TaskRouter {
         continue
       }
 
-      if (
-        modelFilter &&
-        modelFilter.length > 0 &&
-        (item.model === undefined || !modelFilter.includes(item.model))
-      ) {
+      if (modelFilter && modelFilter.length > 0 && (item.model === undefined || !modelFilter.includes(item.model))) {
         continue
       }
 
@@ -1756,6 +1788,35 @@ export class TaskRouter {
     } catch (error) {
       transportLog(`resolveActiveProvider failed: ${error instanceof Error ? error.message : String(error)}`)
       return {}
+    }
+  }
+
+  /**
+   * Reads the project's reviewDisabled flag at task-create.
+   *
+   * Returns `undefined` only when no resolver is wired or no projectPath was
+   * resolved — those are legitimate "not configured" cases where downstream
+   * consumers fall back to their own resolution path.
+   *
+   * On resolver THROW, returns the explicit boolean `false` (review enabled =
+   * fail-open) so the daemon and the agent observe a single concrete value.
+   * Returning `undefined` here would re-introduce the exact divergence the
+   * snapshot is supposed to prevent: daemon stamps no field → CurateLogHandler
+   * uses `?? false` (enabled) while the agent process opens no ALS scope and
+   * may read `reviewDisabled: true` from `.brv/config.json` in the
+   * curate-tool fallback, producing pending review entries without backups
+   * (or vice versa). Aligns with the agent-side `isReviewDisabledForBrvDir`
+   * which also fails open.
+   */
+  private async snapshotReviewDisabled(projectPath: string | undefined): Promise<boolean | undefined> {
+    if (!this.isReviewDisabled || !projectPath) return undefined
+    try {
+      return await this.isReviewDisabled(projectPath)
+    } catch (error_) {
+      transportLog(
+        `TaskRouter: isReviewDisabled resolver threw for ${projectPath} — defaulting to enabled: ${error_ instanceof Error ? error_.message : String(error_)}`,
+      )
+      return false
     }
   }
 }

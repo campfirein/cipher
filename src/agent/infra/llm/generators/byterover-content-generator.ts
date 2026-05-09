@@ -28,6 +28,7 @@ import type {ITokenizer} from '../../../core/interfaces/i-tokenizer.js'
 import type {InternalMessage} from '../../../core/interfaces/message-types.js'
 import type {ByteRoverLlmHttpService} from '../../http/internal-llm-http-service.js'
 
+import {modelAcceptsSamplingParameters} from '../../../core/domain/llm/registry.js'
 import {ClaudeMessageFormatter} from '../formatters/claude-formatter.js'
 import {ensureActiveLoopHasThoughtSignatures, GeminiMessageFormatter} from '../formatters/gemini-formatter.js'
 import {type ThinkingConfig, ThinkingConfigManager} from '../thought-parser.js'
@@ -59,6 +60,7 @@ export interface ByteRoverContentGeneratorConfig {
  * - Response parsing to unified format
  */
 export class ByteRoverContentGenerator implements IContentGenerator {
+  private readonly acceptsSamplingParameters: boolean
   private readonly config: {
     maxTokens: number
     model: string
@@ -84,6 +86,7 @@ export class ByteRoverContentGenerator implements IContentGenerator {
       temperature: config.temperature ?? 0.7,
       thinkingConfig: config.thinkingConfig,
     }
+    this.acceptsSamplingParameters = modelAcceptsSamplingParameters(this.config.model)
 
     // Detect provider type from model name
     this.providerType = this.detectProviderType(this.config.model)
@@ -244,7 +247,7 @@ export class ByteRoverContentGenerator implements IContentGenerator {
       messages,
       model: this.config.model,
       system: systemPrompt,
-      temperature: this.config.temperature,
+      ...(this.acceptsSamplingParameters && {temperature: this.config.temperature}),
       ...(claudeTools.length > 0 && {tools: claudeTools}),
     }
     /* eslint-enable camelcase */

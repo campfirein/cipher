@@ -19,6 +19,12 @@ export interface TransportState {
   client: ITransportClient | null
   /** Current connection state */
   connectionState: ConnectionState
+  /**
+   * Daemon version reported in the most recent client:register ack.
+   * Undefined when the daemon is too old to advertise its version.
+   * Drives the version-drift indicator in the TUI header.
+   */
+  daemonVersion: string | undefined
   /** Connection error if any */
   error: Error | null
   /** Whether the client is connected */
@@ -42,6 +48,8 @@ export interface TransportActions {
   setClient: (client: ITransportClient) => void
   /** Update connection state */
   setConnectionState: (state: ConnectionState) => void
+  /** Set or clear the daemon version (called after every connect / reconnect) */
+  setDaemonVersion: (daemonVersion: string | undefined) => void
   /** Set connection error */
   setError: (error: Error | null) => void
   /** Set resolved project info from oclif main */
@@ -54,6 +62,7 @@ const initialState: TransportState = {
   apiClient: null,
   client: null,
   connectionState: 'disconnected',
+  daemonVersion: undefined,
   error: null,
   isConnected: false,
   projectPath: null,
@@ -83,6 +92,8 @@ export const useTransportStore = create<TransportActions & TransportState>()((se
       connectionState,
       isConnected: connectionState === 'connected',
     }),
+
+  setDaemonVersion: (daemonVersion: string | undefined) => set({daemonVersion}),
 
   setError: (error: Error | null) =>
     set({

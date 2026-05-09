@@ -13,6 +13,7 @@ import githubCopilot from '../../../assets/connectors/githubcopilot-connector.sv
 import junie from '../../../assets/connectors/junie-connector.svg'
 import kilocode from '../../../assets/connectors/kilocode-connector.svg'
 import kiro from '../../../assets/connectors/kiro-connector.svg'
+import openclaude from '../../../assets/connectors/openclaude-connector.svg'
 import openclaw from '../../../assets/connectors/openclaw-connector.svg'
 import opencode from '../../../assets/connectors/opencode-connector.svg'
 import qoder from '../../../assets/connectors/qoder-connector.svg'
@@ -39,6 +40,7 @@ export const agentIcons: Partial<Record<Agent, string>> = {
   'Junie': junie,
   'Kilo Code': kilocode,
   'Kiro': kiro,
+  'OpenClaude': openclaude,
   'OpenClaw': openclaw,
   'OpenCode': opencode,
   'Qoder': qoder,

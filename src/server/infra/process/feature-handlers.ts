@@ -240,6 +240,7 @@ export async function setupFeatureHandlers({
     onResolved({ projectPath, taskId }) {
       broadcastToProject(projectPath, ReviewEvents.NOTIFY, { pendingCount: 0, reviewUrl: '', taskId })
     },
+    projectConfigStore,
     resolveProjectPath,
     reviewBackupStoreFactory: (projectPath) => new FileReviewBackupStore(join(projectPath, BRV_DIR)),
     transport,

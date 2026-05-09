@@ -34,19 +34,26 @@ import type {IProjectRegistry} from '../../core/interfaces/project/i-project-reg
 import type {IProjectRouter} from '../../core/interfaces/routing/i-project-router.js'
 import type {ITaskHistoryStore} from '../../core/interfaces/storage/i-task-history-store.js'
 import type {ITransportServer} from '../../core/interfaces/transport/i-transport-server.js'
-import type {PreDispatchCheck} from './task-router.js'
+import type {IsReviewDisabledResolver, PreDispatchCheck} from './task-router.js'
 
 import {ConnectionCoordinator} from './connection-coordinator.js'
 import {TaskRouter} from './task-router.js'
 
-export type {PreDispatchCheck, PreDispatchCheckResult} from './task-router.js'
+export type {IsReviewDisabledResolver, PreDispatchCheck, PreDispatchCheckResult} from './task-router.js'
 export type {TaskInfo} from './types.js'
 
 type TransportHandlersOptions = {
   agentPool?: IAgentPool
   clientManager?: IClientManager
+  /**
+   * Daemon's CLI version (read from package.json at startup). Surfaced in the
+   * `client:register` ack so clients can render version-drift indicators.
+   */
+  daemonVersion?: string
   /** Per-project `ITaskHistoryStore` factory used by the M2.09 persistent-history handlers. */
   getTaskHistoryStore?: (projectPath: string) => ITaskHistoryStore
+  /** Resolves project's review-disabled flag at task-create. Snapshotted once into TaskInfo + TaskExecute. */
+  isReviewDisabled?: IsReviewDisabledResolver
   /** Lifecycle hooks for task events (e.g. CurateLogHandler). */
   lifecycleHooks?: ITaskLifecycleHook[]
   /** Optional daemon-side gate run before dispatching a task to the agent pool. */
@@ -73,6 +80,7 @@ export class TransportHandlers {
       agentPool: options.agentPool,
       getAgentForProject: (projectPath) => this.connectionCoordinator.getAgentForProject(projectPath),
       getTaskHistoryStore: options.getTaskHistoryStore,
+      isReviewDisabled: options.isReviewDisabled,
       lifecycleHooks: options.lifecycleHooks,
       preDispatchCheck: options.preDispatchCheck,
       projectRegistry: options.projectRegistry,
@@ -85,6 +93,7 @@ export class TransportHandlers {
     this.connectionCoordinator = new ConnectionCoordinator({
       agentPool: options.agentPool,
       clientManager: options.clientManager,
+      daemonVersion: options.daemonVersion,
       projectRegistry: options.projectRegistry,
       projectRouter: options.projectRouter,
       taskRouter: this.taskRouter,

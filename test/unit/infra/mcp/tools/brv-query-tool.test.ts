@@ -66,6 +66,7 @@ function createMockClient(options?: {state?: ConnectionState}): {
     connect: stub().resolves(),
     disconnect: stub().resolves(),
     getClientId: stub().returns('mock-client-id'),
+    getDaemonVersion: stub(),
     getState: stub().returns(options?.state ?? 'connected'),
     isConnected: stub().resolves(true),
     joinRoom: stub().resolves(),
@@ -129,6 +130,7 @@ function setupQueryHandler(options: {
           ? {projectRoot: workingDirectory, worktreeRoot: workingDirectory}
           : undefined
       }),
+    'test-client-version',
   )
   return getHandler('brv-query')
 }

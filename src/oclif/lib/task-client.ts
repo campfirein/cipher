@@ -16,13 +16,34 @@ import type {
   TaskError,
 } from '@campfirein/brv-transport-client'
 
+import type {
+  QueryLogMatchedDoc,
+  QueryLogTier,
+} from '../../server/core/domain/entities/query-log-entry.js'
+
 import {TaskErrorCode} from '../../server/core/domain/errors/task-error.js'
 import {LlmEvents, TaskEvents} from '../../shared/transport/events/index.js'
 import {ReviewEvents, type ReviewNotifyEvent} from '../../shared/transport/events/review-events.js'
 import {writeJsonResponse} from './json-response.js'
 
-/** Extends brv-transport-client's TaskCompleted with logId from ENG-1259 and pendingReviewCount from HITL */
-type TaskCompletedWithLogId = TaskCompleted & {logId?: string; pendingReviewCount?: number}
+/**
+ * Extends brv-transport-client's TaskCompleted with daemon-merged extras contributed by
+ * lifecycle hooks (`getTaskCompletionData`):
+ * - `logId` — query/curate log id
+ * - `pendingReviewCount` — HITL signal from CurateLogHandler
+ * - `matchedDocs`/`tier`/`durationMs`/`topScore` — query recall metadata from QueryLogHandler
+ *   (flattened from QueryExecutorResult's nested timing/searchMetadata)
+ *
+ * All fields are optional — older daemons or non-query tasks omit them.
+ */
+type TaskCompletedWithLogId = TaskCompleted & {
+  durationMs?: number
+  logId?: string
+  matchedDocs?: QueryLogMatchedDoc[]
+  pendingReviewCount?: number
+  tier?: QueryLogTier
+  topScore?: number
+}
 
 /** Extends brv-transport-client's TaskError with logId from ENG-1259 */
 type TaskErrorWithLogId = TaskError & {logId?: string}
@@ -40,12 +61,20 @@ export interface ToolCallRecord {
 
 /** Completion result passed to onCompleted callback */
 export interface TaskCompletionResult {
+  /** Wall-clock execution time for query tasks, in milliseconds. Absent for non-query tasks. */
+  durationMs?: number
   logId?: string
+  /** Documents matched by the query. Empty array on cache hits; absent for non-query tasks. */
+  matchedDocs?: QueryLogMatchedDoc[]
   /** Pending review notification from the server, present when review is required after task completion. */
   pendingReview?: {pendingCount: number; reviewUrl: string}
   result?: string
   taskId: string
+  /** Resolution tier for query tasks. Absent for non-query tasks. */
+  tier?: QueryLogTier
   toolCalls: ToolCallRecord[]
+  /** Top compound score across matchedDocs. Absent for cache hits and non-query tasks. */
+  topScore?: number
 }
 
 /** Error result passed to onError callback */
@@ -286,7 +315,17 @@ export function waitForTaskCompletion(options: WaitForTaskOptions, log: (msg: st
           payload.pendingReviewCount !== undefined && payload.pendingReviewCount > 0
             ? {pendingCount: payload.pendingReviewCount, reviewUrl: pendingReview?.reviewUrl ?? ''}
             : pendingReview
-        onCompleted({logId: payload.logId, pendingReview: resolvedPendingReview, result: payload.result, taskId, toolCalls})
+        onCompleted({
+          durationMs: payload.durationMs,
+          logId: payload.logId,
+          matchedDocs: payload.matchedDocs,
+          pendingReview: resolvedPendingReview,
+          result: payload.result,
+          taskId,
+          tier: payload.tier,
+          toolCalls,
+          topScore: payload.topScore,
+        })
         resolve()
       }),
 

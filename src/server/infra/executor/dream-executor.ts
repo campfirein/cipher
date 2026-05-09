@@ -55,6 +55,8 @@ export type DreamExecutorDeps = {
     save(entry: DreamLogEntry): Promise<void>
   }
   dreamStateService: {
+    drainStaleSummaryPaths(): Promise<string[]>
+    enqueueStaleSummaryPaths(paths: string[]): Promise<void>
     read(): Promise<import('../dream/dream-state-schema.js').DreamState>
     update(updater: (state: import('../dream/dream-state-schema.js').DreamState) => import('../dream/dream-state-schema.js').DreamState): Promise<import('../dream/dream-state-schema.js').DreamState>
     write(state: import('../dream/dream-state-schema.js').DreamState): Promise<void>
@@ -75,6 +77,14 @@ export type DreamExecutorDeps = {
 type DreamExecuteOptions = {
   priorMtime: number
   projectRoot: string
+  /**
+   * Snapshot of the project's reviewDisabled flag captured at task-create on the
+   * daemon side and passed through TaskExecute. When true, the dream-side dual-write
+   * of needsReview operations into the curate log is skipped — they won't surface in
+   * `brv review pending` and won't appear as review entries in the curate log folder.
+   * Undefined → treated as enabled (fail-open).
+   */
+  reviewDisabled?: boolean
   taskId: string
   trigger: 'agent-idle' | 'cli' | 'manual'
 }
@@ -120,6 +130,13 @@ export class DreamExecutor {
     // dreamStateService.update throws) would re-write the same review entries.
     let reviewEntriesWritten = false
 
+    // The disable flag is captured once at task-create on the daemon and forwarded via
+    // TaskExecute → executeTask → here. Reading it from options (instead of re-resolving
+    // from .brv/config.json on the agent side) means backup-creation and review-entry
+    // writing observe the same value as the daemon-side curate log handler, even if the
+    // user toggles mid-run.
+    const reviewDisabled = options.reviewDisabled ?? false
+
     try {
       // Step 1: Capture pre-state
       const snapshotService = new FileContextTreeSnapshotService({baseDirectory: projectRoot})
@@ -127,7 +144,12 @@ export class DreamExecutor {
       try {
         preState = await snapshotService.getCurrentState(projectRoot)
       } catch {
-        // Fail-open: if snapshot fails, skip propagation
+        // Fail-open: leaving preState undefined skips the entire step 5 block
+        // (queue drain + propagation), so the stale-summary queue is left
+        // intact for the next successful dream cycle. Skipping drain here is
+        // safer than drain-then-fail: the atomic-drain design clears entries
+        // synchronously inside the RMW, so if we drained and then threw
+        // before reaching the catch's re-enqueue, the snapshot would be lost.
       }
 
       // Step 2: Load dream state
@@ -145,23 +167,44 @@ export class DreamExecutor {
         logId,
         out: allOperations,
         projectRoot,
+        reviewDisabled,
         signal: controller.signal,
         taskId: options.taskId,
       })
 
       // Step 5: Post-dream propagation (fail-open)
+      // Two sources of stale summary paths:
+      //   A. The stale-summary queue, drained from dream state — paths from
+      //      curate operations that ran since the last dream cycle (the LLM
+      //      cascade work was deferred from curate's hot path to here).
+      //   B. Dream's own snapshot diff — paths changed by this dream's
+      //      consolidate/synthesize/prune operations.
+      // Merging A ∪ B before calling propagateStaleness lets a path touched
+      // by both sources regenerate exactly once. The queue is drained
+      // atomically (cleared in the same RMW that captures the snapshot) so
+      // any concurrent curate enqueueing during propagation appends a fresh
+      // entry to the now-empty queue and the next dream picks it up.
       if (preState) {
+        let drainedSnapshot: string[] = []
         try {
+          drainedSnapshot = await this.deps.dreamStateService.drainStaleSummaryPaths()
+
           const postState = await snapshotService.getCurrentState(projectRoot)
           const changedPaths = diffStates(preState, postState)
-          if (changedPaths.length > 0) {
-            const summaryService = new FileContextTreeSummaryService()
-            await summaryService.propagateStaleness(changedPaths, agent, projectRoot, options.taskId)
-            const manifestService = new FileContextTreeManifestService({baseDirectory: projectRoot})
-            await manifestService.buildManifest(projectRoot)
+
+          const merged = [...new Set([...changedPaths, ...drainedSnapshot])]
+          if (merged.length > 0) {
+            await this.runStaleSummaryPropagation({agent, parentTaskId: options.taskId, paths: merged, projectRoot})
           }
         } catch {
-          // Fail-open: propagation errors never block dream
+          // Fail-open: propagation errors never block dream. Re-enqueue the
+          // drained snapshot so the next dream cycle retries — atomic drain
+          // already removed them, so without this they would be lost.
+          if (drainedSnapshot.length > 0) {
+            await this.deps.dreamStateService.enqueueStaleSummaryPaths(drainedSnapshot).catch(() => {
+              // If the re-enqueue itself fails, there is nothing more to do here.
+            })
+          }
         }
       }
 
@@ -181,7 +224,7 @@ export class DreamExecutor {
 
       // Step 6b: Create curate log entries for needsReview operations (dual-write for review system).
       // Runs after the completed dream log is durably written so review tasks never outlive their dream log.
-      await this.createReviewEntries(allOperations, contextTreeDir, options.taskId)
+      await this.createReviewEntries({contextTreeDir, operations: allOperations, reviewDisabled, taskId: options.taskId})
       reviewEntriesWritten = true
 
       // Step 7: Update dream state — atomic RMW under the per-file mutex so a
@@ -196,7 +239,7 @@ export class DreamExecutor {
       }))
 
       succeeded = true
-      return {logId, result: this.formatResult(logId, summary)}
+      return {logId, result: this.formatResult(logId, summary, reviewDisabled)}
     } catch (error) {
       // Save error/partial log entry (best-effort). Use allOperations so any work
       // that completed before the failure is captured — keeps the audit trail and
@@ -237,7 +280,7 @@ export class DreamExecutor {
       // already wrote the entries (i.e. step 7 threw after step 6b succeeded)
       // to prevent duplicate review items.
       if (allOperations.length > 0 && !reviewEntriesWritten) {
-        await this.createReviewEntries(allOperations, contextTreeDir, options.taskId)
+        await this.createReviewEntries({contextTreeDir, operations: allOperations, reviewDisabled, taskId: options.taskId})
       }
 
       throw error
@@ -258,6 +301,7 @@ export class DreamExecutor {
    * each step. Extracted so the executor can preserve partial work when a later step
    * throws — and so tests can inject controlled ops without a full LLM round-trip.
    */
+  // protected is required for test subclassing (ProbeExecutor, makePartialRunExecutor)
   protected async runOperations(args: {
     agent: ICipherAgent
     changedFiles: Set<string>
@@ -265,17 +309,24 @@ export class DreamExecutor {
     logId: string
     out: DreamOperation[]
     projectRoot: string
+    /**
+     * When true, the dream-side review system (backups + curate-log dual-write) is suppressed.
+     * Backups exist only to support review rejection; with reviews disabled they are dead state,
+     * so consolidate/prune are run without a `reviewBackupStore` so review-backups/ stays empty.
+     */
+    reviewDisabled?: boolean
     signal: AbortSignal
     taskId: string
   }): Promise<void> {
-    const {agent, changedFiles, contextTreeDir, logId, out, projectRoot, signal, taskId} = args
+    const {agent, changedFiles, contextTreeDir, logId, out, projectRoot, reviewDisabled, signal, taskId} = args
+    const reviewBackupStore = reviewDisabled === true ? undefined : this.deps.reviewBackupStore
 
     out.push(
       ...(await consolidate([...changedFiles], {
         agent,
         contextTreeDir,
         dreamStateService: this.deps.dreamStateService,
-        reviewBackupStore: this.deps.reviewBackupStore,
+        reviewBackupStore,
         runtimeSignalStore: this.deps.runtimeSignalStore,
         searchService: this.deps.searchService,
         signal,
@@ -304,12 +355,31 @@ export class DreamExecutor {
         dreamLogId: logId,
         dreamStateService: this.deps.dreamStateService,
         projectRoot,
-        reviewBackupStore: this.deps.reviewBackupStore,
+        reviewBackupStore,
         runtimeSignalStore: this.deps.runtimeSignalStore,
         signal,
         taskId,
       })),
     )
+  }
+
+  /**
+   * Regenerate parent `_index.md` files for the given paths and rebuild the
+   * manifest. Extracted as a seam so tests can override and assert which
+   * paths were passed (the A ∪ B merge in step 5 is the central correctness
+   * invariant of the deferral). Production constructs the services here so
+   * the dependency surface of {@link DreamExecutorDeps} stays narrow.
+   */
+  protected async runStaleSummaryPropagation(args: {
+    agent: ICipherAgent
+    parentTaskId?: string
+    paths: string[]
+    projectRoot: string
+  }): Promise<void> {
+    const summaryService = new FileContextTreeSummaryService()
+    await summaryService.propagateStaleness(args.paths, args.agent, args.projectRoot, args.parentTaskId)
+    const manifestService = new FileContextTreeManifestService({baseDirectory: args.projectRoot})
+    await manifestService.buildManifest(args.projectRoot)
   }
 
   /** Errors are tracked at the log level (status='error'), not per-operation — always 0 here. */
@@ -329,13 +399,20 @@ export class DreamExecutor {
    * Dual-write: create curate log entries for dream operations that need human review.
    * This surfaces them in `brv review pending` without modifying the review system.
    */
-  private async createReviewEntries(
-    operations: DreamOperation[],
-    contextTreeDir: string,
-    taskId: string,
-  ): Promise<void> {
+  private async createReviewEntries(args: {
+    contextTreeDir: string
+    operations: DreamOperation[]
+    reviewDisabled: boolean
+    taskId: string
+  }): Promise<void> {
+    const {contextTreeDir, operations, reviewDisabled, taskId} = args
     const reviewOps = operations.filter((op) => op.needsReview)
     if (reviewOps.length === 0) return
+
+    // Honor `brv review --disable`: when disabled, dream's needsReview ops are not surfaced
+    // through the curate-log dual-write, so they don't appear in `brv review pending`.
+    // The flag is the daemon-stamped snapshot passed in via DreamExecuteOptions.
+    if (reviewDisabled) return
 
     const curateOps: CurateLogEntry['operations'] = reviewOps.map((op) =>
       mapDreamOpToCurateOp(op, contextTreeDir),
@@ -410,7 +487,7 @@ export class DreamExecutor {
     return new Set(results.filter((f): f is string => f !== null))
   }
 
-  private formatResult(logId: string, summary: DreamLogSummary): string {
+  private formatResult(logId: string, summary: DreamLogSummary, reviewDisabled: boolean): string {
     const parts = [`Dream completed (${logId})`]
     const counts = [
       summary.consolidated > 0 ? `${summary.consolidated} consolidated` : '',
@@ -427,12 +504,16 @@ export class DreamExecutor {
       parts.push(`${summary.errors} operations failed`)
     }
 
-    if (summary.flaggedForReview > 0) {
+    // Suppress when review is disabled — the count comes from LLM `needsReview` tags
+    // computed before the dual-write gate, so the ops were intentionally not enqueued
+    // and would not appear in `brv review pending`.
+    if (summary.flaggedForReview > 0 && !reviewDisabled) {
       parts.push(`${summary.flaggedForReview} operations flagged for review`)
     }
 
     return parts.join('\n')
   }
+
 }
 
 /** Map a dream operation to a curate log operation for the review system. */

@@ -5,6 +5,7 @@ import {
   getEffectiveMaxInputTokens,
   getMaxInputTokensForModel,
   getModelInfo,
+  modelAcceptsSamplingParameters,
 } from '../../../../../../src/agent/core/domain/llm/registry.js'
 
 describe('LLM Registry', () => {
@@ -94,6 +95,40 @@ describe('LLM Registry', () => {
         const tokens = getEffectiveMaxInputTokens('openai', 'some-small-model', 32_000)
         expect(tokens).to.equal(32_000)
       })
+    })
+  })
+
+  describe('modelAcceptsSamplingParameters', () => {
+    it('returns false for claude-opus-4-7 (registry-marked)', () => {
+      expect(modelAcceptsSamplingParameters('claude-opus-4-7')).to.equal(false)
+    })
+
+    it('returns false for OpenRouter-prefixed claude-opus-4-7', () => {
+      expect(modelAcceptsSamplingParameters('anthropic/claude-opus-4-7')).to.equal(false)
+    })
+
+    it('returns false for date-suffixed claude-opus-4-7 snapshots (family fallback)', () => {
+      expect(modelAcceptsSamplingParameters('claude-opus-4-7-20260101')).to.equal(false)
+    })
+
+    it('returns true for claude-opus-4-6', () => {
+      expect(modelAcceptsSamplingParameters('claude-opus-4-6')).to.equal(true)
+    })
+
+    it('returns true for claude-sonnet-4-6', () => {
+      expect(modelAcceptsSamplingParameters('claude-sonnet-4-6')).to.equal(true)
+    })
+
+    it('returns true for OpenRouter-prefixed claude-sonnet-4-6', () => {
+      expect(modelAcceptsSamplingParameters('anthropic/claude-sonnet-4-6')).to.equal(true)
+    })
+
+    it('returns true for unknown models (back-compat)', () => {
+      expect(modelAcceptsSamplingParameters('some-future-model')).to.equal(true)
+    })
+
+    it('returns true for older Claude 3 models', () => {
+      expect(modelAcceptsSamplingParameters('claude-3-opus-20240229')).to.equal(true)
     })
   })
 })

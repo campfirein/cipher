@@ -155,7 +155,7 @@ Bad:
         client,
         command: 'query',
         format,
-        onCompleted: ({result, taskId: tid}) => {
+        onCompleted: ({durationMs, matchedDocs, result, taskId: tid, tier, topScore}) => {
           const previousResult = finalResult
 
           // Always prefer the completed payload — it carries the attribution footer
@@ -180,11 +180,17 @@ Bad:
           if (format === 'json') {
             writeJsonResponse({
               command: 'query',
+              // Recall metadata is only present on query tasks; older daemons omit it. Spread
+              // conditionally so JSON consumers do not see undefined keys.
               data: {
+                ...(durationMs === undefined ? {} : {durationMs}),
                 event: 'completed',
+                ...(matchedDocs === undefined ? {} : {matchedDocs}),
                 result: finalResult,
                 status: 'completed',
                 taskId: tid,
+                ...(tier === undefined ? {} : {tier}),
+                ...(topScore === undefined ? {} : {topScore}),
               },
               success: true,
             })

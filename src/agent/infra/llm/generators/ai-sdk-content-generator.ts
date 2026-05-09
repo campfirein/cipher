@@ -5,7 +5,7 @@
  * Replaces per-provider content generators with one unified implementation.
  */
 
-import type {LanguageModel} from 'ai'
+import type {LanguageModel, ModelMessage} from 'ai'
 
 import {generateText, streamText} from 'ai'
 
@@ -23,11 +23,39 @@ import {toAiSdkTools, toModelMessages} from './ai-sdk-message-converter.js'
 const DEFAULT_CHARS_PER_TOKEN = 4
 
 /**
+ * Prepend the system prompt as a system-role message carrying
+ * `providerOptions.anthropic.cacheControl: ephemeral`. AI SDK's top-level
+ * `system: string` parameter does not propagate providerOptions, so the
+ * only way to attach Anthropic cache_control to the system block is to
+ * pass it through the messages array. Non-Anthropic providers ignore the
+ * `anthropic` namespace.
+ */
+export function prependCachedSystemMessage(systemPrompt: string | undefined, messages: ModelMessage[]): ModelMessage[] {
+  if (!systemPrompt) {
+    return messages
+  }
+
+  const systemMessage: ModelMessage = {
+    content: systemPrompt,
+    providerOptions: {anthropic: {cacheControl: {type: 'ephemeral'}}},
+    role: 'system',
+  }
+
+  return [systemMessage, ...messages]
+}
+
+/**
  * Configuration for AiSdkContentGenerator.
  */
 export interface AiSdkContentGeneratorConfig {
   /** Characters per token ratio for token estimation */
   charsPerToken?: number
+  /**
+   * Drop the sampling request parameters (`temperature`, `top_p`, `top_k`)
+   * before calling the model. Set when targeting models that reject these
+   * (e.g. Claude Opus 4.7 returns 400 on any non-default value).
+   */
+  excludeSamplingParameters?: boolean
   /** AI SDK LanguageModel instance */
   model: LanguageModel
 }
@@ -42,11 +70,13 @@ export interface AiSdkContentGeneratorConfig {
  */
 export class AiSdkContentGenerator implements IContentGenerator {
   private readonly charsPerToken: number
+  private readonly excludeSamplingParameters: boolean
   private readonly model: LanguageModel
 
   constructor(config: AiSdkContentGeneratorConfig) {
     this.model = config.model
     this.charsPerToken = config.charsPerToken ?? DEFAULT_CHARS_PER_TOKEN
+    this.excludeSamplingParameters = config.excludeSamplingParameters ?? false
   }
 
   public estimateTokensSync(content: string): number {
@@ -54,7 +84,7 @@ export class AiSdkContentGenerator implements IContentGenerator {
   }
 
   public async generateContent(request: GenerateContentRequest): Promise<GenerateContentResponse> {
-    const messages = toModelMessages(request.contents)
+    const messages = prependCachedSystemMessage(request.systemPrompt, toModelMessages(request.contents))
     const tools = toAiSdkTools(request.tools)
 
     const result = await generateText({
@@ -62,11 +92,8 @@ export class AiSdkContentGenerator implements IContentGenerator {
       maxRetries: 0, // RetryableContentGenerator handles retries
       messages,
       model: this.model,
-      temperature: request.config.temperature,
-      ...(request.systemPrompt && {system: request.systemPrompt}),
+      ...this.buildSamplingParams(request.config),
       ...(tools && {tools}),
-      ...(request.config.topK !== undefined && {topK: request.config.topK}),
-      ...(request.config.topP !== undefined && {topP: request.config.topP}),
     })
 
     // Map AI SDK tool calls to our ToolCall format
@@ -90,6 +117,7 @@ export class AiSdkContentGenerator implements IContentGenerator {
       content: result.text,
       finishReason: mapFinishReason(result.finishReason, toolCalls.length > 0),
       rawResponse: result.response,
+      ...(result.reasoningText && {reasoning: result.reasoningText}),
       toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
       usage: {
         completionTokens: result.usage.outputTokens ?? 0,
@@ -100,7 +128,7 @@ export class AiSdkContentGenerator implements IContentGenerator {
   }
 
   public async *generateContentStream(request: GenerateContentRequest): AsyncGenerator<GenerateContentChunk> {
-    const messages = toModelMessages(request.contents)
+    const messages = prependCachedSystemMessage(request.systemPrompt, toModelMessages(request.contents))
     const tools = toAiSdkTools(request.tools)
 
     const result = streamText({
@@ -108,11 +136,8 @@ export class AiSdkContentGenerator implements IContentGenerator {
       maxRetries: 0,
       messages,
       model: this.model,
-      temperature: request.config.temperature,
-      ...(request.systemPrompt && {system: request.systemPrompt}),
+      ...this.buildSamplingParams(request.config),
       ...(tools && {tools}),
-      ...(request.config.topK !== undefined && {topK: request.config.topK}),
-      ...(request.config.topP !== undefined && {topP: request.config.topP}),
     })
 
     // Accumulate tool calls during streaming
@@ -180,6 +205,21 @@ export class AiSdkContentGenerator implements IContentGenerator {
           break
         }
       }
+    }
+  }
+
+  /**
+   * Build the sampling-parameter slice for an AI SDK request. Returns an
+   * empty object when the model-level exclusion is set, so callers can spread
+   * the result into the request payload without conditionally emitting fields.
+   */
+  private buildSamplingParams(config: GenerateContentRequest['config']): Record<string, number> {
+    if (this.excludeSamplingParameters) return {}
+
+    return {
+      ...(config.temperature !== undefined && {temperature: config.temperature}),
+      ...(config.topK !== undefined && {topK: config.topK}),
+      ...(config.topP !== undefined && {topP: config.topP}),
     }
   }
 }
