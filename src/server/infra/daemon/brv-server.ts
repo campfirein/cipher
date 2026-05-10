@@ -43,6 +43,7 @@ import {
 } from '../../constants.js'
 import {
   type ProviderConfigResponse,
+  type TaskCurateResultEvent,
   type TaskQueryResultEvent,
   TransportStateEventNames,
   TransportTaskEventNames,
@@ -490,12 +491,26 @@ async function main(): Promise<void> {
     // Wire query metadata from agent process → QueryLogHandler.
     // Agent sends task:queryResult BEFORE task:completed (Socket.IO preserves order),
     // so setQueryResult runs before onTaskCompleted merges the metadata.
+    // payload now also carries `format` + `usage` for telemetry.
     transportServer.onRequest<TaskQueryResultEvent, void>(TransportTaskEventNames.QUERY_RESULT, (data) => {
       queryLogHandler.setQueryResult(data.taskId, {
+        ...(data.format !== undefined && {format: data.format}),
         matchedDocs: data.matchedDocs,
         searchMetadata: data.searchMetadata,
         tier: data.tier,
         timing: data.timing,
+        ...(data.usage !== undefined && {usage: data.usage}),
+      })
+    })
+
+    // wire curate telemetry from agent process → CurateLogHandler.
+    // Agent sends task:curateResult BEFORE task:completed (Socket.IO preserves
+    // order), so setCurateUsage runs before onTaskCompleted merges the entry.
+    transportServer.onRequest<TaskCurateResultEvent, void>(TransportTaskEventNames.CURATE_RESULT, (data) => {
+      curateLogHandler.setCurateUsage(data.taskId, {
+        ...(data.format !== undefined && {format: data.format}),
+        ...(data.timing !== undefined && {timing: data.timing}),
+        ...(data.usage !== undefined && {usage: data.usage}),
       })
     })
 
