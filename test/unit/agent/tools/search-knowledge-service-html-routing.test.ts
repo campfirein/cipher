@@ -144,6 +144,89 @@ describe('Search Service HTML routing', () => {
     })
   })
 
+  describe('bv-topic attribute payload reaches BM25', () => {
+    // The markdown corpus exposes summary/tags/keywords/related via
+    // YAML frontmatter, which the indexer feeds into BM25 verbatim. The
+    // HTML branch parses topic attributes off `<bv-topic>` and must
+    // concatenate the same set into the BM25 input — otherwise a query
+    // for a term living only in `summary=` of an HTML topic ranks far
+    // below the equivalent MD topic.
+    const FINGERPRINT = 'fingerprintqzz'
+    const HTML_WITH_FINGERPRINT_IN_SUMMARY = `<bv-topic path="x" title="t" summary="${FINGERPRINT} appears only here">
+  <bv-reason>body has nothing about that term</bv-reason>
+</bv-topic>`
+
+    beforeEach(() => {
+      listDirectoryStub.resolves({count: 1, entries: [], tree: '', truncated: false})
+      globFilesStub.resolves({
+        files: [
+          {
+            isDirectory: false,
+            modified: new Date('2026-04-27'),
+            path: '/test/.brv/context-tree/x.html',
+            size: HTML_WITH_FINGERPRINT_IN_SUMMARY.length,
+          },
+        ],
+        ignoredCount: 0,
+        message: 'Found 1 file',
+        totalFound: 1,
+        truncated: false,
+      })
+      readFileStub.resolves({
+        content: HTML_WITH_FINGERPRINT_IN_SUMMARY,
+        encoding: 'utf8',
+        lines: 3,
+        size: HTML_WITH_FINGERPRINT_IN_SUMMARY.length,
+        totalLines: 3,
+        truncated: false,
+      })
+    })
+
+    it('surfaces an HTML topic when the query term lives only in the bv-topic summary attribute', async () => {
+      const service = createSearchKnowledgeService(fileSystemMock)
+      const result = await service.search(FINGERPRINT)
+
+      const htmlMatch = result.results.find((r) => r.path.endsWith('.html'))
+      expect(htmlMatch, `expected fingerprint in summary= to be searchable`).to.not.equal(undefined)
+    })
+  })
+
+  describe('title fallback', () => {
+    it('falls back to the filename when bv-topic title is empty/whitespace', async () => {
+      const HTML_BLANK_TITLE = '<bv-topic path="x" title="   "><bv-reason>tokens here</bv-reason></bv-topic>'
+
+      listDirectoryStub.resolves({count: 1, entries: [], tree: '', truncated: false})
+      globFilesStub.resolves({
+        files: [
+          {
+            isDirectory: false,
+            modified: new Date('2026-04-27'),
+            path: '/test/.brv/context-tree/blank.html',
+            size: HTML_BLANK_TITLE.length,
+          },
+        ],
+        ignoredCount: 0,
+        message: 'Found 1 file',
+        totalFound: 1,
+        truncated: false,
+      })
+      readFileStub.resolves({
+        content: HTML_BLANK_TITLE,
+        encoding: 'utf8',
+        lines: 1,
+        size: HTML_BLANK_TITLE.length,
+        totalLines: 1,
+        truncated: false,
+      })
+
+      const service = createSearchKnowledgeService(fileSystemMock)
+      const result = await service.search('tokens')
+
+      const htmlMatch = result.results.find((r) => r.path.endsWith('.html'))
+      expect(htmlMatch?.title).to.equal('blank')
+    })
+  })
+
   describe('elementHint pre-filter', () => {
     beforeEach(() => {
       listDirectoryStub.resolves({count: 2, entries: [], tree: '', truncated: false})

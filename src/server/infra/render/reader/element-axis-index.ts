@@ -24,42 +24,52 @@ import type {ElementAxisEntry} from './html-reader.js'
  *
  * Persistence is deferred — rebuild on first-query-after-restart is
  * cheap (sub-100ms for the corpus sizes the bench produces).
+ *
+ * Storage uses nested Maps (`tag → attr → value → Set<path>`) rather
+ * than a stringly-keyed `${tag}.${attr}=${value}` table. HTML attribute
+ * names and values can legally contain `.` and `=`; nesting eliminates
+ * the entire collision class without a delimiter discipline.
  */
 export class ElementAxisIndex {
-  /** `tag.attr=value` → set of file paths containing such an element. */
-  private readonly attrToPaths: Map<string, Set<string>> = new Map()
+  /** `tag → attr → value → Set<filePath>`. Three-level nest avoids string-key collisions. */
+  private readonly attrIndex: Map<ElementName, Map<string, Map<string, Set<string>>>> = new Map()
   /**
-   * Reverse map from filePath → composite keys it contributed to. Lets
-   * us drop a file from every membership in O(keys-it-touches) on
-   * invalidation without scanning the full index.
+   * Reverse map from `filePath` to the set of `(tag, attr, value)` triples
+   * (and bare tag memberships) it contributed to. Lets us drop a file
+   * from every membership in O(memberships) on invalidation without
+   * scanning the full index.
+   *
+   * Each entry is one of:
+   *   - `{kind: 'tag', tag}`
+   *   - `{kind: 'attr', tag, attr, value}`
    */
-  private readonly pathToKeys: Map<string, Set<string>> = new Map()
-  /** `tag` → set of file paths containing at least one element of that tag. */
-  private readonly tagToPaths: Map<ElementName, Set<string>> = new Map()
+  private readonly pathToMemberships: Map<string, Membership[]> = new Map()
+  /** `tag → Set<filePath>`. */
+  private readonly tagIndex: Map<ElementName, Set<string>> = new Map()
 
   /** How many paths the index currently knows about. Mainly for tests. */
   public get size(): number {
-    return this.pathToKeys.size
+    return this.pathToMemberships.size
   }
 
   /**
    * Register every element in `entries` against `filePath`. Idempotent —
    * calling `add` twice for the same path stacks duplicates harmlessly
    * (Set semantics dedupes), but callers should `remove` first to keep
-   * the path-to-keys reverse map accurate when re-indexing.
+   * the path-to-memberships reverse map accurate when re-indexing.
    */
   public add(filePath: string, entries: readonly ElementAxisEntry[]): void {
-    let keys = this.pathToKeys.get(filePath)
-    if (!keys) {
-      keys = new Set()
-      this.pathToKeys.set(filePath, keys)
+    let memberships = this.pathToMemberships.get(filePath)
+    if (!memberships) {
+      memberships = []
+      this.pathToMemberships.set(filePath, memberships)
     }
 
     for (const entry of entries) {
-      this.addToTagIndex(entry.tag, filePath, keys)
+      this.addToTagIndex(entry.tag, filePath, memberships)
 
-      for (const [name, value] of Object.entries(entry.attributes)) {
-        this.addToAttrIndex(entry.tag, name, value, filePath, keys)
+      for (const [attr, value] of Object.entries(entry.attributes)) {
+        this.addToAttrIndex(entry.tag, attr, value, filePath, memberships)
       }
     }
   }
@@ -69,9 +79,9 @@ export class ElementAxisIndex {
    * switch or on first-query-after-restart).
    */
   public clear(): void {
-    this.tagToPaths.clear()
-    this.attrToPaths.clear()
-    this.pathToKeys.clear()
+    this.tagIndex.clear()
+    this.attrIndex.clear()
+    this.pathToMemberships.clear()
   }
 
   /**
@@ -81,8 +91,8 @@ export class ElementAxisIndex {
    * verbatim).
    */
   public findByAttribute(tag: ElementName, attribute: string, value: string): readonly string[] {
-    const key = composeKey(tag, attribute, value)
-    return [...(this.attrToPaths.get(key) ?? [])]
+    const set = this.attrIndex.get(tag)?.get(attribute)?.get(value)
+    return set ? [...set] : []
   }
 
   /**
@@ -91,7 +101,8 @@ export class ElementAxisIndex {
    * as a candidate set without null-checks.
    */
   public findByTag(tag: ElementName): readonly string[] {
-    return [...(this.tagToPaths.get(tag) ?? [])]
+    const set = this.tagIndex.get(tag)
+    return set ? [...set] : []
   }
 
   /**
@@ -99,58 +110,81 @@ export class ElementAxisIndex {
    * a touched topic, and when a topic file is deleted.
    */
   public remove(filePath: string): void {
-    const keys = this.pathToKeys.get(filePath)
-    if (!keys) return
+    const memberships = this.pathToMemberships.get(filePath)
+    if (!memberships) return
 
-    for (const key of keys) {
-      const set = key.includes('=')
-        ? this.attrToPaths.get(key)
-        : this.tagToPaths.get(key as ElementName)
-      if (!set) continue
+    for (const m of memberships) {
+      if (m.kind === 'tag') {
+        const set = this.tagIndex.get(m.tag)
+        if (!set) continue
 
-      set.delete(filePath)
-      if (set.size === 0) {
-        if (key.includes('=')) {
-          this.attrToPaths.delete(key)
-        } else {
-          this.tagToPaths.delete(key as ElementName)
+        set.delete(filePath)
+        if (set.size === 0) {
+          this.tagIndex.delete(m.tag)
+        }
+      } else {
+        const tagBucket = this.attrIndex.get(m.tag)
+        const attrBucket = tagBucket?.get(m.attr)
+        const set = attrBucket?.get(m.value)
+        if (!set || !tagBucket || !attrBucket) continue
+
+        set.delete(filePath)
+        if (set.size === 0) {
+          attrBucket.delete(m.value)
+          if (attrBucket.size === 0) {
+            tagBucket.delete(m.attr)
+            if (tagBucket.size === 0) {
+              this.attrIndex.delete(m.tag)
+            }
+          }
         }
       }
     }
 
-    this.pathToKeys.delete(filePath)
+    this.pathToMemberships.delete(filePath)
   }
 
   private addToAttrIndex(
     tag: ElementName,
-    attribute: string,
+    attr: string,
     value: string,
     filePath: string,
-    keys: Set<string>,
+    memberships: Membership[],
   ): void {
-    const key = composeKey(tag, attribute, value)
-    let set = this.attrToPaths.get(key)
+    let tagBucket = this.attrIndex.get(tag)
+    if (!tagBucket) {
+      tagBucket = new Map()
+      this.attrIndex.set(tag, tagBucket)
+    }
+
+    let attrBucket = tagBucket.get(attr)
+    if (!attrBucket) {
+      attrBucket = new Map()
+      tagBucket.set(attr, attrBucket)
+    }
+
+    let set = attrBucket.get(value)
     if (!set) {
       set = new Set()
-      this.attrToPaths.set(key, set)
+      attrBucket.set(value, set)
     }
 
     set.add(filePath)
-    keys.add(key)
+    memberships.push({attr, kind: 'attr', tag, value})
   }
 
-  private addToTagIndex(tag: ElementName, filePath: string, keys: Set<string>): void {
-    let set = this.tagToPaths.get(tag)
+  private addToTagIndex(tag: ElementName, filePath: string, memberships: Membership[]): void {
+    let set = this.tagIndex.get(tag)
     if (!set) {
       set = new Set()
-      this.tagToPaths.set(tag, set)
+      this.tagIndex.set(tag, set)
     }
 
     set.add(filePath)
-    keys.add(tag)
+    memberships.push({kind: 'tag', tag})
   }
 }
 
-function composeKey(tag: ElementName, attribute: string, value: string): string {
-  return `${tag}.${attribute}=${value}`
-}
+type Membership =
+  | {attr: string; kind: 'attr'; tag: ElementName; value: string}
+  | {kind: 'tag'; tag: ElementName}

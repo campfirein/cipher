@@ -13,8 +13,11 @@
  */
 
 import {expect} from 'chai'
+import {mkdtemp, rm, writeFile} from 'node:fs/promises'
+import {tmpdir} from 'node:os'
+import {join} from 'node:path'
 
-import {readHtmlTopicSync} from '../../../../../../src/server/infra/render/reader/html-reader.js'
+import {readHtmlTopic, readHtmlTopicSync} from '../../../../../../src/server/infra/render/reader/html-reader.js'
 
 describe('html-reader', () => {
   describe('readHtmlTopicSync', () => {
@@ -96,6 +99,39 @@ describe('html-reader', () => {
       const result = readHtmlTopicSync(html)
       const ruleCount = result.elements.filter((e) => e.tag === 'bv-rule').length
       expect(ruleCount).to.equal(1)
+    })
+
+    it('lifts attributes off the FIRST bv-topic encountered, not the first non-empty one', () => {
+      // Malformed input: a zero-attribute `<bv-topic>` followed by a
+      // sibling that carries attributes. The contract says topic
+      // attributes are lifted off the root — so the empty map wins.
+      // Without this guarantee, downstream consumers (BM25 title hint,
+      // element-axis index keys) silently disagree about which root
+      // they're describing.
+      const html = '<bv-topic></bv-topic><bv-topic path="b" title="second"></bv-topic>'
+      const result = readHtmlTopicSync(html)
+      expect(Object.keys(result.topicAttributes)).to.have.lengthOf(0)
+    })
+  })
+
+  describe('readHtmlTopic (FS-backed wrapper)', () => {
+    it('round-trips through the filesystem and returns the parsed shape', async () => {
+      const dir = await mkdtemp(join(tmpdir(), 'html-reader-fs-'))
+      const path = join(dir, 'topic.html')
+      try {
+        await writeFile(
+          path,
+          '<bv-topic path="x" title="t" summary="s"><bv-rule severity="must">r</bv-rule></bv-topic>',
+          'utf8',
+        )
+        const result = await readHtmlTopic(path)
+        expect(result.topicAttributes.title).to.equal('t')
+        expect(result.topicAttributes.summary).to.equal('s')
+        expect(result.elements.map((e) => e.tag)).to.deep.equal(['bv-topic', 'bv-rule'])
+        expect(result.bodyText).to.include('r')
+      } finally {
+        await rm(dir, {force: true, recursive: true})
+      }
     })
   })
 })

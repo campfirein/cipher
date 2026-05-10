@@ -274,14 +274,15 @@ export interface SearchKnowledgeServiceConfig {
  * `<bv-*>` element. Reserved for the structural-selector grammar (the
  * eventual `bv-rule[severity=must]` syntax); search callers today
  * leave it unset and rely on full-corpus BM25.
+ *
+ * Discriminated union: either match by tag alone, or by tag plus an
+ * `attribute=value` pair. A half-set `{attribute}` without `value`
+ * (or vice versa) is rejected at compile time so callers can't
+ * silently lose their filtering intent.
  */
-export interface ElementHint {
-  /** Optional attribute name to constrain the match. */
-  attribute?: string
-  tag: ElementName
-  /** Required when `attribute` is set. Exact-match comparison. */
-  value?: string
-}
+export type ElementHint =
+  | {attribute: string; tag: ElementName; value: string}
+  | {tag: ElementName}
 
 /**
  * Extended search options supporting symbolic filters.
@@ -507,28 +508,45 @@ async function findContextFilesWithMtime(
   fileSystem: IFileSystem,
   contextTreePath: string,
 ): Promise<Array<{mtime: number; path: string}>> {
-  try {
-    const globResult = await fileSystem.globFiles(`**/*.{html,md}`, {
-      cwd: contextTreePath,
-      includeMetadata: true,
-      maxResults: MAX_CONTEXT_TREE_FILES,
-      respectGitignore: false,
-    })
+  // Two parallel passes (one per extension) instead of brace expansion so
+  // the discovery isn't coupled to whatever glob engine
+  // `IFileSystem.globFiles` delegates to. Some engines don't expand
+  // `{html,md}` and would silently drop one branch — caught here only as
+  // a missing index entry, well after the daemon has cached the partial
+  // corpus. Per-pass failures collapse to an empty result for that
+  // branch only; the other pass still produces its files.
+  const runPass = async (pattern: string) => {
+    try {
+      const globResult = await fileSystem.globFiles(pattern, {
+        cwd: contextTreePath,
+        includeMetadata: true,
+        maxResults: MAX_CONTEXT_TREE_FILES,
+        respectGitignore: false,
+      })
+      return globResult.files
+    } catch {
+      return []
+    }
+  }
 
-    return globResult.files.map((f) => {
+  const passResults = await Promise.all([runPass('**/*.html'), runPass('**/*.md')])
+
+  const seen = new Map<string, {mtime: number; path: string}>()
+  for (const files of passResults) {
+    for (const f of files) {
       let relativePath = f.path
       if (f.path.startsWith(contextTreePath)) {
         relativePath = f.path.slice(contextTreePath.length + 1)
       }
 
-      return {
+      seen.set(relativePath, {
         mtime: f.modified?.getTime() ?? 0,
         path: relativePath,
-      }
-    })
-  } catch {
-    return []
+      })
+    }
   }
+
+  return [...seen.values()]
 }
 
 function isCacheValid(cache: CachedIndex, currentFiles: Array<{mtime: number; path: string}>): boolean {
@@ -573,11 +591,23 @@ async function readIndexableContent(
     const {content} = await fileSystem.readFile(fullPath)
     if (getFormatForRead(filePath) === 'html') {
       const parsed = readHtmlTopicSync(content)
+      // Concatenate the searchable subset of `<bv-topic>` attributes
+      // into the BM25 input. The markdown corpus exposes the same
+      // signals via YAML frontmatter (which the MD branch passes through
+      // verbatim), so without this step a query for a term living only
+      // in `summary=`/`tags=`/`keywords=`/`related=` would rank an HTML
+      // topic strictly below the MD equivalent. `title` already carries
+      // a 3x field boost via the `title` column and is intentionally
+      // omitted here.
+      const {keywords, related, summary, tags} = parsed.topicAttributes
+      const indexedContent = [parsed.bodyText, summary, tags, keywords, related]
+        .filter((part): part is string => typeof part === 'string' && part.length > 0)
+        .join(' ')
       return {
         elements: parsed.elements,
         format: 'html',
         htmlTitleHint: parsed.topicAttributes.title,
-        indexedContent: parsed.bodyText,
+        indexedContent,
         rawContent: content,
       }
     }
@@ -627,8 +657,11 @@ async function indexOriginDocuments(
     if (!read) return null
 
     const fallbackTitle = filePath.replace(/\.(html?|md)$/i, '').split('/').pop() ?? filePath
+    // Trim before falling back: a `title=""` (or whitespace-only) attribute
+    // survives the schema's `passthrough` permissiveness and would
+    // otherwise leak into BM25's 3x-boosted `title` field.
     const title = read.format === 'html'
-      ? read.htmlTitleHint ?? fallbackTitle
+      ? (read.htmlTitleHint?.trim() || fallbackTitle)
       : extractTitle(read.rawContent, fallbackTitle)
     const qualifiedId = `${origin.originKey}::${filePath}`
     const symbolPath = getSymbolPath(origin, filePath)
@@ -1373,10 +1406,10 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
     // the search service signature.
     let elementHintIds: Set<string> | undefined
     if (options?.elementHint) {
-      const {attribute, tag, value} = options.elementHint
-      const matching = attribute !== undefined && value !== undefined
-        ? elementAxisIndex.findByAttribute(tag, attribute, value)
-        : elementAxisIndex.findByTag(tag)
+      const hint = options.elementHint
+      const matching = 'attribute' in hint
+        ? elementAxisIndex.findByAttribute(hint.tag, hint.attribute, hint.value)
+        : elementAxisIndex.findByTag(hint.tag)
       elementHintIds = new Set(matching)
     }
 

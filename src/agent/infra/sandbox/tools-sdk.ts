@@ -97,15 +97,15 @@ export interface ListDirectoryOptions {
  * `<bv-*>` element. Wired but unused by today's callers — the
  * structural-selector grammar will plug into this without reshaping
  * the search call signature.
+ *
+ * Discriminated union: either filter by tag alone, or by tag plus an
+ * `attribute=value` pair. A half-set form is rejected at compile time
+ * so callers can't silently drop a value and get broader results than
+ * they asked for.
  */
-export interface SearchKnowledgeElementHint {
-  /** Optional attribute name to constrain the match. Requires `value`. */
-  attribute?: string
-  /** `<bv-*>` tag name (e.g. "bv-rule"). */
-  tag: string
-  /** Required when `attribute` is set. Exact-match comparison. */
-  value?: string
-}
+export type SearchKnowledgeElementHint =
+  | {attribute: string; tag: string; value: string}
+  | {tag: string}
 
 /**
  * Options for searchKnowledge operation in ToolsSDK.

@@ -60,10 +60,18 @@ export function readHtmlTopicSync(html: string): HtmlTopicRead {
 
   const elements: ElementAxisEntry[] = []
   let topicAttributes: TopicAttributes = {}
+  let topicSeen = false
 
   for (const el of allElements) {
-    if (el.tagName === 'bv-topic' && Object.keys(topicAttributes).length === 0) {
+    // Lift attributes off the FIRST `bv-topic` encountered, regardless
+    // of whether its attribute map is empty. The schema requires
+    // `path` + `title`, but malformed input (zero-attribute `<bv-topic>`
+    // followed by a populated sibling) used to silently lift the
+    // sibling — the contract says "root", and the implementation now
+    // matches that.
+    if (el.tagName === 'bv-topic' && !topicSeen) {
       topicAttributes = el.attributes
+      topicSeen = true
     }
 
     if (!isRegisteredElementName(el.tagName)) continue

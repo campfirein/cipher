@@ -124,4 +124,40 @@ describe('ElementAxisIndex', () => {
       expect(index.findByAttribute('bv-rule', 'severity', 'must')).to.have.lengthOf(0)
     })
   })
+
+  describe('attribute name/value robustness', () => {
+    // A stringly-keyed `${tag}.${attr}=${value}` table would conflate these:
+    // `('bv-rule', 'severity', 'must=high')` and `('bv-rule', 'severity=must', 'high')`
+    // both compose to `bv-rule.severity=must=high`. The nested-Map storage
+    // keeps them separated.
+    it('disambiguates an "=" character in the attribute value from a delimiter', () => {
+      const index = new ElementAxisIndex()
+      index.add('a.html', [{attributes: {severity: 'must=high'}, tag: 'bv-rule'}])
+      index.add('b.html', [{attributes: {'severity=must': 'high'}, tag: 'bv-rule'}])
+
+      expect(index.findByAttribute('bv-rule', 'severity', 'must=high')).to.deep.equal(['a.html'])
+      expect(index.findByAttribute('bv-rule', 'severity=must', 'high')).to.deep.equal(['b.html'])
+    })
+
+    it('disambiguates an "." character in the attribute name from a delimiter', () => {
+      const index = new ElementAxisIndex()
+      // `bv-rule` with attribute `data.severity=must`
+      index.add('a.html', [{attributes: {'data.severity': 'must'}, tag: 'bv-rule'}])
+      // and a (hypothetical) `bv-rule` with attribute `data` valued `severity=must`
+      index.add('b.html', [{attributes: {data: 'severity=must'}, tag: 'bv-rule'}])
+
+      expect(index.findByAttribute('bv-rule', 'data.severity', 'must')).to.deep.equal(['a.html'])
+      expect(index.findByAttribute('bv-rule', 'data', 'severity=must')).to.deep.equal(['b.html'])
+    })
+
+    it('remove() unwinds nested attribute buckets cleanly', () => {
+      const index = new ElementAxisIndex()
+      index.add('a.html', [{attributes: {severity: 'must=high'}, tag: 'bv-rule'}])
+      index.remove('a.html')
+
+      expect(index.findByAttribute('bv-rule', 'severity', 'must=high')).to.have.lengthOf(0)
+      expect(index.findByTag('bv-rule')).to.have.lengthOf(0)
+      expect(index.size).to.equal(0)
+    })
+  })
 })
