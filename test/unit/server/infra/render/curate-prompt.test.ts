@@ -17,6 +17,7 @@ import {readFileSync} from 'node:fs'
 import {join} from 'node:path'
 
 import {ELEMENT_NAMES} from '../../../../../src/server/core/domain/render/element-types.js'
+import {ELEMENT_REGISTRY} from '../../../../../src/server/infra/render/elements/registry.js'
 
 const PROMPT_PATH = join(process.cwd(), 'src/agent/resources/tools/curate.txt')
 
@@ -33,19 +34,27 @@ describe('curate.txt prompt', () => {
       }
     })
 
-    it('flags `path` as the required attribute on bv-topic', () => {
-      // Required-vs-optional is the only attribute distinction the
-      // validator enforces today; if the prompt drops the requirement,
-      // generation drifts and bv-topic emits without `path`.
+    it('flags `path` and `title` as required attributes on bv-topic', () => {
       const prompt = loadPrompt()
-      expect(prompt).to.match(/required attributes:[\s\S]*?`path`/)
+      // Both are REQUIRED on bv-topic per the schema; the prompt must say so.
+      expect(prompt).to.match(/`path`[^\n]*REQUIRED/i)
+      expect(prompt).to.match(/`title`[^\n]*REQUIRED/i)
     })
 
-    it('lists all bv-topic optional attributes (importance, maturity, recency, updatedat)', () => {
+    it('lists bv-topic frontmatter optional attributes (summary, tags, keywords, related)', () => {
       const prompt = loadPrompt()
-      for (const attr of ['importance', 'maturity', 'recency', 'updatedat']) {
-        expect(prompt, `expected prompt to mention bv-topic optional attribute "${attr}"`).to.include(`\`${attr}\``)
+      for (const attr of ['summary', 'tags', 'keywords', 'related']) {
+        expect(prompt, `expected prompt to mention bv-topic frontmatter attribute "${attr}"`).to.include(`\`${attr}\``)
       }
+    })
+
+    it('explicitly excludes runtime signals from bv-topic attributes', () => {
+      const prompt = loadPrompt().toLowerCase()
+      // The prompt must instruct the LLM NOT to author runtime-signal
+      // attributes — those live in the sidecar store. If this assertion
+      // disappears, the LLM may start emitting noisy importance/recency
+      // attributes again.
+      expect(prompt).to.match(/not.*bv-topic.*importance|importance[\s\S]*sidecar|do not.*importance/)
     })
 
     it('lists severity enum values for bv-rule (info|should|must)', () => {
@@ -62,10 +71,34 @@ describe('curate.txt prompt', () => {
       }
     })
 
-    it('lists maturity enum values for bv-topic (draft|validated|core)', () => {
+    it('lists category enum values for bv-fact', () => {
       const prompt = loadPrompt()
-      for (const value of ['draft', 'validated', 'core']) {
-        expect(prompt).to.include(`"${value}"`)
+      for (const value of ['personal', 'project', 'preference', 'convention', 'team', 'environment', 'other']) {
+        expect(prompt, `expected category value "${value}" in prompt`).to.include(`"${value}"`)
+      }
+    })
+
+    it('lists type enum values for bv-diagram', () => {
+      const prompt = loadPrompt()
+      for (const value of ['mermaid', 'plantuml', 'ascii', 'dot', 'graphviz']) {
+        expect(prompt, `expected diagram type "${value}" in prompt`).to.include(`"${value}"`)
+      }
+    })
+
+    it('declares each registered element somewhere with an explanatory blurb', () => {
+      // Stronger drift guard than just-mention: every element must have
+      // at least one mention adjacent to either an attribute reference
+      // or a "renders as" / "## section" / "block content" / "inline"
+      // signal — i.e., the prompt actually describes the element rather
+      // than just naming it in passing.
+      const prompt = loadPrompt()
+      for (const name of ELEMENT_NAMES) {
+        if (name === 'bv-topic') continue
+        const idx = prompt.indexOf(`<${name}>`)
+        expect(idx, `expected <${name}> mentioned`).to.be.greaterThan(-1)
+        const window = prompt.slice(idx, idx + 600)
+        const hasContext = /renders as|`##|block content|inline|optional|REQUIRED|attribute/i.test(window)
+        expect(hasContext, `expected explanatory context near <${name}>`).to.equal(true)
       }
     })
   })
@@ -96,6 +129,17 @@ describe('curate.txt prompt', () => {
     it('forbids clarifying questions', () => {
       const prompt = loadPrompt()
       expect(prompt.toLowerCase()).to.include('clarifying question')
+    })
+  })
+
+  describe('field coverage matches registry', () => {
+    it('mentions every required attribute declared in the registry for every element', () => {
+      const prompt = loadPrompt()
+      for (const name of ELEMENT_NAMES) {
+        for (const attr of ELEMENT_REGISTRY[name].requiredAttributes) {
+          expect(prompt, `expected prompt to mention required attr "${attr}" of <${name}>`).to.include(`\`${attr}\``)
+        }
+      }
     })
   })
 })

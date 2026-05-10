@@ -1,7 +1,7 @@
 /**
  * Sample-topic round-trip test.
  *
- * Verifies that the M1 5-element vocabulary, applied to a realistic
+ * Verifies that the M1 element vocabulary, applied to a realistic
  * topic file, parses cleanly, validates per-element, and round-trips
  * (parse → walk → re-serialize) without semantic loss.
  *
@@ -42,7 +42,7 @@ describe('sample-topic.html round-trip', () => {
       expect(topics).to.have.lengthOf(1)
     })
 
-    it('contains all 5 M1 element types at least once', () => {
+    it('contains every M1 element type at least once', () => {
       const elements = walkElements(parseHtml(loadFixture()))
       const tagSet = new Set(elements.map((e) => e.tagName))
       for (const name of ELEMENT_NAMES) {
@@ -50,25 +50,25 @@ describe('sample-topic.html round-trip', () => {
       }
     })
 
-    it('preserves the bv-topic root attributes', () => {
+    it('preserves the bv-topic frontmatter attributes', () => {
       const elements = walkElements(parseHtml(loadFixture()))
       const topic = elements.find((e) => e.tagName === 'bv-topic')!
       expect(topic.attributes.path).to.equal('security/auth')
-      expect(topic.attributes.importance).to.equal('89')
-      expect(topic.attributes.maturity).to.equal('core')
-      expect(topic.attributes.updatedat).to.equal('2026-04-27T08:17:42Z')
+      expect(topic.attributes.title).to.equal('Authentication and Authorization')
+      expect(topic.attributes.tags).to.equal('security,authentication')
+      expect(topic.attributes.keywords).to.include('jwt')
+      expect(topic.attributes.related).to.include('@security/cookies')
     })
 
-    it('lowercases attribute names per HTML5 spec (updatedAt → updatedat)', () => {
-      // Regression: the fixture intentionally uses camelCase `updatedAt=` to
-      // exercise parse5's HTML5 attribute-name normalization. Schemas and
-      // consumers must look up the lowercase key; the camelCase key must
-      // not survive parsing.
-      const fixture = loadFixture()
-      expect(fixture, 'fixture should contain camelCase source').to.include('updatedAt=')
-      const topic = walkElements(parseHtml(fixture)).find((e) => e.tagName === 'bv-topic')!
-      expect(topic.attributes.updatedat).to.not.equal(undefined)
-      expect(topic.attributes.updatedAt).to.equal(undefined)
+    it('does NOT carry runtime-signal attributes on bv-topic', () => {
+      // importance/maturity/recency/updatedat live in the runtime-signal
+      // sidecar store, not in topic file content. The fixture must not
+      // re-introduce them.
+      const elements = walkElements(parseHtml(loadFixture()))
+      const topic = elements.find((e) => e.tagName === 'bv-topic')!
+      for (const sidecar of ['importance', 'maturity', 'recency', 'updatedat']) {
+        expect(topic.attributes[sidecar], `expected ${sidecar} to NOT appear on bv-topic`).to.equal(undefined)
+      }
     })
   })
 
@@ -139,6 +139,36 @@ describe('sample-topic.html round-trip', () => {
       expect(innerText).to.include('RS256')
       expect(innerText).to.include('refresh')
       expect(innerText).to.include('logout')
+    })
+  })
+
+  describe('renderable-MD coverage', () => {
+    // The M1 vocabulary's promise: every section the markdown writer
+    // renders has a dedicated bv-* element. The fixture exercises that
+    // by including every renderable section at least once.
+    it('covers every renderable .md section via dedicated elements', () => {
+      const elements = walkElements(parseHtml(loadFixture()))
+      const tags = new Set(elements.map((e) => e.tagName))
+      // Frontmatter mapping (attributes on bv-topic) is covered by the
+      // 'preserves the bv-topic frontmatter attributes' test above.
+      // Body sections live on dedicated elements:
+      const renderableSections = [
+        'bv-reason',         // ## Reason
+        'bv-task',           // ## Raw Concept > Task
+        'bv-changes',        // ## Raw Concept > Changes
+        'bv-files',          // ## Raw Concept > Files
+        'bv-flow',           // ## Raw Concept > Flow
+        'bv-structure',      // ## Narrative > Structure
+        'bv-dependencies',   // ## Narrative > Dependencies
+        'bv-highlights',     // ## Narrative > Highlights
+        'bv-rule',           // ## Narrative > Rules (each rule)
+        'bv-examples',       // ## Narrative > Examples
+        'bv-diagram',        // ## Narrative > Diagrams (each diagram)
+        'bv-fact',           // ## Facts (each fact)
+      ]
+      for (const tag of renderableSections) {
+        expect(tags.has(tag), `expected ${tag} to cover its rendered section`).to.equal(true)
+      }
     })
   })
 })

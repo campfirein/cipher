@@ -14,12 +14,43 @@
  */
 
 /**
- * The five M1 element names. Adding to this list must be an additive
- * operation; downstream consumers iterate the registry generically.
+ * The M1 element names. The HTML curate format must round-trip through
+ * the markdown writer without information loss; the vocabulary covers
+ * everything the writer renders into the `.md` file:
+ *
+ *   bv-topic        — root container; carries frontmatter as attributes.
+ *   bv-reason       — `## Reason` body section.
+ *   bv-task,        — `## Raw Concept` sub-fields:
+ *   bv-changes,       Task / Changes / Files / Flow.
+ *   bv-files,
+ *   bv-flow
+ *   bv-structure,   — `## Narrative` sub-fields:
+ *   bv-dependencies,  Structure / Dependencies / Highlights /
+ *   bv-highlights,    Rules / Examples / Diagrams.
+ *   bv-rule,
+ *   bv-examples,
+ *   bv-diagram
+ *   bv-fact         — `## Facts` list entry (subject/category/value attrs).
+ *   bv-decision     — net-new in M1: decision record.
+ *   bv-bug, bv-fix  — net-new in M1: paired bug + fix runbook entries.
+ *
+ * Adding to this list must be an additive operation; downstream
+ * consumers iterate the registry generically.
  */
 export const ELEMENT_NAMES = [
   'bv-topic',
+  'bv-reason',
+  'bv-task',
+  'bv-changes',
+  'bv-files',
+  'bv-flow',
+  'bv-structure',
+  'bv-dependencies',
+  'bv-highlights',
   'bv-rule',
+  'bv-examples',
+  'bv-diagram',
+  'bv-fact',
   'bv-decision',
   'bv-bug',
   'bv-fix',

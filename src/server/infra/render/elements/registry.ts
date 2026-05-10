@@ -1,33 +1,59 @@
 import type {ElementRegistry} from '../../../core/domain/render/element-types.js'
 
 import {validateBvBug} from './bv-bug/validator.js'
+import {validateBvChanges} from './bv-changes/validator.js'
 import {validateBvDecision} from './bv-decision/validator.js'
+import {validateBvDependencies} from './bv-dependencies/validator.js'
+import {validateBvDiagram} from './bv-diagram/validator.js'
+import {validateBvExamples} from './bv-examples/validator.js'
+import {validateBvFact} from './bv-fact/validator.js'
+import {validateBvFiles} from './bv-files/validator.js'
 import {validateBvFix} from './bv-fix/validator.js'
+import {validateBvFlow} from './bv-flow/validator.js'
+import {validateBvHighlights} from './bv-highlights/validator.js'
+import {validateBvReason} from './bv-reason/validator.js'
 import {validateBvRule} from './bv-rule/validator.js'
+import {validateBvStructure} from './bv-structure/validator.js'
+import {validateBvTask} from './bv-task/validator.js'
 import {validateBvTopic} from './bv-topic/validator.js'
 
 /**
- * The M1 element registry — single source of truth for the 5-element
- * vocabulary. M2 vocabulary expansion (12 more elements per Andy's
- * proposal §11) is **purely additive**: add a new entry here and a new
- * `<name>/{schema,validator}.ts` pair under `elements/`. No consumer
- * (writer, reader, indexer, prompt template generator) needs to be
- * touched — they all walk this registry generically.
+ * The M1 element registry — single source of truth for the M1 vocabulary.
+ * The vocabulary covers every section of the rendered .md file (frontmatter
+ * + Reason + Raw Concept + Narrative + Facts) plus three M1 net-new elements
+ * (decision, bug, fix). M2 vocabulary expansion is **purely additive**: add
+ * an entry here and a `<name>/{schema,validator}.ts` pair under `elements/`.
+ * No consumer (writer, reader, indexer, prompt template generator) needs
+ * to be touched — they all walk this registry generically.
  *
  * The data-driven shape is the production-track guardrail. If you find
  * yourself writing `switch (elementName)` anywhere in the render layer,
- * push back: that pattern doesn't scale to M2's vocabulary expansion.
+ * push back: that pattern doesn't scale to vocabulary expansion.
+ *
+ * Notably absent: `importance`, `maturity`, `recency`, `updatedat`,
+ * `createdAt`. Per the runtime-signals migration, ranking signals live
+ * in the sidecar store keyed by relpath — not in topic file content.
  */
 export const ELEMENT_REGISTRY: ElementRegistry = {
   'bv-bug': {
     allowedChildren: 'block',
     description:
-      'A bug runbook entry (symptom, root cause, fix). Optional `id` and `severity` ' +
+      'A bug runbook entry (symptom, root cause). Optional `id` and `severity` ' +
       '(low|medium|high|critical). Typically paired with a sibling `<bv-fix>`.',
     name: 'bv-bug',
     optionalAttributes: ['id', 'severity'],
     requiredAttributes: [],
     validator: validateBvBug,
+  },
+  'bv-changes': {
+    allowedChildren: 'block',
+    description:
+      'Renders as `**Changes:**` inside the `## Raw Concept` section. ' +
+      'Children should be `<li>` items.',
+    name: 'bv-changes',
+    optionalAttributes: [],
+    requiredAttributes: [],
+    validator: validateBvChanges,
   },
   'bv-decision': {
     allowedChildren: 'block',
@@ -39,35 +65,140 @@ export const ELEMENT_REGISTRY: ElementRegistry = {
     requiredAttributes: [],
     validator: validateBvDecision,
   },
+  'bv-dependencies': {
+    allowedChildren: 'block',
+    description:
+      'Renders as the `### Dependencies` subsection inside `## Narrative` — ' +
+      'dependencies, prerequisites, blockers.',
+    name: 'bv-dependencies',
+    optionalAttributes: [],
+    requiredAttributes: [],
+    validator: validateBvDependencies,
+  },
+  'bv-diagram': {
+    allowedChildren: 'block',
+    description:
+      'Preserves a diagram (mermaid / plantuml / ascii / dot) verbatim. ' +
+      'Optional `type` selects the fenced-code-block language tag; optional ' +
+      '`title` becomes the diagram caption.',
+    name: 'bv-diagram',
+    optionalAttributes: ['type', 'title'],
+    requiredAttributes: [],
+    validator: validateBvDiagram,
+  },
+  'bv-examples': {
+    allowedChildren: 'block',
+    description:
+      'Renders as the `### Examples` subsection inside `## Narrative` — ' +
+      'worked examples, sample code, scenario walkthroughs.',
+    name: 'bv-examples',
+    optionalAttributes: [],
+    requiredAttributes: [],
+    validator: validateBvExamples,
+  },
+  'bv-fact': {
+    allowedChildren: 'inline',
+    description:
+      'A structured fact rendered into the `## Facts` list. Text content is ' +
+      'the canonical statement; optional attributes carry the structured ' +
+      'extraction (subject, category in {personal|project|preference|' +
+      'convention|team|environment|other}, value).',
+    name: 'bv-fact',
+    optionalAttributes: ['subject', 'category', 'value'],
+    requiredAttributes: [],
+    validator: validateBvFact,
+  },
+  'bv-files': {
+    allowedChildren: 'block',
+    description:
+      'Renders as `**Files:**` inside the `## Raw Concept` section. ' +
+      'Children should be `<li>` items.',
+    name: 'bv-files',
+    optionalAttributes: [],
+    requiredAttributes: [],
+    validator: validateBvFiles,
+  },
   'bv-fix': {
     allowedChildren: 'block',
     description:
-      'A fix runbook entry (steps to resolve a bug). Optional `id`. Typically the ' +
-      'sibling of a `<bv-bug>`.',
+      'A fix runbook entry (steps to resolve a bug). Optional `id`. Typically ' +
+      'the sibling of a `<bv-bug>`.',
     name: 'bv-fix',
     optionalAttributes: ['id'],
     requiredAttributes: [],
     validator: validateBvFix,
   },
+  'bv-flow': {
+    allowedChildren: 'inline',
+    description:
+      'Renders as `**Flow:**` inside the `## Raw Concept` section — ' +
+      'process flow, workflow, or sequence of steps.',
+    name: 'bv-flow',
+    optionalAttributes: [],
+    requiredAttributes: [],
+    validator: validateBvFlow,
+  },
+  'bv-highlights': {
+    allowedChildren: 'block',
+    description:
+      'Renders as the `### Highlights` subsection inside `## Narrative` — ' +
+      'key highlights, capabilities, deliverables, notable outcomes.',
+    name: 'bv-highlights',
+    optionalAttributes: [],
+    requiredAttributes: [],
+    validator: validateBvHighlights,
+  },
+  'bv-reason': {
+    allowedChildren: 'block',
+    description:
+      'Renders as the `## Reason` body section — the curate operation\'s ' +
+      '"why" stated for a human reviewer.',
+    name: 'bv-reason',
+    optionalAttributes: [],
+    requiredAttributes: [],
+    validator: validateBvReason,
+  },
   'bv-rule': {
     allowedChildren: 'inline',
     description:
-      'A rule statement the agent should follow. Optional `severity` (info|must|should) ' +
-      'and `id` for cross-referencing.',
+      'A rule statement the agent should follow. Optional `severity` ' +
+      '(info|must|should) and `id` for cross-referencing.',
     name: 'bv-rule',
     optionalAttributes: ['severity', 'id'],
     requiredAttributes: [],
     validator: validateBvRule,
   },
+  'bv-structure': {
+    allowedChildren: 'block',
+    description:
+      'Renders as the `### Structure` subsection inside `## Narrative` — ' +
+      'structural or organizational documentation (file layout, hierarchy).',
+    name: 'bv-structure',
+    optionalAttributes: [],
+    requiredAttributes: [],
+    validator: validateBvStructure,
+  },
+  'bv-task': {
+    allowedChildren: 'inline',
+    description:
+      'Renders as `**Task:**` inside the `## Raw Concept` section — the ' +
+      'task or subject this concept relates to.',
+    name: 'bv-task',
+    optionalAttributes: [],
+    requiredAttributes: [],
+    validator: validateBvTask,
+  },
   'bv-topic': {
     allowedChildren: 'any',
     description:
-      'Root container per topic file. Carries file-level metadata as attributes ' +
-      '(importance, maturity, recency, updatedat). Required: `path`. Note: ' +
-      'attribute names MUST be lowercase — HTML5 normalizes them at parse time.',
+      'Root container per topic file. Carries frontmatter as attributes ' +
+      '(title, summary, tags, keywords, related, path). Required: `path`, ' +
+      '`title`. Note: attribute names MUST be lowercase — HTML5 normalizes ' +
+      'them at parse time. Runtime signals (importance/maturity/recency) ' +
+      'are sidecar state and are NOT carried as attributes.',
     name: 'bv-topic',
-    optionalAttributes: ['importance', 'maturity', 'recency', 'updatedat'],
-    requiredAttributes: ['path'],
+    optionalAttributes: ['summary', 'tags', 'keywords', 'related'],
+    requiredAttributes: ['path', 'title'],
     validator: validateBvTopic,
   },
 }
