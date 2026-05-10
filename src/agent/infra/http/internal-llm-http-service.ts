@@ -203,11 +203,17 @@ export class ByteRoverLlmHttpService {
     const parts = candidate?.content?.parts
     const finishReason = this.mapFinishReason((candidate as {finishReason?: string})?.finishReason ?? 'STOP')
 
+    // Forward the full backend response on the terminating chunk so
+    // `LoggingContentGenerator` can extract token usage via
+    // `pickRawUsage()` (`.usage ?? .usageMetadata`). Without this the
+    // streaming path emits no `llmservice:usage` event and QueryLogEntry
+    // has no token counts for ByteRover-provider runs.
     if (!parts || parts.length === 0) {
       yield {
         content: '',
         finishReason,
         isComplete: true,
+        rawResponse: response,
       }
       return
     }
@@ -241,6 +247,7 @@ export class ByteRoverLlmHttpService {
       content: textParts.join('').trimEnd(),
       finishReason,
       isComplete: true,
+      rawResponse: response,
       toolCalls:
         functionCalls.length > 0
           ? functionCalls.map((fc, index) => ({
