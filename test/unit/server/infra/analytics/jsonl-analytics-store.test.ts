@@ -8,7 +8,7 @@ import {join} from 'node:path'
 import type {StoredAnalyticsRecord} from '../../../../../src/server/core/domain/analytics/stored-record.js'
 
 import {MAX_ATTEMPTS, StoredAnalyticsRecordSchema} from '../../../../../src/server/core/domain/analytics/stored-record.js'
-import {JsonlAnalyticsStore} from '../../../../../src/server/infra/analytics/jsonl-analytics-store.js'
+import {JsonlAnalyticsStore, JsonlCapFullError} from '../../../../../src/server/infra/analytics/jsonl-analytics-store.js'
 
 const validIdentity = {
   device_id: '550e8400-e29b-41d4-a716-446655440000',
@@ -416,13 +416,24 @@ describe('JsonlAnalyticsStore', () => {
       expect(ids).to.not.include('r2') // sent dropped
     })
 
-    it('should silently no-op append when cap full of pending+failed (no sent to drop)', async () => {
+    it('should throw JsonlCapFullError when cap full of pending+failed (no sent to drop)', async () => {
       const baseDir = await freshTempDir()
       const store = new JsonlAnalyticsStore({baseDir, maxRows: 2})
       await store.append(makeRecord({id: 'r1', timestamp: 100}))
       await store.append(makeRecord({id: 'r2', timestamp: 200})) // both pending; no sent rows
 
-      await store.append(makeRecord({id: 'r3', timestamp: 300})) // should silently drop NEW row
+      // The new record cannot land — file already at cap and no sent rows to evict.
+      // The store throws JsonlCapFullError so AnalyticsClient can skip its mirror queue.push,
+      // preserving the JSONL=truth invariant. A silent return would let the queue diverge from disk.
+      let caught: unknown
+      try {
+        await store.append(makeRecord({id: 'r3', timestamp: 300}))
+      } catch (error) {
+        caught = error
+      }
+
+      expect(caught, 'append must throw on cap-full silent-drop').to.be.instanceOf(JsonlCapFullError)
+      expect((caught as JsonlCapFullError).recordId).to.equal('r3')
 
       const rows = await readJsonlRows(join(baseDir, 'analytics-queue.jsonl'))
       const ids = rows.map((r) => r.id).sort()
@@ -431,15 +442,59 @@ describe('JsonlAnalyticsStore', () => {
       expect(store.droppedFullCount()).to.equal(1)
     })
 
-    it('should track droppedFullCount cumulatively across multiple no-op appends', async () => {
+    it('should track droppedFullCount cumulatively across multiple cap-full throws', async () => {
       const baseDir = await freshTempDir()
       const store = new JsonlAnalyticsStore({baseDir, maxRows: 1})
       await store.append(makeRecord({id: 'r1'}))
 
-      await store.append(makeRecord({id: 'r2'}))
-      await store.append(makeRecord({id: 'r3'}))
+      // Each cap-full append throws; counter increments before the throw so callers can still observe it.
+      for (const id of ['r2', 'r3']) {
+        let caught: unknown
+        try {
+          // eslint-disable-next-line no-await-in-loop
+          await store.append(makeRecord({id}))
+        } catch (error) {
+          caught = error
+        }
+
+        expect(caught, `append('${id}') must throw on cap-full`).to.be.instanceOf(JsonlCapFullError)
+      }
 
       expect(store.droppedFullCount()).to.equal(2)
+    })
+
+    it('should throw JsonlCapFullError after partial byte-cap compaction insufficient to make room', async () => {
+      const baseDir = await freshTempDir()
+      // Tight byte cap so a single big pending row + a tiny sent row + a new big pending row
+      // exceeds cap even after dropping the small sent row.
+      const big = 'x'.repeat(400)
+      const tiny = 'x'.repeat(10)
+      const store = new JsonlAnalyticsStore({baseDir, maxBytes: 900, maxRows: 10_000})
+      await store.append(makeRecord({id: 'sent-tiny', properties: {data: tiny}}))
+      await store.updateStatus(['sent-tiny'], 'sent')
+      await store.append(makeRecord({id: 'p1', properties: {data: big}})) // ~400-byte payload, fits
+
+      // p2 is ~400 bytes; together with p1 (~400) the two pending rows alone are ~800 bytes.
+      // Dropping sent-tiny saves ~10 bytes; combined with p1+p2 the file is still over the 900-byte cap.
+      let caught: unknown
+      try {
+        await store.append(makeRecord({id: 'p2', properties: {data: big}}))
+      } catch (error) {
+        caught = error
+      }
+
+      expect(caught, 'append must throw when even full sent compaction leaves file over byte cap').to.be.instanceOf(
+        JsonlCapFullError,
+      )
+      expect((caught as JsonlCapFullError).recordId).to.equal('p2')
+
+      // The store still persisted the sent-row drop (partial compaction) before throwing,
+      // so observers see the most-up-to-date state on disk.
+      const rows = await readJsonlRows(join(baseDir, 'analytics-queue.jsonl'))
+      const ids = rows.map((r) => r.id).sort()
+      expect(ids).to.deep.equal(['p1']) // sent-tiny dropped, p2 not added
+      expect(store.droppedFullCount()).to.equal(1)
+      expect(store.droppedSentCount()).to.equal(1)
     })
 
     it('should silently skip malformed JSON lines on read', async () => {
@@ -480,9 +535,12 @@ describe('JsonlAnalyticsStore', () => {
 
     it('should respect byte cap as well as row cap', async () => {
       const baseDir = await freshTempDir()
-      // Tiny byte cap to force compaction quickly
-      const store = new JsonlAnalyticsStore({baseDir, maxBytes: 500, maxRows: 10_000})
-      const big = 'x'.repeat(200) // each row > 200 bytes serialized
+      const big = 'x'.repeat(200)
+      // Compute the serialized row size dynamically so the cap holds 2 rows comfortably
+      // but 3 rows tip over, regardless of identity/uuid serialization length drift.
+      const sampleSize = JSON.stringify(makeRecord({properties: {data: big}})).length + 1
+      const maxBytes = sampleSize * 2 + 50
+      const store = new JsonlAnalyticsStore({baseDir, maxBytes, maxRows: 10_000})
       await store.append(makeRecord({id: 'r1', properties: {data: big}}))
       await store.append(makeRecord({id: 'r2', properties: {data: big}}))
       await store.updateStatus(['r1'], 'sent')

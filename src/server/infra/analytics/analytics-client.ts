@@ -89,9 +89,11 @@ export class AnalyticsClient implements IAnalyticsClient {
         timestamp,
       }
 
-      // Persist to JSONL FIRST. If this throws, the catch silently drops and the
-      // queue is NOT pushed — preserves the "JSONL is source of truth" invariant
-      // (no events visible to status display that aren't durably stored).
+      // Persist to JSONL FIRST. If `append` throws — disk error, or
+      // `JsonlCapFullError` when the file-size cap is saturated with non-sent
+      // rows — the outer catch silently drops and queue.push is skipped. This
+      // preserves the "JSONL is source of truth" invariant: no record reaches
+      // the in-memory mirror queue without a durable on-disk row.
       await this.deps.jsonlStore.append(record)
       this.deps.queue.push(record)
     } catch {

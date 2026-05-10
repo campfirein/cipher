@@ -56,9 +56,15 @@ export interface IJsonlAnalyticsStore {
   /**
    * Append a new record (`status='pending', attempts=0`) to the JSONL
    * file with fsync. If the file-size cap would be exceeded, oldest
-   * `'sent'` rows are dropped first; if no `'sent'` rows exist to drop,
-   * the append becomes a silent no-op and `droppedFullCount()` is
-   * incremented (analytics MUST NOT crash the consumer).
+   * `'sent'` rows are dropped first; if dropping every available `'sent'`
+   * row still leaves the file over cap, the append throws
+   * `JsonlCapFullError` after incrementing `droppedFullCount()`.
+   *
+   * The throw is the only signal callers have that the record did NOT land
+   * on disk — needed so the in-memory mirror queue (`IAnalyticsQueue`) does
+   * not push a record that JSONL never persisted (JSONL=truth invariant).
+   * Callers that don't care MUST still catch: analytics MUST NOT crash
+   * the consumer.
    */
   append: (record: StoredAnalyticsRecord) => Promise<void>
 

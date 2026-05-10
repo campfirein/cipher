@@ -17,6 +17,27 @@ const DEFAULT_MAX_ROWS = 5000
 const DEFAULT_MAX_BYTES = 10 * 1024 * 1024
 
 /**
+ * Thrown by `append` when the file-size cap cannot accommodate the new
+ * record even after dropping every available `'sent'` row. The store has
+ * already persisted any partial compaction and incremented
+ * `droppedFullCount()`; the throw signals to the caller that THIS specific
+ * record did NOT land on disk so it can skip mirror writes (e.g. queue
+ * push) and keep the JSONL=truth invariant intact.
+ *
+ * Callers that don't care still MUST catch — analytics MUST NOT crash the
+ * consumer.
+ */
+export class JsonlCapFullError extends Error {
+  public readonly recordId: string
+
+  public constructor(recordId: string) {
+    super(`JSONL cap full: record ${recordId} dropped (no sent rows left to evict)`)
+    this.name = 'JsonlCapFullError'
+    this.recordId = recordId
+  }
+}
+
+/**
  * Constructor options. `baseDir` is required (caller injects
  * `getGlobalDataDir()` in production; tests pass a `tmpdir()`-derived
  * path). The other fields default to plan-locked values.
@@ -147,7 +168,10 @@ export class JsonlAnalyticsStore implements IJsonlAnalyticsStore {
     if (this.exceedsCap(simulated)) {
       const {kept, sentDropped} = this.compactRows(simulated)
       if (this.exceedsCap(kept)) {
-        // Even after dropping all sent rows, still over cap. Silently drop the new append.
+        // Even after dropping all sent rows, still over cap. Drop the new record and signal the
+        // caller so it can skip any mirror write (queue push). A silent return here would let
+        // AnalyticsClient.trackAsync diverge from disk: queue would carry an event that JSONL
+        // never persisted, breaking the JSONL=truth invariant.
         if (sentDropped > 0) {
           this.droppedSentCounter += sentDropped
           // Persist whatever sent rows we did manage to drop, but exclude the new record.
@@ -155,7 +179,7 @@ export class JsonlAnalyticsStore implements IJsonlAnalyticsStore {
         }
 
         this.droppedFullCounter++
-        return
+        throw new JsonlCapFullError(record.id)
       }
 
       // Compaction succeeded: write the compacted set (which already includes the new record).
