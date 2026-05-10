@@ -25,6 +25,29 @@ type Parse5Element = DefaultTreeAdapterMap['element']
 type Parse5TextNode = DefaultTreeAdapterMap['textNode']
 
 /**
+ * Strip a single ` ```<lang>? … ``` ` code-fence wrapper from the input.
+ *
+ * Sonnet 4.5 (and other models) wrap their HTML response in a code fence
+ * even when the prompt explicitly forbids it — observed at ~90% on M1's
+ * authoring fluency check. The fence is cosmetic; the inner HTML still
+ * parses and validates. Defensive sanitisation in the response parser
+ * generalises better than chasing the model's quirk via prompt iteration.
+ *
+ * Behaviour:
+ *   - Input wrapped in ` ```<any-lang>? \n … \n ``` ` → returns inner content.
+ *   - Input not fence-wrapped → returns input unchanged.
+ *   - Trailing/leading whitespace around the wrapper is tolerated.
+ *
+ * Only strips ONE outer fence. Inner fences (e.g., `<pre><code>` blocks
+ * inside `<bv-diagram>`) survive intact.
+ */
+export function stripCodeFenceWrapper(html: string): string {
+  const trimmed = html.trim()
+  const match = trimmed.match(/^```\w*\s*\n([\s\S]*?)\n```\s*$/)
+  return match ? match[1] : html
+}
+
+/**
  * Parse an HTML string into a normalized `DocumentNode`. parse5's
  * forgiving mode means malformed input returns a best-effort tree
  * rather than throwing.

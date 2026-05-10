@@ -20,8 +20,8 @@ function makeNode(tagName: string, attributes: Record<string, string> = {}): Ele
 
 describe('ELEMENT_REGISTRY', () => {
   describe('shape', () => {
-    it('contains exactly 5 entries (M1 vocabulary)', () => {
-      expect(Object.keys(ELEMENT_REGISTRY)).to.have.lengthOf(5)
+    it('contains exactly the M1 vocabulary (16 entries)', () => {
+      expect(Object.keys(ELEMENT_REGISTRY)).to.have.lengthOf(ELEMENT_NAMES.length)
     })
 
     it('has one entry per `ElementName` listed in `ELEMENT_NAMES`', () => {
@@ -46,7 +46,7 @@ describe('ELEMENT_REGISTRY', () => {
 
   describe('validators are wired correctly', () => {
     it('bv-topic validator accepts a valid bv-topic node', () => {
-      const result = ELEMENT_REGISTRY['bv-topic'].validator(makeNode('bv-topic', {path: 'x'}))
+      const result = ELEMENT_REGISTRY['bv-topic'].validator(makeNode('bv-topic', {path: 'x', title: 't'}))
       expect(result.valid).to.equal(true)
     })
 
@@ -74,11 +74,47 @@ describe('ELEMENT_REGISTRY', () => {
       const result = ELEMENT_REGISTRY['bv-fix'].validator(makeNode('bv-fix'))
       expect(result.valid).to.equal(true)
     })
+
+    it('every registered validator accepts an empty node of its own tag', () => {
+      // Smoke test that the registry is wired tag-to-validator correctly
+      // and that every validator's "minimum viable node" passes its own
+      // schema. bv-topic is excluded — it requires `path` + `title`.
+      for (const name of ELEMENT_NAMES) {
+        if (name === 'bv-topic') continue
+        const result = ELEMENT_REGISTRY[name].validator(makeNode(name))
+        expect(result.valid, `expected ${name} to accept its own empty node`).to.equal(true)
+      }
+    })
+
+    it('every registered validator rejects a wrong-tag node (tag-name guard)', () => {
+      for (const name of ELEMENT_NAMES) {
+        const result = ELEMENT_REGISTRY[name].validator(makeNode('mismatched-tag'))
+        expect(result.valid, `expected ${name} validator to reject mismatched-tag`).to.equal(false)
+      }
+    })
   })
 
   describe('metadata for downstream consumers', () => {
-    it('bv-topic declares `path` as a required attribute', () => {
+    it('bv-topic declares `path` and `title` as required attributes', () => {
       expect(ELEMENT_REGISTRY['bv-topic'].requiredAttributes).to.include('path')
+      expect(ELEMENT_REGISTRY['bv-topic'].requiredAttributes).to.include('title')
+    })
+
+    it('bv-topic declares `summary`, `tags`, `keywords`, `related` as optional', () => {
+      for (const attr of ['summary', 'tags', 'keywords', 'related']) {
+        expect(ELEMENT_REGISTRY['bv-topic'].optionalAttributes, `expected ${attr} to be optional`).to.include(attr)
+      }
+    })
+
+    it('bv-topic does NOT declare runtime signals (importance/maturity/recency/updatedat) as schema attributes', () => {
+      // These are sidecar state per the runtime-signals migration.
+      const allDeclared = [
+        ...ELEMENT_REGISTRY['bv-topic'].requiredAttributes,
+        ...ELEMENT_REGISTRY['bv-topic'].optionalAttributes,
+      ]
+      for (const sidecarField of ['importance', 'maturity', 'recency', 'updatedat']) {
+        expect(allDeclared, `expected ${sidecarField} to NOT be a schema attribute`).to.not.include(sidecarField)
+      }
     })
 
     it('bv-rule declares `severity` as an optional attribute', () => {
