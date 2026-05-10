@@ -1,6 +1,9 @@
 import {z} from 'zod'
 
+import {StoredAnalyticsRecordSchema} from '../../../server/core/domain/analytics/stored-record.js'
+
 export const AnalyticsEvents = {
+  LIST: 'analytics:list',
   TRACK: 'analytics:track',
 } as const
 
@@ -19,3 +22,35 @@ export const AnalyticsTrackPayloadSchema = z.object({
 })
 
 export type AnalyticsTrackPayload = z.infer<typeof AnalyticsTrackPayloadSchema>
+
+/**
+ * Request schema for `analytics:list` (M11.1). Pagination is offset/limit;
+ * filters by `eventName` (free-form) and `status` (M9.1 enum).
+ *
+ * Bounds (`limit 1..200`, `offset >= 0`) protect the daemon from accidental
+ * mass reads and align with the M9.2 store's read-mostly use case.
+ */
+export const AnalyticsListRequestSchema = z.object({
+  eventName: z.string().optional(),
+  limit: z.number().int().min(1).max(200),
+  offset: z.number().int().min(0),
+  status: z.enum(['pending', 'sent', 'failed']).optional(),
+})
+
+export type AnalyticsListRequest = z.infer<typeof AnalyticsListRequestSchema>
+
+/**
+ * Response schema for `analytics:list`. Reuses M9.1's
+ * `StoredAnalyticsRecordSchema` directly — no separate "wire" variant —
+ * so a single source of truth covers both the daemon-side store and the
+ * webui consumer (M11.2's handler enforces this schema on the way out).
+ *
+ * `total` is the post-filter row count (NOT total file rows) so a UI can
+ * render "showing X-Y of total" correctly.
+ */
+export const AnalyticsListResponseSchema = z.object({
+  rows: z.array(StoredAnalyticsRecordSchema),
+  total: z.number().int().min(0),
+})
+
+export type AnalyticsListResponse = z.infer<typeof AnalyticsListResponseSchema>
