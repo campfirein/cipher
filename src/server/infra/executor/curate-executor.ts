@@ -5,7 +5,7 @@ import type {CurationStatus} from '../../core/domain/entities/curation-status.js
 import type {CurateExecuteOptions, ICurateExecutor} from '../../core/interfaces/executor/i-curate-executor.js'
 
 import {recon as reconHelper} from '../../../agent/infra/sandbox/curation-helpers.js'
-import {BRV_DIR} from '../../constants.js'
+import {BRV_DIR, CONTEXT_TREE_DIR} from '../../constants.js'
 import {FileValidationError} from '../../core/domain/errors/task-error.js'
 import {
   createFileContentReader,
@@ -17,6 +17,7 @@ import {FileContextTreeManifestService} from '../context-tree/file-context-tree-
 import {FileContextTreeSnapshotService} from '../context-tree/file-context-tree-snapshot-service.js'
 import {diffStates} from '../context-tree/snapshot-diff.js'
 import {DreamStateService} from '../dream/dream-state-service.js'
+import {writeHtmlTopic} from '../render/writer/html-writer.js'
 import {PreCompactionService} from './pre-compaction/pre-compaction-service.js'
 
 type BackgroundDrainAgent = ICipherAgent & {drainBackgroundWork?: () => Promise<void>}
@@ -147,7 +148,20 @@ export class CurateExecutor implements ICurateExecutor {
       agent.setSandboxVariableOnSession(taskSessionId, taskIdVar, taskId)
       agent.setSandboxVariableOnSession(taskSessionId, reconVar, reconResult)
 
-      // Prompt with curation helpers guidance (tools.curation.* replaces manual infrastructure code)
+      // Prompt with curation helpers guidance (tools.curation.* replaces manual infrastructure code).
+      // The final-step instructions differ between MD and HTML modes:
+      //   - MD mode: agent calls tools.curate(...) and verifies via result.applied[].
+      //   - HTML mode: agent's FINAL RESPONSE is the bv-topic HTML document; tools.curate is
+      //     not used (a leftover call would write a .md file alongside the HTML and confuse
+      //     the bench).
+      const useHtmlMode = options.useHtmlContextTree === true
+      const finalStepLines = useHtmlMode
+        ? [
+            `IMPORTANT: After all extraction, your FINAL RESPONSE is the HTML topic document per the curate tool description (single <bv-topic>...</bv-topic> root, M1 element vocabulary, no code fence). Do NOT call tools.curate — emit HTML directly as your final reply.`,
+          ]
+        : [
+            `Verify via result.applied[].filePath — do NOT call readFile for verification.`,
+          ]
       const prompt = [
         `Curate using RLM approach.`,
         `Context variable: ${ctxVar} (${metadata.charCount} chars, ${metadata.lineCount} lines, ${metadata.messageCount} messages)`,
@@ -159,7 +173,7 @@ export class CurateExecutor implements ICurateExecutor {
         `For chunked extraction use tools.curation.mapExtract(). Pass taskId: ${taskIdVar} (bare variable).`,
         `IMPORTANT: Any code_exec call containing mapExtract MUST use timeout: 300000 on the code_exec tool call itself (not inside mapExtract options).`,
         `Use tools.curation.groupBySubject() and tools.curation.dedup() to organize extractions.`,
-        `Verify via result.applied[].filePath — do NOT call readFile for verification.`,
+        ...finalStepLines,
       ].join('\n')
 
       // Execute on the task session (isolated sandbox + history)
@@ -169,8 +183,10 @@ export class CurateExecutor implements ICurateExecutor {
         taskId,
       })
 
-      // Parse curation status from agent response for status tracking
-      this.lastStatus = this.parseCurationStatus(taskId, response)
+      // Parse curation status from agent response for status tracking.
+      // HTML mode: response IS the bv-topic document; route through the html-writer.
+      // MD mode: response contains a JSON status block; existing parser extracts it.
+      this.lastStatus = useHtmlMode ? (await this.handleHtmlCurateResponse(taskId, response, baseDir)) : this.parseCurationStatus(taskId, response);
     } catch (error) {
       // Best-effort: report partial telemetry before throwing so failed curates
       // don't underreport cost. The handler's error-finalization path picks up
@@ -270,6 +286,70 @@ export class CurateExecutor implements ICurateExecutor {
       default: {
         return fileType
       }
+    }
+  }
+
+  /**
+   * HTML-mode response handler.
+   *
+   * The agent's final response is expected to be a single `<bv-topic>`
+   * HTML document. We route it through `writeHtmlTopic` (which strips
+   * any code-fence wrapper, validates against the M1 element registry,
+   * and atomically writes to `<baseDir>/.brv/context-tree/<path>.html`).
+   *
+   * On failure we emit a `failed` curation status with `failed=1`
+   * rather than throwing — the surrounding executor still wants to run
+   * Phase 4 (snapshot diff, manifest rebuild) so subsequent reads see a
+   * consistent tree. Errors are surfaced through `lastStatus` and the
+   * structured curate-log entry.
+   */
+  private async handleHtmlCurateResponse(
+    taskId: string,
+    response: string,
+    baseDir: string,
+  ): Promise<CurationStatus> {
+    const completedAt = new Date().toISOString()
+    const defaultVerification = {checked: 0, confirmed: 0, missing: [] as string[]}
+    const contextTreeRoot = path.join(baseDir, BRV_DIR, CONTEXT_TREE_DIR)
+
+    let writeResult
+    try {
+      writeResult = await writeHtmlTopic({contextTreeRoot, rawHtml: response})
+    } catch (error) {
+      // Hard error (path traversal, I/O failure). Surface as `failed`
+      // status; the executor's caller logs the error.
+      return {
+        completedAt,
+        status: 'failed',
+        summary: {added: 0, deleted: 0, failed: 1, merged: 0, updated: 0},
+        taskId,
+        verification: {...defaultVerification, missing: [(error as Error).message]},
+      }
+    }
+
+    if (!writeResult.ok) {
+      return {
+        completedAt,
+        status: 'failed',
+        summary: {added: 0, deleted: 0, failed: 1, merged: 0, updated: 0},
+        taskId,
+        verification: {
+          ...defaultVerification,
+          missing: writeResult.errors.map((e) => `${e.kind}${'tag' in e ? ` (${e.tag})` : ''}: ${e.message}`),
+        },
+      }
+    }
+
+    return {
+      completedAt,
+      status: 'success',
+      // M1 derives ADD vs UPDATE from path-existence; the writer doesn't
+      // currently expose which one happened. Treat as "added=1" for
+      // status-tracking purposes; T6's bench analysis distinguishes via
+      // the snapshot diff, not via this counter.
+      summary: {added: 1, deleted: 0, failed: 0, merged: 0, updated: 0},
+      taskId,
+      verification: {checked: 1, confirmed: 1, missing: []},
     }
   }
 

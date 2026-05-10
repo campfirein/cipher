@@ -145,9 +145,22 @@ context):
 
 **Standard HTML inside `<bv-*>` elements**
 
-Inside any `<bv-*>` element you MAY use the following standard HTML for
-structure: `h1`–`h6`, `p`, `ul`, `ol`, `li`, `code`, `pre`, `strong`,
-`em`. Do not introduce other custom elements.
+Each `<bv-*>` element is either *inline-content* or *block-content*; the
+allowed standard HTML differs between the two.
+
+*Inline-content elements:* `<bv-rule>`, `<bv-task>`, `<bv-flow>`,
+`<bv-fact>`, `<bv-pattern>`, `<bv-timestamp>`, `<bv-author>`. Inside
+these, you MAY use only inline HTML: `code`, `strong`, `em`. Do NOT
+nest `<p>`, `<ul>`, `<ol>`, `<h1>`–`<h6>`, or `<pre>` inside an
+inline-content element — write the prose directly.
+
+*Block-content elements:* `<bv-topic>`, `<bv-reason>`, `<bv-changes>`,
+`<bv-files>`, `<bv-structure>`, `<bv-dependencies>`, `<bv-highlights>`,
+`<bv-examples>`, `<bv-diagram>`, `<bv-decision>`, `<bv-bug>`,
+`<bv-fix>`. Inside these, you MAY use both block and inline HTML:
+`h1`–`h6`, `p`, `ul`, `ol`, `li`, `code`, `pre`, `strong`, `em`.
+
+Do not introduce custom elements outside the closed `<bv-*>` vocabulary.
 
 **Detail-preservation**
 
@@ -181,6 +194,11 @@ When notes describe a bug and its fix, emit the pair as siblings inside
 ```
 
 **Examples**
+
+The examples below are shown in fenced blocks for readability only. Your
+actual output must be the bare HTML — no surrounding ` ``` ` fence, no
+`html` language tag, no leading or trailing prose. The first character
+of your response is `<`; the last characters are `</bv-topic>`.
 
 A bug + fix runbook with full structure:
 
