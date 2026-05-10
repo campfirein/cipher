@@ -28,6 +28,7 @@ import {AnalyticsClient} from '../analytics/analytics-client.js'
 import {BoundedQueue} from '../analytics/bounded-queue.js'
 import {IdentityResolver} from '../analytics/identity-resolver.js'
 import {JsonlAnalyticsStore} from '../analytics/jsonl-analytics-store.js'
+import {NoOpAnalyticsSender} from '../analytics/no-op-analytics-sender.js'
 import {SuperPropertiesResolver} from '../analytics/super-properties-resolver.js'
 import {OAuthService} from '../auth/oauth-service.js'
 import {OidcDiscoveryService} from '../auth/oidc-discovery-service.js'
@@ -161,11 +162,15 @@ export async function setupFeatureHandlers({
   // M11.2's analytics-list-handler when it lands so both read/write the same
   // file. Storage path: `<global-data-dir>/analytics-queue.jsonl`.
   const jsonlAnalyticsStore = new JsonlAnalyticsStore({baseDir: getGlobalDataDir()})
+  // M10.2: inject the M10.1 no-op sender. M4.2 will replace this with the real HTTP sender.
+  // The no-op returns {succeeded: [], failed: []} so flush ticks are observable but
+  // non-destructive — JSONL rows stay at status='pending' until the real sender plugs in.
   const analyticsClient: IAnalyticsClient = new AnalyticsClient({
     identityResolver: new IdentityResolver(authStateStore, globalConfigStore),
     isEnabled: () => globalConfigHandler.getCachedAnalytics(),
     jsonlStore: jsonlAnalyticsStore,
     queue: new BoundedQueue(),
+    sender: new NoOpAnalyticsSender(),
     superPropsResolver: new SuperPropertiesResolver(globalConfigStore),
   })
 

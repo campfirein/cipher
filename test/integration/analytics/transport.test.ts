@@ -14,6 +14,7 @@ import {AnalyticsClient} from '../../../src/server/infra/analytics/analytics-cli
 import {BoundedQueue} from '../../../src/server/infra/analytics/bounded-queue.js'
 import {IdentityResolver} from '../../../src/server/infra/analytics/identity-resolver.js'
 import {JsonlAnalyticsStore} from '../../../src/server/infra/analytics/jsonl-analytics-store.js'
+import {NoOpAnalyticsSender} from '../../../src/server/infra/analytics/no-op-analytics-sender.js'
 import {SuperPropertiesResolver} from '../../../src/server/infra/analytics/super-properties-resolver.js'
 import {FileGlobalConfigStore} from '../../../src/server/infra/storage/file-global-config-store.js'
 import {AnalyticsHandler} from '../../../src/server/infra/transport/handlers/analytics-handler.js'
@@ -82,6 +83,7 @@ describe('analytics:track transport round-trip integration (M2.6)', () => {
       isEnabled: () => globalConfigHandler.getCachedAnalytics(),
       jsonlStore: new JsonlAnalyticsStore({baseDir: testDir}),
       queue,
+      sender: new NoOpAnalyticsSender(),
       superPropsResolver: new SuperPropertiesResolver(store, () => '3.10.3'),
     })
 
@@ -125,6 +127,7 @@ describe('analytics:track transport round-trip integration (M2.6)', () => {
       isEnabled: () => globalConfigHandler.getCachedAnalytics(),
       jsonlStore: new JsonlAnalyticsStore({baseDir: testDir}),
       queue,
+      sender: new NoOpAnalyticsSender(),
       superPropsResolver: new SuperPropertiesResolver(store, () => '3.10.3'),
     })
 
@@ -159,6 +162,7 @@ describe('analytics:track transport round-trip integration (M2.6)', () => {
       isEnabled: () => globalConfigHandler.getCachedAnalytics(),
       jsonlStore: new JsonlAnalyticsStore({baseDir: testDir}),
       queue,
+      sender: new NoOpAnalyticsSender(),
       superPropsResolver: new SuperPropertiesResolver(store, () => '3.10.3'),
     })
 
