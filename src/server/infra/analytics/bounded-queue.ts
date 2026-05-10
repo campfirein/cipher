@@ -1,21 +1,26 @@
-import type {AnalyticsEventWithIdentity} from '../../core/domain/analytics/batch.js'
+import type {StoredAnalyticsRecord} from '../../core/domain/analytics/stored-record.js'
 import type {IAnalyticsQueue} from '../../core/interfaces/analytics/i-analytics-queue.js'
 
 const DEFAULT_MAX_SIZE = 1000
 
 /**
  * In-memory bounded queue with drop-oldest semantics. Newest pushes
- * always succeed; if the queue is at capacity, the oldest event is
+ * always succeed; if the queue is at capacity, the oldest record is
  * removed first. `droppedCount` is cumulative across the queue's
  * lifetime — neither `drain` nor any other method resets it.
  *
  * Backing store is a plain Array; at the default `maxSize` of 1000 the
  * O(n) cost of `Array.prototype.shift()` on overflow is negligible.
+ *
+ * Since M9.3 the queue carries `StoredAnalyticsRecord` (with `id` local
+ * metadata) as a fast in-memory mirror of the JSONL source-of-truth.
+ * Drop-oldest evictions here are recoverable because M10.2's `flush()`
+ * reads from JSONL, not from this queue.
  */
 export class BoundedQueue implements IAnalyticsQueue {
   private dropped = 0
-  private events: AnalyticsEventWithIdentity[] = []
   private readonly maxSize: number
+  private records: StoredAnalyticsRecord[] = []
 
   public constructor(maxSize: number = DEFAULT_MAX_SIZE) {
     if (!Number.isInteger(maxSize) || maxSize < 0) {
@@ -25,9 +30,9 @@ export class BoundedQueue implements IAnalyticsQueue {
     this.maxSize = maxSize
   }
 
-  public drain(): AnalyticsEventWithIdentity[] {
-    const drained = this.events
-    this.events = []
+  public drain(): StoredAnalyticsRecord[] {
+    const drained = this.records
+    this.records = []
     return drained
   }
 
@@ -35,15 +40,15 @@ export class BoundedQueue implements IAnalyticsQueue {
     return this.dropped
   }
 
-  public push(event: AnalyticsEventWithIdentity): void {
-    this.events.push(event)
-    while (this.events.length > this.maxSize) {
-      this.events.shift()
+  public push(record: StoredAnalyticsRecord): void {
+    this.records.push(record)
+    while (this.records.length > this.maxSize) {
+      this.records.shift()
       this.dropped++
     }
   }
 
   public size(): number {
-    return this.events.length
+    return this.records.length
   }
 }

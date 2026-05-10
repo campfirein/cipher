@@ -15,6 +15,7 @@ import {GlobalConfig} from '../../../src/server/core/domain/entities/global-conf
 import {AnalyticsClient} from '../../../src/server/infra/analytics/analytics-client.js'
 import {BoundedQueue} from '../../../src/server/infra/analytics/bounded-queue.js'
 import {IdentityResolver} from '../../../src/server/infra/analytics/identity-resolver.js'
+import {JsonlAnalyticsStore} from '../../../src/server/infra/analytics/jsonl-analytics-store.js'
 import {SuperPropertiesResolver} from '../../../src/server/infra/analytics/super-properties-resolver.js'
 import {FileGlobalConfigStore} from '../../../src/server/infra/storage/file-global-config-store.js'
 import {GlobalConfigHandler} from '../../../src/server/infra/transport/handlers/global-config-handler.js'
@@ -78,6 +79,7 @@ describe('daemon analytics tracking integration (ticket scenario 6)', () => {
     const client = new AnalyticsClient({
       identityResolver: new IdentityResolver(makeAnonAuthReader(), store),
       isEnabled: () => handler.getCachedAnalytics(),
+      jsonlStore: new JsonlAnalyticsStore({baseDir: testDir}),
       queue,
       superPropsResolver: new SuperPropertiesResolver(store, () => '3.10.3'),
     })
@@ -121,6 +123,7 @@ describe('daemon analytics tracking integration (ticket scenario 6)', () => {
     const client = new AnalyticsClient({
       identityResolver: new IdentityResolver(makeAnonAuthReader(), store),
       isEnabled: () => handler.getCachedAnalytics(),
+      jsonlStore: new JsonlAnalyticsStore({baseDir: testDir}),
       queue,
       superPropsResolver: new SuperPropertiesResolver(store, () => '3.10.3'),
     })
@@ -149,6 +152,7 @@ describe('daemon analytics tracking integration (ticket scenario 6)', () => {
     const client = new AnalyticsClient({
       identityResolver: new IdentityResolver(makeAnonAuthReader(), store),
       isEnabled: () => handler.getCachedAnalytics(),
+      jsonlStore: new JsonlAnalyticsStore({baseDir: testDir}),
       queue,
       superPropsResolver: new SuperPropertiesResolver(store, () => '3.10.3'),
     })
