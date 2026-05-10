@@ -1,8 +1,8 @@
 /**
  * HTML parser wrapper tests.
  *
- * The parser produces a normalized AST (`ParsedNode`) independent of any
- * specific HTML library. M1 uses parse5 underneath; consumers see only
+ * The parser produces a normalised AST (`ParsedNode`) independent of any
+ * specific HTML library. parse5 is used underneath; consumers see only
  * `ElementNode` / `TextNode` / `DocumentNode`.
  *
  * Key invariants:
@@ -168,7 +168,7 @@ describe('getInnerText', () => {
   it('does not merge tokens across adjacent block elements (compact source)', () => {
     // Compact source — no whitespace between tags. Without inserting a separator
     // at element boundaries, BM25 would see "foo.bar." as a single token. This
-    // is the exact case that occurs when the curate writer (T3) emits compact
+    // is the exact case that occurs when the curate writer emits compact
     // HTML.
     const result = parseHtml('<bv-topic path="x"><p>foo.</p><p>bar.</p></bv-topic>')
     const topic = walkElements(result).find((e) => e.tagName === 'bv-topic')!

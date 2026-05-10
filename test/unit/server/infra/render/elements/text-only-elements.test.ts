@@ -1,5 +1,5 @@
 /**
- * Validator tests for the M1 attribute-free text-only elements:
+ * Validator tests for the attribute-free text-only elements:
  *   - `<bv-reason>`        — `## Reason` body section
  *   - `<bv-task>`          — `## Raw Concept > Task`
  *   - `<bv-changes>`       — `## Raw Concept > Changes`
@@ -58,7 +58,7 @@ describe('text-only element validators', () => {
         expect(c.validate(makeNode(c.tag)).valid).to.equal(true)
       })
 
-      it('tolerates unknown attributes (parse-and-skip — M1 light validation)', () => {
+      it('tolerates unknown attributes (parse-and-skip — light validation)', () => {
         expect(c.validate(makeNode(c.tag, {someFutureAttr: 'x'})).valid).to.equal(true)
       })
 

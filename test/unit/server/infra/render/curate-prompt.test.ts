@@ -3,26 +3,71 @@
  *
  * The prompt at `src/agent/resources/tools/curate.txt` is the canonical
  * curate output-format contract — it tells the agent that curate output
- * is HTML using the M1 `<bv-*>` vocabulary. These tests guard against
- * silent drift: if a future PR adds a new element to the registry but
- * forgets the prompt, or removes a documented attribute without updating
- * downstream consumers, this test fails loudly.
+ * is HTML using the closed `<bv-*>` vocabulary. These tests guard
+ * against silent drift: if a future PR adds a new element to the
+ * registry but forgets the prompt, or removes a documented attribute
+ * without updating downstream consumers, this test fails loudly.
  *
  * The tests are deliberately string-level (not behavioural). The
- * authoring-fluency check (M1 T2 spike) is the behavioural counterpart.
+ * authoring-fluency check (off-tree harness) is the behavioural
+ * counterpart.
  */
 
 import {expect} from 'chai'
 import {readFileSync} from 'node:fs'
 import {join} from 'node:path'
 
+import type {ElementName, ElementNode} from '../../../../../src/server/core/domain/render/element-types.js'
+
 import {ELEMENT_NAMES} from '../../../../../src/server/core/domain/render/element-types.js'
 import {ELEMENT_REGISTRY} from '../../../../../src/server/infra/render/elements/registry.js'
+import {parseHtml, walkElements} from '../../../../../src/server/infra/render/reader/html-parser.js'
 
 const PROMPT_PATH = join(process.cwd(), 'src/agent/resources/tools/curate.txt')
 
 function loadPrompt(): string {
   return readFileSync(PROMPT_PATH, 'utf8')
+}
+
+/**
+ * Slice the prompt section that documents a specific `<bv-*>` element.
+ *
+ * The prompt structure is: each element has its own paragraph block
+ * starting with `` `<bv-NAME>` `` and continuing until the next
+ * `` `<bv-`-prefixed block, the **Standard HTML inside…** clause, or
+ * the **Detail-preservation** clause. Anchoring enum-value tests to
+ * this slice catches drift like "severity moved from bv-bug to
+ * bv-decision".
+ */
+function elementSection(prompt: string, tag: ElementName): string {
+  const startMarker = `\`<${tag}>\``
+  const start = prompt.indexOf(startMarker)
+  if (start === -1) return ''
+  // End at the next per-element header or a top-level **section** header.
+  const rest = prompt.slice(start + startMarker.length)
+  const nextElementMatch = rest.match(/`<bv-[a-z-]+>`/)
+  const sectionMatch = rest.match(/\n\*\*[A-Z]/)
+  const candidates = [nextElementMatch?.index, sectionMatch?.index].filter(
+    (i): i is number => typeof i === 'number',
+  )
+  const endOffset = candidates.length === 0 ? rest.length : Math.min(...candidates)
+  return rest.slice(0, endOffset)
+}
+
+/** Extract every fenced-block body in the prompt — the worked examples. */
+function extractFencedBlocks(prompt: string): string[] {
+  const blocks: string[] = []
+  const fence = /```(?:html)?\s*\n([\s\S]*?)\n```/g
+  let m: null | RegExpExecArray
+  while ((m = fence.exec(prompt)) !== null) {
+    blocks.push(m[1])
+  }
+
+  return blocks
+}
+
+function isRegisteredElementName(tag: string): tag is ElementName {
+  return (ELEMENT_NAMES as readonly string[]).includes(tag)
 }
 
 describe('curate.txt prompt', () => {
@@ -57,31 +102,35 @@ describe('curate.txt prompt', () => {
       expect(prompt).to.match(/not.*bv-topic.*importance|importance[\s\S]*sidecar|do not.*importance/)
     })
 
-    it('lists severity enum values for bv-rule (info|should|must)', () => {
-      const prompt = loadPrompt()
+    // Enum values are anchored to the element's section, not whole-file
+    // string match. Catches "severity values moved from bv-bug to
+    // bv-decision" drift, which the looser whole-file check would miss.
+
+    it('lists severity enum values inside the bv-rule section (info|should|must)', () => {
+      const section = elementSection(loadPrompt(), 'bv-rule')
       for (const value of ['info', 'should', 'must']) {
-        expect(prompt).to.include(`"${value}"`)
+        expect(section, `expected "${value}" inside <bv-rule> section`).to.include(`"${value}"`)
       }
     })
 
-    it('lists severity enum values for bv-bug (low|medium|high|critical)', () => {
-      const prompt = loadPrompt()
+    it('lists severity enum values inside the bv-bug section (low|medium|high|critical)', () => {
+      const section = elementSection(loadPrompt(), 'bv-bug')
       for (const value of ['low', 'medium', 'high', 'critical']) {
-        expect(prompt).to.include(`"${value}"`)
+        expect(section, `expected "${value}" inside <bv-bug> section`).to.include(`"${value}"`)
       }
     })
 
-    it('lists category enum values for bv-fact', () => {
-      const prompt = loadPrompt()
+    it('lists category enum values inside the bv-fact section', () => {
+      const section = elementSection(loadPrompt(), 'bv-fact')
       for (const value of ['personal', 'project', 'preference', 'convention', 'team', 'environment', 'other']) {
-        expect(prompt, `expected category value "${value}" in prompt`).to.include(`"${value}"`)
+        expect(section, `expected category value "${value}" inside <bv-fact> section`).to.include(`"${value}"`)
       }
     })
 
-    it('lists type enum values for bv-diagram', () => {
-      const prompt = loadPrompt()
+    it('lists type enum values inside the bv-diagram section', () => {
+      const section = elementSection(loadPrompt(), 'bv-diagram')
       for (const value of ['mermaid', 'plantuml', 'ascii', 'dot', 'graphviz']) {
-        expect(prompt, `expected diagram type "${value}" in prompt`).to.include(`"${value}"`)
+        expect(section, `expected diagram type "${value}" inside <bv-diagram> section`).to.include(`"${value}"`)
       }
     })
 
@@ -139,6 +188,52 @@ describe('curate.txt prompt', () => {
         for (const attr of ELEMENT_REGISTRY[name].requiredAttributes) {
           expect(prompt, `expected prompt to mention required attr "${attr}" of <${name}>`).to.include(`\`${attr}\``)
         }
+      }
+    })
+  })
+
+  describe('worked examples are themselves registry-valid', () => {
+    // The strongest drift guard: parse every example HTML block in the
+    // prompt and run each `<bv-*>` element through its registered
+    // validator. Catches (a) example typos like `severity="hihg"`,
+    // (b) vocabulary drift where the example uses an attribute that no
+    // longer exists, and (c) drift where the example demonstrates a
+    // shape we no longer accept. The looser whole-file string-match
+    // tests above pass even when the examples themselves are invalid.
+
+    it('contains at least one fenced example block', () => {
+      const blocks = extractFencedBlocks(loadPrompt())
+      expect(blocks.length, 'expected the prompt to include worked examples').to.be.greaterThan(0)
+    })
+
+    it('every fenced example block parses cleanly', () => {
+      const blocks = extractFencedBlocks(loadPrompt())
+      for (const [i, block] of blocks.entries()) {
+        expect(() => parseHtml(block), `example block ${i + 1} should parse`).to.not.throw()
+      }
+    })
+
+    it('every <bv-*> element in every example passes its registered validator', () => {
+      const blocks = extractFencedBlocks(loadPrompt())
+      for (const [i, block] of blocks.entries()) {
+        const elements = walkElements(parseHtml(block))
+        for (const el of elements) {
+          if (!isRegisteredElementName(el.tagName)) continue
+          const result = ELEMENT_REGISTRY[el.tagName].validator(el as ElementNode)
+          expect(
+            result.valid,
+            `example block ${i + 1}: <${el.tagName}> failed validation. ` +
+              `errors: ${JSON.stringify(result.valid ? [] : result.errors)}`,
+          ).to.equal(true)
+        }
+      }
+    })
+
+    it('every example contains exactly one <bv-topic> root', () => {
+      const blocks = extractFencedBlocks(loadPrompt())
+      for (const [i, block] of blocks.entries()) {
+        const topics = walkElements(parseHtml(block)).filter((e) => e.tagName === 'bv-topic')
+        expect(topics.length, `example block ${i + 1} should have exactly one bv-topic`).to.equal(1)
       }
     })
   })

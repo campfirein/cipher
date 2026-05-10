@@ -5,7 +5,7 @@ import type {CurationStatus} from '../../core/domain/entities/curation-status.js
 import type {CurateExecuteOptions, ICurateExecutor} from '../../core/interfaces/executor/i-curate-executor.js'
 
 import {recon as reconHelper} from '../../../agent/infra/sandbox/curation-helpers.js'
-import {BRV_DIR} from '../../constants.js'
+import {BRV_DIR, CONTEXT_TREE_DIR} from '../../constants.js'
 import {FileValidationError} from '../../core/domain/errors/task-error.js'
 import {
   createFileContentReader,
@@ -17,6 +17,7 @@ import {FileContextTreeManifestService} from '../context-tree/file-context-tree-
 import {FileContextTreeSnapshotService} from '../context-tree/file-context-tree-snapshot-service.js'
 import {diffStates} from '../context-tree/snapshot-diff.js'
 import {DreamStateService} from '../dream/dream-state-service.js'
+import {writeHtmlTopic} from '../render/writer/html-writer.js'
 import {PreCompactionService} from './pre-compaction/pre-compaction-service.js'
 
 type BackgroundDrainAgent = ICipherAgent & {drainBackgroundWork?: () => Promise<void>}
@@ -147,7 +148,11 @@ export class CurateExecutor implements ICurateExecutor {
       agent.setSandboxVariableOnSession(taskSessionId, taskIdVar, taskId)
       agent.setSandboxVariableOnSession(taskSessionId, reconVar, reconResult)
 
-      // Prompt with curation helpers guidance (tools.curation.* replaces manual infrastructure code)
+      // Prompt with curation helpers guidance (tools.curation.* replaces manual infrastructure code).
+      // The agent's final response is the bv-topic HTML document — the curate
+      // tool description (curate.txt) defines the output contract. Calling
+      // tools.curate would write a sibling `.md` file and conflict with the
+      // HTML written from the response, so it is explicitly forbidden.
       const prompt = [
         `Curate using RLM approach.`,
         `Context variable: ${ctxVar} (${metadata.charCount} chars, ${metadata.lineCount} lines, ${metadata.messageCount} messages)`,
@@ -159,7 +164,7 @@ export class CurateExecutor implements ICurateExecutor {
         `For chunked extraction use tools.curation.mapExtract(). Pass taskId: ${taskIdVar} (bare variable).`,
         `IMPORTANT: Any code_exec call containing mapExtract MUST use timeout: 300000 on the code_exec tool call itself (not inside mapExtract options).`,
         `Use tools.curation.groupBySubject() and tools.curation.dedup() to organize extractions.`,
-        `Verify via result.applied[].filePath — do NOT call readFile for verification.`,
+        `IMPORTANT: After all extraction, your FINAL RESPONSE is the HTML topic document per the curate tool description (single <bv-topic>...</bv-topic> root, no code fence). Do NOT call tools.curate — emit HTML directly as your final reply.`,
       ].join('\n')
 
       // Execute on the task session (isolated sandbox + history)
@@ -169,8 +174,9 @@ export class CurateExecutor implements ICurateExecutor {
         taskId,
       })
 
-      // Parse curation status from agent response for status tracking
-      this.lastStatus = this.parseCurationStatus(taskId, response)
+      // The response is the bv-topic document; route through the html-writer
+      // for fence-stripping, registry validation, and atomic write.
+      this.lastStatus = await this.handleHtmlCurateResponse(taskId, response, baseDir)
     } catch (error) {
       // Best-effort: report partial telemetry before throwing so failed curates
       // don't underreport cost. The handler's error-finalization path picks up
@@ -274,6 +280,79 @@ export class CurateExecutor implements ICurateExecutor {
   }
 
   /**
+   * HTML-mode response handler.
+   *
+   * The agent's final response is expected to be a single `<bv-topic>`
+   * HTML document. We route it through `writeHtmlTopic` (which strips
+   * any code-fence wrapper, validates against the element registry,
+   * and atomically writes to `<baseDir>/.brv/context-tree/<path>.html`).
+   *
+   * On failure we emit a `failed` curation status with `failed=1`
+   * rather than throwing — the surrounding executor still wants to run
+   * Phase 4 (snapshot diff, manifest rebuild) so subsequent reads see a
+   * consistent tree. Errors are surfaced through `lastStatus` and the
+   * structured curate-log entry.
+   */
+  private async handleHtmlCurateResponse(
+    taskId: string,
+    response: string,
+    baseDir: string,
+  ): Promise<CurationStatus> {
+    const completedAt = new Date().toISOString()
+    const defaultVerification = {checked: 0, confirmed: 0, missing: [] as string[]}
+    const contextTreeRoot = path.join(baseDir, BRV_DIR, CONTEXT_TREE_DIR)
+
+    let writeResult
+    try {
+      writeResult = await writeHtmlTopic({contextTreeRoot, rawHtml: response})
+    } catch (error) {
+      // Hard error (path traversal, I/O failure). Surface as `failed`
+      // status; the executor's caller logs the error.
+      return {
+        completedAt,
+        status: 'failed',
+        summary: {added: 0, deleted: 0, failed: 1, merged: 0, updated: 0},
+        taskId,
+        verification: {...defaultVerification, missing: [(error as Error).message]},
+      }
+    }
+
+    if (!writeResult.ok) {
+      return {
+        completedAt,
+        status: 'failed',
+        summary: {added: 0, deleted: 0, failed: 1, merged: 0, updated: 0},
+        taskId,
+        verification: {
+          ...defaultVerification,
+          missing: writeResult.errors.map((e) => {
+            // Surface tag.field for attribute-validation so the
+            // curate-log shows e.g. `attribute-validation
+            // (bv-rule.severity): …` instead of just
+            // `attribute-validation (bv-rule): …`.
+            const qualifier = 'tag' in e
+              ? ` (${e.tag}${'field' in e ? `.${e.field}` : ''})`
+              : ''
+            return `${e.kind}${qualifier}: ${e.message}`
+          }),
+        },
+      }
+    }
+
+    return {
+      completedAt,
+      status: 'success',
+      // ADD vs UPDATE is derived from path-existence; the writer
+      // doesn't currently expose which one happened. Treat as "added=1"
+      // for status-tracking purposes; downstream bench analysis
+      // distinguishes via the snapshot diff, not via this counter.
+      summary: {added: 1, deleted: 0, failed: 0, merged: 0, updated: 0},
+      taskId,
+      verification: {checked: 1, confirmed: 1, missing: []},
+    }
+  }
+
+  /**
    * Phase 4d: bump the dream-state curation counter. Fail-open — dream state
    * tracking is non-critical and must never block curate completion.
    */
@@ -283,42 +362,6 @@ export class CurateExecutor implements ICurateExecutor {
       await dreamStateService.incrementCurationCount()
     } catch {
       // Dream state tracking is non-critical
-    }
-  }
-
-  /**
-   * Parse curation status from the agent response.
-   * Extracts JSON status block if present, otherwise infers from response text.
-   */
-  private parseCurationStatus(taskId: string, response: string): CurationStatus {
-    const defaultSummary = { added: 0, deleted: 0, failed: 0, merged: 0, updated: 0 }
-    const defaultVerification = { checked: 0, confirmed: 0, missing: [] as string[] }
-
-    // Try to extract JSON status block from response (agent instructed to include it)
-    try {
-      const jsonMatch = /```json\n([\S\s]*?)\n```/.exec(response)
-      if (jsonMatch) {
-        const parsed = JSON.parse(jsonMatch[1])
-
-        return {
-          completedAt: new Date().toISOString(),
-          status: parsed.summary?.failed > 0 ? 'partial' : 'success',
-          summary: parsed.summary ?? defaultSummary,
-          taskId,
-          verification: parsed.verification ?? defaultVerification,
-        }
-      }
-    } catch {
-      // Ignore parse errors — fall through to heuristic
-    }
-
-    // Fallback: infer from response text
-    return {
-      completedAt: new Date().toISOString(),
-      status: response.includes('failed') ? 'failed' : 'success',
-      summary: defaultSummary,
-      taskId,
-      verification: defaultVerification,
     }
   }
 
@@ -435,10 +478,10 @@ export class CurateExecutor implements ICurateExecutor {
    * {@link CurateExecuteOptions.onTelemetry}. Best-effort: a thrown callback
    * doesn't propagate (logging must never block curate).
    *
-   * `format` is currently constant `'markdown'` because the
-   * `useHtmlContextTree` feature flag has not landed yet. Once it does, this
-   * method will read the flag (or be replaced entirely by the real
-   * format-detector binding).
+   * `format` is `'html'` because the curate path emits HTML topic
+   * documents end-to-end. Legacy markdown topics are still readable via
+   * the query path's extension-based dispatcher, but no curate run
+   * produces them.
    */
   private reportTelemetry(options: CurateExecuteOptions, startedAt: number): void {
     if (!options.onTelemetry) return
@@ -448,7 +491,7 @@ export class CurateExecutor implements ICurateExecutor {
     const usage = totals && (totals.inputTokens > 0 || totals.outputTokens > 0) ? totals : undefined
     try {
       options.onTelemetry({
-        format: 'markdown',
+        format: 'html',
         timing: {
           ...(llmMs > 0 && {llmMs}),
           totalMs,

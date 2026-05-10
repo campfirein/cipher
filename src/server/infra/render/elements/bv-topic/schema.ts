@@ -7,15 +7,15 @@ import {z} from 'zod'
  * markdown writer maps these directly to YAML frontmatter on disk.
  *
  * Notably absent: `importance`, `maturity`, `recency`, `updatedat`,
- * `createdAt`. Per the runtime-signals migration (research/features/
- * runtime-signals/), ranking signals are *sidecar* state — per-user,
- * per-machine — not file content. Including them as attributes here
- * would re-introduce the noise-from-implicit-state problem the
- * migration solved. The system writes timestamps; the LLM does not.
+ * `createdAt`. Per the runtime-signals migration, ranking signals are
+ * sidecar* state — per-user, per-machine — not file content.
+ * Including them as attributes here would re-introduce the
+ * noise-from-implicit-state problem the migration solved. The system
+ * writes timestamps; the LLM does not.
  *
- * `passthrough` is intentional: M1 is permissive on unknown attributes
- * (parse-and-skip — no warning is emitted). Strict validation per
- * ADR-007 §13 is M2 work.
+ * `passthrough` is intentional: light validation is permissive on
+ * unknown attributes (parse-and-skip — no warning is emitted). Strict
+ * validation per ADR-007 §13 is future work.
  */
 export const BvTopicAttributesSchema = z.object({
   // Comma-separated lists are the natural HTML-attribute encoding for

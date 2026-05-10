@@ -488,7 +488,7 @@ describe('CurateExecutor (regression)', () => {
 
       expect(onTelemetry.calledOnce).to.equal(true)
       const [record] = onTelemetry.firstCall.args
-      expect(record.format).to.equal('markdown')
+      expect(record.format).to.equal('html')
       // Aggregator was not wired in this test — totals stay zero, so usage is
       // omitted (the helper guards against `inputTokens=0 && outputTokens=0`).
       expect(record.usage).to.equal(undefined)

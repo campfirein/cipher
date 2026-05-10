@@ -21,17 +21,18 @@ import {validateBvTimestamp} from './bv-timestamp/validator.js'
 import {validateBvTopic} from './bv-topic/validator.js'
 
 /**
- * The M1 element registry — single source of truth for the M1 vocabulary.
- * The vocabulary covers every section of the rendered .md file (frontmatter
- * + Reason + Raw Concept + Narrative + Facts) plus three M1 net-new elements
- * (decision, bug, fix). M2 vocabulary expansion is **purely additive**: add
- * an entry here and a `<name>/{schema,validator}.ts` pair under `elements/`.
- * No consumer (writer, reader, indexer, prompt template generator) needs
- * to be touched — they all walk this registry generically.
+ * Element registry — single source of truth for the closed `<bv-*>`
+ * vocabulary. The vocabulary covers every section of the rendered .md
+ * file (frontmatter + Reason + Raw Concept + Narrative + Facts) plus
+ * three runbook elements (decision, bug, fix) that have no MD analog.
+ * Vocabulary expansion is **purely additive**: add an entry here and
+ * a `<name>/{schema,validator}.ts` pair under `elements/`. No consumer
+ * (writer, reader, indexer, prompt template generator) needs touching
+ * — they all walk this registry generically.
  *
- * The data-driven shape is the production-track guardrail. If you find
- * yourself writing `switch (elementName)` anywhere in the render layer,
- * push back: that pattern doesn't scale to vocabulary expansion.
+ * The data-driven shape is a guardrail. If you find yourself writing
+ * `switch (elementName)` anywhere in the render layer, push back: that
+ * pattern doesn't scale to vocabulary growth.
  *
  * Notably absent: `importance`, `maturity`, `recency`, `updatedat`,
  * `createdAt`. Per the runtime-signals migration, ranking signals live

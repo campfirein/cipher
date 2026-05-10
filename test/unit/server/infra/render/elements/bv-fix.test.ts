@@ -25,7 +25,7 @@ describe('bv-fix validator', () => {
       expect(validateBvFix(makeNode({id: 'fix-jwt-rotation-2026-04-30'})).valid).to.equal(true)
     })
 
-    it('tolerates unknown attributes (parse-and-skip — M1 light validation)', () => {
+    it('tolerates unknown attributes (parse-and-skip — light validation)', () => {
       expect(validateBvFix(makeNode({id: 'f1', someFutureAttr: 'x'})).valid).to.equal(true)
     })
 
