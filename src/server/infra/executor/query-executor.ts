@@ -24,6 +24,7 @@ import {loadSources} from '../../core/domain/source/source-schema.js'
 import {isDerivedArtifact} from '../context-tree/derived-artifact.js'
 import {FileContextTreeManifestService} from '../context-tree/file-context-tree-manifest-service.js'
 import {MarkdownOnlyFormatDetector} from '../render/format/markdown-only-format-detector.js'
+import {renderHtmlTopicForLlm} from '../render/reader/html-renderer.js'
 import {
   canRespondDirectly,
   type DirectSearchResult,
@@ -699,7 +700,26 @@ ${responseFormat}`
               const ctBase = result.originContextTreeRoot ?? join(BRV_DIR, CONTEXT_TREE_DIR)
               const ctPath = join(ctBase, result.path)
               const {content: fullContent} = await this.fileSystem!.readFile(ctPath)
-              content = fullContent
+              // HTML topics: render the typed-element document as a
+              // markdown-like string before handing it to the response
+              // formatter. Shipping raw `<bv-topic>...</bv-topic>` markup
+              // here would burn the 5000-char content budget on tags
+              // (`direct-search-responder.ts:11`) and force any
+              // downstream LLM consumer to re-parse the document. The
+              // renderer preserves bv-* element semantics (severity,
+              // subject/value, decision id) without the markup tax.
+              if (result.format === 'html') {
+                try {
+                  content = renderHtmlTopicForLlm(fullContent)
+                } catch {
+                  // Renderer is forgiving by contract — but if anything
+                  // throws, fall back to the raw bytes so we don't
+                  // blank the response on a single malformed topic.
+                  content = fullContent
+                }
+              } else {
+                content = fullContent
+              }
             } catch {
               // Use excerpt if full read fails
             }
