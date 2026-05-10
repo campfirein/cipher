@@ -70,6 +70,7 @@ export class CurateExecutor implements ICurateExecutor {
     options: CurateExecuteOptions,
   ): Promise<{finalize: () => Promise<void>; response: string}> {
     const {clientCwd, content, files, projectRoot, taskId} = options
+    const startedAt = Date.now()
 
     // --- Phase 1: Preprocessing (no sessions created yet — safe to throw) ---
     const fileReferenceInstructions = await this.processFileReferences(files ?? [], clientCwd)
@@ -171,10 +172,18 @@ export class CurateExecutor implements ICurateExecutor {
       // Parse curation status from agent response for status tracking
       this.lastStatus = this.parseCurationStatus(taskId, response)
     } catch (error) {
+      // Best-effort: report partial telemetry before throwing so failed curates
+      // don't underreport cost. The handler's error-finalization path picks up
+      // the telemetry merge if the CURATE_RESULT message lands first.
+      this.reportTelemetry(options, startedAt)
       // Clean up before propagating — error path returns no finalize.
       await agent.deleteTaskSession(taskSessionId)
       throw error
     }
+
+    // Happy path: forward telemetry before returning so the wiring layer can
+    // emit `task:curateResult` ahead of `task:completed`.
+    this.reportTelemetry(options, startedAt)
 
     const finalize = async (): Promise<void> => {
       try {
@@ -418,6 +427,36 @@ export class CurateExecutor implements ICurateExecutor {
       await manifestService.buildManifest(baseDir)
     } catch {
       // Fail-open: manifest rebuild is best-effort pre-warming.
+    }
+  }
+
+  /**
+   * Roll up the executor's per-task telemetry and hand it to
+   * {@link CurateExecuteOptions.onTelemetry}. Best-effort: a thrown callback
+   * doesn't propagate (logging must never block curate).
+   *
+   * `format` is currently constant `'markdown'` because the
+   * `useHtmlContextTree` feature flag has not landed yet. Once it does, this
+   * method will read the flag (or be replaced entirely by the real
+   * format-detector binding).
+   */
+  private reportTelemetry(options: CurateExecuteOptions, startedAt: number): void {
+    if (!options.onTelemetry) return
+    const totalMs = Date.now() - startedAt
+    const totals = options.usageAggregator?.getTotals()
+    const llmMs = options.usageAggregator?.getLlmMs() ?? 0
+    const usage = totals && (totals.inputTokens > 0 || totals.outputTokens > 0) ? totals : undefined
+    try {
+      options.onTelemetry({
+        format: 'markdown',
+        timing: {
+          ...(llmMs > 0 && {llmMs}),
+          totalMs,
+        },
+        ...(usage !== undefined && {usage}),
+      })
+    } catch {
+      // best-effort — telemetry must never block curate
     }
   }
 }

@@ -62,11 +62,42 @@ import {QueryExecutor} from '../executor/query-executor.js'
 import {SearchExecutor} from '../executor/search-executor.js'
 import {FileCurateLogStore} from '../storage/file-curate-log-store.js'
 import {FileReviewBackupStore} from '../storage/file-review-backup-store.js'
+import {TaskUsageAggregator} from '../telemetry/task-usage-aggregator.js'
 import {AgentInstanceDiscovery} from '../transport/agent-instance-discovery.js'
 import {createAgentLogger} from './agent-logger.js'
 import {PostWorkRegistry} from './post-work-registry.js'
 import {resolveSessionId} from './session-resolver.js'
 import {validateProviderForTask} from './task-validation.js'
+
+/**
+ * Build a per-task `llmservice:usage` listener that filters by `taskId` and
+ * folds matching events into `aggregator`. Curate and query handlers both
+ * use the same shape — keep them in sync via this helper.
+ */
+function makeUsageListener(
+  taskId: string,
+  aggregator: TaskUsageAggregator,
+): (payload: {
+  cacheCreationTokens?: number
+  cachedInputTokens?: number
+  durationMs: number
+  inputTokens: number
+  outputTokens: number
+  taskId?: string
+}) => void {
+  return (payload) => {
+    if (payload.taskId !== taskId) return
+    aggregator.addUsage(
+      {
+        ...(payload.cacheCreationTokens !== undefined && {cacheCreationTokens: payload.cacheCreationTokens}),
+        ...(payload.cachedInputTokens !== undefined && {cachedInputTokens: payload.cachedInputTokens}),
+        inputTokens: payload.inputTokens,
+        outputTokens: payload.outputTokens,
+      },
+      payload.durationMs,
+    )
+  }
+}
 
 // ============================================================================
 // Environment
@@ -552,16 +583,48 @@ async function executeTask(
       let postWork: (() => Promise<void>) | undefined
       switch (type) {
         case 'curate': {
-          const curateResult = await curateExecutor.runAgentBody(agent, {
-            clientCwd,
-            content,
-            files,
-            projectRoot: projectPath,
-            taskId,
-            worktreeRoot,
-          })
-          result = curateResult.response
-          postWork = curateResult.finalize
+          // Subscribe a per-task usage aggregator to llmservice:usage events
+          // (forwarded from session bus to agentEventBus via session-event-forwarder).
+          // The executor's `onTelemetry` callback fires once at runAgentBody return —
+          // happy path before the response, error path before throwing — and forwards
+          // the rolled-up payload to the daemon via task:curateResult ahead of
+          // task:completed/task:error. Phase 4 (detached post-work) runs after
+          // task:completed, so its LLM calls intentionally don't roll into THIS
+          // curate-log entry — same boundary as the rest of the daemon's
+          // "completed" semantics.
+          const curateAggregator = new TaskUsageAggregator(taskId)
+          const curateUsageListener = makeUsageListener(taskId, curateAggregator)
+          const curateAgentBus = agent.agentEventBus
+          curateAgentBus?.on('llmservice:usage', curateUsageListener)
+          try {
+            const curateResult = await curateExecutor.runAgentBody(agent, {
+              clientCwd,
+              content,
+              files,
+              onTelemetry(record) {
+                try {
+                  // `transport` is hoisted as `let ... | undefined`; closure capture
+                  // forces an explicit guard despite the outer-scope assignment.
+                  transport?.request(TransportTaskEventNames.CURATE_RESULT, {
+                    ...(record.format !== undefined && {format: record.format}),
+                    taskId,
+                    ...(record.timing !== undefined && {timing: record.timing}),
+                    ...(record.usage !== undefined && {usage: record.usage}),
+                  })
+                } catch {
+                  agentLog(`task:curateResult send failed taskId=${taskId}`)
+                }
+              },
+              projectRoot: projectPath,
+              taskId,
+              usageAggregator: curateAggregator,
+              worktreeRoot,
+            })
+            result = curateResult.response
+            postWork = curateResult.finalize
+          } finally {
+            curateAgentBus?.off('llmservice:usage', curateUsageListener)
+          }
 
           break
         }
@@ -626,18 +689,38 @@ async function executeTask(
         }
 
         case 'query': {
-          const queryResult = await queryExecutor.executeWithAgent(agent, {query: content, taskId, worktreeRoot})
+          // subscribe a per-task usage aggregator to llmservice:usage
+          // events forwarded from the session bus. QueryExecutor reads the
+          // rolled-up totals at completion and writes them to the result.
+          const queryAggregator = new TaskUsageAggregator(taskId)
+          const queryUsageListener = makeUsageListener(taskId, queryAggregator)
+          const queryAgentBus = agent.agentEventBus
+          queryAgentBus?.on('llmservice:usage', queryUsageListener)
+          let queryResult
+          try {
+            queryResult = await queryExecutor.executeWithAgent(agent, {
+              query: content,
+              taskId,
+              usageAggregator: queryAggregator,
+              worktreeRoot,
+            })
+          } finally {
+            queryAgentBus?.off('llmservice:usage', queryUsageListener)
+          }
+
           result = queryResult.response
 
           // Send query metadata to daemon for QueryLogHandler (crosses process boundary via transport).
           // Must arrive BEFORE task:completed so setQueryResult runs before onTaskCompleted.
           try {
             transport.request(TransportTaskEventNames.QUERY_RESULT, {
+              ...(queryResult.format !== undefined && {format: queryResult.format}),
               matchedDocs: queryResult.matchedDocs,
               searchMetadata: queryResult.searchMetadata,
               taskId,
               tier: queryResult.tier,
               timing: queryResult.timing,
+              ...(queryResult.usage !== undefined && {usage: queryResult.usage}),
             })
           } catch {
             agentLog(`task:queryResult send failed taskId=${taskId}`)
