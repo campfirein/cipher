@@ -1,3 +1,4 @@
+import {existsSync, readFileSync} from 'node:fs'
 import path from 'node:path'
 
 import type {ElementName, ValidationError} from '../../../core/domain/render/element-types.js'
@@ -65,6 +66,14 @@ export type HtmlWriteOptions = {
 
 /**
  * Validate and atomically write a curate output as an HTML topic file.
+ *
+ * Before writing, system-managed timestamps (`createdat`, `updatedat`)
+ * are injected onto `<bv-topic>`:
+ *   - `updatedat` is always set to the current ISO instant.
+ *   - `createdat` is preserved from the existing file on disk if one
+ *     exists; otherwise it is set to the current ISO instant.
+ * Any value the LLM authored for these attributes is overridden — the
+ * agent is not allowed to choose its own timestamps.
  */
 export async function writeHtmlTopic(options: HtmlWriteOptions): Promise<HtmlWriteResult> {
   const {contextTreeRoot, rawHtml} = options
@@ -76,9 +85,13 @@ export async function writeHtmlTopic(options: HtmlWriteOptions): Promise<HtmlWri
   }
 
   const filePath = topicPathToFilePath(contextTreeRoot, validation.topicPath)
-  await DirectoryManager.writeFileAtomic(filePath, cleaned)
+  const now = new Date().toISOString()
+  const createdAt = readExistingTopicAttribute(filePath, 'createdat') ?? now
+  const stamped = setBvTopicAttributes(cleaned, {createdat: createdAt, updatedat: now})
 
-  return {filePath, ok: true, written: cleaned}
+  await DirectoryManager.writeFileAtomic(filePath, stamped)
+
+  return {filePath, ok: true, written: stamped}
 }
 
 type ValidatedTopic =
@@ -184,4 +197,65 @@ function topicPathToFilePath(contextTreeRoot: string, topicPath: string): string
   }
 
   return resolved
+}
+
+/**
+ * Insert or replace attributes on the document's first `<bv-topic>`
+ * opening tag. Surgical regex edit (no parse → re-serialize round-trip)
+ * so the LLM's formatting (whitespace, attribute order, quoting style)
+ * survives intact.
+ *
+ * Used by the writer to set system-managed `createdat` / `updatedat`
+ * after the LLM emits its content. If the LLM happens to author either
+ * attribute, the system value wins (last-attribute-with-same-name in
+ * HTML5 attr-list semantics; here we replace in place rather than
+ * append).
+ */
+function setBvTopicAttributes(html: string, attrs: Record<string, string>): string {
+  let result = html
+  for (const [name, value] of Object.entries(attrs)) {
+    result = setBvTopicAttribute(result, name, value)
+  }
+
+  return result
+}
+
+function setBvTopicAttribute(html: string, name: string, value: string): string {
+  const tagPattern = /<bv-topic\b[^>]*>/
+  const tagMatch = html.match(tagPattern)
+  if (!tagMatch || tagMatch.index === undefined) return html
+
+  const tag = tagMatch[0]
+  const escaped = value.replaceAll('"', '&quot;')
+  const attrPattern = new RegExp(`\\s${name}="[^"]*"`, 'i')
+
+  const newTag = attrPattern.test(tag)
+    ? tag.replace(attrPattern, ` ${name}="${escaped}"`)
+    : tag.endsWith('/>')
+      ? tag.slice(0, -2) + ` ${name}="${escaped}"/>`
+      : tag.slice(0, -1) + ` ${name}="${escaped}">`
+
+  return html.slice(0, tagMatch.index) + newTag + html.slice(tagMatch.index + tag.length)
+}
+
+/**
+ * Read a single `<bv-topic>` attribute value from an existing file on
+ * disk without parsing the whole document. Returns `null` if the file
+ * is missing, unreadable, or the attribute isn't present. Used to
+ * preserve `createdat` across re-writes.
+ */
+function readExistingTopicAttribute(filePath: string, attrName: string): null | string {
+  if (!existsSync(filePath)) return null
+
+  try {
+    const content = readFileSync(filePath, 'utf8')
+    const tagMatch = content.match(/<bv-topic\b[^>]*>/)
+    if (!tagMatch) return null
+
+    const attrPattern = new RegExp(`\\s${attrName}="([^"]*)"`, 'i')
+    const attrMatch = tagMatch[0].match(attrPattern)
+    return attrMatch ? attrMatch[1] : null
+  } catch {
+    return null
+  }
 }

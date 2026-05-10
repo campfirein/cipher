@@ -20,6 +20,13 @@ import {join} from 'node:path'
 
 import {validateHtmlTopic, writeHtmlTopic} from '../../../../../../src/server/infra/render/writer/html-writer.js'
 
+function extractAttribute(html: string, name: string): null | string {
+  const tagMatch = html.match(/<bv-topic\b[^>]*>/)
+  if (!tagMatch) return null
+  const attrMatch = tagMatch[0].match(new RegExp(`\\s${name}="([^"]*)"`, 'i'))
+  return attrMatch ? attrMatch[1] : null
+}
+
 const VALID_TOPIC = `<bv-topic path="security/auth" title="JWT auth">
   <bv-reason>Document JWT auth design.</bv-reason>
   <bv-rule severity="must" id="r-1">Always validate signatures.</bv-rule>
@@ -110,7 +117,14 @@ describe('html-writer', () => {
       if (result.ok) {
         expect(result.filePath).to.equal(join(tmpRoot, 'security/auth.html'))
         expect(existsSync(result.filePath)).to.equal(true)
-        expect(readFileSync(result.filePath, 'utf8')).to.equal(VALID_TOPIC)
+        // The on-disk file is the LLM's HTML plus system-injected
+        // `createdat` / `updatedat`. Body content is preserved verbatim;
+        // the bv-topic opening tag has the timestamp attributes added.
+        const written = readFileSync(result.filePath, 'utf8')
+        expect(written).to.include('<bv-reason>Document JWT auth design.</bv-reason>')
+        expect(written).to.include('<bv-rule severity="must" id="r-1">Always validate signatures.</bv-rule>')
+        expect(written).to.match(/createdat="[^"]+"/)
+        expect(written).to.match(/updatedat="[^"]+"/)
       }
     })
 
@@ -119,8 +133,12 @@ describe('html-writer', () => {
       const result = await writeHtmlTopic({contextTreeRoot: tmpRoot, rawHtml: wrapped})
       expect(result.ok).to.equal(true)
       if (result.ok) {
-        expect(result.written).to.equal(VALID_TOPIC)
-        expect(readFileSync(result.filePath, 'utf8')).to.equal(VALID_TOPIC)
+        // Fence is stripped; system timestamps are then injected onto bv-topic.
+        const written = readFileSync(result.filePath, 'utf8')
+        expect(written.startsWith('```')).to.equal(false)
+        expect(written).to.include('<bv-rule severity="must" id="r-1">Always validate signatures.</bv-rule>')
+        expect(written).to.match(/createdat="[^"]+"/)
+        expect(written).to.match(/updatedat="[^"]+"/)
       }
     })
 
@@ -185,6 +203,79 @@ describe('html-writer', () => {
         const entries = await readdir(dir)
         expect(entries.some((e) => e.endsWith('.tmp')), 'no .tmp leftover').to.equal(false)
       }
+    })
+
+    describe('system-managed timestamps', () => {
+      it('injects createdat and updatedat onto bv-topic on first write', async () => {
+        const before = new Date().toISOString()
+        const result = await writeHtmlTopic({contextTreeRoot: tmpRoot, rawHtml: VALID_TOPIC})
+        const after = new Date().toISOString()
+        expect(result.ok).to.equal(true)
+
+        if (result.ok) {
+          const written = readFileSync(result.filePath, 'utf8')
+          const createdAt = extractAttribute(written, 'createdat')
+          const updatedAt = extractAttribute(written, 'updatedat')
+          expect(createdAt, 'createdat should be set').to.not.equal(null)
+          expect(updatedAt, 'updatedat should be set').to.not.equal(null)
+          // Both should be ISO-8601 datetimes within the test window.
+          // ISO-8601 strings sort lexicographically the same as datetime.
+          expect(createdAt! >= before, `createdat (${createdAt!}) should be >= before (${before})`).to.equal(true)
+          expect(createdAt! <= after, `createdat (${createdAt!}) should be <= after (${after})`).to.equal(true)
+          expect(updatedAt! >= before, `updatedat (${updatedAt!}) should be >= before (${before})`).to.equal(true)
+          expect(updatedAt! <= after, `updatedat (${updatedAt!}) should be <= after (${after})`).to.equal(true)
+        }
+      })
+
+      it('preserves createdat across re-writes; updatedat advances', async () => {
+        const first = await writeHtmlTopic({contextTreeRoot: tmpRoot, rawHtml: VALID_TOPIC})
+        expect(first.ok).to.equal(true)
+        if (!first.ok) return
+
+        const firstCreatedAt = extractAttribute(readFileSync(first.filePath, 'utf8'), 'createdat')
+        const firstUpdatedAt = extractAttribute(readFileSync(first.filePath, 'utf8'), 'updatedat')
+        expect(firstCreatedAt).to.not.equal(null)
+        expect(firstUpdatedAt).to.not.equal(null)
+
+        // Wait long enough to guarantee a distinct ISO instant on the
+        // second write (Date.now() resolution is 1ms; an ISO string
+        // includes milliseconds).
+        await new Promise<void>((resolve) => {
+          setTimeout(resolve, 5)
+        })
+
+        const second = await writeHtmlTopic({contextTreeRoot: tmpRoot, rawHtml: VALID_TOPIC})
+        expect(second.ok).to.equal(true)
+        if (!second.ok) return
+
+        const secondCreatedAt = extractAttribute(readFileSync(second.filePath, 'utf8'), 'createdat')
+        const secondUpdatedAt = extractAttribute(readFileSync(second.filePath, 'utf8'), 'updatedat')
+
+        expect(secondCreatedAt, 'createdat must be preserved across re-writes').to.equal(firstCreatedAt)
+        expect(secondUpdatedAt, 'updatedat must advance on every write').to.not.equal(firstUpdatedAt)
+        expect(
+          secondUpdatedAt! >= firstUpdatedAt!,
+          `secondUpdatedAt (${secondUpdatedAt!}) should be >= firstUpdatedAt (${firstUpdatedAt!})`,
+        ).to.equal(true)
+      })
+
+      it('overrides any createdat/updatedat the LLM emits (system always wins)', async () => {
+        const llmAuthored = `<bv-topic path="security/auth" title="JWT auth" createdat="1999-01-01T00:00:00.000Z" updatedat="1999-01-01T00:00:00.000Z">
+  <bv-reason>x</bv-reason>
+</bv-topic>`
+        const before = new Date().toISOString()
+        const result = await writeHtmlTopic({contextTreeRoot: tmpRoot, rawHtml: llmAuthored})
+        expect(result.ok).to.equal(true)
+        if (!result.ok) return
+
+        const written = readFileSync(result.filePath, 'utf8')
+        const createdAt = extractAttribute(written, 'createdat')
+        const updatedAt = extractAttribute(written, 'updatedat')
+        expect(createdAt).to.not.equal('1999-01-01T00:00:00.000Z')
+        expect(updatedAt).to.not.equal('1999-01-01T00:00:00.000Z')
+        expect(createdAt! >= before, `createdat (${createdAt!}) should be >= before (${before})`).to.equal(true)
+        expect(updatedAt! >= before, `updatedat (${updatedAt!}) should be >= before (${before})`).to.equal(true)
+      })
     })
   })
 })
