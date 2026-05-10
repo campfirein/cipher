@@ -15,9 +15,9 @@
  * here would re-introduce the noise-from-implicit-state problem the
  * migration solved.
  *
- * Light validation per M1 (ADR-007 §13 strict validation is M2).
- * Unknown attributes are tolerated (parse-and-skip — no warning emitted in
- * M1); test confirms tolerance, not absence.
+ * Light validation; strict validation per ADR-007 §13 is future work.
+ * Unknown attributes are tolerated (parse-and-skip — no warning emitted);
+ * test confirms tolerance, not absence.
  */
 
 import {expect} from 'chai'
@@ -49,7 +49,7 @@ describe('bv-topic validator', () => {
       expect(result.valid).to.equal(true)
     })
 
-    it('tolerates unknown attributes (parse-and-skip — M1 light validation)', () => {
+    it('tolerates unknown attributes (parse-and-skip — light validation)', () => {
       const result = validateBvTopic(makeNode({path: 'x', someFutureAttr: 'whatever', title: 't'}))
       expect(result.valid).to.equal(true)
     })

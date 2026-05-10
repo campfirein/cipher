@@ -5,16 +5,16 @@ import type {ElementNode, ValidationError, ValidationResult} from '../../../core
 /**
  * Build an element validator from a tag name and a Zod attribute schema.
  *
- * Every M1 element validator follows the same shape:
+ * Every element validator follows the same shape:
  *   1. Reject if `node.tagName` doesn't match the expected tag.
  *   2. Run the per-element Zod schema against `node.attributes`.
  *   3. Map any Zod issues to `ValidationError` records.
  *
- * Centralizing the shape here means M2's vocabulary expansion (12 more
- * elements per Andy's proposal §11) is purely additive — each new
- * element is a `schema.ts` + a one-line `validator.ts` binding. No
- * branching logic per element type until/unless an element legitimately
- * needs custom validation beyond attributes.
+ * Centralising the shape here means vocabulary expansion is purely
+ * additive — each new element is a `schema.ts` + a one-line
+ * `validator.ts` binding. No branching logic per element type
+ * until/unless an element legitimately needs custom validation beyond
+ * attributes.
  */
 export function makeAttributeValidator(
   tagName: string,

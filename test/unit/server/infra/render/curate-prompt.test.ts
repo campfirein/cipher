@@ -3,13 +3,14 @@
  *
  * The prompt at `src/agent/resources/tools/curate.txt` is the canonical
  * curate output-format contract — it tells the agent that curate output
- * is HTML using the M1 `<bv-*>` vocabulary. These tests guard against
- * silent drift: if a future PR adds a new element to the registry but
- * forgets the prompt, or removes a documented attribute without updating
- * downstream consumers, this test fails loudly.
+ * is HTML using the closed `<bv-*>` vocabulary. These tests guard
+ * against silent drift: if a future PR adds a new element to the
+ * registry but forgets the prompt, or removes a documented attribute
+ * without updating downstream consumers, this test fails loudly.
  *
  * The tests are deliberately string-level (not behavioural). The
- * authoring-fluency check (M1 T2 spike) is the behavioural counterpart.
+ * authoring-fluency check (off-tree harness) is the behavioural
+ * counterpart.
  */
 
 import {expect} from 'chai'

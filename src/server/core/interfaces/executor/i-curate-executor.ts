@@ -32,18 +32,6 @@ export interface CurateExecuteOptions {
    *
    */
   usageAggregator?: IUsageAggregator
-  /**
-   * Feature flag for the M1 HTML context-tree experiment. When true,
-   * the executor instructs the agent to emit a `<bv-topic>` HTML
-   * document as its final response (instead of calling `tools.curate`)
-   * and routes the response through the HTML writer. When false or
-   * undefined, the existing markdown curate path runs unchanged.
-   *
-   * Set by the wiring layer from `BrvConfig.useHtmlContextTree` —
-   * write-side decision per the format-detector. Read-side (query/
-   * search) remains extension-based and is unaffected by this flag.
-   */
-  useHtmlContextTree?: boolean
   /** Workspace root — linked subdir or same as projectRoot for direct projects */
   worktreeRoot?: string
 }

@@ -5,18 +5,18 @@ import type {DocumentNode, ElementNode, ParsedNode} from '../../../core/domain/r
 /**
  * HTML parser wrapper around parse5.
  *
- * Produces a normalized AST (`DocumentNode` / `ElementNode` /
+ * Produces a normalised AST (`DocumentNode` / `ElementNode` /
  * `TextNode`) independent of parse5's internal types so consumers
- * (T4 query reader, T3 round-trip validation, future indexers) can
+ * (query reader, writer round-trip validation, future indexers) can
  * iterate without coupling to a specific HTML library.
  *
  * Why parse5 — it's the W3C-spec parser used by jsdom; widely vetted;
  * forgiving on malformed input by design (a feature for migration
- * tooling, neutral for M1 light validation).
+ * tooling, neutral for the light-validation regime).
  *
- * v1 parses everything as a fragment (no `<html>`/`<head>`/`<body>`
- * wrapper required). M2 may add document-level parsing if topic files
- * grow document-shaped headers; the wrapper gives us room.
+ * Parses everything as a fragment (no `<html>`/`<head>`/`<body>`
+ * wrapper required). Document-level parsing can be added if topic
+ * files grow document-shaped headers; this wrapper leaves room.
  */
 
 type Parse5DocumentFragment = DefaultTreeAdapterMap['documentFragment']
@@ -28,10 +28,11 @@ type Parse5TextNode = DefaultTreeAdapterMap['textNode']
  * Strip a single ` ```<lang>? … ``` ` code-fence wrapper from the input.
  *
  * Sonnet 4.5 (and other models) wrap their HTML response in a code fence
- * even when the prompt explicitly forbids it — observed at ~90% on M1's
- * authoring fluency check. The fence is cosmetic; the inner HTML still
- * parses and validates. Defensive sanitisation in the response parser
- * generalises better than chasing the model's quirk via prompt iteration.
+ * even when the prompt explicitly forbids it — observed at ~90% during
+ * the authoring fluency check. The fence is cosmetic; the inner HTML
+ * still parses and validates. Defensive sanitisation in the response
+ * parser generalises better than chasing the model's quirk via prompt
+ * iteration.
  *
  * Behaviour:
  *   - Input wrapped in ` ```<any-lang>? \n … \n ``` ` → returns inner content.
@@ -62,8 +63,8 @@ export function parseHtml(html: string): DocumentNode {
 
 /**
  * Walk a parsed tree depth-first, returning every element node in
- * document order. Used by element-axis indexing (T4) and by validators
- * that need to find typed elements anywhere in the tree.
+ * document order. Used by element-axis indexing and by validators that
+ * need to find typed elements anywhere in the tree.
  */
 export function walkElements(root: ParsedNode): ElementNode[] {
   const out: ElementNode[] = []
@@ -80,9 +81,9 @@ function walk(node: ParsedNode, out: ElementNode[]): void {
 
 /**
  * Concatenate all text-node descendants of an element into a single
- * string. Used to extract BM25-ready text content from typed elements
- * (T4). HTML entities are already decoded by parse5, so the output is
- * usable verbatim by the tokenizer.
+ * string. Used to extract BM25-ready text content from typed elements.
+ * HTML entities are already decoded by parse5, so the output is usable
+ * verbatim by the tokenizer.
  *
  * Inserts a space between sibling element-children so adjacent block
  * boundaries don't merge tokens (e.g., compact `<p>foo.</p><p>bar.</p>`
@@ -110,12 +111,12 @@ function collapseWhitespace(text: string): string {
 }
 
 /**
- * Serialize a normalized tree back to HTML. Used for round-trip
- * validation in tests and for the writer's emit path (T3).
+ * Serialise a normalised tree back to HTML. Used for round-trip
+ * validation in tests and for the writer's emit path.
  *
- * Note: serialization is semantically equivalent, not byte-equivalent.
+ * Note: serialisation is semantically equivalent, not byte-equivalent.
  * Whitespace, attribute quoting, and self-closing tag style may
- * normalize.
+ * normalise.
  */
 export function serializeHtml(root: DocumentNode): string {
   // Convert our normalized tree back to parse5's shape, then call serialize.
@@ -126,14 +127,14 @@ export function serializeHtml(root: DocumentNode): string {
 // ----- internal: parse5 → normalized -----
 
 /**
- * Convert a parse5 node into our normalized AST.
+ * Convert a parse5 node into our normalised AST.
  *
  * Known limitation — `<template>` element content is not extracted. parse5
  * places template children in a separate `.content` DocumentFragment per
- * the HTML5 spec rather than under `childNodes`; our consumers (T3 writer,
- * T4 reader) do not use `<template>`, so the M1 converter ignores that
- * branch. If the curate vocabulary ever adopts `<template>`, the converter
- * must read `defaultTreeAdapter.getTemplateContent(node)`.
+ * the HTML5 spec rather than under `childNodes`; the curate vocabulary
+ * does not currently use `<template>`, so the converter ignores that
+ * branch. If the vocabulary ever adopts `<template>`, the converter must
+ * read `defaultTreeAdapter.getTemplateContent(node)`.
  */
 function convertNode(node: Parse5Node): ParsedNode | undefined {
   if (isTextNode(node)) {
@@ -158,7 +159,7 @@ function convertNode(node: Parse5Node): ParsedNode | undefined {
     }
   }
 
-  // Skip comments, doctype, processing instructions, etc. for M1.
+  // Skip comments, doctype, processing instructions, etc.
   return undefined
 }
 

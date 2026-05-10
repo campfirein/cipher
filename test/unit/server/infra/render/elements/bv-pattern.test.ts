@@ -36,7 +36,7 @@ describe('bv-pattern validator', () => {
       expect(validateBvPattern(makeNode({description: 'Match a URL'})).valid).to.equal(true)
     })
 
-    it('tolerates unknown attributes (parse-and-skip — M1 light validation)', () => {
+    it('tolerates unknown attributes (parse-and-skip — light validation)', () => {
       expect(validateBvPattern(makeNode({flags: 'g', someFutureAttr: 'x'})).valid).to.equal(true)
     })
   })

@@ -1,14 +1,11 @@
 /**
- * CurateExecutor HTML-mode tests.
+ * CurateExecutor HTML-emission tests.
  *
- * The executor branches on `options.useHtmlContextTree`:
- *   - true:  agent's final response is the bv-topic HTML; route through
- *            html-writer; status reflects the write outcome.
- *   - false: existing markdown path runs unchanged (parseCurationStatus).
- *
- * These tests stub the agent's response and assert the file is written
- * (or not), the lastStatus is shaped correctly, and the markdown path
- * is untouched when the flag is off.
+ * The agent's final response is the bv-topic HTML document; the
+ * executor routes it through the html-writer (fence-stripping +
+ * registry validation + atomic write). These tests stub the agent's
+ * response and assert the file is written (or not), the lastStatus is
+ * shaped correctly, and validation failures are surfaced cleanly.
  */
 
 import {expect} from 'chai'
@@ -49,7 +46,7 @@ function buildAgent(executeOnSessionResult: string): ICipherAgent {
   } as unknown as ICipherAgent
 }
 
-describe('CurateExecutor HTML mode', () => {
+describe('CurateExecutor HTML emission', () => {
   let baseDir: string
 
   beforeEach(async () => {
@@ -75,7 +72,6 @@ describe('CurateExecutor HTML mode', () => {
       content: 'curate this',
       projectRoot: baseDir,
       taskId: 'task-html-1',
-      useHtmlContextTree: true,
     })
 
     const expectedPath = join(baseDir, '.brv', 'context-tree', 'security/auth.html')
@@ -97,7 +93,6 @@ describe('CurateExecutor HTML mode', () => {
       content: 'curate this',
       projectRoot: baseDir,
       taskId: 'task-html-2',
-      useHtmlContextTree: true,
     })
 
     const expectedPath = join(baseDir, '.brv', 'context-tree', 'security/auth.html')
@@ -114,7 +109,6 @@ describe('CurateExecutor HTML mode', () => {
       content: 'curate this',
       projectRoot: baseDir,
       taskId: 'task-html-3',
-      useHtmlContextTree: true,
     })
 
     expect(executor.lastStatus?.status).to.equal('failed')
@@ -135,53 +129,9 @@ describe('CurateExecutor HTML mode', () => {
       content: 'curate this',
       projectRoot: baseDir,
       taskId: 'task-html-4',
-      useHtmlContextTree: true,
     })
 
     expect(executor.lastStatus?.status).to.equal('failed')
     expect(executor.lastStatus?.verification.missing.some((m) => m.includes('attribute-validation'))).to.equal(true)
-  })
-
-  it('uses the existing markdown parseCurationStatus path when the flag is false', async () => {
-    // The agent's response includes the JSON status block the markdown
-    // path expects. handleHtmlCurateResponse should NOT be called in
-    // this branch; lastStatus is sourced from parseCurationStatus.
-    const mdResponse = `Curated successfully.\n\n\`\`\`json\n${JSON.stringify({
-      summary: {added: 2, deleted: 0, failed: 0, merged: 0, updated: 1},
-      verification: {checked: 3, confirmed: 3, missing: []},
-    })}\n\`\`\``
-    const agent = buildAgent(mdResponse)
-    const executor = new CurateExecutor()
-
-    await executor.runAgentBody(agent, {
-      content: 'curate this',
-      projectRoot: baseDir,
-      taskId: 'task-md-1',
-      useHtmlContextTree: false,
-    })
-
-    expect(executor.lastStatus?.status).to.equal('success')
-    expect(executor.lastStatus?.summary.added).to.equal(2)
-    expect(executor.lastStatus?.summary.updated).to.equal(1)
-    // No html file should be written when flag is off.
-    const htmlPath = join(baseDir, '.brv', 'context-tree', 'security/auth.html')
-    expect(existsSync(htmlPath)).to.equal(false)
-  })
-
-  it('uses the markdown path when the flag is undefined (default)', async () => {
-    const agent = buildAgent('Curated.')
-    const executor = new CurateExecutor()
-
-    await executor.runAgentBody(agent, {
-      content: 'curate this',
-      projectRoot: baseDir,
-      taskId: 'task-md-2',
-      // useHtmlContextTree intentionally omitted.
-    })
-
-    // Falls through to fallback heuristic in parseCurationStatus.
-    expect(executor.lastStatus?.status).to.equal('success')
-    const htmlPath = join(baseDir, '.brv', 'context-tree', 'security/auth.html')
-    expect(existsSync(htmlPath)).to.equal(false)
   })
 })

@@ -1,12 +1,12 @@
 /**
  * Sample-topic round-trip test.
  *
- * Verifies that the M1 element vocabulary, applied to a realistic
- * topic file, parses cleanly, validates per-element, and round-trips
- * (parse → walk → re-serialize) without semantic loss.
+ * Verifies that the element vocabulary, applied to a realistic topic
+ * file, parses cleanly, validates per-element, and round-trips
+ * (parse → walk → re-serialise) without semantic loss.
  *
- * This is the closest M1 proxy for "could a real curated topic survive
- * the pipeline?" — useful before T3 wires the writer to disk.
+ * Closest proxy for "could a real curated topic survive the pipeline?"
+ * — useful as a pre-flight before the writer touches disk.
  */
 
 import {expect} from 'chai'
@@ -42,7 +42,7 @@ describe('sample-topic.html round-trip', () => {
       expect(topics).to.have.lengthOf(1)
     })
 
-    it('contains every M1 element type at least once', () => {
+    it('contains every registered element type at least once', () => {
       const elements = walkElements(parseHtml(loadFixture()))
       const tagSet = new Set(elements.map((e) => e.tagName))
       for (const name of ELEMENT_NAMES) {
@@ -143,7 +143,7 @@ describe('sample-topic.html round-trip', () => {
   })
 
   describe('renderable-MD coverage', () => {
-    // The M1 vocabulary's promise: every section the markdown writer
+    // The vocabulary's promise: every section the markdown writer
     // renders has a dedicated bv-* element. The fixture exercises that
     // by including every renderable section at least once.
     it('covers every renderable .md section via dedicated elements', () => {

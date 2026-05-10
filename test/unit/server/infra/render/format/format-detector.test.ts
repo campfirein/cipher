@@ -1,39 +1,16 @@
 /**
  * Format-detector tests.
  *
- * Two pure functions:
- *   - `getFormatForWrite(config)` reads the `useHtmlContextTree` flag.
- *   - `getFormatForRead(filePath)` reads the file extension.
- *
- * Both must be deterministic and side-effect-free; the curate executor
- * and the search service consume them on the hot path.
+ * `getFormatForRead(filePath)` is a pure extension-based dispatcher used
+ * by the query/search read path to route between the legacy markdown
+ * reader and the HTML reader.
  */
 
 import {expect} from 'chai'
 
-import {getFormatForRead, getFormatForWrite} from '../../../../../../src/server/infra/render/format/format-detector.js'
+import {getFormatForRead} from '../../../../../../src/server/infra/render/format/format-detector.js'
 
 describe('format-detector', () => {
-  describe('getFormatForWrite', () => {
-    it('returns "html" when useHtmlContextTree is true', () => {
-      expect(getFormatForWrite({useHtmlContextTree: true})).to.equal('html')
-    })
-
-    it('returns "markdown" when useHtmlContextTree is false', () => {
-      expect(getFormatForWrite({useHtmlContextTree: false})).to.equal('markdown')
-    })
-
-    it('returns "markdown" when useHtmlContextTree is undefined (default)', () => {
-      expect(getFormatForWrite({})).to.equal('markdown')
-    })
-
-    it('treats truthy non-true values as markdown (strict-equality default)', () => {
-      // Defensive: the flag is typed boolean, but a misconfigured JSON
-      // could pass a string. Strict-equality keeps the default branch.
-      expect(getFormatForWrite({useHtmlContextTree: 'true' as unknown as boolean})).to.equal('markdown')
-    })
-  })
-
   describe('getFormatForRead', () => {
     it('returns "html" for .html files', () => {
       expect(getFormatForRead('/path/to/topic.html')).to.equal('html')

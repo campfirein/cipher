@@ -1,22 +1,23 @@
 /**
- * Element type definitions for the M1 HTML render layer.
+ * Element type definitions for the HTML render layer.
  *
  * This file is the type-only contract between:
  *  - the HTML parser (produces `ParsedNode` trees)
  *  - per-element validators (consume `ElementNode`s)
  *  - the element registry (catalogs `ElementSchema`s by `ElementName`)
- *  - downstream consumers (T3 curate writer, T4 query reader)
+ *  - downstream consumers (curate writer, query reader)
  *
- * See `features/html-memory-conversion/milestones/01-experiment/plan.md`
- * for the M1 vocabulary scope (5 elements). M2 expansion is purely
- * additive — adding an element name to `ELEMENT_NAMES` and a registry
- * entry is sufficient; no consumer needs to be touched.
+ * The vocabulary is closed but additive: adding an element is one entry
+ * in `ELEMENT_NAMES` plus a `<name>/{schema,validator}.ts` pair under
+ * `elements/`. Consumers walk the registry generically; no consumer
+ * needs touching when the vocabulary grows.
  */
 
 /**
- * The M1 element names. The HTML curate format must round-trip through
- * the markdown writer without information loss; the vocabulary covers
- * everything the writer renders into the `.md` file:
+ * The element names in the closed `<bv-*>` vocabulary. The HTML curate
+ * format must round-trip through the markdown writer without
+ * information loss; the vocabulary covers everything the writer renders
+ * into the `.md` file:
  *
  *   bv-topic        — root container; carries frontmatter as attributes.
  *   bv-reason       — `## Reason` body section.
@@ -34,8 +35,8 @@
  *   bv-examples,
  *   bv-diagram
  *   bv-fact         — `## Facts` list entry (subject/category/value attrs).
- *   bv-decision     — net-new in M1: decision record.
- *   bv-bug, bv-fix  — net-new in M1: paired bug + fix runbook entries.
+ *   bv-decision     — decision record (no MD analog yet).
+ *   bv-bug, bv-fix  — paired bug + fix runbook entries (no MD analog yet).
  *
  * Adding to this list must be an additive operation; downstream
  * consumers iterate the registry generically.
@@ -77,9 +78,9 @@ export type ElementNode = {
    *
    * NOTE on key case: per the HTML5 parsing spec, attribute names are
    * lowercased during parsing — `updatedAt` in the source becomes
-   * `updatedat` in this map. Downstream consumers (T3 writer, T4
-   * reader) MUST emit and look up attributes in lowercase. Schemas
-   * declared in per-element `schema.ts` files use lowercase to match.
+   * `updatedat` in this map. Downstream consumers (writer, reader)
+   * MUST emit and look up attributes in lowercase. Schemas declared in
+   * per-element `schema.ts` files use lowercase to match.
    */
   attributes: Readonly<Record<string, string>>
   children: readonly ParsedNode[]
@@ -113,16 +114,16 @@ export type ValidationResult =
   | {valid: true}
 
 /**
- * Allowed-children semantic hint. Informational only in M1 — the
- * validator carries the enforcement; this is for documentation and the
- * curate prompt template generator (T3).
+ * Allowed-children semantic hint. Informational — the validator carries
+ * the enforcement; this is documentation for the curate prompt template
+ * generator and the structural-axis index.
  */
 export type AllowedChildren = 'any' | 'block' | 'inline' | 'none'
 
 /**
  * Per-element registry entry. The validator is the load-bearing field;
- * everything else is metadata for the prompt template generator (T3) and
- * the structural-axis index (T4).
+ * everything else is metadata for the prompt template generator and
+ * the structural-axis index.
  */
 export type ElementSchema = {
   /** Allowed-children semantic hint. Informational. */
@@ -134,7 +135,7 @@ export type ElementSchema = {
   optionalAttributes: readonly string[]
   /** Required attribute names. Informational; the validator enforces. */
   requiredAttributes: readonly string[]
-  /** Validate an `ElementNode`'s tag name + attributes. Light validation in M1 (per-attribute Zod schema); strict per ADR-007 §13 in M2. */
+  /** Validate an `ElementNode`'s tag name + attributes. Light validation today (per-attribute Zod schema); strict validation per ADR-007 §13 is future work. */
   validator: (node: ElementNode) => ValidationResult
 }
 

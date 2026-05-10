@@ -42,7 +42,7 @@ describe('bv-rule validator', () => {
       expect(validateBvRule(makeNode({id: 'r-jwt-401', severity: 'must'})).valid).to.equal(true)
     })
 
-    it('tolerates unknown attributes (parse-and-skip — M1 light validation)', () => {
+    it('tolerates unknown attributes (parse-and-skip — light validation)', () => {
       expect(validateBvRule(makeNode({severity: 'must', someFutureAttr: 'x'})).valid).to.equal(true)
     })
   })

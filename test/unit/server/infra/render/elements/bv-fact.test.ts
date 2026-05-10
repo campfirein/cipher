@@ -40,7 +40,7 @@ describe('bv-fact validator', () => {
       })).valid).to.equal(true)
     })
 
-    it('tolerates unknown attributes (parse-and-skip — M1 light validation)', () => {
+    it('tolerates unknown attributes (parse-and-skip — light validation)', () => {
       expect(validateBvFact(makeNode({category: 'project', someFutureAttr: 'x'})).valid).to.equal(true)
     })
   })

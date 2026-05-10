@@ -1,9 +1,9 @@
 /**
  * Element registry tests.
  *
- * The registry is the single source of truth for the M1 element
+ * The registry is the single source of truth for the closed `<bv-*>`
  * vocabulary. Every consumer (curate writer, query reader, prompt
- * template generator) walks the registry generically. M2 vocabulary
+ * template generator) walks the registry generically. Vocabulary
  * expansion is purely additive — new entries only.
  */
 
@@ -20,7 +20,7 @@ function makeNode(tagName: string, attributes: Record<string, string> = {}): Ele
 
 describe('ELEMENT_REGISTRY', () => {
   describe('shape', () => {
-    it('contains exactly the M1 vocabulary (16 entries)', () => {
+    it('contains exactly the registered vocabulary', () => {
       expect(Object.keys(ELEMENT_REGISTRY)).to.have.lengthOf(ELEMENT_NAMES.length)
     })
 

@@ -618,11 +618,6 @@ async function executeTask(
               projectRoot: projectPath,
               taskId,
               usageAggregator: curateAggregator,
-              // M1 HTML context-tree experiment flag — read from the
-              // project's BrvConfig (default false). When true, curate
-              // emits HTML via the M1 element vocabulary; when false,
-              // the existing markdown path runs unchanged.
-              useHtmlContextTree: cachedBrvConfig?.useHtmlContextTree === true,
               worktreeRoot,
             })
             result = curateResult.response

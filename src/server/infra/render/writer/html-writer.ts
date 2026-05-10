@@ -8,13 +8,13 @@ import {ELEMENT_REGISTRY} from '../elements/registry.js'
 import {parseHtml, stripCodeFenceWrapper, walkElements} from '../reader/html-parser.js'
 
 /**
- * HTML writer for the M1 context-tree experiment.
+ * HTML writer for the curate context-tree.
  *
  * Consumes the LLM's text response (the curate agent's final output),
- * validates it against the M1 element registry, and atomically writes
- * the topic file to disk. T2's `stripCodeFenceWrapper` handles the
- * model's stubborn habit of wrapping responses in code fences (~70% of
- * the time on Sonnet 4.5 per the fluency report).
+ * validates it against the element registry, and atomically writes the
+ * topic file to disk. `stripCodeFenceWrapper` handles the model's
+ * stubborn habit of wrapping responses in code fences (~70% of the time
+ * on Sonnet 4.5 per the authoring fluency check).
  *
  * Sequence on every write:
  *   1. Strip a single outer ` ```<lang>? … ``` ` wrapper if present.
@@ -27,8 +27,8 @@ import {parseHtml, stripCodeFenceWrapper, walkElements} from '../reader/html-par
  *      HTML via the existing `tmp-rename` pattern.
  *
  * On validation failure: returns a structured result for the executor
- * to log + surface as a curate-status. No file is written. M1 fails
- * clean; M2 may add a salvage mode.
+ * to log + surface as a curate-status. No file is written; the writer
+ * fails clean. (Salvage mode for partial recovery is future work.)
  */
 
 export type HtmlWriteSuccess = {
@@ -127,7 +127,7 @@ export function validateHtmlTopic(html: string): ValidatedTopic {
     if (!isRegisteredElementName(el.tagName)) {
       errors.push({
         kind: 'unknown-bv-element',
-        message: `<${el.tagName}> is not in the M1 element registry. Vocabulary is closed.`,
+        message: `<${el.tagName}> is not in the element registry. Vocabulary is closed.`,
         tag: el.tagName,
       })
       continue
@@ -160,8 +160,9 @@ function toAttributeError(tag: ElementName, error: ValidationError): HtmlWriteEr
  * Resolve a `<bv-topic path="...">` attribute to an absolute on-disk
  * path inside the project's context-tree directory. The topic path is
  * sanitised: backslashes normalised to forward slashes, leading slashes
- * stripped, `..` segments rejected. M1 keeps the existing
- * `.brv/context-tree/` storage layout; M2 may move to `.brv/render/`.
+ * stripped, `..` segments rejected. The current storage layout is
+ * `.brv/context-tree/`; this resolver is the single point that
+ * encodes that convention.
  */
 function topicPathToFilePath(contextTreeRoot: string, topicPath: string): string {
   const normalized = topicPath.replaceAll('\\', '/').replace(/^\/+/, '')

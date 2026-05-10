@@ -279,54 +279,6 @@ describe('BrvConfig', () => {
     })
   })
 
-  describe('useHtmlContextTree', () => {
-    it('should default to undefined when not set', () => {
-      const config = new BrvConfig(validConstructorArgs)
-      expect(config.useHtmlContextTree).to.be.undefined
-    })
-
-    it('should preserve true value through constructor', () => {
-      const config = new BrvConfig({...validConstructorArgs, useHtmlContextTree: true})
-      expect(config.useHtmlContextTree).to.be.true
-    })
-
-    it('should round-trip true through toJson/fromJson', () => {
-      const config = new BrvConfig({...validConstructorArgs, useHtmlContextTree: true})
-      const restored = BrvConfig.fromJson(config.toJson())
-      expect(restored.useHtmlContextTree).to.be.true
-    })
-
-    it('should round-trip false through toJson/fromJson', () => {
-      const config = new BrvConfig({...validConstructorArgs, useHtmlContextTree: false})
-      const restored = BrvConfig.fromJson(config.toJson())
-      expect(restored.useHtmlContextTree).to.be.false
-    })
-
-    it('should reject non-boolean useHtmlContextTree in fromJson', () => {
-      expect(() =>
-        BrvConfig.fromJson({...validConstructorArgs, useHtmlContextTree: 'yes'}),
-      ).to.throw('Invalid BrvConfig JSON structure')
-    })
-
-    it('is preserved through withReviewDisabled', () => {
-      const original = new BrvConfig({...validConstructorArgs, useHtmlContextTree: true})
-      const disabled = original.withReviewDisabled(true)
-      expect(disabled.useHtmlContextTree).to.be.true
-    })
-
-    it('is preserved through withVersion', () => {
-      const original = new BrvConfig({...validConstructorArgs, useHtmlContextTree: true})
-      const updated = original.withVersion('99.0.0')
-      expect(updated.useHtmlContextTree).to.be.true
-    })
-
-    it('is preserved through withoutSpace', () => {
-      const original = new BrvConfig({...validConstructorArgs, useHtmlContextTree: true})
-      const cleared = original.withoutSpace()
-      expect(cleared.useHtmlContextTree).to.be.true
-    })
-  })
-
   describe('fromSpace', () => {
     it('should create config from Space entity with current version', () => {
       const space = new Space({

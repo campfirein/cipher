@@ -20,14 +20,6 @@ export type BrvConfigParams = {
   spaceName?: string
   teamId?: string
   teamName?: string
-  /**
-   * Feature flag for the HTML context-tree experiment (M1). When true,
-   * curate writes `.html` files using the M1 element registry; when
-   * false (default), curate continues to write `.md` files. Read-side
-   * is always extension-based, so MD and HTML can coexist during the
-   * experiment without flag thrashing.
-   */
-  useHtmlContextTree?: boolean
   version: string
 }
 
@@ -98,7 +90,6 @@ const isBrvConfigJson = (json: unknown): json is BrvConfigFromJson => {
   if (obj.cipherAgentModes !== undefined && !Array.isArray(obj.cipherAgentModes)) return false
   if (obj.version !== undefined && typeof obj.version !== 'string') return false
   if (obj.reviewDisabled !== undefined && typeof obj.reviewDisabled !== 'boolean') return false
-  if (obj.useHtmlContextTree !== undefined && typeof obj.useHtmlContextTree !== 'boolean') return false
 
   return true
 }
@@ -120,7 +111,6 @@ export class BrvConfig {
   public readonly spaceName?: string
   public readonly teamId?: string
   public readonly teamName?: string
-  public readonly useHtmlContextTree?: boolean
   public readonly version: string
 
   public constructor(params: BrvConfigParams) {
@@ -140,7 +130,6 @@ export class BrvConfig {
     this.spaceName = params.spaceName
     this.teamId = params.teamId
     this.teamName = params.teamName
-    this.useHtmlContextTree = params.useHtmlContextTree
     this.version = params.version
   }
 
@@ -234,7 +223,6 @@ export class BrvConfig {
       spaceName: this.spaceName,
       teamId: this.teamId,
       teamName: this.teamName,
-      useHtmlContextTree: this.useHtmlContextTree,
       version: this.version,
     }
   }
@@ -269,7 +257,6 @@ export class BrvConfig {
       spaceName: this.spaceName,
       teamId: this.teamId,
       teamName: this.teamName,
-      useHtmlContextTree: this.useHtmlContextTree,
       version: this.version,
     })
   }
@@ -291,7 +278,6 @@ export class BrvConfig {
       spaceName: space.name,
       teamId: space.teamId,
       teamName: space.teamName,
-      useHtmlContextTree: this.useHtmlContextTree,
       version: this.version,
     })
   }
@@ -313,7 +299,6 @@ export class BrvConfig {
       spaceName: this.spaceName,
       teamId: this.teamId,
       teamName: this.teamName,
-      useHtmlContextTree: this.useHtmlContextTree,
       version,
     })
   }

@@ -33,7 +33,7 @@ describe('bv-diagram validator', () => {
       expect(validateBvDiagram(makeNode({title: 'Authentication Flow', type: 'mermaid'})).valid).to.equal(true)
     })
 
-    it('tolerates unknown attributes (parse-and-skip — M1 light validation)', () => {
+    it('tolerates unknown attributes (parse-and-skip — light validation)', () => {
       expect(validateBvDiagram(makeNode({someFutureAttr: 'x', type: 'mermaid'})).valid).to.equal(true)
     })
   })
