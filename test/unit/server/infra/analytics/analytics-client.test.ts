@@ -4,21 +4,25 @@ import {spy, stub} from 'sinon'
 
 import type {Identity} from '../../../../../src/server/core/domain/analytics/identity.js'
 import type {StoredAnalyticsRecord} from '../../../../../src/server/core/domain/analytics/stored-record.js'
+import type {IAnalyticsSender, SendResult} from '../../../../../src/server/core/interfaces/analytics/i-analytics-sender.js'
 import type {IIdentityResolver} from '../../../../../src/server/core/interfaces/analytics/i-identity-resolver.js'
-import type {IJsonlAnalyticsStore} from '../../../../../src/server/core/interfaces/analytics/i-jsonl-analytics-store.js'
+import type {IJsonlAnalyticsStore, JsonlAnalyticsStoreUpdateStatus} from '../../../../../src/server/core/interfaces/analytics/i-jsonl-analytics-store.js'
 import type {ISuperPropertiesResolver, SuperProperties} from '../../../../../src/server/core/interfaces/analytics/i-super-properties-resolver.js'
 
 import {AnalyticsBatch} from '../../../../../src/server/core/domain/analytics/batch.js'
 import {AnalyticsClient} from '../../../../../src/server/infra/analytics/analytics-client.js'
 import {BoundedQueue} from '../../../../../src/server/infra/analytics/bounded-queue.js'
+import {NoOpAnalyticsSender} from '../../../../../src/server/infra/analytics/no-op-analytics-sender.js'
 
 type FakeJsonlStore = IJsonlAnalyticsStore & {
   appendSpy: ReturnType<typeof spy>
   readonly records: StoredAnalyticsRecord[]
+  readonly updateStatusCalls: Array<{ids: readonly string[]; status: JsonlAnalyticsStoreUpdateStatus}>
 }
 
 function makeFakeJsonlStore(opts: {appendError?: Error} = {}): FakeJsonlStore {
   const records: StoredAnalyticsRecord[] = []
+  const updateStatusCalls: Array<{ids: readonly string[]; status: JsonlAnalyticsStoreUpdateStatus}> = []
   const appendImpl = async (record: StoredAnalyticsRecord): Promise<void> => {
     if (opts.appendError) throw opts.appendError
     records.push(record)
@@ -33,7 +37,56 @@ function makeFakeJsonlStore(opts: {appendError?: Error} = {}): FakeJsonlStore {
     list: async () => ({rows: [...records], total: records.length}),
     loadPending: async () => records.filter((r) => r.status === 'pending'),
     records,
-    async updateStatus() {},
+    // Simplified mirror of M9.2's updateStatus for unit tests: 'sent' is a terminal flip;
+    // 'failed' flips status directly. The real retry-cap (increment attempts, stay
+    // 'pending' until cap) lives in M9.2 and is verified end-to-end in M10.3.
+    async updateStatus(ids: readonly string[], status: JsonlAnalyticsStoreUpdateStatus): Promise<void> {
+      updateStatusCalls.push({ids: [...ids], status})
+      if (ids.length === 0) return
+      const idSet = new Set(ids)
+      for (let i = 0; i < records.length; i++) {
+        if (idSet.has(records[i].id)) records[i] = {...records[i], status}
+      }
+    },
+    updateStatusCalls,
+  }
+}
+
+type FakeSender = IAnalyticsSender & {
+  readonly calls: Array<readonly StoredAnalyticsRecord[]>
+}
+
+type FakeSenderOpts =
+  | {error: Error; kind: 'throw';}
+  | {failedIds: readonly string[]; kind: 'mixed'; succeededIds: readonly string[]}
+  | {kind: 'all-failed'}
+  | {kind: 'all-succeeded'}
+
+function makeFakeSender(opts?: FakeSenderOpts): FakeSender {
+  const resolved: FakeSenderOpts = opts ?? {kind: 'all-succeeded'}
+  const calls: Array<readonly StoredAnalyticsRecord[]> = []
+  return {
+    calls,
+    async send(records: readonly StoredAnalyticsRecord[]): Promise<SendResult> {
+      calls.push([...records])
+      switch (resolved.kind) {
+        case 'all-failed': {
+          return {failed: records.map((r) => r.id), succeeded: []}
+        }
+
+        case 'all-succeeded': {
+          return {failed: [], succeeded: records.map((r) => r.id)}
+        }
+
+        case 'mixed': {
+          return {failed: [...resolved.failedIds], succeeded: [...resolved.succeededIds]}
+        }
+
+        case 'throw': {
+          throw resolved.error
+        }
+      }
+    },
   }
 }
 
@@ -80,6 +133,14 @@ async function flushMicrotasks(): Promise<void> {
   })
 }
 
+async function seedPending(client: AnalyticsClient, count: number): Promise<void> {
+  for (let i = 0; i < count; i++) {
+    client.track(`event_${i}`)
+  }
+
+  await flushMicrotasks()
+}
+
 describe('AnalyticsClient', () => {
   describe('disabled state (ticket scenario 1)', () => {
     it('should be a true no-op when isEnabled returns false', async () => {
@@ -92,6 +153,7 @@ describe('AnalyticsClient', () => {
         isEnabled: () => false,
         jsonlStore: makeFakeJsonlStore(),
         queue,
+        sender: makeFakeSender(),
         superPropsResolver,
       })
 
@@ -118,6 +180,7 @@ describe('AnalyticsClient', () => {
         isEnabled: () => true,
         jsonlStore: makeFakeJsonlStore(),
         queue,
+        sender: makeFakeSender(),
         superPropsResolver: makeStubSuperPropsResolver(superProps),
       })
 
@@ -160,6 +223,7 @@ describe('AnalyticsClient', () => {
         isEnabled: () => true,
         jsonlStore: makeFakeJsonlStore(),
         queue,
+        sender: makeFakeSender(),
         superPropsResolver,
       })
 
@@ -181,14 +245,19 @@ describe('AnalyticsClient', () => {
     })
   })
 
-  describe('queue cap honored (ticket scenario 4)', () => {
-    it('should drop excess events per the bounded queue contract', async () => {
+  describe('M10.2 burst-overflow regression: flush reads from JSONL, not the bounded queue', () => {
+    it('should ship every tracked event even when the in-memory queue dropped half during a burst', async () => {
+      // M10.2's central architectural call: flush() reads from JSONL via loadPending(),
+      // NOT from the in-memory queue. Without this, events tracked beyond queue.maxSize
+      // would be silently dropped from the active flush path until daemon restart.
       const queue = new BoundedQueue(5)
+      const jsonlStore = makeFakeJsonlStore()
       const client = new AnalyticsClient({
         identityResolver: makeStubIdentityResolver(makeAnonIdentity()),
         isEnabled: () => true,
-        jsonlStore: makeFakeJsonlStore(),
+        jsonlStore,
         queue,
+        sender: makeFakeSender(),
         superPropsResolver: makeStubSuperPropsResolver(makeSuperProps()),
       })
 
@@ -199,7 +268,10 @@ describe('AnalyticsClient', () => {
       await flushMicrotasks()
 
       const batch = await client.flush()
-      expect(batch.events).to.have.lengthOf(5)
+      // All 10 events durably stored and flushed — JSONL is the source of truth.
+      expect(batch.events).to.have.lengthOf(10)
+      expect(jsonlStore.records).to.have.lengthOf(10)
+      // The queue still honors its cap (the regression here is independent of queue eviction).
       expect(queue.droppedCount()).to.equal(5)
     })
   })
@@ -212,6 +284,7 @@ describe('AnalyticsClient', () => {
         isEnabled: () => true,
         jsonlStore: makeFakeJsonlStore(),
         queue,
+        sender: makeFakeSender(),
         superPropsResolver: makeStubSuperPropsResolver(makeSuperProps()),
       })
 
@@ -232,6 +305,7 @@ describe('AnalyticsClient', () => {
         isEnabled: () => true,
         jsonlStore: makeFakeJsonlStore(),
         queue: new BoundedQueue(),
+        sender: makeFakeSender(),
         superPropsResolver: makeStubSuperPropsResolver(makeSuperProps()),
       })
 
@@ -252,6 +326,7 @@ describe('AnalyticsClient', () => {
         isEnabled: () => true,
         jsonlStore: makeFakeJsonlStore(),
         queue,
+        sender: makeFakeSender(),
         superPropsResolver: makeStubSuperPropsResolver(makeSuperProps()),
       })
 
@@ -274,6 +349,7 @@ describe('AnalyticsClient', () => {
         isEnabled: () => true,
         jsonlStore: makeFakeJsonlStore(),
         queue,
+        sender: makeFakeSender(),
         superPropsResolver,
       })
 
@@ -301,6 +377,7 @@ describe('AnalyticsClient', () => {
         isEnabled: () => true,
         jsonlStore: makeFakeJsonlStore(),
         queue,
+        sender: makeFakeSender(),
         superPropsResolver: makeStubSuperPropsResolver(makeSuperProps()),
       })
 
@@ -336,6 +413,7 @@ describe('AnalyticsClient', () => {
         isEnabled: () => true,
         jsonlStore: makeFakeJsonlStore(),
         queue,
+        sender: makeFakeSender(),
         superPropsResolver: makeStubSuperPropsResolver(makeSuperProps()),
       })
 
@@ -361,6 +439,7 @@ describe('AnalyticsClient', () => {
         isEnabled: () => true,
         jsonlStore,
         queue,
+        sender: makeFakeSender(),
         superPropsResolver: makeStubSuperPropsResolver(makeSuperProps()),
       })
 
@@ -388,6 +467,7 @@ describe('AnalyticsClient', () => {
         isEnabled: () => true,
         jsonlStore,
         queue,
+        sender: makeFakeSender(),
         superPropsResolver: makeStubSuperPropsResolver(makeSuperProps()),
       })
 
@@ -410,6 +490,7 @@ describe('AnalyticsClient', () => {
         isEnabled: () => true,
         jsonlStore,
         queue,
+        sender: makeFakeSender(),
         superPropsResolver: makeStubSuperPropsResolver(makeSuperProps()),
       })
 
@@ -431,6 +512,7 @@ describe('AnalyticsClient', () => {
         isEnabled: () => true,
         jsonlStore,
         queue,
+        sender: makeFakeSender(),
         superPropsResolver: makeStubSuperPropsResolver(makeSuperProps()),
       })
 
@@ -451,6 +533,7 @@ describe('AnalyticsClient', () => {
         isEnabled: () => true,
         jsonlStore,
         queue,
+        sender: makeFakeSender(),
         superPropsResolver: makeStubSuperPropsResolver(makeSuperProps()),
       })
 
@@ -473,6 +556,7 @@ describe('AnalyticsClient', () => {
         isEnabled: () => false,
         jsonlStore,
         queue,
+        sender: makeFakeSender(),
         superPropsResolver: makeStubSuperPropsResolver(makeSuperProps()),
       })
 
@@ -482,6 +566,187 @@ describe('AnalyticsClient', () => {
       expect(jsonlStore.appendSpy.called).to.equal(false)
       expect(jsonlStore.records).to.have.lengthOf(0)
       expect(queue.size()).to.equal(0)
+    })
+  })
+
+  describe('M10.2 mirror flush: invokes sender, mirrors result back to JSONL via updateStatus', () => {
+    it('should pass loadPending records to sender.send exactly once per flush', async () => {
+      const jsonlStore = makeFakeJsonlStore()
+      const sender = makeFakeSender()
+      const client = new AnalyticsClient({
+        identityResolver: makeStubIdentityResolver(makeAnonIdentity()),
+        isEnabled: () => true,
+        jsonlStore,
+        queue: new BoundedQueue(),
+        sender,
+        superPropsResolver: makeStubSuperPropsResolver(makeSuperProps()),
+      })
+
+      await seedPending(client, 3)
+      await client.flush()
+
+      expect(sender.calls).to.have.lengthOf(1)
+      const [shipped] = sender.calls
+      expect(shipped).to.have.lengthOf(3)
+      expect(shipped.map((r) => r.name).sort()).to.deep.equal(['event_0', 'event_1', 'event_2'])
+    })
+
+    it('should mirror all-succeeded result by flipping rows to status=sent', async () => {
+      const jsonlStore = makeFakeJsonlStore()
+      const client = new AnalyticsClient({
+        identityResolver: makeStubIdentityResolver(makeAnonIdentity()),
+        isEnabled: () => true,
+        jsonlStore,
+        queue: new BoundedQueue(),
+        sender: makeFakeSender({kind: 'all-succeeded'}),
+        superPropsResolver: makeStubSuperPropsResolver(makeSuperProps()),
+      })
+
+      await seedPending(client, 3)
+      await client.flush()
+
+      expect(jsonlStore.records.map((r) => r.status)).to.deep.equal(['sent', 'sent', 'sent'])
+      // updateStatus(succeeded, 'sent') called with all 3 ids; updateStatus(failed, 'failed') called with empty
+      const calls = jsonlStore.updateStatusCalls
+      expect(calls.find((c) => c.status === 'sent')?.ids).to.have.lengthOf(3)
+      expect(calls.find((c) => c.status === 'failed')?.ids).to.have.lengthOf(0)
+    })
+
+    it('should mirror all-failed result by flipping rows to status=failed', async () => {
+      const jsonlStore = makeFakeJsonlStore()
+      const client = new AnalyticsClient({
+        identityResolver: makeStubIdentityResolver(makeAnonIdentity()),
+        isEnabled: () => true,
+        jsonlStore,
+        queue: new BoundedQueue(),
+        sender: makeFakeSender({kind: 'all-failed'}),
+        superPropsResolver: makeStubSuperPropsResolver(makeSuperProps()),
+      })
+
+      await seedPending(client, 2)
+      await client.flush()
+
+      // Note: real M9.2 keeps rows at 'pending' until MAX_ATTEMPTS — the FAKE store flips to
+      // 'failed' immediately for unit-test simplicity. End-to-end retry-cap composition is
+      // verified in M10.3 against the real JsonlAnalyticsStore.
+      expect(jsonlStore.records.map((r) => r.status)).to.deep.equal(['failed', 'failed'])
+      const calls = jsonlStore.updateStatusCalls
+      expect(calls.find((c) => c.status === 'failed')?.ids).to.have.lengthOf(2)
+      expect(calls.find((c) => c.status === 'sent')?.ids).to.have.lengthOf(0)
+    })
+
+    it('should mirror mixed result: some ids to sent, some to failed', async () => {
+      const jsonlStore = makeFakeJsonlStore()
+      const client = new AnalyticsClient({
+        identityResolver: makeStubIdentityResolver(makeAnonIdentity()),
+        isEnabled: () => true,
+        jsonlStore,
+        queue: new BoundedQueue(),
+        // Late-bound: build the mixed sender with the actual record ids after seeding.
+        sender: makeFakeSender(),
+        superPropsResolver: makeStubSuperPropsResolver(makeSuperProps()),
+      })
+
+      await seedPending(client, 4)
+      const ids = jsonlStore.records.map((r) => r.id)
+      // Re-construct client with a mixed sender keyed off the seeded ids.
+      const jsonlStore2 = makeFakeJsonlStore()
+      const client2 = new AnalyticsClient({
+        identityResolver: makeStubIdentityResolver(makeAnonIdentity()),
+        isEnabled: () => true,
+        jsonlStore: jsonlStore2,
+        queue: new BoundedQueue(),
+        sender: makeFakeSender({failedIds: [ids[2], ids[3]], kind: 'mixed', succeededIds: [ids[0], ids[1]]}),
+        superPropsResolver: makeStubSuperPropsResolver(makeSuperProps()),
+      })
+
+      // Re-seed with the SAME ids by appending records directly into jsonlStore2.records.
+      for (const r of jsonlStore.records) jsonlStore2.records.push(r)
+
+      await client2.flush()
+
+      // First two sent, last two flipped to failed (per fake-store simplified policy).
+      expect(jsonlStore2.records.find((r) => r.id === ids[0])?.status).to.equal('sent')
+      expect(jsonlStore2.records.find((r) => r.id === ids[1])?.status).to.equal('sent')
+      expect(jsonlStore2.records.find((r) => r.id === ids[2])?.status).to.equal('failed')
+      expect(jsonlStore2.records.find((r) => r.id === ids[3])?.status).to.equal('failed')
+    })
+
+    it('should treat a sender that throws as all-failed (no daemon crash)', async () => {
+      const jsonlStore = makeFakeJsonlStore()
+      const client = new AnalyticsClient({
+        identityResolver: makeStubIdentityResolver(makeAnonIdentity()),
+        isEnabled: () => true,
+        jsonlStore,
+        queue: new BoundedQueue(),
+        sender: makeFakeSender({error: new Error('network boom'), kind: 'throw'}),
+        superPropsResolver: makeStubSuperPropsResolver(makeSuperProps()),
+      })
+
+      await seedPending(client, 3)
+
+      // The flush itself must not throw — daemon survives.
+      let threw = false
+      try {
+        await client.flush()
+      } catch {
+        threw = true
+      }
+
+      expect(threw, 'flush MUST NOT throw when sender throws').to.equal(false)
+      expect(jsonlStore.records.map((r) => r.status)).to.deep.equal(['failed', 'failed', 'failed'])
+    })
+
+    it('should leave JSONL untouched when the no-op sender is wired (regression for review issue #4)', async () => {
+      const jsonlStore = makeFakeJsonlStore()
+      const client = new AnalyticsClient({
+        identityResolver: makeStubIdentityResolver(makeAnonIdentity()),
+        isEnabled: () => true,
+        jsonlStore,
+        queue: new BoundedQueue(),
+        sender: new NoOpAnalyticsSender(),
+        superPropsResolver: makeStubSuperPropsResolver(makeSuperProps()),
+      })
+
+      await seedPending(client, 5)
+      const beforeStatuses = jsonlStore.records.map((r) => r.status)
+      const beforeAttempts = jsonlStore.records.map((r) => r.attempts)
+
+      await client.flush()
+
+      expect(jsonlStore.records.map((r) => r.status)).to.deep.equal(beforeStatuses)
+      expect(jsonlStore.records.map((r) => r.attempts)).to.deep.equal(beforeAttempts)
+      // Both updateStatus calls received empty arrays (no-op sender returns {[],[]}).
+      expect(jsonlStore.updateStatusCalls).to.deep.equal([
+        {ids: [], status: 'sent'},
+        {ids: [], status: 'failed'},
+      ])
+    })
+
+    it('should return a wire-shape AnalyticsBatch (id/attempts/status stripped via toWireEvent)', async () => {
+      const jsonlStore = makeFakeJsonlStore()
+      const client = new AnalyticsClient({
+        identityResolver: makeStubIdentityResolver(makeAnonIdentity()),
+        isEnabled: () => true,
+        jsonlStore,
+        queue: new BoundedQueue(),
+        sender: makeFakeSender(),
+        superPropsResolver: makeStubSuperPropsResolver(makeSuperProps()),
+      })
+
+      await seedPending(client, 1)
+      const batch = await client.flush()
+
+      expect(batch.events).to.have.lengthOf(1)
+      const [event] = batch.events
+      expect(event).to.have.property('name', 'event_0')
+      expect(event).to.have.property('timestamp')
+      expect(event).to.have.property('properties')
+      expect(event).to.have.property('identity')
+      // Local-only fields stripped on the wire.
+      expect(event).to.not.have.property('id')
+      expect(event).to.not.have.property('attempts')
+      expect(event).to.not.have.property('status')
     })
   })
 })

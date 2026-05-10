@@ -3,17 +3,20 @@ import {randomUUID} from 'node:crypto'
 import type {StoredAnalyticsRecord} from '../../core/domain/analytics/stored-record.js'
 import type {IAnalyticsClient} from '../../core/interfaces/analytics/i-analytics-client.js'
 import type {IAnalyticsQueue} from '../../core/interfaces/analytics/i-analytics-queue.js'
+import type {IAnalyticsSender, SendResult} from '../../core/interfaces/analytics/i-analytics-sender.js'
 import type {IIdentityResolver} from '../../core/interfaces/analytics/i-identity-resolver.js'
 import type {IJsonlAnalyticsStore} from '../../core/interfaces/analytics/i-jsonl-analytics-store.js'
 import type {ISuperPropertiesResolver} from '../../core/interfaces/analytics/i-super-properties-resolver.js'
 
 import {AnalyticsBatch} from '../../core/domain/analytics/batch.js'
+import {toWireEvent} from '../../core/domain/analytics/stored-record.js'
 
 export interface AnalyticsClientDeps {
   identityResolver: IIdentityResolver
   isEnabled: () => boolean
   jsonlStore: IJsonlAnalyticsStore
   queue: IAnalyticsQueue
+  sender: IAnalyticsSender
   superPropsResolver: ISuperPropertiesResolver
 }
 
@@ -47,8 +50,39 @@ export class AnalyticsClient implements IAnalyticsClient {
     this.deps = deps
   }
 
+  /**
+   * Reads pending rows from JSONL (NOT from the in-memory queue), invokes
+   * the registered sender, and mirrors the per-record outcome back to JSONL
+   * via `updateStatus`. The queue is intentionally bypassed: it can drop
+   * oldest entries on burst overflow (>maxSize), and a queue-based flush
+   * would miss those rows even though JSONL still has them.
+   *
+   * Returns an `AnalyticsBatch` of wire-shape events (id/attempts/status
+   * stripped via `toWireEvent`) so a future caller can inspect what was
+   * shipped on this tick. `flush()` itself does NOT transmit — the sender
+   * does. The returned batch reflects the input snapshot, not the per-record
+   * succeeded/failed split.
+   *
+   * A sender that throws is treated as `{succeeded: [], failed: <all ids>}`
+   * — analytics MUST NOT crash the daemon. M9.2's `updateStatus(_, 'failed')`
+   * owns the retry-cap policy: rows stay at `'pending'` until
+   * `attempts >= MAX_ATTEMPTS`, then transition to terminal `'failed'`.
+   * `flush()` is a thin caller — it does not inspect attempts.
+   */
   public async flush(): Promise<AnalyticsBatch> {
-    return AnalyticsBatch.create(this.deps.queue.drain())
+    const records = await this.deps.jsonlStore.loadPending()
+
+    let result: SendResult
+    try {
+      result = await this.deps.sender.send(records)
+    } catch {
+      result = {failed: records.map((r) => r.id), succeeded: []}
+    }
+
+    await this.deps.jsonlStore.updateStatus(result.succeeded, 'sent')
+    await this.deps.jsonlStore.updateStatus(result.failed, 'failed')
+
+    return AnalyticsBatch.create(records.map((r) => toWireEvent(r)))
   }
 
   public track(event: string, properties?: Record<string, unknown>): void {

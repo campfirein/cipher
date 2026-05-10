@@ -16,6 +16,7 @@ import {AnalyticsClient} from '../../../src/server/infra/analytics/analytics-cli
 import {BoundedQueue} from '../../../src/server/infra/analytics/bounded-queue.js'
 import {IdentityResolver} from '../../../src/server/infra/analytics/identity-resolver.js'
 import {JsonlAnalyticsStore} from '../../../src/server/infra/analytics/jsonl-analytics-store.js'
+import {NoOpAnalyticsSender} from '../../../src/server/infra/analytics/no-op-analytics-sender.js'
 import {SuperPropertiesResolver} from '../../../src/server/infra/analytics/super-properties-resolver.js'
 import {FileGlobalConfigStore} from '../../../src/server/infra/storage/file-global-config-store.js'
 import {GlobalConfigHandler} from '../../../src/server/infra/transport/handlers/global-config-handler.js'
@@ -81,6 +82,7 @@ describe('daemon analytics tracking integration (ticket scenario 6)', () => {
       isEnabled: () => handler.getCachedAnalytics(),
       jsonlStore: new JsonlAnalyticsStore({baseDir: testDir}),
       queue,
+      sender: new NoOpAnalyticsSender(),
       superPropsResolver: new SuperPropertiesResolver(store, () => '3.10.3'),
     })
 
@@ -125,6 +127,7 @@ describe('daemon analytics tracking integration (ticket scenario 6)', () => {
       isEnabled: () => handler.getCachedAnalytics(),
       jsonlStore: new JsonlAnalyticsStore({baseDir: testDir}),
       queue,
+      sender: new NoOpAnalyticsSender(),
       superPropsResolver: new SuperPropertiesResolver(store, () => '3.10.3'),
     })
 
@@ -154,6 +157,7 @@ describe('daemon analytics tracking integration (ticket scenario 6)', () => {
       isEnabled: () => handler.getCachedAnalytics(),
       jsonlStore: new JsonlAnalyticsStore({baseDir: testDir}),
       queue,
+      sender: new NoOpAnalyticsSender(),
       superPropsResolver: new SuperPropertiesResolver(store, () => '3.10.3'),
     })
 
