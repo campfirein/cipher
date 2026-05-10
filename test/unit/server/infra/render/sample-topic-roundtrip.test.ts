@@ -158,6 +158,9 @@ describe('sample-topic.html round-trip', () => {
         'bv-changes',        // ## Raw Concept > Changes
         'bv-files',          // ## Raw Concept > Files
         'bv-flow',           // ## Raw Concept > Flow
+        'bv-timestamp',      // ## Raw Concept > Timestamp
+        'bv-author',         // ## Raw Concept > Author
+        'bv-pattern',        // ## Raw Concept > Patterns (each pattern)
         'bv-structure',      // ## Narrative > Structure
         'bv-dependencies',   // ## Narrative > Dependencies
         'bv-highlights',     // ## Narrative > Highlights

@@ -21,9 +21,12 @@
  *   bv-topic        — root container; carries frontmatter as attributes.
  *   bv-reason       — `## Reason` body section.
  *   bv-task,        — `## Raw Concept` sub-fields:
- *   bv-changes,       Task / Changes / Files / Flow.
- *   bv-files,
- *   bv-flow
+ *   bv-changes,       Task / Changes / Files / Flow / Timestamp /
+ *   bv-files,         Author / Patterns. (One sibling per emitted
+ *   bv-flow,          bullet-label; multiple <bv-pattern> permitted.)
+ *   bv-timestamp,
+ *   bv-author,
+ *   bv-pattern
  *   bv-structure,   — `## Narrative` sub-fields:
  *   bv-dependencies,  Structure / Dependencies / Highlights /
  *   bv-highlights,    Rules / Examples / Diagrams.
@@ -44,6 +47,9 @@ export const ELEMENT_NAMES = [
   'bv-changes',
   'bv-files',
   'bv-flow',
+  'bv-timestamp',
+  'bv-author',
+  'bv-pattern',
   'bv-structure',
   'bv-dependencies',
   'bv-highlights',

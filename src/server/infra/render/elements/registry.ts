@@ -1,5 +1,6 @@
 import type {ElementRegistry} from '../../../core/domain/render/element-types.js'
 
+import {validateBvAuthor} from './bv-author/validator.js'
 import {validateBvBug} from './bv-bug/validator.js'
 import {validateBvChanges} from './bv-changes/validator.js'
 import {validateBvDecision} from './bv-decision/validator.js'
@@ -11,10 +12,12 @@ import {validateBvFiles} from './bv-files/validator.js'
 import {validateBvFix} from './bv-fix/validator.js'
 import {validateBvFlow} from './bv-flow/validator.js'
 import {validateBvHighlights} from './bv-highlights/validator.js'
+import {validateBvPattern} from './bv-pattern/validator.js'
 import {validateBvReason} from './bv-reason/validator.js'
 import {validateBvRule} from './bv-rule/validator.js'
 import {validateBvStructure} from './bv-structure/validator.js'
 import {validateBvTask} from './bv-task/validator.js'
+import {validateBvTimestamp} from './bv-timestamp/validator.js'
 import {validateBvTopic} from './bv-topic/validator.js'
 
 /**
@@ -35,6 +38,16 @@ import {validateBvTopic} from './bv-topic/validator.js'
  * in the sidecar store keyed by relpath — not in topic file content.
  */
 export const ELEMENT_REGISTRY: ElementRegistry = {
+  'bv-author': {
+    allowedChildren: 'inline',
+    description:
+      'Renders as `**Author:**` inside the `## Raw Concept` section — the ' +
+      'person or system identifier responsible for the concept.',
+    name: 'bv-author',
+    optionalAttributes: [],
+    requiredAttributes: [],
+    validator: validateBvAuthor,
+  },
   'bv-bug': {
     allowedChildren: 'block',
     description:
@@ -148,6 +161,19 @@ export const ELEMENT_REGISTRY: ElementRegistry = {
     requiredAttributes: [],
     validator: validateBvHighlights,
   },
+  'bv-pattern': {
+    allowedChildren: 'inline',
+    description:
+      'Renders as a bullet entry under `**Patterns:**` in the `## Raw ' +
+      'Concept` section. Element text content is the pattern itself ' +
+      '(e.g., a regex). Optional `flags` and `description` attributes ' +
+      'carry the structured fields. Multiple `<bv-pattern>` siblings ' +
+      'inside `<bv-topic>` are collected into the bullet list.',
+    name: 'bv-pattern',
+    optionalAttributes: ['flags', 'description'],
+    requiredAttributes: [],
+    validator: validateBvPattern,
+  },
   'bv-reason': {
     allowedChildren: 'block',
     description:
@@ -187,6 +213,17 @@ export const ELEMENT_REGISTRY: ElementRegistry = {
     optionalAttributes: [],
     requiredAttributes: [],
     validator: validateBvTask,
+  },
+  'bv-timestamp': {
+    allowedChildren: 'inline',
+    description:
+      'Renders as `**Timestamp:**` inside the `## Raw Concept` section — ' +
+      'the date the concept\'s data represents (distinct from the file\'s ' +
+      'createdAt/updatedAt frontmatter, which is system-set).',
+    name: 'bv-timestamp',
+    optionalAttributes: [],
+    requiredAttributes: [],
+    validator: validateBvTimestamp,
   },
   'bv-topic': {
     allowedChildren: 'any',

@@ -78,6 +78,20 @@ metadata):
 `<bv-flow>` — `## Raw Concept > Flow:`. The process flow, workflow, or
   step sequence (one paragraph or arrow-style).
 
+`<bv-timestamp>` — `## Raw Concept > Timestamp:`. The date the concept's
+  data represents (distinct from frontmatter `createdAt`/`updatedAt`,
+  which are system-set). Use ISO-8601 (e.g., `2026-04-19`) when known.
+
+`<bv-author>` — `## Raw Concept > Author:`. The person or system
+  identifier responsible for the concept (when knowable from context).
+
+`<bv-pattern>` — bullet entry under `## Raw Concept > Patterns:`.
+  The pattern itself is the element's text content; structured fields
+  are attributes. Multiple `<bv-pattern>` siblings inside `<bv-topic>`
+  are collected into a single bullet list.
+  - optional `flags` — regex-style flag string (e.g., `"g"`, `"im"`).
+  - optional `description` — what the pattern matches.
+
 The following six elements form the `## Narrative` block (descriptive
 context):
 

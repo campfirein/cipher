@@ -13,6 +13,9 @@
     <li><code>test/integration/auth/logout-revocation.test.ts</code></li>
   </bv-files>
   <bv-flow>request → verify access token → on 401 client calls /auth/refresh → server checks revocation cache → rotates both tokens → responds with new pair in httpOnly cookies.</bv-flow>
+  <bv-timestamp>2026-04-15</bv-timestamp>
+  <bv-author>auth-team</bv-author>
+  <bv-pattern flags="i" description="Matches a JWT in Authorization header">^Bearer\s+([A-Za-z0-9-_]+\.[A-Za-z0-9-_]+\.[A-Za-z0-9-_]+)$</bv-pattern>
 
   <bv-structure>JWT auth issues access/refresh token pairs. Access tokens expire in 15min, refresh tokens in 24h. Tokens are stored as httpOnly Secure SameSite=Strict cookies. Refresh rotation evicts the prior token from the revocation cache.</bv-structure>
   <bv-dependencies>jsonwebtoken for signing/verification; the revocation cache (Redis) for token denylist; httpOnly cookie support in the application framework.</bv-dependencies>

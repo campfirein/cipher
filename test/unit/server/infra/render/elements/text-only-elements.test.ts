@@ -5,6 +5,8 @@
  *   - `<bv-changes>`       — `## Raw Concept > Changes`
  *   - `<bv-files>`         — `## Raw Concept > Files`
  *   - `<bv-flow>`          — `## Raw Concept > Flow`
+ *   - `<bv-timestamp>`     — `## Raw Concept > Timestamp`
+ *   - `<bv-author>`        — `## Raw Concept > Author`
  *   - `<bv-structure>`     — `## Narrative > Structure`
  *   - `<bv-dependencies>`  — `## Narrative > Dependencies`
  *   - `<bv-highlights>`    — `## Narrative > Highlights`
@@ -19,6 +21,7 @@ import {expect} from 'chai'
 
 import type {ElementNode} from '../../../../../../src/server/core/domain/render/element-types.js'
 
+import {validateBvAuthor} from '../../../../../../src/server/infra/render/elements/bv-author/validator.js'
 import {validateBvChanges} from '../../../../../../src/server/infra/render/elements/bv-changes/validator.js'
 import {validateBvDependencies} from '../../../../../../src/server/infra/render/elements/bv-dependencies/validator.js'
 import {validateBvExamples} from '../../../../../../src/server/infra/render/elements/bv-examples/validator.js'
@@ -28,6 +31,7 @@ import {validateBvHighlights} from '../../../../../../src/server/infra/render/el
 import {validateBvReason} from '../../../../../../src/server/infra/render/elements/bv-reason/validator.js'
 import {validateBvStructure} from '../../../../../../src/server/infra/render/elements/bv-structure/validator.js'
 import {validateBvTask} from '../../../../../../src/server/infra/render/elements/bv-task/validator.js'
+import {validateBvTimestamp} from '../../../../../../src/server/infra/render/elements/bv-timestamp/validator.js'
 
 function makeNode(tagName: string, attributes: Record<string, string> = {}): ElementNode {
   return {attributes, children: [], tagName, type: 'element'}
@@ -39,6 +43,8 @@ const cases: Array<{name: string; tag: string; validate: (n: ElementNode) => {va
   {name: 'bv-changes', tag: 'bv-changes', validate: validateBvChanges},
   {name: 'bv-files', tag: 'bv-files', validate: validateBvFiles},
   {name: 'bv-flow', tag: 'bv-flow', validate: validateBvFlow},
+  {name: 'bv-timestamp', tag: 'bv-timestamp', validate: validateBvTimestamp},
+  {name: 'bv-author', tag: 'bv-author', validate: validateBvAuthor},
   {name: 'bv-structure', tag: 'bv-structure', validate: validateBvStructure},
   {name: 'bv-dependencies', tag: 'bv-dependencies', validate: validateBvDependencies},
   {name: 'bv-highlights', tag: 'bv-highlights', validate: validateBvHighlights},
