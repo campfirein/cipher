@@ -1,12 +1,19 @@
 /**
  * bv-topic validator tests.
  *
- * The root container element. Carries file-level metadata as attributes:
+ * The root container element. Carries frontmatter as attributes:
  *   - `path` — required; non-empty string identifying the topic
- *   - `importance` — optional; integer string "0".."100"
- *   - `maturity` — optional; one of {"draft","validated","core"}
- *   - `recency` — optional; numeric string "0".."1"
- *   - `updatedat` — optional; ISO-8601 datetime
+ *   - `title` — required; non-empty string
+ *   - `summary` — optional; one-line summary (any non-empty string)
+ *   - `tags` — optional; comma-separated category tags
+ *   - `keywords` — optional; comma-separated retrieval keywords
+ *   - `related` — optional; comma-separated `@domain/topic` cross-refs
+ *
+ * Notably absent: `importance`, `maturity`, `recency`, `updatedat`,
+ * `createdAt`. Per the runtime-signals migration these are sidecar
+ * state — per-user / per-machine — not file content. Including them
+ * here would re-introduce the noise-from-implicit-state problem the
+ * migration solved.
  *
  * Light validation per M1 (ADR-007 §13 strict validation is M2).
  * Unknown attributes are tolerated (parse-and-skip — no warning emitted in
@@ -25,41 +32,42 @@ function makeNode(attributes: Record<string, string>, tagName = 'bv-topic'): Ele
 
 describe('bv-topic validator', () => {
   describe('valid', () => {
-    it('accepts the minimum: only `path` set', () => {
-      const result = validateBvTopic(makeNode({path: 'security/auth'}))
+    it('accepts the minimum: `path` + `title`', () => {
+      const result = validateBvTopic(makeNode({path: 'security/auth', title: 'JWT auth'}))
       expect(result.valid).to.equal(true)
     })
 
-    it('accepts all optional attributes set together', () => {
+    it('accepts all frontmatter attributes set together', () => {
       const result = validateBvTopic(makeNode({
-        importance: '89',
-        maturity: 'core',
+        keywords: 'jwt,refresh,token',
         path: 'security/auth',
-        recency: '0.97',
-        updatedat: '2026-04-27T08:17:42Z',
+        related: '@security/cookies,@security/oauth',
+        summary: 'JWT auth design overview',
+        tags: 'security,authentication',
+        title: 'JWT auth',
       }))
       expect(result.valid).to.equal(true)
     })
 
     it('tolerates unknown attributes (parse-and-skip — M1 light validation)', () => {
-      const result = validateBvTopic(makeNode({path: 'x', someFutureAttr: 'whatever'}))
+      const result = validateBvTopic(makeNode({path: 'x', someFutureAttr: 'whatever', title: 't'}))
       expect(result.valid).to.equal(true)
     })
 
-    it('accepts importance = "0"', () => {
-      const result = validateBvTopic(makeNode({importance: '0', path: 'x'}))
-      expect(result.valid).to.equal(true)
-    })
-
-    it('accepts importance = "100"', () => {
-      const result = validateBvTopic(makeNode({importance: '100', path: 'x'}))
+    it('tolerates empty list-shaped attributes', () => {
+      const result = validateBvTopic(makeNode({
+        keywords: '',
+        path: 'x',
+        tags: '',
+        title: 't',
+      }))
       expect(result.valid).to.equal(true)
     })
   })
 
   describe('invalid', () => {
     it('rejects missing `path`', () => {
-      const result = validateBvTopic(makeNode({}))
+      const result = validateBvTopic(makeNode({title: 't'}))
       expect(result.valid).to.equal(false)
       if (!result.valid) {
         expect(result.errors.some((e) => e.field === 'path')).to.equal(true)
@@ -67,76 +75,50 @@ describe('bv-topic validator', () => {
     })
 
     it('rejects empty `path`', () => {
-      const result = validateBvTopic(makeNode({path: ''}))
+      const result = validateBvTopic(makeNode({path: '', title: 't'}))
       expect(result.valid).to.equal(false)
     })
 
-    it('rejects non-numeric importance', () => {
-      const result = validateBvTopic(makeNode({importance: 'high', path: 'x'}))
+    it('rejects missing `title`', () => {
+      const result = validateBvTopic(makeNode({path: 'x'}))
       expect(result.valid).to.equal(false)
+      if (!result.valid) {
+        expect(result.errors.some((e) => e.field === 'title')).to.equal(true)
+      }
     })
 
-    it('rejects out-of-range importance (>100)', () => {
-      const result = validateBvTopic(makeNode({importance: '101', path: 'x'}))
-      expect(result.valid).to.equal(false)
-    })
-
-    it('rejects out-of-range importance (negative)', () => {
-      const result = validateBvTopic(makeNode({importance: '-1', path: 'x'}))
-      expect(result.valid).to.equal(false)
-    })
-
-    it('rejects unknown maturity tier', () => {
-      const result = validateBvTopic(makeNode({maturity: 'experimental', path: 'x'}))
-      expect(result.valid).to.equal(false)
-    })
-
-    it('rejects malformed updatedat', () => {
-      const result = validateBvTopic(makeNode({path: 'x', updatedat: 'yesterday'}))
-      expect(result.valid).to.equal(false)
-    })
-
-    it('accepts updatedat with a positive timezone offset', () => {
-      // ISO-8601 with explicit offset (e.g. from `git log --date=iso-strict`)
-      const result = validateBvTopic(makeNode({path: 'x', updatedat: '2026-04-27T08:17:42+02:00'}))
-      expect(result.valid).to.equal(true)
-    })
-
-    it('accepts updatedat with a negative timezone offset', () => {
-      const result = validateBvTopic(makeNode({path: 'x', updatedat: '2026-04-27T08:17:42-08:00'}))
-      expect(result.valid).to.equal(true)
-    })
-
-    it('rejects pathological recency values that pass the regex but are not numbers', () => {
-      // The previous regex `[\d.]+` accepts ".", "..1", "1..2" etc.
-      // Validator should reject these as not-finite-numeric.
-      expect(validateBvTopic(makeNode({path: 'x', recency: '.'})).valid).to.equal(false)
-      expect(validateBvTopic(makeNode({path: 'x', recency: '..1'})).valid).to.equal(false)
-      expect(validateBvTopic(makeNode({path: 'x', recency: '1..2'})).valid).to.equal(false)
-    })
-
-    it('accepts well-formed recency values', () => {
-      expect(validateBvTopic(makeNode({path: 'x', recency: '0'})).valid).to.equal(true)
-      expect(validateBvTopic(makeNode({path: 'x', recency: '0.5'})).valid).to.equal(true)
-      expect(validateBvTopic(makeNode({path: 'x', recency: '1'})).valid).to.equal(true)
-    })
-
-    it('rejects non-numeric recency', () => {
-      const result = validateBvTopic(makeNode({path: 'x', recency: 'high'}))
-      expect(result.valid).to.equal(false)
-    })
-
-    it('rejects recency outside [0, 1]', () => {
-      const result = validateBvTopic(makeNode({path: 'x', recency: '1.5'}))
+    it('rejects empty `title`', () => {
+      const result = validateBvTopic(makeNode({path: 'x', title: ''}))
       expect(result.valid).to.equal(false)
     })
 
     it('rejects wrong tag name (defensive — registry should never call wrong validator)', () => {
-      const result = validateBvTopic(makeNode({path: 'x'}, 'bv-rule'))
+      const result = validateBvTopic(makeNode({path: 'x', title: 't'}, 'bv-rule'))
       expect(result.valid).to.equal(false)
       if (!result.valid) {
         expect(result.errors.some((e) => e.field === 'tagName')).to.equal(true)
       }
+    })
+  })
+
+  describe('runtime signals are NOT bv-topic attributes', () => {
+    // These fields lived on bv-topic in an earlier draft. They were
+    // moved to the runtime-signal sidecar store (per-user, per-machine,
+    // bumped on every brv query) so re-introducing them here would
+    // revert that migration. The schema's `passthrough` tolerates them
+    // gracefully (parse-and-skip) but they should never be authored.
+    it('passthrough tolerates legacy importance/maturity/recency without enforcing them', () => {
+      const result = validateBvTopic(makeNode({
+        importance: '89',
+        maturity: 'core',
+        path: 'x',
+        recency: '0.97',
+        title: 't',
+        updatedat: '2026-04-27T08:17:42Z',
+      }))
+      // Tolerated, but no longer enforced — the writer ignores them and
+      // reads runtime signals from the sidecar instead.
+      expect(result.valid).to.equal(true)
     })
   })
 })

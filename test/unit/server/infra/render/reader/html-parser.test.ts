@@ -18,7 +18,7 @@ import {expect} from 'chai'
 
 import type {ElementNode} from '../../../../../../src/server/core/domain/render/element-types.js'
 
-import {getInnerText, parseHtml, serializeHtml, walkElements} from '../../../../../../src/server/infra/render/reader/html-parser.js'
+import {getInnerText, parseHtml, serializeHtml, stripCodeFenceWrapper, walkElements} from '../../../../../../src/server/infra/render/reader/html-parser.js'
 
 describe('html-parser', () => {
 describe('parseHtml', () => {
@@ -217,6 +217,61 @@ describe('serializeHtml', () => {
   it('does not throw on serialising a parse result of malformed input', () => {
     const tree = parseHtml('<bv-topic path="x"><bv-rule>unclosed')
     expect(() => serializeHtml(tree)).to.not.throw()
+  })
+})
+
+describe('stripCodeFenceWrapper', () => {
+  it('strips ```html fences wrapping the whole input', () => {
+    const wrapped = '```html\n<bv-topic path="x" title="t"></bv-topic>\n```'
+    const stripped = stripCodeFenceWrapper(wrapped)
+    expect(stripped).to.equal('<bv-topic path="x" title="t"></bv-topic>')
+  })
+
+  it('strips ``` (no language tag) fences', () => {
+    const wrapped = '```\n<bv-topic path="x" title="t"></bv-topic>\n```'
+    const stripped = stripCodeFenceWrapper(wrapped)
+    expect(stripped).to.equal('<bv-topic path="x" title="t"></bv-topic>')
+  })
+
+  it('strips fences with arbitrary language tags (xml, etc.)', () => {
+    const wrapped = '```xml\n<bv-topic path="x" title="t"></bv-topic>\n```'
+    const stripped = stripCodeFenceWrapper(wrapped)
+    expect(stripped).to.equal('<bv-topic path="x" title="t"></bv-topic>')
+  })
+
+  it('tolerates leading and trailing whitespace around the fence', () => {
+    const wrapped = '\n\n  ```html\n<bv-topic path="x" title="t"></bv-topic>\n```  \n'
+    const stripped = stripCodeFenceWrapper(wrapped)
+    expect(stripped).to.equal('<bv-topic path="x" title="t"></bv-topic>')
+  })
+
+  it('returns input unchanged when no fence is present', () => {
+    const html = '<bv-topic path="x" title="t"></bv-topic>'
+    expect(stripCodeFenceWrapper(html)).to.equal(html)
+  })
+
+  it('returns input unchanged when only an opening fence (mismatched) is present', () => {
+    const partial = '```html\n<bv-topic path="x" title="t"></bv-topic>'
+    expect(stripCodeFenceWrapper(partial)).to.equal(partial)
+  })
+
+  it('preserves inner ```code blocks (only strips the OUTER wrapper)', () => {
+    // bv-diagram content frequently includes <pre><code>...</code></pre>
+    // but the model wraps the whole response in a fence. We must strip
+    // the outer wrapper without mangling inner content.
+    const wrapped = '```html\n<bv-topic path="x" title="t"><bv-diagram type="ascii"><pre><code>A --&gt; B</code></pre></bv-diagram></bv-topic>\n```'
+    const stripped = stripCodeFenceWrapper(wrapped)
+    expect(stripped).to.include('<pre><code>A --&gt; B</code></pre>')
+    expect(stripped.startsWith('<bv-topic')).to.equal(true)
+    expect(stripped.trimEnd().endsWith('</bv-topic>')).to.equal(true)
+  })
+
+  it('the stripped output parses correctly (end-to-end smoke)', () => {
+    const wrapped = '```html\n<bv-topic path="x" title="t"><bv-rule>r</bv-rule></bv-topic>\n```'
+    const stripped = stripCodeFenceWrapper(wrapped)
+    const elements = walkElements(parseHtml(stripped))
+    expect(elements.find((e) => e.tagName === 'bv-topic')).to.not.equal(undefined)
+    expect(elements.find((e) => e.tagName === 'bv-rule')).to.not.equal(undefined)
   })
 })
 })
