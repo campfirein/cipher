@@ -126,10 +126,21 @@ export class QueryExecutor implements IQueryExecutor {
 
     const buildTiming = (): QueryLogTiming & {durationMs: number} => {
       const totalMs = Date.now() - startTime
+      // Prefer aggregator.getLlmMs() (sum of per-call LLM durations from
+      // llmservice:usage events) over the executeOnSession wall-clock measured
+      // by `llmClock`. The aggregator counts only the LLM-call portion, while
+      // `llmClock` includes tool execution + other non-LLM work — overstates
+      // LLM latency for paths that run tools. Fall back to the wall-clock
+      // measurement when no aggregator is wired (tests, future call sites).
+      const aggregatorLlmMs = usageAggregator?.getLlmMs()
+      const llmClockMs = llmClock.startMs !== undefined && llmClock.endMs !== undefined
+        ? llmClock.endMs - llmClock.startMs
+        : undefined
+      const llmMs = aggregatorLlmMs !== undefined && aggregatorLlmMs > 0 ? aggregatorLlmMs : llmClockMs
       return {
         durationMs: totalMs,
         ...(searchClock.startMs !== undefined && searchClock.endMs !== undefined && {searchMs: searchClock.endMs - searchClock.startMs}),
-        ...(llmClock.startMs !== undefined && llmClock.endMs !== undefined && {llmMs: llmClock.endMs - llmClock.startMs}),
+        ...(llmMs !== undefined && {llmMs}),
         totalMs,
       }
     }
@@ -190,7 +201,11 @@ export class QueryExecutor implements IQueryExecutor {
         this.cache.set(query, response, fingerprint)
       }
 
+      // Route through formatDetector with empty docs so an HTML-aware detector
+      // can still report `'markdown'` (or whatever the default is) instead of
+      // this branch silently bypassing the detector with `undefined`.
       return {
+        format: this.formatDetector.detect([]),
         matchedDocs: [],
         response: response + ATTRIBUTION_FOOTER,
         searchMetadata: {resultCount: 0, topScore: 0, totalFound: 0},

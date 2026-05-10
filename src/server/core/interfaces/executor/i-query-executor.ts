@@ -6,6 +6,7 @@ import type {
   QueryLogTier,
   QueryLogTiming,
 } from '../../domain/entities/query-log-entry.js'
+import type {IUsageAggregator} from '../telemetry/i-usage-aggregator.js'
 
 /**
  * Options for executing query with an injected agent.
@@ -23,7 +24,7 @@ export interface QueryExecuteOptions {
    * `llmservice:usage` event stream (TODO: agent-process integration).
    *
    */
-  usageAggregator?: import('../../../infra/telemetry/task-usage-aggregator.js').TaskUsageAggregator
+  usageAggregator?: IUsageAggregator
   /** Stable workspace root for scoping search and cache isolation */
   worktreeRoot?: string
 }
