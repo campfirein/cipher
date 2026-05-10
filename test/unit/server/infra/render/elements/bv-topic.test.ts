@@ -9,8 +9,8 @@
  *   - `updatedat` — optional; ISO-8601 datetime
  *
  * Light validation per M1 (ADR-007 §13 strict validation is M2).
- * Unknown attributes are tolerated (warn-only behaviour); test confirms
- * tolerance, not absence.
+ * Unknown attributes are tolerated (parse-and-skip — no warning emitted in
+ * M1); test confirms tolerance, not absence.
  */
 
 import {expect} from 'chai'
@@ -41,7 +41,7 @@ describe('bv-topic validator', () => {
       expect(result.valid).to.equal(true)
     })
 
-    it('tolerates unknown attributes (warn-only — M1 light validation)', () => {
+    it('tolerates unknown attributes (parse-and-skip — M1 light validation)', () => {
       const result = validateBvTopic(makeNode({path: 'x', someFutureAttr: 'whatever'}))
       expect(result.valid).to.equal(true)
     })
@@ -94,6 +94,31 @@ describe('bv-topic validator', () => {
     it('rejects malformed updatedat', () => {
       const result = validateBvTopic(makeNode({path: 'x', updatedat: 'yesterday'}))
       expect(result.valid).to.equal(false)
+    })
+
+    it('accepts updatedat with a positive timezone offset', () => {
+      // ISO-8601 with explicit offset (e.g. from `git log --date=iso-strict`)
+      const result = validateBvTopic(makeNode({path: 'x', updatedat: '2026-04-27T08:17:42+02:00'}))
+      expect(result.valid).to.equal(true)
+    })
+
+    it('accepts updatedat with a negative timezone offset', () => {
+      const result = validateBvTopic(makeNode({path: 'x', updatedat: '2026-04-27T08:17:42-08:00'}))
+      expect(result.valid).to.equal(true)
+    })
+
+    it('rejects pathological recency values that pass the regex but are not numbers', () => {
+      // The previous regex `[\d.]+` accepts ".", "..1", "1..2" etc.
+      // Validator should reject these as not-finite-numeric.
+      expect(validateBvTopic(makeNode({path: 'x', recency: '.'})).valid).to.equal(false)
+      expect(validateBvTopic(makeNode({path: 'x', recency: '..1'})).valid).to.equal(false)
+      expect(validateBvTopic(makeNode({path: 'x', recency: '1..2'})).valid).to.equal(false)
+    })
+
+    it('accepts well-formed recency values', () => {
+      expect(validateBvTopic(makeNode({path: 'x', recency: '0'})).valid).to.equal(true)
+      expect(validateBvTopic(makeNode({path: 'x', recency: '0.5'})).valid).to.equal(true)
+      expect(validateBvTopic(makeNode({path: 'x', recency: '1'})).valid).to.equal(true)
     })
 
     it('rejects non-numeric recency', () => {

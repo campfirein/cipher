@@ -46,7 +46,7 @@ describe('bv-bug validator', () => {
       expect(validateBvBug(makeNode({id: 'b1', severity: 'high'})).valid).to.equal(true)
     })
 
-    it('tolerates unknown attributes (warn-only — M1 light validation)', () => {
+    it('tolerates unknown attributes (parse-and-skip — M1 light validation)', () => {
       expect(validateBvBug(makeNode({severity: 'high', someFutureAttr: 'x'})).valid).to.equal(true)
     })
   })

@@ -1,4 +1,4 @@
-import {type DefaultTreeAdapterMap, parseFragment, serialize} from 'parse5'
+import {defaultTreeAdapter, type DefaultTreeAdapterMap, html as htmlNs, parseFragment, serialize} from 'parse5'
 
 import type {DocumentNode, ElementNode, ParsedNode} from '../../../core/domain/render/element-types.js'
 
@@ -60,14 +60,30 @@ function walk(node: ParsedNode, out: ElementNode[]): void {
  * string. Used to extract BM25-ready text content from typed elements
  * (T4). HTML entities are already decoded by parse5, so the output is
  * usable verbatim by the tokenizer.
+ *
+ * Inserts a space between sibling element-children so adjacent block
+ * boundaries don't merge tokens (e.g., compact `<p>foo.</p><p>bar.</p>`
+ * yields `foo. bar.` rather than `foo.bar.`). Whitespace runs are
+ * collapsed and the result is trimmed so existing whitespace in the
+ * source isn't doubled.
  */
 export function getInnerText(node: ParsedNode): string {
+  return collapseWhitespace(getInnerTextRaw(node))
+}
+
+function getInnerTextRaw(node: ParsedNode): string {
   if (node.type === 'text') return node.text
   if (node.type === 'element' || node.type === 'document') {
-    return node.children.map((c) => getInnerText(c)).join('')
+    // Insert a space at every child boundary; the outer collapseWhitespace
+    // step then normalises any resulting double spaces.
+    return node.children.map((c) => getInnerTextRaw(c)).join(' ')
   }
 
   return ''
+}
+
+function collapseWhitespace(text: string): string {
+  return text.replaceAll(/\s+/g, ' ').trim()
 }
 
 /**
@@ -86,6 +102,16 @@ export function serializeHtml(root: DocumentNode): string {
 
 // ----- internal: parse5 → normalized -----
 
+/**
+ * Convert a parse5 node into our normalized AST.
+ *
+ * Known limitation — `<template>` element content is not extracted. parse5
+ * places template children in a separate `.content` DocumentFragment per
+ * the HTML5 spec rather than under `childNodes`; our consumers (T3 writer,
+ * T4 reader) do not use `<template>`, so the M1 converter ignores that
+ * branch. If the curate vocabulary ever adopts `<template>`, the converter
+ * must read `defaultTreeAdapter.getTemplateContent(node)`.
+ */
 function convertNode(node: Parse5Node): ParsedNode | undefined {
   if (isTextNode(node)) {
     return {text: node.value, type: 'text'}
@@ -123,57 +149,31 @@ function isElementNode(node: Parse5Node): node is Parse5Element {
 
 // ----- internal: normalized → parse5 (for serialize) -----
 
-type MutableParse5Element = {
-  attrs: Array<{name: string; value: string}>
-  childNodes: Array<MutableParse5Element | MutableParse5Text>
-  namespaceURI: string
-  nodeName: string
-  parentNode: null
-  tagName: string
-}
-
-type MutableParse5Text = {
-  nodeName: '#text'
-  parentNode: null
-  value: string
-}
-
-type MutableParse5Fragment = {
-  childNodes: Array<MutableParse5Element | MutableParse5Text>
-  nodeName: '#document-fragment'
-}
-
-const HTML_NS = 'http://www.w3.org/1999/xhtml'
-
+/**
+ * Build a parse5 DocumentFragment from our normalized tree using
+ * `defaultTreeAdapter`. The adapter's factories return the exact node
+ * shapes parse5's serializer expects, so no structural casting is needed.
+ */
 function toParse5Fragment(doc: DocumentNode): Parse5DocumentFragment {
-  const fragment: MutableParse5Fragment = {
-    childNodes: doc.children.map((c) => toParse5Node(c)).filter((n): n is MutableParse5Element | MutableParse5Text => n !== undefined),
-    nodeName: '#document-fragment',
-  }
-  // parse5's serialize accepts any object with nodeName + childNodes; type
-  // assertion is the contained boundary between our normalized tree and
-  // parse5's expected input.
-  return fragment as unknown as Parse5DocumentFragment
+  const fragment = defaultTreeAdapter.createDocumentFragment()
+  appendChildren(fragment, doc.children)
+  return fragment
 }
 
-function toParse5Node(node: ParsedNode): MutableParse5Element | MutableParse5Text | undefined {
-  if (node.type === 'text') {
-    return {nodeName: '#text', parentNode: null, value: node.text}
-  }
-
-  if (node.type === 'element') {
-    return {
-      attrs: Object.entries(node.attributes).map(([name, value]) => ({name, value})),
-      childNodes: node.children
-        .map((c) => toParse5Node(c))
-        .filter((n): n is MutableParse5Element | MutableParse5Text => n !== undefined),
-      namespaceURI: HTML_NS,
-      nodeName: node.tagName,
-      parentNode: null,
-      tagName: node.tagName,
+function appendChildren(
+  parent: DefaultTreeAdapterMap['parentNode'],
+  children: readonly ParsedNode[],
+): void {
+  for (const child of children) {
+    if (child.type === 'text') {
+      const textNode = defaultTreeAdapter.createTextNode(child.text)
+      defaultTreeAdapter.appendChild(parent, textNode)
+    } else if (child.type === 'element') {
+      const attrs = Object.entries(child.attributes).map(([name, value]) => ({name, value}))
+      const element = defaultTreeAdapter.createElement(child.tagName, htmlNs.NS.HTML, attrs)
+      appendChildren(element, child.children)
+      defaultTreeAdapter.appendChild(parent, element)
     }
+    // 'document' nodes shouldn't appear inside a tree (it's the root only).
   }
-
-  // DocumentNode shouldn't appear inside a tree (it's the root only)
-  return undefined
 }

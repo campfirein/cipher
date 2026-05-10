@@ -58,6 +58,18 @@ describe('sample-topic.html round-trip', () => {
       expect(topic.attributes.maturity).to.equal('core')
       expect(topic.attributes.updatedat).to.equal('2026-04-27T08:17:42Z')
     })
+
+    it('lowercases attribute names per HTML5 spec (updatedAt → updatedat)', () => {
+      // Regression: the fixture intentionally uses camelCase `updatedAt=` to
+      // exercise parse5's HTML5 attribute-name normalization. Schemas and
+      // consumers must look up the lowercase key; the camelCase key must
+      // not survive parsing.
+      const fixture = loadFixture()
+      expect(fixture, 'fixture should contain camelCase source').to.include('updatedAt=')
+      const topic = walkElements(parseHtml(fixture)).find((e) => e.tagName === 'bv-topic')!
+      expect(topic.attributes.updatedat).to.not.equal(undefined)
+      expect(topic.attributes.updatedAt).to.equal(undefined)
+    })
   })
 
   describe('validate', () => {

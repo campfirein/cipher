@@ -164,6 +164,30 @@ describe('getInnerText', () => {
     const node: ElementNode = {attributes: {}, children: [], tagName: 'bv-rule', type: 'element'}
     expect(getInnerText(node)).to.equal('')
   })
+
+  it('does not merge tokens across adjacent block elements (compact source)', () => {
+    // Compact source — no whitespace between tags. Without inserting a separator
+    // at element boundaries, BM25 would see "foo.bar." as a single token. This
+    // is the exact case that occurs when the curate writer (T3) emits compact
+    // HTML.
+    const result = parseHtml('<bv-topic path="x"><p>foo.</p><p>bar.</p></bv-topic>')
+    const topic = walkElements(result).find((e) => e.tagName === 'bv-topic')!
+    const innerText = getInnerText(topic)
+    // "foo." and "bar." must be tokenizable separately — they cannot be
+    // adjacent in the output.
+    expect(/foo\.\S*bar\./.test(innerText), `expected separator between "foo." and "bar." in: ${JSON.stringify(innerText)}`).to.equal(false)
+    expect(innerText).to.include('foo.')
+    expect(innerText).to.include('bar.')
+  })
+
+  it('does not merge tokens across adjacent typed bv-* elements', () => {
+    // Same concern, between bv-rule and bv-decision when the curate writer
+    // emits them as compact siblings.
+    const result = parseHtml('<bv-topic path="x"><bv-rule>alpha</bv-rule><bv-decision>beta</bv-decision></bv-topic>')
+    const topic = walkElements(result).find((e) => e.tagName === 'bv-topic')!
+    const innerText = getInnerText(topic)
+    expect(/alpha\S*beta/.test(innerText), `expected separator between "alpha" and "beta" in: ${JSON.stringify(innerText)}`).to.equal(false)
+  })
 })
 
 describe('serializeHtml', () => {

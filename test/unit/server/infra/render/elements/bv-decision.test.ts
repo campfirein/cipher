@@ -25,7 +25,7 @@ describe('bv-decision validator', () => {
       expect(validateBvDecision(makeNode({id: 'rs256-over-hs256'})).valid).to.equal(true)
     })
 
-    it('tolerates unknown attributes (warn-only — M1 light validation)', () => {
+    it('tolerates unknown attributes (parse-and-skip — M1 light validation)', () => {
       expect(validateBvDecision(makeNode({id: 'd1', someFutureAttr: 'x'})).valid).to.equal(true)
     })
 
