@@ -1,14 +1,41 @@
 /* eslint-disable camelcase */
 import {expect} from 'chai'
-import {stub} from 'sinon'
+import {spy, stub} from 'sinon'
 
 import type {Identity} from '../../../../../src/server/core/domain/analytics/identity.js'
+import type {StoredAnalyticsRecord} from '../../../../../src/server/core/domain/analytics/stored-record.js'
 import type {IIdentityResolver} from '../../../../../src/server/core/interfaces/analytics/i-identity-resolver.js'
+import type {IJsonlAnalyticsStore} from '../../../../../src/server/core/interfaces/analytics/i-jsonl-analytics-store.js'
 import type {ISuperPropertiesResolver, SuperProperties} from '../../../../../src/server/core/interfaces/analytics/i-super-properties-resolver.js'
 
 import {AnalyticsBatch} from '../../../../../src/server/core/domain/analytics/batch.js'
 import {AnalyticsClient} from '../../../../../src/server/infra/analytics/analytics-client.js'
 import {BoundedQueue} from '../../../../../src/server/infra/analytics/bounded-queue.js'
+
+type FakeJsonlStore = IJsonlAnalyticsStore & {
+  appendSpy: ReturnType<typeof spy>
+  readonly records: StoredAnalyticsRecord[]
+}
+
+function makeFakeJsonlStore(opts: {appendError?: Error} = {}): FakeJsonlStore {
+  const records: StoredAnalyticsRecord[] = []
+  const appendImpl = async (record: StoredAnalyticsRecord): Promise<void> => {
+    if (opts.appendError) throw opts.appendError
+    records.push(record)
+  }
+
+  const appendSpy = spy(appendImpl)
+  return {
+    append: appendSpy,
+    appendSpy,
+    droppedFullCount: () => 0,
+    droppedSentCount: () => 0,
+    list: async () => ({rows: [...records], total: records.length}),
+    loadPending: async () => records.filter((r) => r.status === 'pending'),
+    records,
+    async updateStatus() {},
+  }
+}
 
 const validDeviceId = '550e8400-e29b-41d4-a716-446655440000'
 
@@ -63,6 +90,7 @@ describe('AnalyticsClient', () => {
       const client = new AnalyticsClient({
         identityResolver,
         isEnabled: () => false,
+        jsonlStore: makeFakeJsonlStore(),
         queue,
         superPropsResolver,
       })
@@ -88,6 +116,7 @@ describe('AnalyticsClient', () => {
       const client = new AnalyticsClient({
         identityResolver: makeStubIdentityResolver(identity),
         isEnabled: () => true,
+        jsonlStore: makeFakeJsonlStore(),
         queue,
         superPropsResolver: makeStubSuperPropsResolver(superProps),
       })
@@ -129,6 +158,7 @@ describe('AnalyticsClient', () => {
       const client = new AnalyticsClient({
         identityResolver,
         isEnabled: () => true,
+        jsonlStore: makeFakeJsonlStore(),
         queue,
         superPropsResolver,
       })
@@ -157,6 +187,7 @@ describe('AnalyticsClient', () => {
       const client = new AnalyticsClient({
         identityResolver: makeStubIdentityResolver(makeAnonIdentity()),
         isEnabled: () => true,
+        jsonlStore: makeFakeJsonlStore(),
         queue,
         superPropsResolver: makeStubSuperPropsResolver(makeSuperProps()),
       })
@@ -179,6 +210,7 @@ describe('AnalyticsClient', () => {
       const client = new AnalyticsClient({
         identityResolver: makeStubIdentityResolver(makeAnonIdentity()),
         isEnabled: () => true,
+        jsonlStore: makeFakeJsonlStore(),
         queue,
         superPropsResolver: makeStubSuperPropsResolver(makeSuperProps()),
       })
@@ -198,6 +230,7 @@ describe('AnalyticsClient', () => {
       const client = new AnalyticsClient({
         identityResolver: makeStubIdentityResolver(makeAnonIdentity()),
         isEnabled: () => true,
+        jsonlStore: makeFakeJsonlStore(),
         queue: new BoundedQueue(),
         superPropsResolver: makeStubSuperPropsResolver(makeSuperProps()),
       })
@@ -217,6 +250,7 @@ describe('AnalyticsClient', () => {
       const client = new AnalyticsClient({
         identityResolver,
         isEnabled: () => true,
+        jsonlStore: makeFakeJsonlStore(),
         queue,
         superPropsResolver: makeStubSuperPropsResolver(makeSuperProps()),
       })
@@ -238,6 +272,7 @@ describe('AnalyticsClient', () => {
       const client = new AnalyticsClient({
         identityResolver: makeStubIdentityResolver(makeAnonIdentity()),
         isEnabled: () => true,
+        jsonlStore: makeFakeJsonlStore(),
         queue,
         superPropsResolver,
       })
@@ -264,6 +299,7 @@ describe('AnalyticsClient', () => {
       const client = new AnalyticsClient({
         identityResolver: slowIdentityResolver,
         isEnabled: () => true,
+        jsonlStore: makeFakeJsonlStore(),
         queue,
         superPropsResolver: makeStubSuperPropsResolver(makeSuperProps()),
       })
@@ -298,6 +334,7 @@ describe('AnalyticsClient', () => {
       const client = new AnalyticsClient({
         identityResolver: makeStubIdentityResolver(makeAnonIdentity()),
         isEnabled: () => true,
+        jsonlStore: makeFakeJsonlStore(),
         queue,
         superPropsResolver: makeStubSuperPropsResolver(makeSuperProps()),
       })
@@ -312,6 +349,139 @@ describe('AnalyticsClient', () => {
       expect(event.properties.cli_version).to.equal('3.10.3')
       // User property without conflict is preserved
       expect(event.properties.custom).to.equal('kept')
+    })
+  })
+
+  describe('M9.3 JSONL-first persistence (dual write)', () => {
+    it('should append to JSONL before pushing to queue (happy path)', async () => {
+      const queue = new BoundedQueue()
+      const jsonlStore = makeFakeJsonlStore()
+      const client = new AnalyticsClient({
+        identityResolver: makeStubIdentityResolver(makeAnonIdentity()),
+        isEnabled: () => true,
+        jsonlStore,
+        queue,
+        superPropsResolver: makeStubSuperPropsResolver(makeSuperProps()),
+      })
+
+      client.track('e1', {x: 1})
+      await flushMicrotasks()
+
+      // JSONL has the row
+      expect(jsonlStore.records).to.have.lengthOf(1)
+      const stored = jsonlStore.records[0]
+      expect(stored.name).to.equal('e1')
+      expect(stored.status).to.equal('pending')
+      expect(stored.attempts).to.equal(0)
+      expect(stored.id).to.be.a('string').and.have.length.greaterThan(0)
+      // Queue mirror has the same record (id propagates)
+      expect(queue.size()).to.equal(1)
+      const [drained] = queue.drain()
+      expect(drained.id).to.equal(stored.id)
+    })
+
+    it('should generate distinct uuid id per track call', async () => {
+      const queue = new BoundedQueue()
+      const jsonlStore = makeFakeJsonlStore()
+      const client = new AnalyticsClient({
+        identityResolver: makeStubIdentityResolver(makeAnonIdentity()),
+        isEnabled: () => true,
+        jsonlStore,
+        queue,
+        superPropsResolver: makeStubSuperPropsResolver(makeSuperProps()),
+      })
+
+      for (let i = 0; i < 5; i++) {
+        client.track(`event_${i}`)
+      }
+
+      await flushMicrotasks()
+
+      const ids = jsonlStore.records.map((r) => r.id)
+      expect(new Set(ids).size).to.equal(5) // all distinct
+      expect(jsonlStore.records).to.have.lengthOf(5)
+    })
+
+    it('should NOT push to queue when JSONL append fails', async () => {
+      const queue = new BoundedQueue()
+      const jsonlStore = makeFakeJsonlStore({appendError: new Error('disk full')})
+      const client = new AnalyticsClient({
+        identityResolver: makeStubIdentityResolver(makeAnonIdentity()),
+        isEnabled: () => true,
+        jsonlStore,
+        queue,
+        superPropsResolver: makeStubSuperPropsResolver(makeSuperProps()),
+      })
+
+      expect(() => client.track('boom')).to.not.throw()
+      await flushMicrotasks()
+
+      // JSONL append rejected (called once, but no record persisted)
+      expect(jsonlStore.appendSpy.calledOnce).to.equal(true)
+      expect(jsonlStore.records).to.have.lengthOf(0)
+      // Queue must NOT receive the event when JSONL persist failed
+      expect(queue.size()).to.equal(0)
+    })
+
+    it('should NOT push to queue and NOT crash when JSONL fails on every track', async () => {
+      const queue = new BoundedQueue()
+      const jsonlStore = makeFakeJsonlStore({appendError: new Error('persistent disk error')})
+      const client = new AnalyticsClient({
+        identityResolver: makeStubIdentityResolver(makeAnonIdentity()),
+        isEnabled: () => true,
+        jsonlStore,
+        queue,
+        superPropsResolver: makeStubSuperPropsResolver(makeSuperProps()),
+      })
+
+      for (let i = 0; i < 100; i++) {
+        expect(() => client.track(`event_${i}`)).to.not.throw()
+      }
+
+      await flushMicrotasks()
+
+      expect(queue.size()).to.equal(0)
+    })
+
+    it('should track queue.size() growth equal to JSONL row count under non-burst load', async () => {
+      const queue = new BoundedQueue()
+      const jsonlStore = makeFakeJsonlStore()
+      const client = new AnalyticsClient({
+        identityResolver: makeStubIdentityResolver(makeAnonIdentity()),
+        isEnabled: () => true,
+        jsonlStore,
+        queue,
+        superPropsResolver: makeStubSuperPropsResolver(makeSuperProps()),
+      })
+
+      const N = 20
+      for (let i = 0; i < N; i++) {
+        client.track(`event_${i}`)
+      }
+
+      await flushMicrotasks()
+
+      expect(queue.size()).to.equal(N)
+      expect(jsonlStore.records).to.have.lengthOf(N)
+    })
+
+    it('should NOT call jsonlStore.append when analytics disabled', async () => {
+      const queue = new BoundedQueue()
+      const jsonlStore = makeFakeJsonlStore()
+      const client = new AnalyticsClient({
+        identityResolver: makeStubIdentityResolver(makeAnonIdentity()),
+        isEnabled: () => false,
+        jsonlStore,
+        queue,
+        superPropsResolver: makeStubSuperPropsResolver(makeSuperProps()),
+      })
+
+      client.track('e1')
+      await flushMicrotasks()
+
+      expect(jsonlStore.appendSpy.called).to.equal(false)
+      expect(jsonlStore.records).to.have.lengthOf(0)
+      expect(queue.size()).to.equal(0)
     })
   })
 })

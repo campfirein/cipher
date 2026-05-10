@@ -1,20 +1,25 @@
 /* eslint-disable camelcase */
 import {expect} from 'chai'
 
-import type {AnalyticsEventWithIdentity} from '../../../../../src/server/core/domain/analytics/batch.js'
+import type {StoredAnalyticsRecord} from '../../../../../src/server/core/domain/analytics/stored-record.js'
 
 import {BoundedQueue} from '../../../../../src/server/infra/analytics/bounded-queue.js'
 
-function makeEvent(name: string): AnalyticsEventWithIdentity {
+let eventCounter = 0
+function makeEvent(name: string): StoredAnalyticsRecord {
+  eventCounter += 1
   return {
+    attempts: 0,
+    id: `id-${eventCounter}`,
     identity: {device_id: '550e8400-e29b-41d4-a716-446655440000'},
     name,
     properties: {},
+    status: 'pending',
     timestamp: 0,
   }
 }
 
-function pushAll(queue: BoundedQueue, events: AnalyticsEventWithIdentity[]): void {
+function pushAll(queue: BoundedQueue, events: StoredAnalyticsRecord[]): void {
   for (const event of events) {
     queue.push(event)
   }

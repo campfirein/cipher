@@ -1,7 +1,10 @@
-import type {AnalyticsEventWithIdentity} from '../../core/domain/analytics/batch.js'
+import {randomUUID} from 'node:crypto'
+
+import type {StoredAnalyticsRecord} from '../../core/domain/analytics/stored-record.js'
 import type {IAnalyticsClient} from '../../core/interfaces/analytics/i-analytics-client.js'
 import type {IAnalyticsQueue} from '../../core/interfaces/analytics/i-analytics-queue.js'
 import type {IIdentityResolver} from '../../core/interfaces/analytics/i-identity-resolver.js'
+import type {IJsonlAnalyticsStore} from '../../core/interfaces/analytics/i-jsonl-analytics-store.js'
 import type {ISuperPropertiesResolver} from '../../core/interfaces/analytics/i-super-properties-resolver.js'
 
 import {AnalyticsBatch} from '../../core/domain/analytics/batch.js'
@@ -9,6 +12,7 @@ import {AnalyticsBatch} from '../../core/domain/analytics/batch.js'
 export interface AnalyticsClientDeps {
   identityResolver: IIdentityResolver
   isEnabled: () => boolean
+  jsonlStore: IJsonlAnalyticsStore
   queue: IAnalyticsQueue
   superPropsResolver: ISuperPropertiesResolver
 }
@@ -69,17 +73,27 @@ export class AnalyticsClient implements IAnalyticsClient {
         this.deps.superPropsResolver.resolve(),
       ])
 
-      const stamped: AnalyticsEventWithIdentity = {
+      // M9.3: compose a StoredAnalyticsRecord — JSONL is the durable source of
+      // truth (M10.2's flush reads from JSONL, not the queue). The queue is a
+      // fast in-memory mirror for status display / future webui hot path.
+      const record: StoredAnalyticsRecord = {
+        attempts: 0,
+        id: randomUUID(),
         identity,
         name: event,
         // Super-properties are authoritative: they overwrite any user-supplied
         // property with the same key. This guarantees a consistent envelope
         // (cli_version, device_id, environment, node_version, os) on every event.
         properties: {...properties, ...superProps},
+        status: 'pending',
         timestamp,
       }
 
-      this.deps.queue.push(stamped)
+      // Persist to JSONL FIRST. If this throws, the catch silently drops and the
+      // queue is NOT pushed — preserves the "JSONL is source of truth" invariant
+      // (no events visible to status display that aren't durably stored).
+      await this.deps.jsonlStore.append(record)
+      this.deps.queue.push(record)
     } catch {
       // Analytics MUST NOT crash the consumer. Errors silently dropped.
     }

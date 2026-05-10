@@ -22,10 +22,12 @@ import {ReviewEvents} from '../../../shared/transport/events/review-events.js'
 import {getAuthConfig} from '../../config/auth.config.js'
 import {getCurrentConfig} from '../../config/environment.js'
 import {API_V1_PATH, BRV_DIR} from '../../constants.js'
+import {getGlobalDataDir} from '../../utils/global-data-path.js'
 import {getProjectDataDir} from '../../utils/path-utils.js'
 import {AnalyticsClient} from '../analytics/analytics-client.js'
 import {BoundedQueue} from '../analytics/bounded-queue.js'
 import {IdentityResolver} from '../analytics/identity-resolver.js'
+import {JsonlAnalyticsStore} from '../analytics/jsonl-analytics-store.js'
 import {SuperPropertiesResolver} from '../analytics/super-properties-resolver.js'
 import {OAuthService} from '../auth/oauth-service.js'
 import {OidcDiscoveryService} from '../auth/oidc-discovery-service.js'
@@ -153,9 +155,16 @@ export async function setupFeatureHandlers({
   // instance already in scope. The `daemon_start` event is NOT fired here —
   // it is fired by the caller (brv-server.ts) after authStateStore.loadToken()
   // resolves so the event reflects the real identity instead of anonymous.
+  //
+  // M9.3: a single JsonlAnalyticsStore instance is constructed here and
+  // injected into the AnalyticsClient. The same instance will be shared with
+  // M11.2's analytics-list-handler when it lands so both read/write the same
+  // file. Storage path: `<global-data-dir>/analytics-queue.jsonl`.
+  const jsonlAnalyticsStore = new JsonlAnalyticsStore({baseDir: getGlobalDataDir()})
   const analyticsClient: IAnalyticsClient = new AnalyticsClient({
     identityResolver: new IdentityResolver(authStateStore, globalConfigStore),
     isEnabled: () => globalConfigHandler.getCachedAnalytics(),
+    jsonlStore: jsonlAnalyticsStore,
     queue: new BoundedQueue(),
     superPropsResolver: new SuperPropertiesResolver(globalConfigStore),
   })

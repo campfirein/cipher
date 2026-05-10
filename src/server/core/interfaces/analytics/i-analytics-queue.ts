@@ -1,33 +1,38 @@
-import type {AnalyticsEventWithIdentity} from '../../domain/analytics/batch.js'
+import type {StoredAnalyticsRecord} from '../../domain/analytics/stored-record.js'
 
 /**
- * In-memory queue contract for identity-stamped analytics events.
+ * In-memory queue contract for identity-stamped analytics records.
  * Implementations enforce a configurable cap with drop-oldest semantics
  * and track a cumulative dropped count for later observability.
+ *
+ * Carries `StoredAnalyticsRecord` (with `id`/`status`/`attempts` local
+ * metadata) since M9.3 — JSONL is the durable source of truth and the
+ * queue is a fast in-memory mirror. M10.2's `flush()` reads from JSONL
+ * (not this queue), so any drop-oldest eviction here is recoverable.
  */
 export interface IAnalyticsQueue {
   /**
-   * Drains the queue and returns the events in FIFO order. Caller takes
+   * Drains the queue and returns the records in FIFO order. Caller takes
    * ownership; the queue is empty afterwards. `droppedCount()` is NOT
    * reset by this call.
    */
-  drain: () => AnalyticsEventWithIdentity[]
+  drain: () => StoredAnalyticsRecord[]
 
   /**
-   * Returns the cumulative number of events dropped due to the cap
+   * Returns the cumulative number of records dropped due to the cap
    * across the queue's lifetime. Never reset.
    */
   droppedCount: () => number
 
   /**
-   * Pushes an event onto the queue. If the queue is at capacity, the
-   * oldest event is dropped to make room and `droppedCount()` is
+   * Pushes a record onto the queue. If the queue is at capacity, the
+   * oldest record is dropped to make room and `droppedCount()` is
    * incremented.
    */
-  push: (event: AnalyticsEventWithIdentity) => void
+  push: (record: StoredAnalyticsRecord) => void
 
   /**
-   * Returns the current number of events in the queue.
+   * Returns the current number of records in the queue.
    */
   size: () => number
 }
