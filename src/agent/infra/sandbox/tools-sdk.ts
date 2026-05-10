@@ -92,9 +92,27 @@ export interface ListDirectoryOptions {
 }
 
 /**
+ * Optional structural-axis hint applied before BM25 ranking. Restricts
+ * the candidate set to topic files containing at least one matching
+ * `<bv-*>` element. Wired but unused by today's callers — the
+ * structural-selector grammar will plug into this without reshaping
+ * the search call signature.
+ */
+export interface SearchKnowledgeElementHint {
+  /** Optional attribute name to constrain the match. Requires `value`. */
+  attribute?: string
+  /** `<bv-*>` tag name (e.g. "bv-rule"). */
+  tag: string
+  /** Required when `attribute` is set. Exact-match comparison. */
+  value?: string
+}
+
+/**
  * Options for searchKnowledge operation in ToolsSDK.
  */
 export interface SearchKnowledgeOptions {
+  /** Pre-filter candidate set by `<bv-*>` element shape before BM25 ranking. */
+  elementHint?: SearchKnowledgeElementHint
   /** Maximum number of results to return (default: 10) */
   limit?: number
   /** Path prefix to scope search within (e.g. "auth" or "packages/api") */
@@ -112,6 +130,8 @@ export interface SearchKnowledgeResult {
     /** Number of other memories that reference this one */
     backlinkCount?: number
     excerpt: string
+    /** Source format of the topic file ('html' for `<bv-topic>` HTML, 'markdown' for the legacy MD path used by `brv swarm`). */
+    format?: 'html' | 'markdown'
     /** Origin: 'local' for this project, 'shared' for results from knowledge source */
     origin?: 'local' | 'shared'
     /** Alias of the shared source (undefined for local results) */
