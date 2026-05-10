@@ -59,6 +59,7 @@ import {HttpTeamService} from '../team/http-team-service.js'
 import {FsTemplateLoader} from '../template/fs-template-loader.js'
 import {
   AnalyticsHandler,
+  AnalyticsListHandler,
   AuthHandler,
   ConfigHandler,
   ConnectorsHandler,
@@ -177,6 +178,10 @@ export async function setupFeatureHandlers({
   // M2.6: route incoming analytics:track events from non-forked clients
   // (TUI, oclif, MCP, webui) to the same singleton.
   new AnalyticsHandler({analyticsClient, transport}).setup()
+
+  // M11.2: webui-facing read API. Shares the same JsonlAnalyticsStore instance
+  // as the AnalyticsClient so reads see exactly what trackAsync persisted.
+  new AnalyticsListHandler({jsonlStore: jsonlAnalyticsStore, transport}).setup()
 
   new AuthHandler({
     authService: new OAuthService(authConfig),

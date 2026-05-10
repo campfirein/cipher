@@ -3,8 +3,12 @@ import {expect} from 'chai'
 import {z} from 'zod'
 
 import {ALL_EVENT_SCHEMAS} from '../../../../src/shared/analytics/events/index.js'
+import {FORBIDDEN_FIELD_NAMES} from '../../../../src/shared/analytics/forbidden-field-names.js'
 
-const FORBIDDEN_FIELD_NAMES: ReadonlySet<string> = new Set([
+// Sentinel — the test below asserts the imported set still contains the canonical
+// names this fixture audits against. Any drift between this fixture and the runtime
+// constant would indicate the M11.2 extraction broke privacy coverage.
+const FIXTURE_SENTINEL_NAMES: ReadonlySet<string> = new Set([
   // Secrets / credentials
   'access_token',
   // PII identifiers (super-properties carry email/name when authenticated;
@@ -85,6 +89,17 @@ function getShapeFieldNames(schema: z.ZodTypeAny, seen: Set<z.ZodTypeAny> = new 
 }
 
 describe('analytics privacy fixture (smoke)', () => {
+  it('should keep the runtime FORBIDDEN_FIELD_NAMES set as a superset of this fixture sentinel', () => {
+    // Regression guard for the M11.2 extraction: any name this fixture historically
+    // audited against MUST still be present in the runtime constant.
+    const missing: string[] = []
+    for (const name of FIXTURE_SENTINEL_NAMES) {
+      if (!FORBIDDEN_FIELD_NAMES.has(name)) missing.push(name)
+    }
+
+    expect(missing, `runtime FORBIDDEN_FIELD_NAMES dropped: ${missing.join(', ')}`).to.deep.equal([])
+  })
+
   it('should not declare any field name on the forbidden PII list across all event schemas', () => {
     const violations: Array<{eventName: string; field: string}> = []
 
