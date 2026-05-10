@@ -3,12 +3,14 @@ import {join, relative} from 'node:path'
 import type {ICipherAgent} from '../../../agent/core/interfaces/i-cipher-agent.js'
 import type {IFileSystem} from '../../../agent/core/interfaces/i-file-system.js'
 import type {ISearchKnowledgeService, SearchKnowledgeResult} from '../../../agent/infra/sandbox/tools-sdk.js'
-import type {QueryLogMatchedDoc} from '../../core/domain/entities/query-log-entry.js'
+import type {LlmUsage} from '../../core/domain/entities/llm-usage.js'
+import type {QueryLogMatchedDoc, QueryLogTiming} from '../../core/domain/entities/query-log-entry.js'
 import type {
   IQueryExecutor,
   QueryExecuteOptions,
   QueryExecutorResult,
 } from '../../core/interfaces/executor/i-query-executor.js'
+import type {IFormatDetector} from '../../core/interfaces/render/i-format-detector.js'
 
 import {ABSTRACT_EXTENSION, BRV_DIR, CONTEXT_FILE_EXTENSION, CONTEXT_TREE_DIR} from '../../constants.js'
 import {
@@ -21,6 +23,7 @@ import {
 import {loadSources} from '../../core/domain/source/source-schema.js'
 import {isDerivedArtifact} from '../context-tree/derived-artifact.js'
 import {FileContextTreeManifestService} from '../context-tree/file-context-tree-manifest-service.js'
+import {MarkdownOnlyFormatDetector} from '../render/format/markdown-only-format-detector.js'
 import {
   canRespondDirectly,
   type DirectSearchResult,
@@ -54,6 +57,13 @@ export interface QueryExecutorDeps {
   enableCache?: boolean
   /** File system for reading full document content and computing fingerprints */
   fileSystem?: IFileSystem
+  /**
+   * Format-mode detector for `QueryExecutorResult.format` .
+   * Defaults to {@link MarkdownOnlyFormatDetector} which always reports
+   * `'markdown'` until the format-detector task lands the real extension-aware
+   * detector.
+   */
+  formatDetector?: IFormatDetector
   /** Search service for pre-fetching relevant context before calling the LLM */
   searchService?: ISearchKnowledgeService
 }
@@ -83,11 +93,13 @@ export class QueryExecutor implements IQueryExecutor {
   private readonly cache?: QueryResultCache
   private cachedFingerprint?: {expiresAt: number; sourceValidityHash: string; value: string; worktreeRoot?: string}
   private readonly fileSystem?: IFileSystem
+  private readonly formatDetector: IFormatDetector
   private readonly searchService?: ISearchKnowledgeService
 
   constructor(deps?: QueryExecutorDeps) {
     this.baseDirectory = deps?.baseDirectory
     this.fileSystem = deps?.fileSystem
+    this.formatDetector = deps?.formatDetector ?? new MarkdownOnlyFormatDetector()
     this.searchService = deps?.searchService
     if (deps?.enableCache) {
       this.cache = new QueryResultCache()
@@ -96,13 +108,37 @@ export class QueryExecutor implements IQueryExecutor {
 
   public async executeWithAgent(agent: ICipherAgent, options: QueryExecuteOptions): Promise<QueryExecutorResult> {
     const startTime = Date.now()
-    const {query, taskId, worktreeRoot} = options
+    const {query, taskId, usageAggregator, worktreeRoot} = options
     const workspaceScope = this.deriveWorkspaceScope(worktreeRoot)
+    // Mutable holders so prefer-const rule sees the bindings as never-reassigned
+    // (we mutate properties rather than rebinding).
+    const searchClock: {endMs?: number; startMs?: number} = {}
+    const llmClock: {endMs?: number; startMs?: number} = {}
 
     // Start search early — runs in parallel with fingerprint computation (independent operations)
+    if (this.searchService) {
+      searchClock.startMs = Date.now()
+    }
+
     const searchPromise = this.searchService?.search(query, {limit: SMART_ROUTING_MAX_DOCS, scope: workspaceScope})
     // Prevent unhandled rejection if we return early (cache hit) while search is still pending
     searchPromise?.catch(() => {})
+
+    const buildTiming = (): QueryLogTiming & {durationMs: number} => {
+      const totalMs = Date.now() - startTime
+      return {
+        durationMs: totalMs,
+        ...(searchClock.startMs !== undefined && searchClock.endMs !== undefined && {searchMs: searchClock.endMs - searchClock.startMs}),
+        ...(llmClock.startMs !== undefined && llmClock.endMs !== undefined && {llmMs: llmClock.endMs - llmClock.startMs}),
+        totalMs,
+      }
+    }
+
+    const usageOrUndefined = (): LlmUsage | undefined => {
+      if (!usageAggregator) return undefined
+      const totals = usageAggregator.getTotals()
+      return totals.inputTokens === 0 && totals.outputTokens === 0 ? undefined : totals
+    }
 
     // === Tier 0: Exact cache hit (0ms) ===
     let fingerprint: string | undefined
@@ -114,7 +150,7 @@ export class QueryExecutor implements IQueryExecutor {
           matchedDocs: [],
           response: cached + ATTRIBUTION_FOOTER,
           tier: TIER_EXACT_CACHE,
-          timing: {durationMs: Date.now() - startTime},
+          timing: buildTiming(),
         }
       }
     }
@@ -127,7 +163,7 @@ export class QueryExecutor implements IQueryExecutor {
           matchedDocs: [],
           response: fuzzyHit + ATTRIBUTION_FOOTER,
           tier: TIER_FUZZY_CACHE,
-          timing: {durationMs: Date.now() - startTime},
+          timing: buildTiming(),
         }
       }
     }
@@ -145,6 +181,8 @@ export class QueryExecutor implements IQueryExecutor {
       searchResult = await this.supplementEntitySearches(query, searchResult, workspaceScope)
     }
 
+    searchClock.endMs = Date.now()
+
     // === OOD short-circuit: no results means topic not covered ===
     if (searchResult && searchResult.results.length === 0) {
       const response = formatNotFoundResponse(query)
@@ -157,7 +195,7 @@ export class QueryExecutor implements IQueryExecutor {
         response: response + ATTRIBUTION_FOOTER,
         searchMetadata: {resultCount: 0, topScore: 0, totalFound: 0},
         tier: TIER_DIRECT_SEARCH,
-        timing: {durationMs: Date.now() - startTime},
+        timing: buildTiming(),
       }
     }
 
@@ -169,8 +207,10 @@ export class QueryExecutor implements IQueryExecutor {
           this.cache.set(query, directResult, fingerprint)
         }
 
+        const directDocs = buildMatchedDocs(searchResult)
         return {
-          matchedDocs: buildMatchedDocs(searchResult),
+          format: this.formatDetector.detect(directDocs),
+          matchedDocs: directDocs,
           response: directResult + ATTRIBUTION_FOOTER,
           searchMetadata: {
             cacheFingerprint: fingerprint,
@@ -179,7 +219,7 @@ export class QueryExecutor implements IQueryExecutor {
             totalFound: searchResult.totalFound,
           },
           tier: TIER_DIRECT_SEARCH,
-          timing: {durationMs: Date.now() - startTime},
+          timing: buildTiming(),
         }
       }
     }
@@ -254,10 +294,12 @@ export class QueryExecutor implements IQueryExecutor {
       : {maxIterations: 50, maxTokens: 2048, temperature: 0.5}
 
     try {
+      llmClock.startMs = Date.now()
       const response = await agent.executeOnSession(taskSessionId, prompt, {
         executionContext: {commandType: 'query', ...queryOverrides},
         taskId,
       })
+      llmClock.endMs = Date.now()
 
       // Store in cache for future Tier 0/1 hits
       if (this.cache && fingerprint) {
@@ -265,8 +307,10 @@ export class QueryExecutor implements IQueryExecutor {
       }
 
       const tier = prefetchedContext ? TIER_OPTIMIZED_LLM : TIER_FULL_AGENTIC
+      const llmDocs = buildMatchedDocs(searchResult)
       return {
-        matchedDocs: buildMatchedDocs(searchResult),
+        format: this.formatDetector.detect(llmDocs),
+        matchedDocs: llmDocs,
         response: response + ATTRIBUTION_FOOTER,
         searchMetadata: {
           cacheFingerprint: fingerprint,
@@ -275,7 +319,8 @@ export class QueryExecutor implements IQueryExecutor {
           totalFound: searchResult?.totalFound ?? 0,
         },
         tier,
-        timing: {durationMs: Date.now() - startTime},
+        timing: buildTiming(),
+        ...(usageOrUndefined() !== undefined && {usage: usageOrUndefined()}),
       }
     } finally {
       // Clean up entire task session (sandbox + history) in one call

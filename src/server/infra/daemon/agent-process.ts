@@ -62,6 +62,7 @@ import {QueryExecutor} from '../executor/query-executor.js'
 import {SearchExecutor} from '../executor/search-executor.js'
 import {FileCurateLogStore} from '../storage/file-curate-log-store.js'
 import {FileReviewBackupStore} from '../storage/file-review-backup-store.js'
+import {TaskUsageAggregator} from '../telemetry/task-usage-aggregator.js'
 import {AgentInstanceDiscovery} from '../transport/agent-instance-discovery.js'
 import {createAgentLogger} from './agent-logger.js'
 import {PostWorkRegistry} from './post-work-registry.js'
@@ -552,16 +553,74 @@ async function executeTask(
       let postWork: (() => Promise<void>) | undefined
       switch (type) {
         case 'curate': {
-          const curateResult = await curateExecutor.runAgentBody(agent, {
-            clientCwd,
-            content,
-            files,
-            projectRoot: projectPath,
-            taskId,
-            worktreeRoot,
-          })
-          result = curateResult.response
-          postWork = curateResult.finalize
+          // subscribe a per-task usage aggregator to llmservice:usage events
+          // (forwarded from session bus to agentEventBus via session-event-forwarder).
+          // After Phase 3 finishes (runAgentBody returns), forward telemetry to the
+          // daemon via task:curateResult before task:completed. Phase 4 (detached
+          // post-work) runs after task:completed, so its LLM calls intentionally
+          // don't roll into THIS curate-log entry — same boundary as the rest of
+          // the daemon's "completed" semantics.
+          const curateAggregator = new TaskUsageAggregator(taskId)
+          const curateStartedAt = Date.now()
+          const curateUsageListener = (payload: {
+            cacheCreationTokens?: number
+            cachedInputTokens?: number
+            durationMs: number
+            inputTokens: number
+            outputTokens: number
+            taskId?: string
+          }): void => {
+            if (payload.taskId !== taskId) return
+            curateAggregator.addUsage(
+              {
+                ...(payload.cacheCreationTokens !== undefined && {cacheCreationTokens: payload.cacheCreationTokens}),
+                ...(payload.cachedInputTokens !== undefined && {cachedInputTokens: payload.cachedInputTokens}),
+                inputTokens: payload.inputTokens,
+                outputTokens: payload.outputTokens,
+              },
+              payload.durationMs,
+            )
+          }
+
+          const curateAgentBus = agent.agentEventBus
+          curateAgentBus?.on('llmservice:usage', curateUsageListener)
+          try {
+            const curateResult = await curateExecutor.runAgentBody(agent, {
+              clientCwd,
+              content,
+              files,
+              projectRoot: projectPath,
+              taskId,
+              usageAggregator: curateAggregator,
+              worktreeRoot,
+            })
+            result = curateResult.response
+            postWork = curateResult.finalize
+
+            // Build telemetry payload from aggregator + wall-clock totalMs.
+            // `format` is hardcoded 'markdown' until the format-detector task lands the
+            // useHtmlContextTree flag; flip when T3 merges.
+            const curateTotals = curateAggregator.getTotals()
+            const curateLlmMs = curateAggregator.getLlmMs()
+            const curateTotalMs = Date.now() - curateStartedAt
+            const curateUsage =
+              curateTotals.inputTokens > 0 || curateTotals.outputTokens > 0 ? curateTotals : undefined
+            try {
+              transport.request(TransportTaskEventNames.CURATE_RESULT, {
+                format: 'markdown',
+                taskId,
+                timing: {
+                  ...(curateLlmMs > 0 && {llmMs: curateLlmMs}),
+                  totalMs: curateTotalMs,
+                },
+                ...(curateUsage !== undefined && {usage: curateUsage}),
+              })
+            } catch {
+              agentLog(`task:curateResult send failed taskId=${taskId}`)
+            }
+          } finally {
+            curateAgentBus?.off('llmservice:usage', curateUsageListener)
+          }
 
           break
         }
@@ -626,18 +685,57 @@ async function executeTask(
         }
 
         case 'query': {
-          const queryResult = await queryExecutor.executeWithAgent(agent, {query: content, taskId, worktreeRoot})
+          // subscribe a per-task usage aggregator to llmservice:usage
+          // events forwarded from the session bus. QueryExecutor reads the
+          // rolled-up totals at completion and writes them to the result.
+          const queryAggregator = new TaskUsageAggregator(taskId)
+          const queryUsageListener = (payload: {
+            cacheCreationTokens?: number
+            cachedInputTokens?: number
+            durationMs: number
+            inputTokens: number
+            outputTokens: number
+            taskId?: string
+          }): void => {
+            if (payload.taskId !== taskId) return
+            queryAggregator.addUsage(
+              {
+                ...(payload.cacheCreationTokens !== undefined && {cacheCreationTokens: payload.cacheCreationTokens}),
+                ...(payload.cachedInputTokens !== undefined && {cachedInputTokens: payload.cachedInputTokens}),
+                inputTokens: payload.inputTokens,
+                outputTokens: payload.outputTokens,
+              },
+              payload.durationMs,
+            )
+          }
+
+          const queryAgentBus = agent.agentEventBus
+          queryAgentBus?.on('llmservice:usage', queryUsageListener)
+          let queryResult
+          try {
+            queryResult = await queryExecutor.executeWithAgent(agent, {
+              query: content,
+              taskId,
+              usageAggregator: queryAggregator,
+              worktreeRoot,
+            })
+          } finally {
+            queryAgentBus?.off('llmservice:usage', queryUsageListener)
+          }
+
           result = queryResult.response
 
           // Send query metadata to daemon for QueryLogHandler (crosses process boundary via transport).
           // Must arrive BEFORE task:completed so setQueryResult runs before onTaskCompleted.
           try {
             transport.request(TransportTaskEventNames.QUERY_RESULT, {
+              ...(queryResult.format !== undefined && {format: queryResult.format}),
               matchedDocs: queryResult.matchedDocs,
               searchMetadata: queryResult.searchMetadata,
               taskId,
               tier: queryResult.tier,
               timing: queryResult.timing,
+              ...(queryResult.usage !== undefined && {usage: queryResult.usage}),
             })
           } catch {
             agentLog(`task:queryResult send failed taskId=${taskId}`)

@@ -53,8 +53,10 @@ export class CurateExecutor implements ICurateExecutor {
 
   /** Synchronous wrapper — runs Phases 1-3 and awaits Phase 4 inline. */
   public async executeWithAgent(agent: ICipherAgent, options: CurateExecuteOptions): Promise<string> {
+    const startedAt = Date.now()
     const {finalize, response} = await this.runAgentBody(agent, options)
     await finalize()
+    this.reportTelemetry(options, startedAt)
     return response
   }
 
@@ -418,6 +420,36 @@ export class CurateExecutor implements ICurateExecutor {
       await manifestService.buildManifest(baseDir)
     } catch {
       // Fail-open: manifest rebuild is best-effort pre-warming.
+    }
+  }
+
+  /**
+   * Roll up the executor's per-task telemetry and hand it to
+   * {@link CurateExecuteOptions.onTelemetry}. Best-effort: a thrown callback
+   * doesn't propagate (logging must never block curate).
+   *
+   * `format` is currently constant `'markdown'` because the
+   * `useHtmlContextTree` feature flag has not landed yet. Once it does, this
+   * method will read the flag (or be replaced entirely by the real
+   * format-detector binding).
+   */
+  private reportTelemetry(options: CurateExecuteOptions, startedAt: number): void {
+    if (!options.onTelemetry) return
+    const totalMs = Date.now() - startedAt
+    const totals = options.usageAggregator?.getTotals()
+    const llmMs = options.usageAggregator?.getLlmMs() ?? 0
+    const usage = totals && (totals.inputTokens > 0 || totals.outputTokens > 0) ? totals : undefined
+    try {
+      options.onTelemetry({
+        format: 'markdown',
+        timing: {
+          ...(llmMs > 0 && {llmMs}),
+          totalMs,
+        },
+        ...(usage !== undefined && {usage}),
+      })
+    } catch {
+      // best-effort — telemetry must never block curate
     }
   }
 }
