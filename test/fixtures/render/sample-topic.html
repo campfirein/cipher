@@ -1,0 +1,35 @@
+<bv-topic path="security/auth" importance="89" maturity="core" recency="0.97" updatedAt="2026-04-27T08:17:42Z">
+  <h1>Authentication and Authorization</h1>
+
+  <p>Project-wide rules and decisions for the auth subsystem. JWTs are signed with RS256; refresh tokens are sliding-expiry with a 24-hour window.</p>
+
+  <bv-rule severity="must" id="r-jwt-401">
+    Failed token validation MUST return 401 Unauthorized — never 403, never 500.
+  </bv-rule>
+
+  <bv-rule severity="should" id="r-rotate-rs256-keys">
+    The RS256 signing key SHOULD rotate every 30 days. Old keys remain in the JWKS until tokens signed with them expire.
+  </bv-rule>
+
+  <bv-decision id="d-rs256-over-hs256">
+    <p>Use RS256 (asymmetric), not HS256 (shared-secret).</p>
+    <p>Rationale: public-key validation lets downstream services verify tokens without holding the signing secret. Scales across services without rotating shared secrets.</p>
+  </bv-decision>
+
+  <bv-bug severity="critical" id="b-2026-04-15-auth-leak">
+    <p><strong>Symptom:</strong> Logged-out users could still access protected routes for up to 5 minutes.</p>
+    <p><strong>Root cause:</strong> Refresh-token revocation was being read from a stale cache; the cache TTL was longer than the access-token expiry.</p>
+  </bv-bug>
+
+  <bv-fix id="f-2026-04-15-revoke-on-logout">
+    <p>On logout, evict the user's refresh-token entry from the revocation cache synchronously before responding to the client. The cache is now read-through with a 30-second TTL; revocations bypass it entirely.</p>
+    <ul>
+      <li>Updated <code>logout-handler.ts:42</code> to call <code>revocationCache.invalidate(userId)</code> before <code>response.send()</code>.</li>
+      <li>Added integration test <code>logout-revocation.test.ts</code> covering the post-logout 401 path.</li>
+    </ul>
+  </bv-fix>
+
+  <bv-rule severity="info" id="r-token-expiry-doc">
+    Document access-token expiry on every public API endpoint.
+  </bv-rule>
+</bv-topic>
