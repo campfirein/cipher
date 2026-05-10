@@ -302,6 +302,66 @@ describe('QueryExecutor', () => {
         expect(result.timing.durationMs).to.be.at.least(0)
         expect(result.response).to.include(ATTRIBUTION_FOOTER)
       })
+
+      it('renders HTML topics into structured markdown before formatting the direct response', async () => {
+        // For HTML results, the executor reads the full file and routes
+        // it through `renderHtmlTopicForLlm` so that downstream
+        // `formatDirectResponse` ships markdown, not raw `<bv-*>`
+        // markup. Locks the Tier 2 contract: the user-facing response
+        // never contains tag/attribute syntax for HTML topics.
+        const agent = createMockAgent()
+        const fileSystem = createMockFileSystem()
+        ;(fileSystem.readFile as SinonStub).resolves({
+          content: `<bv-topic path="security/auth" title="JWT auth" summary="JWT design">
+            <bv-reason>Document JWT design.</bv-reason>
+            <bv-rule severity="must" id="r-1">Always validate signatures.</bv-rule>
+            <bv-decision id="d-1">Use RS256 over HS256.</bv-decision>
+          </bv-topic>`,
+          encoding: 'utf8',
+        })
+        const searchResult = makeSearchResult({
+          format: 'html',
+          path: 'security/auth.html',
+          score: 0.95,
+          title: 'JWT auth',
+        })
+        const searchService = createMockSearchService([searchResult])
+        const executor = new QueryExecutor({fileSystem, searchService})
+
+        const result = await executor.executeWithAgent(agent, {query: 'jwt auth', taskId: TASK_ID})
+
+        expect(result.tier).to.equal(TIER_DIRECT_SEARCH)
+        // No raw bv-* markup or attribute syntax leaks into the response.
+        expect(result.response).to.not.match(/<bv-/)
+        expect(result.response).to.not.match(/\s\w+="/)
+        // Structured render preserves element semantics (severity, id).
+        expect(result.response).to.include('- **Rule** [must] (r-1): Always validate signatures.')
+        expect(result.response).to.include('- **Decision** (d-1): Use RS256 over HS256.')
+        expect(result.response).to.include('**Reason:** Document JWT design.')
+      })
+
+      it('passes markdown topics through unchanged (no renderer applied)', async () => {
+        const agent = createMockAgent()
+        const fileSystem = createMockFileSystem()
+        ;(fileSystem.readFile as SinonStub).resolves({
+          content: '# Auth\n\nSome markdown body about auth.',
+          encoding: 'utf8',
+        })
+        const searchResult = makeSearchResult({
+          format: 'markdown',
+          path: 'topics/auth.md',
+          score: 0.95,
+          title: 'Auth',
+        })
+        const searchService = createMockSearchService([searchResult])
+        const executor = new QueryExecutor({fileSystem, searchService})
+
+        const result = await executor.executeWithAgent(agent, {query: 'auth', taskId: TASK_ID})
+
+        expect(result.tier).to.equal(TIER_DIRECT_SEARCH)
+        // Markdown body survives verbatim — no renderer rewrites it.
+        expect(result.response).to.include('Some markdown body about auth.')
+      })
     })
 
     describe('Tier 3: optimized LLM with prefetched context', () => {
