@@ -97,6 +97,28 @@ describe('html-writer', () => {
           expect(attrErr, 'expected attribute-validation error').to.not.equal(undefined)
         }
       })
+
+      it('rejects path-traversal in bv-topic[path] as an unsafe-path error', () => {
+        // Path-traversal must surface as a structured validation error,
+        // not a downstream throw — standalone callers (preview, dry-run)
+        // need to know the topic isn't safe before they touch disk.
+        const html = '<bv-topic path="../../../etc/passwd" title="t"></bv-topic>'
+        const result = validateHtmlTopic(html)
+        expect(result.ok).to.equal(false)
+        if (!result.ok) {
+          const unsafe = result.errors.find((e) => e.kind === 'unsafe-path')
+          expect(unsafe, 'expected unsafe-path error').to.not.equal(undefined)
+        }
+      })
+
+      it('rejects single-dot segments as unsafe-path', () => {
+        const html = '<bv-topic path="domain/./topic" title="t"></bv-topic>'
+        const result = validateHtmlTopic(html)
+        expect(result.ok).to.equal(false)
+        if (!result.ok) {
+          expect(result.errors.some((e) => e.kind === 'unsafe-path')).to.equal(true)
+        }
+      })
     })
   })
 
@@ -158,19 +180,19 @@ describe('html-writer', () => {
       expect(filesUnderRoot, 'no files should be written on failure').to.have.lengthOf(0)
     })
 
-    it('rejects path-traversal attempts in bv-topic[path]', async () => {
+    it('rejects path-traversal attempts in bv-topic[path] as a validation failure', async () => {
+      // Path-traversal surfaces as a structured `unsafe-path` validation
+      // error from `validateHtmlTopic`. The writer never reaches disk;
+      // no file is written.
       const evil = '<bv-topic path="../../../etc/passwd" title="t"></bv-topic>'
-      // Path-traversal is a hard error — should throw, not return a soft result.
-      let threw = false
-      try {
-        await writeHtmlTopic({contextTreeRoot: tmpRoot, rawHtml: evil})
-      } catch (error) {
-        threw = true
-        const msg = (error as Error).message
-        expect(msg).to.match(/(\.\.|escapes)/, `expected error to mention path traversal; got: ${msg}`)
+      const result = await writeHtmlTopic({contextTreeRoot: tmpRoot, rawHtml: evil})
+      expect(result.ok).to.equal(false)
+      if (!result.ok) {
+        expect(result.errors.some((e) => e.kind === 'unsafe-path')).to.equal(true)
       }
 
-      expect(threw, 'expected path-traversal to throw').to.equal(true)
+      const filesUnderRoot = await readdir(tmpRoot)
+      expect(filesUnderRoot, 'no file should be written on traversal').to.have.lengthOf(0)
     })
 
     it('rejects absolute path-traversal attempts (path starting with /)', async () => {

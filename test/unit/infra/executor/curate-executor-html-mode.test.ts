@@ -76,8 +76,18 @@ describe('CurateExecutor HTML emission', () => {
 
     const expectedPath = join(baseDir, '.brv', 'context-tree', 'security/auth.html')
     expect(existsSync(expectedPath), `expected file at ${expectedPath}`).to.equal(true)
-    expect(readFileSync(expectedPath, 'utf8')).to.equal(VALID_HTML_TOPIC)
-    // Response is the raw agent output (returned unchanged).
+    // The on-disk file is the LLM's HTML plus system-injected
+    // `createdat` / `updatedat` attributes on bv-topic. Body content
+    // is preserved verbatim; the bv-topic opening tag has the
+    // timestamp attributes added.
+    const written = readFileSync(expectedPath, 'utf8')
+    expect(written).to.include('<bv-reason>Document JWT auth design.</bv-reason>')
+    expect(written).to.include('<bv-rule severity="must" id="r-1">Always validate signatures.</bv-rule>')
+    expect(written).to.match(/createdat="[^"]+"/)
+    expect(written).to.match(/updatedat="[^"]+"/)
+    // Response is the raw agent output (returned unchanged — timestamps
+    // are injected by the writer at write time, not on the in-memory
+    // response).
     expect(response).to.equal(VALID_HTML_TOPIC)
     expect(executor.lastStatus?.status).to.equal('success')
     expect(executor.lastStatus?.summary.added).to.equal(1)
@@ -97,7 +107,12 @@ describe('CurateExecutor HTML emission', () => {
 
     const expectedPath = join(baseDir, '.brv', 'context-tree', 'security/auth.html')
     expect(existsSync(expectedPath)).to.equal(true)
-    expect(readFileSync(expectedPath, 'utf8')).to.equal(VALID_HTML_TOPIC)
+    const written = readFileSync(expectedPath, 'utf8')
+    // Fence is stripped; system timestamps are then injected onto bv-topic.
+    expect(written.startsWith('```')).to.equal(false)
+    expect(written).to.include('<bv-rule severity="must" id="r-1">Always validate signatures.</bv-rule>')
+    expect(written).to.match(/createdat="[^"]+"/)
+    expect(written).to.match(/updatedat="[^"]+"/)
     expect(executor.lastStatus?.status).to.equal('success')
   })
 

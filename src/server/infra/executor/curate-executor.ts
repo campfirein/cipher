@@ -325,7 +325,16 @@ export class CurateExecutor implements ICurateExecutor {
         taskId,
         verification: {
           ...defaultVerification,
-          missing: writeResult.errors.map((e) => `${e.kind}${'tag' in e ? ` (${e.tag})` : ''}: ${e.message}`),
+          missing: writeResult.errors.map((e) => {
+            // Surface tag.field for attribute-validation so the
+            // curate-log shows e.g. `attribute-validation
+            // (bv-rule.severity): …` instead of just
+            // `attribute-validation (bv-rule): …`.
+            const qualifier = 'tag' in e
+              ? ` (${e.tag}${'field' in e ? `.${e.field}` : ''})`
+              : ''
+            return `${e.kind}${qualifier}: ${e.message}`
+          }),
         },
       }
     }
@@ -469,10 +478,10 @@ export class CurateExecutor implements ICurateExecutor {
    * {@link CurateExecuteOptions.onTelemetry}. Best-effort: a thrown callback
    * doesn't propagate (logging must never block curate).
    *
-   * `format` is currently constant `'markdown'` because the
-   * `useHtmlContextTree` feature flag has not landed yet. Once it does, this
-   * method will read the flag (or be replaced entirely by the real
-   * format-detector binding).
+   * `format` is `'html'` because the curate path emits HTML topic
+   * documents end-to-end. Legacy markdown topics are still readable via
+   * the query path's extension-based dispatcher, but no curate run
+   * produces them.
    */
   private reportTelemetry(options: CurateExecuteOptions, startedAt: number): void {
     if (!options.onTelemetry) return
@@ -482,7 +491,7 @@ export class CurateExecutor implements ICurateExecutor {
     const usage = totals && (totals.inputTokens > 0 || totals.outputTokens > 0) ? totals : undefined
     try {
       options.onTelemetry({
-        format: 'markdown',
+        format: 'html',
         timing: {
           ...(llmMs > 0 && {llmMs}),
           totalMs,

@@ -53,6 +53,7 @@ export type HtmlWriteError =
   | {kind: 'missing-path-attribute'; message: string}
   | {kind: 'multiple-bv-topic'; message: string}
   | {kind: 'unknown-bv-element'; message: string; tag: string}
+  | {kind: 'unsafe-path'; message: string}
 
 export type HtmlWriteOptions = {
   /**
@@ -132,6 +133,23 @@ export function validateHtmlTopic(html: string): ValidatedTopic {
       kind: 'missing-path-attribute',
       message: '<bv-topic> must declare a non-empty `path` attribute.',
     })
+  } else {
+    // Path-segment safety: the `path` becomes a filesystem location; reject
+    // traversal segments before any caller treats `topicPath` as safe.
+    // `topicPathToFilePath` keeps `path.resolve` defence-in-depth, but
+    // surfacing as a structured validation error means standalone callers
+    // (preview, dry-run) don't need to repeat the check.
+    const normalized = topicPath.replaceAll('\\', '/').replace(/^\/+/, '')
+    const segments = normalized.split('/').filter((s) => s.length > 0)
+    for (const segment of segments) {
+      if (segment === '..' || segment === '.') {
+        errors.push({
+          kind: 'unsafe-path',
+          message: `bv-topic path may not contain "${segment}" segment: ${topicPath}`,
+        })
+        break
+      }
+    }
   }
 
   for (const el of elements) {
