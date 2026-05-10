@@ -1,3 +1,5 @@
+import type {LlmUsage} from './llm-usage.js'
+
 export type CurateLogOperation = {
   additionalFilePaths?: string[]
   confidence?: 'high' | 'low'
@@ -34,6 +36,17 @@ export type CurateLogTiming = {
   llmMs?: number
   /** Full executor entry → return wall-clock. */
   totalMs?: number
+}
+
+/**
+ * Telemetry payload supplied by `CurateExecutor` at completion. Lives in
+ * the domain layer so both the executor interface and the log-handler can
+ * reference it without crossing the `core → infra` boundary.
+ */
+export type CurateUsageRecord = {
+  format?: 'html' | 'markdown'
+  timing?: CurateLogTiming
+  usage?: LlmUsage
 }
 
 type CurateLogBase = {

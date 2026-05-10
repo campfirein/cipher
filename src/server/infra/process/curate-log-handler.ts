@@ -1,5 +1,4 @@
-import type {CurateLogEntry, CurateLogOperation, CurateLogSummary, CurateLogTiming} from '../../core/domain/entities/curate-log-entry.js'
-import type {LlmUsage} from '../../core/domain/entities/llm-usage.js'
+import type {CurateLogEntry, CurateLogOperation, CurateLogSummary, CurateLogTiming, CurateUsageRecord} from '../../core/domain/entities/curate-log-entry.js'
 import type {LlmToolResultEvent} from '../../core/domain/transport/schemas.js'
 import type {TaskInfo} from '../../core/domain/transport/task-info.js'
 import type {ITaskLifecycleHook} from '../../core/interfaces/process/i-task-lifecycle-hook.js'
@@ -12,12 +11,8 @@ import {FileCurateLogStore} from '../storage/file-curate-log-store.js'
 
 // ── Internal state ────────────────────────────────────────────────────────────
 
-/** Telemetry payload supplied by CurateExecutor at completion. */
-export type CurateUsageRecord = {
-  format?: 'html' | 'markdown'
-  timing?: CurateLogTiming
-  usage?: LlmUsage
-}
+// Re-export so existing handler consumers don't break.
+export type {CurateUsageRecord} from '../../core/domain/entities/curate-log-entry.js'
 
 type TaskState = {
   /** Cached initial entry — used in onTaskCompleted/onTaskError to avoid a getById round-trip. */
@@ -273,6 +268,10 @@ export class CurateLogHandler implements ITaskLifecycleHook {
 
     const store = this.getOrCreateStore(state.projectPath)
 
+    // Merge telemetry into the error entry so failed curates don't
+    // underreport cost. `state.usage` is populated when the executor's
+    // best-effort error-path `reportTelemetry()` reaches `setCurateUsage`
+    // before this handler fires; merge is a no-op when it didn't.
     const updated: CurateLogEntry = {
       ...state.entry,
       completedAt: Date.now(),
@@ -280,6 +279,7 @@ export class CurateLogHandler implements ITaskLifecycleHook {
       operations: state.operations,
       status: 'error',
       summary: computeSummary(state.operations),
+      ...telemetryFields(state.usage),
     }
 
     await store.save(updated).catch((error: unknown) => {

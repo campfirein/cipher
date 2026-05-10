@@ -1,6 +1,6 @@
 import type {ICipherAgent} from '../../../../agent/core/interfaces/i-cipher-agent.js'
-import type {CurateUsageRecord} from '../../../infra/process/curate-log-handler.js'
-import type {TaskUsageAggregator} from '../../../infra/telemetry/task-usage-aggregator.js'
+import type {CurateUsageRecord} from '../../domain/entities/curate-log-entry.js'
+import type {IUsageAggregator} from '../telemetry/i-usage-aggregator.js'
 
 /**
  * Options for executing curate with an injected agent.
@@ -31,7 +31,7 @@ export interface CurateExecuteOptions {
    * `llmservice:usage` event stream (TODO: agent-process integration).
    *
    */
-  usageAggregator?: TaskUsageAggregator
+  usageAggregator?: IUsageAggregator
   /** Workspace root — linked subdir or same as projectRoot for direct projects */
   worktreeRoot?: string
 }

@@ -53,10 +53,8 @@ export class CurateExecutor implements ICurateExecutor {
 
   /** Synchronous wrapper — runs Phases 1-3 and awaits Phase 4 inline. */
   public async executeWithAgent(agent: ICipherAgent, options: CurateExecuteOptions): Promise<string> {
-    const startedAt = Date.now()
     const {finalize, response} = await this.runAgentBody(agent, options)
     await finalize()
-    this.reportTelemetry(options, startedAt)
     return response
   }
 
@@ -72,6 +70,7 @@ export class CurateExecutor implements ICurateExecutor {
     options: CurateExecuteOptions,
   ): Promise<{finalize: () => Promise<void>; response: string}> {
     const {clientCwd, content, files, projectRoot, taskId} = options
+    const startedAt = Date.now()
 
     // --- Phase 1: Preprocessing (no sessions created yet — safe to throw) ---
     const fileReferenceInstructions = await this.processFileReferences(files ?? [], clientCwd)
@@ -173,10 +172,18 @@ export class CurateExecutor implements ICurateExecutor {
       // Parse curation status from agent response for status tracking
       this.lastStatus = this.parseCurationStatus(taskId, response)
     } catch (error) {
+      // Best-effort: report partial telemetry before throwing so failed curates
+      // don't underreport cost. The handler's error-finalization path picks up
+      // the telemetry merge if the CURATE_RESULT message lands first.
+      this.reportTelemetry(options, startedAt)
       // Clean up before propagating — error path returns no finalize.
       await agent.deleteTaskSession(taskSessionId)
       throw error
     }
+
+    // Happy path: forward telemetry before returning so the wiring layer can
+    // emit `task:curateResult` ahead of `task:completed`.
+    this.reportTelemetry(options, startedAt)
 
     const finalize = async (): Promise<void> => {
       try {

@@ -1,4 +1,5 @@
 import type {LlmUsage} from '../../core/domain/entities/llm-usage.js'
+import type {IUsageAggregator} from '../../core/interfaces/telemetry/i-usage-aggregator.js'
 
 import {addUsage, ZERO_USAGE} from '../../core/domain/entities/llm-usage.js'
 
@@ -12,7 +13,7 @@ import {addUsage, ZERO_USAGE} from '../../core/domain/entities/llm-usage.js'
  * Tests exercise the aggregator via direct `addUsage()` calls without
  * coupling to the event-bus plumbing.
  */
-export class TaskUsageAggregator {
+export class TaskUsageAggregator implements IUsageAggregator {
   public readonly taskId: string
   private llmMsTotal = 0
   private totals: LlmUsage = ZERO_USAGE

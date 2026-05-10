@@ -21,6 +21,14 @@ import {extractUsage, type ProviderType} from '../usage-extractor.js'
  * Order matters only for tie-breaking; raw shapes don't overlap across providers.
  * Mirrors the {@link ProviderType} union in `usage-extractor.ts` — keep in sync if
  * a new provider is added to the discriminator there.
+ *
+ * In production all live LLM traffic flows through `AiSdkContentGenerator`,
+ * which folds `result.usage` (+ Anthropic's `providerMetadata.cacheCreationInputTokens`)
+ * into the rawResponse shape that the `'aiSdk'` discriminator matches. The
+ * `'anthropic' / 'openai' / 'google'` branches are defensive shims for any
+ * future direct-provider adapter that bypasses the AI SDK and emits a native
+ * SDK shape on rawResponse — don't infer from the iteration order that live
+ * traffic flows through them first.
  */
 const PROVIDER_TYPES: readonly ProviderType[] = ['anthropic', 'openai', 'google', 'aiSdk']
 
