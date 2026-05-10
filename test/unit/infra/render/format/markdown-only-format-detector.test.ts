@@ -21,10 +21,11 @@ describe('MarkdownOnlyFormatDetector', () => {
     expect(detector.detect(docs)).to.equal('markdown')
   })
 
-  it("should return 'markdown' even when docs have .html extensions (stub returns markdown until T3 lands)", () => {
-    // The default stub binding T5 ships always reports 'markdown'. T3 (ENG-2739)
-    // replaces the binding with a real format-detector that distinguishes HTML.
-    // Until then, T5's QueryLogEntry.format always reports 'markdown' on populated recalls.
+  it("should return 'markdown' even when docs have .html extensions (legacy stub semantics)", () => {
+    // This stub IS the pre-migration behaviour — extension-blind, always
+    // 'markdown'. Production now wires ExtensionAwareFormatDetector instead.
+    // The stub is retained so callers / tests that pin legacy semantics can
+    // opt into it explicitly.
     const docs: QueryLogMatchedDoc[] = [{path: 'design/caching.html', score: 0.9, title: 'Caching'}]
 
     expect(detector.detect(docs)).to.equal('markdown')

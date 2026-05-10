@@ -5,9 +5,9 @@ import type {QueryLogMatchedDoc} from '../../domain/entities/query-log-entry.js'
  * Receives the docs the recall touched and reports `'html'`, `'markdown'`,
  * or `undefined` (no docs touched).
  *
- * The default binding is {@link MarkdownOnlyFormatDetector}. Swap to an
- * extension-aware implementation once HTML files start landing under
- * `.brv/context-tree/`.
+ * Production binding is `ExtensionAwareFormatDetector` — inspects each
+ * `matchedDoc.path` extension. `MarkdownOnlyFormatDetector` is the
+ * pre-migration stub kept around for tests that pin legacy behaviour.
  */
 export interface IFormatDetector {
   detect(matchedDocs: readonly QueryLogMatchedDoc[]): 'html' | 'markdown' | undefined
