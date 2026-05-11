@@ -15,6 +15,7 @@
  * Consumed by TransportHandlers (orchestrator).
  */
 
+import type {ReasoningContentItem, ToolCallEvent} from '../../../shared/transport/events/task-events.js'
 import type {
   LlmChunkEvent,
   LlmErrorEvent,
@@ -26,11 +27,19 @@ import type {
   TaskCancelledEvent,
   TaskCancelRequest,
   TaskCancelResponse,
+  TaskClearCompletedRequest,
+  TaskClearCompletedResponse,
   TaskCompletedEvent,
   TaskCreateRequest,
   TaskCreateResponse,
+  TaskDeleteBulkRequest,
+  TaskDeleteBulkResponse,
+  TaskDeleteRequest,
+  TaskDeleteResponse,
   TaskErrorEvent,
   TaskExecute,
+  TaskGetRequest,
+  TaskGetResponse,
   TaskListItem,
   TaskListItemStatus,
   TaskListRequest,
@@ -41,6 +50,7 @@ import type {IAgentPool} from '../../core/interfaces/agent/i-agent-pool.js'
 import type {ITaskLifecycleHook} from '../../core/interfaces/process/i-task-lifecycle-hook.js'
 import type {IProjectRegistry} from '../../core/interfaces/project/i-project-registry.js'
 import type {IProjectRouter} from '../../core/interfaces/routing/i-project-router.js'
+import type {ITaskHistoryStore} from '../../core/interfaces/storage/i-task-history-store.js'
 import type {ITransportServer} from '../../core/interfaces/transport/i-transport-server.js'
 import type {TaskInfo} from './types.js'
 
@@ -51,6 +61,7 @@ import {transportLog} from '../../utils/process-logger.js'
 import {isValidTaskType} from '../../utils/type-guards.js'
 import {resolveProject} from '../project/resolve-project.js'
 import {broadcastToProjectRoom} from './broadcast-utils.js'
+import {buildTaskHistoryEntry} from './task-history-entry-builder.js'
 
 type LlmEventName = (typeof TransportLlmEventList)[number]
 
@@ -69,6 +80,12 @@ type LlmEventPayloadMap = {
  * Prevents silent event drops when llmservice:* events arrive after task:completed.
  */
 const TASK_CLEANUP_GRACE_PERIOD_MS = 5000
+
+/** Default page size for `task:list` when caller omits `pageSize`. Schema caps at 1000. */
+const DEFAULT_TASK_LIST_PAGE_SIZE = 50
+
+/** Statuses considered terminal for delete refusal (M2.09). */
+const TERMINAL_STATUSES: ReadonlySet<TaskListItemStatus> = new Set(['cancelled', 'completed', 'error'])
 
 /**
  * Outcome of the daemon-side pre-dispatch check.
@@ -94,6 +111,13 @@ type TaskRouterOptions = {
   agentPool?: IAgentPool
   /** Function to resolve agent clientId for a given project */
   getAgentForProject: (projectPath?: string) => string | undefined
+  /**
+   * Per-project `ITaskHistoryStore` factory (DIP). When omitted, the new
+   * persistent-history handlers (`task:list` paginated, `task:get`,
+   * `task:delete*`, `task:clearCompleted`) gracefully degrade to in-memory
+   * only — keeping pre-M2.09 unit tests unaffected.
+   */
+  getTaskHistoryStore?: (projectPath: string) => ITaskHistoryStore
   /** Resolves project's review-disabled flag at task-create. Optional; missing → undefined → enabled. */
   isReviewDisabled?: IsReviewDisabledResolver
   /** Lifecycle hooks for task events (e.g. CurateLogHandler). */
@@ -108,6 +132,11 @@ type TaskRouterOptions = {
   preDispatchCheck?: PreDispatchCheck
   projectRegistry?: IProjectRegistry
   projectRouter?: IProjectRouter
+  /**
+   * Resolves the active provider/model snapshot at task-create time.
+   * Failures are swallowed (fail-open) so dispatch is never blocked.
+   */
+  resolveActiveProvider?: () => Promise<{model?: string; provider?: string}>
   /** Resolves the projectPath a client registered with (from client:register). */
   resolveClientProjectPath?: (clientId: string) => string | undefined
   transport: ITransportServer
@@ -117,8 +146,126 @@ function hasTaskId(data: unknown): data is {[key: string]: unknown; taskId: stri
   return typeof data === 'object' && data !== null && 'taskId' in data && typeof data.taskId === 'string'
 }
 
+/** Type guard for a plain JSON object — replaces ad-hoc `as Record<string, unknown>` casts. */
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null
+}
+
+/**
+ * Bounded-concurrency map for async I/O (M2.16 pass-2 lazy crack of data files).
+ * Keeps file-descriptor usage well under macOS default soft limit (256).
+ * No external dep (`p-limit` is not installed); ~10 lines hand-roll.
+ */
+async function mapBounded<T, R>(
+  items: readonly T[],
+  limit: number,
+  fn: (item: T) => Promise<R | undefined>,
+): Promise<(R | undefined)[]> {
+  const results: (R | undefined)[] = Array.from({length: items.length})
+  let nextIdx = 0
+  const workers = Array.from({length: Math.min(limit, items.length)}, async () => {
+    while (true) {
+      const i = nextIdx++
+      if (i >= items.length) return
+      // eslint-disable-next-line no-await-in-loop -- bounded worker pool; awaiting in sequence inside each worker is the point
+      results[i] = await fn(items[i])
+    }
+  })
+  await Promise.all(workers)
+  return results
+}
+
+/** Concurrency cap for pass-2 lazy crack — keeps FD usage minimal. */
+const FULL_TEXT_CONCURRENCY = 16
+
+/** Build a clamped, well-typed empty response (M2.16). */
+function emptyTaskListResponse(data: TaskListRequest): TaskListResponse {
+  const pageSize = Math.min(Math.max(data.pageSize ?? DEFAULT_TASK_LIST_PAGE_SIZE, 1), 1000)
+  const page = Math.max(data.page ?? 1, 1)
+  return {
+    availableModels: [],
+    availableProviders: [],
+    counts: {all: 0, cancelled: 0, completed: 0, failed: 0, running: 0},
+    page,
+    pageCount: 1,
+    pageSize,
+    tasks: [],
+    total: 0,
+  }
+}
+
+/**
+ * Filter dimensions evaluated on a `TaskListItem` (M2.16).
+ * AND-combined; empty arrays treated as "no filter" to match store `?.length` semantics.
+ *
+ * Search Pass-1 (`searchText`) checks `content + error.message` here. Pass-2
+ * (full `result` lazy crack) runs separately in `handleTaskList` and is NOT
+ * evaluated here — see that handler for the 2-pass flow.
+ */
+type ListFilterArgs = {
+  createdAfter?: number
+  createdBefore?: number
+  maxDurationMs?: number
+  minDurationMs?: number
+  modelFilter?: string[]
+  projectFilter: string
+  providerFilter?: string[]
+  searchText?: string
+  statusFilter?: TaskListItemStatus[]
+  typeFilter?: string[]
+}
+
+function matchesListFilters(item: TaskListItem, filters: ListFilterArgs): boolean {
+  const taskProject = item.projectPath
+  if (taskProject !== undefined && taskProject !== filters.projectFilter) return false
+
+  if (filters.statusFilter && filters.statusFilter.length > 0 && !filters.statusFilter.includes(item.status)) {
+    return false
+  }
+
+  if (filters.typeFilter && filters.typeFilter.length > 0 && !filters.typeFilter.includes(item.type)) {
+    return false
+  }
+
+  if (
+    filters.providerFilter &&
+    filters.providerFilter.length > 0 &&
+    (item.provider === undefined || !filters.providerFilter.includes(item.provider))
+  )
+    return false
+
+  if (
+    filters.modelFilter &&
+    filters.modelFilter.length > 0 &&
+    (item.model === undefined || !filters.modelFilter.includes(item.model))
+  )
+    return false
+
+  if (filters.createdAfter !== undefined && item.createdAt < filters.createdAfter) return false
+  if (filters.createdBefore !== undefined && item.createdAt > filters.createdBefore) return false
+
+  if (filters.minDurationMs !== undefined || filters.maxDurationMs !== undefined) {
+    if (item.startedAt === undefined || item.completedAt === undefined) return false
+    const dur = item.completedAt - item.startedAt
+    if (filters.minDurationMs !== undefined && dur < filters.minDurationMs) return false
+    if (filters.maxDurationMs !== undefined && dur > filters.maxDurationMs) return false
+  }
+
+  if (filters.searchText !== undefined && filters.searchText.length > 0) {
+    const haystack = (item.content + '\n' + (item.error?.message ?? '')).toLowerCase()
+    if (!haystack.includes(filters.searchText.toLowerCase())) return false
+  }
+
+  return true
+}
+
+// `synthesizeEntryFromTaskInfo` was extracted to `task-history-entry-builder.ts`
+// alongside `TaskHistoryHook`'s identical code path. Both consumers now import
+// the same builder, so the two no longer drift.
+
 function toListItem(task: TaskInfo): TaskListItem {
-  const status: TaskListItemStatus = task.status ?? (task.completedAt ? 'completed' : task.startedAt ? 'started' : 'created')
+  const status: TaskListItemStatus =
+    task.status ?? (task.completedAt ? 'completed' : task.startedAt ? 'started' : 'created')
   return {
     ...(task.completedAt ? {completedAt: task.completedAt} : {}),
     content: task.content,
@@ -126,7 +273,9 @@ function toListItem(task: TaskInfo): TaskListItem {
     ...(task.error ? {error: task.error} : {}),
     ...(task.files && task.files.length > 0 ? {files: task.files} : {}),
     ...(task.folderPath ? {folderPath: task.folderPath} : {}),
+    ...(task.model ? {model: task.model} : {}),
     ...(task.projectPath ? {projectPath: task.projectPath} : {}),
+    ...(task.provider ? {provider: task.provider} : {}),
     ...(task.result ? {result: task.result} : {}),
     ...(task.startedAt ? {startedAt: task.startedAt} : {}),
     status,
@@ -136,18 +285,30 @@ function toListItem(task: TaskInfo): TaskListItem {
 }
 
 export class TaskRouter {
+  /**
+   * Throttle window for `onTaskUpdate` flushes — bursts of llmservice events
+   * are coalesced into one save per window. 100ms keeps perceived latency low
+   * while bounding write volume on chatty multi-step agents.
+   */
+  private static readonly FLUSH_INTERVAL_MS = 100
   private readonly agentPool: IAgentPool | undefined
   /**
    * Track recently completed tasks for grace period.
    * Allows late-arriving llmservice:* events to be routed even after task:completed.
    */
   private completedTasks: Map<string, {completedAt: number; task: TaskInfo}> = new Map()
+  /** TaskIds with pending in-flight mutations awaiting the next throttled flush. */
+  private readonly dirtyTaskIds: Set<string> = new Set()
+  /** Pending throttle timer, if any. */
+  private flushTimer: ReturnType<typeof setTimeout> | undefined
   private readonly getAgentForProject: (projectPath?: string) => string | undefined
+  private readonly getTaskHistoryStore: TaskRouterOptions['getTaskHistoryStore']
   private readonly isReviewDisabled: IsReviewDisabledResolver | undefined
   private readonly lifecycleHooks: ITaskLifecycleHook[]
   private readonly preDispatchCheck: TaskRouterOptions['preDispatchCheck']
   private readonly projectRegistry: IProjectRegistry | undefined
   private readonly projectRouter: IProjectRouter | undefined
+  private readonly resolveActiveProvider: TaskRouterOptions['resolveActiveProvider']
   private readonly resolveClientProjectPath: ((clientId: string) => string | undefined) | undefined
   /** Track active tasks */
   private tasks: Map<string, TaskInfo> = new Map()
@@ -157,17 +318,24 @@ export class TaskRouter {
     this.transport = options.transport
     this.agentPool = options.agentPool
     this.getAgentForProject = options.getAgentForProject
+    this.getTaskHistoryStore = options.getTaskHistoryStore
     this.isReviewDisabled = options.isReviewDisabled
     this.lifecycleHooks = options.lifecycleHooks ?? []
     this.preDispatchCheck = options.preDispatchCheck
     this.projectRegistry = options.projectRegistry
     this.projectRouter = options.projectRouter
+    this.resolveActiveProvider = options.resolveActiveProvider
     this.resolveClientProjectPath = options.resolveClientProjectPath
   }
 
   clearTasks(): void {
     this.tasks.clear()
     this.completedTasks.clear()
+    this.dirtyTaskIds.clear()
+    if (this.flushTimer !== undefined) {
+      clearTimeout(this.flushTimer)
+      this.flushTimer = undefined
+    }
   }
 
   /**
@@ -254,6 +422,22 @@ export class TaskRouter {
       this.handleTaskList(data, clientId),
     )
 
+    // M2.09 — persistent-history handlers
+    this.transport.onRequest<TaskGetRequest, TaskGetResponse>(TransportTaskEventNames.GET, (data, clientId) =>
+      this.handleTaskGet(data, clientId),
+    )
+    this.transport.onRequest<TaskDeleteRequest, TaskDeleteResponse>(TransportTaskEventNames.DELETE, (data, clientId) =>
+      this.handleTaskDelete(data, clientId),
+    )
+    this.transport.onRequest<TaskDeleteBulkRequest, TaskDeleteBulkResponse>(
+      TransportTaskEventNames.DELETE_BULK,
+      (data, clientId) => this.handleTaskDeleteBulk(data, clientId),
+    )
+    this.transport.onRequest<TaskClearCompletedRequest, TaskClearCompletedResponse>(
+      TransportTaskEventNames.CLEAR_COMPLETED,
+      (data, clientId) => this.handleTaskClearCompleted(data, clientId),
+    )
+
     // Task lifecycle events from agent
     this.transport.onRequest<TaskStartedEvent, void>(TransportTaskEventNames.STARTED, (data) => {
       this.handleTaskStarted(data)
@@ -274,6 +458,163 @@ export class TaskRouter {
     // LLM events
     for (const eventName of TransportLlmEventList) {
       this.registerLlmEvent(eventName)
+    }
+  }
+
+  /**
+   * Mutate the live `TaskInfo` from an `llmservice:*` event so a tab refresh
+   * during the throttle window sees the in-flight state. Each branch:
+   *   - thinking: push a `{isThinking: true, content: ''}` marker
+   *   - chunk(reasoning): append to last item / flip empty marker / push fresh
+   *   - chunk(text): IGNORED for persistence (transient stream)
+   *   - response: set responseContent + sessionId (overwrite — multi-step keeps latest)
+   *   - toolCall: push running entry
+   *   - toolResult: update existing entry by callId
+   *   - error / unsupportedInput: IGNORED (terminal hooks capture failure)
+   *
+   * Mutations use immutable `tasks.set(id, {...task, ...delta})` so consumers
+   * holding a captured reference (e.g. notifyHooks*) see a stable snapshot.
+   */
+  private accumulateLlmEvent(taskId: string, eventName: string, data: {[key: string]: unknown}): void {
+    const task = this.tasks.get(taskId)
+    if (!task) return
+
+    switch (eventName) {
+      case LlmEventNames.CHUNK: {
+        if (data.type !== 'reasoning') return // 'text' is transient — ignore
+        const content = typeof data.content === 'string' ? data.content : ''
+        const items = task.reasoningContents ?? []
+        const last = items.at(-1)
+        let nextItems: ReasoningContentItem[]
+        if (last === undefined) {
+          // Case C: empty array — push fresh body entry.
+          nextItems = [{content, isThinking: false, timestamp: Date.now()}]
+        } else if (last.isThinking === true && (last.content ?? '') === '') {
+          // Case A: flip the empty isThinking marker to body.
+          nextItems = [...items.slice(0, -1), {...last, content, isThinking: false}]
+        } else {
+          // Case B: append to existing body.
+          nextItems = [...items.slice(0, -1), {...last, content: (last.content ?? '') + content}]
+        }
+
+        this.tasks.set(taskId, {...task, reasoningContents: nextItems})
+        this.markDirty(taskId)
+        return
+      }
+
+      case LlmEventNames.RESPONSE: {
+        const content = typeof data.content === 'string' ? data.content : ''
+        const sessionId = typeof data.sessionId === 'string' ? data.sessionId : task.sessionId
+        this.tasks.set(taskId, {
+          ...task,
+          responseContent: content,
+          ...(sessionId === undefined ? {} : {sessionId}),
+        })
+        this.markDirty(taskId)
+        return
+      }
+
+      case LlmEventNames.THINKING: {
+        // Dedup parity with the TUI store (`tasks-store.ts:127`): if the last
+        // reasoning item is already a THINKING marker, skip — the model is
+        // about to stream more reasoning content that will be appended to it.
+        // Without this, repeated THINKING events from the provider produce
+        // multiple empty `{isThinking: true, content: ''}` items in persisted
+        // entries, which the live UI never showed.
+        const items = task.reasoningContents ?? []
+        const last = items.at(-1)
+        if (last?.isThinking === true) return
+        const nextItems: ReasoningContentItem[] = [...items, {content: '', isThinking: true, timestamp: Date.now()}]
+        this.tasks.set(taskId, {...task, reasoningContents: nextItems})
+        this.markDirty(taskId)
+        return
+      }
+
+      case LlmEventNames.TOOL_CALL: {
+        const args = isRecord(data.args) ? data.args : {}
+        const callId = typeof data.callId === 'string' ? data.callId : undefined
+        const sessionId = typeof data.sessionId === 'string' ? data.sessionId : ''
+        const toolName = typeof data.toolName === 'string' ? data.toolName : ''
+        const newCall: ToolCallEvent = {
+          args,
+          ...(callId === undefined ? {} : {callId}),
+          sessionId,
+          status: 'running',
+          timestamp: Date.now(),
+          toolName,
+        }
+        this.tasks.set(taskId, {
+          ...task,
+          toolCalls: [...(task.toolCalls ?? []), newCall],
+        })
+        this.markDirty(taskId)
+        return
+      }
+
+      case LlmEventNames.TOOL_RESULT: {
+        const callId = typeof data.callId === 'string' ? data.callId : undefined
+        if (callId === undefined) return
+        const items = task.toolCalls ?? []
+        const idx = items.findIndex((c) => c.callId === callId)
+        if (idx === -1) return
+        const success = data.success !== false
+        const updated: ToolCallEvent = {
+          ...items[idx],
+          ...(typeof data.error === 'string' ? {error: data.error} : {}),
+          ...(typeof data.errorType === 'string' ? {errorType: data.errorType} : {}),
+          ...(data.result === undefined ? {} : {result: data.result}),
+          status: success ? 'completed' : 'error',
+        }
+        const nextCalls = [...items.slice(0, idx), updated, ...items.slice(idx + 1)]
+        this.tasks.set(taskId, {...task, toolCalls: nextCalls})
+        this.markDirty(taskId)
+        break
+      }
+
+      // ERROR + UNSUPPORTED_INPUT: ignored — terminal lifecycle hook captures failure.
+      default:
+      // No mutation; fall through.
+    }
+  }
+
+  /**
+   * Emit `task:deleted` to the project room when a task is removed. Skips
+   * silently when no projectPath is resolvable (broadcast wouldn't reach
+   * any room). Clients that miss the broadcast will simply not see a row
+   * disappear; they reconcile on next `task:list`.
+   */
+  private broadcastTaskDeleted(projectPath: string | undefined, taskId: string): void {
+    if (projectPath === undefined) return
+    broadcastToProjectRoom(this.projectRegistry, this.projectRouter, projectPath, TransportTaskEventNames.DELETED, {
+      taskId,
+    })
+  }
+
+  /**
+   * Drain the dirty set: for each taskId still active, fire `onTaskUpdate` on
+   * each lifecycle hook. Tasks moved to `completedTasks` between markDirty
+   * and flush are skipped — their terminal lifecycle hook already saved.
+   */
+  private async flushDirty(): Promise<void> {
+    this.flushTimer = undefined
+    if (this.dirtyTaskIds.size === 0) return
+
+    const ids = [...this.dirtyTaskIds]
+    this.dirtyTaskIds.clear()
+
+    for (const taskId of ids) {
+      const task = this.tasks.get(taskId)
+      if (!task) continue
+      for (const hook of this.lifecycleHooks) {
+        try {
+          // eslint-disable-next-line no-await-in-loop -- sequential hook calls by design
+          await hook.onTaskUpdate?.(task)
+        } catch (error) {
+          transportLog(
+            `LifecycleHook.onTaskUpdate error for ${taskId}: ${error instanceof Error ? error.message : String(error)}`,
+          )
+        }
+      }
     }
   }
 
@@ -340,6 +681,44 @@ export class TaskRouter {
     if (task) {
       this.notifyHooksCancelled(taskId, task).catch(() => {})
     }
+  }
+
+  private async handleTaskClearCompleted(
+    data: TaskClearCompletedRequest,
+    clientId: string,
+  ): Promise<TaskClearCompletedResponse> {
+    const projectFilter = data.projectPath ?? this.resolveClientProjectPath?.(clientId)
+    if (projectFilter === undefined) return {deletedCount: 0}
+
+    // In-memory: collect terminal completedTasks for the project.
+    const inMemoryIds: string[] = []
+    for (const [taskId, {task}] of this.completedTasks) {
+      if (task.projectPath !== undefined && task.projectPath !== projectFilter) continue
+      inMemoryIds.push(taskId)
+    }
+
+    // Persistent: clear matching terminal entries from disk (default statuses).
+    let storeIds: string[] = []
+    if (this.getTaskHistoryStore !== undefined) {
+      try {
+        const store = this.getTaskHistoryStore(projectFilter)
+        const result = await store.clear({projectPath: projectFilter})
+        storeIds = result.taskIds
+      } catch (error) {
+        transportLog(
+          `handleTaskClearCompleted: store.clear failed: ${error instanceof Error ? error.message : String(error)}`,
+        )
+        return {deletedCount: 0, error: 'task history store unavailable'}
+      }
+    }
+
+    // Remove from in-memory.
+    for (const taskId of inMemoryIds) this.completedTasks.delete(taskId)
+
+    // Union + dedupe.
+    const allIds = new Set<string>([...inMemoryIds, ...storeIds])
+    for (const taskId of allIds) this.broadcastTaskDeleted(projectFilter, taskId)
+    return {deletedCount: allIds.size}
   }
 
   private handleTaskCompleted(data: TaskCompletedEvent): void {
@@ -503,6 +882,13 @@ export class TaskRouter {
 
     transportLog(`Task accepted: ${taskId} (type=${data.type}, client=${clientId})`)
 
+    // Resolve active provider/model snapshot. Conditional await preserves the
+    // synchronous "store → broadcast" timing when no resolver is configured —
+    // an unconditional await would yield a microtask even on an immediately-
+    // resolved Promise, breaking tests that assert on broadcasts without
+    // awaiting the handler.
+    const {model, provider} = this.resolveActiveProvider ? await this.safeResolveActiveProvider() : {}
+
     this.tasks.set(taskId, {
       clientId,
       content: data.content,
@@ -511,7 +897,9 @@ export class TaskRouter {
       ...(data.clientCwd ? {clientCwd: data.clientCwd} : {}),
       ...(data.files?.length ? {files: data.files} : {}),
       ...(data.folderPath ? {folderPath: data.folderPath} : {}),
+      ...(model ? {model} : {}),
       ...(projectPath ? {projectPath} : {}),
+      ...(provider ? {provider} : {}),
       taskId,
       type: data.type,
       ...(worktreeRoot ? {worktreeRoot} : {}),
@@ -524,6 +912,8 @@ export class TaskRouter {
       ...(data.clientCwd ? {clientCwd: data.clientCwd} : {}),
       ...(data.files?.length ? {files: data.files} : {}),
       ...(data.folderPath ? {folderPath: data.folderPath} : {}),
+      ...(model ? {model} : {}),
+      ...(provider ? {provider} : {}),
       taskId,
       type: data.type,
     }
@@ -679,6 +1069,125 @@ export class TaskRouter {
     return {...(logId ? {logId} : {}), taskId}
   }
 
+  private async handleTaskDelete(data: TaskDeleteRequest, clientId: string): Promise<TaskDeleteResponse> {
+    const {taskId} = data
+
+    // Refusal: non-terminal in-memory tasks must not be deleted out from under the agent.
+    const liveTask = this.tasks.get(taskId)
+    if (liveTask !== undefined) {
+      const {status} = liveTask
+      if (status !== undefined && !TERMINAL_STATUSES.has(status)) {
+        return {error: `cannot delete task in status '${status}'`, removed: false, success: false}
+      }
+    }
+
+    // Resolve projectPath: in-memory first, then the client's registered project.
+    const projectPath =
+      liveTask?.projectPath ??
+      this.completedTasks.get(taskId)?.task.projectPath ??
+      this.resolveClientProjectPath?.(clientId)
+
+    const wasInMemory = this.tasks.has(taskId) || this.completedTasks.has(taskId)
+    this.tasks.delete(taskId)
+    this.completedTasks.delete(taskId)
+
+    let wasLive = false
+    if (this.getTaskHistoryStore !== undefined && projectPath !== undefined) {
+      try {
+        const store = this.getTaskHistoryStore(projectPath)
+        wasLive = await store.delete(taskId)
+      } catch (error) {
+        transportLog(
+          `handleTaskDelete: store.delete failed for ${taskId}: ${error instanceof Error ? error.message : String(error)}`,
+        )
+      }
+    }
+
+    const removed = wasInMemory || wasLive
+    if (removed) this.broadcastTaskDeleted(projectPath, taskId)
+
+    // C4: `removed` distinguishes "actually deleted" from "idempotent no-op".
+    // `task:deleteBulk` sums on this flag so unknown / already-tombstoned ids
+    // never inflate `deletedCount`. The wire-level `success` stays `true` to
+    // preserve the documented idempotent contract for single-delete callers.
+    return {removed, success: true}
+  }
+
+  private async handleTaskDeleteBulk(data: TaskDeleteBulkRequest, clientId: string): Promise<TaskDeleteBulkResponse> {
+    // N3: batch store.deleteMany per project instead of N×handleTaskDelete.
+    // Per-id work splits into (a) liveness/refusal checks + in-memory cleanup
+    // (cheap, sequential) and (b) the actual store mutation (expensive,
+    // batched). Bulk delete of 200 ids in one project: 1 readIndexDedup +
+    // 1 batched tombstone vs the previous 200 readIndexDedups.
+
+    type Pending = {projectPath: string; taskId: string; wasInMemory: boolean}
+    const pending: Pending[] = []
+
+    for (const taskId of data.taskIds) {
+      // Refusal: non-terminal in-memory tasks must not be deleted out from
+      // under the agent — same contract as the single-delete handler.
+      const liveTask = this.tasks.get(taskId)
+      if (liveTask !== undefined) {
+        const {status} = liveTask
+        if (status !== undefined && !TERMINAL_STATUSES.has(status)) continue
+      }
+
+      // Resolve projectPath: in-memory first, then the client's registered project.
+      const projectPath =
+        liveTask?.projectPath ??
+        this.completedTasks.get(taskId)?.task.projectPath ??
+        this.resolveClientProjectPath?.(clientId)
+      if (projectPath === undefined) continue
+
+      const wasInMemory = this.tasks.has(taskId) || this.completedTasks.has(taskId)
+      this.tasks.delete(taskId)
+      this.completedTasks.delete(taskId)
+
+      pending.push({projectPath, taskId, wasInMemory})
+    }
+
+    // Group by projectPath for batched store.deleteMany.
+    const byProject = new Map<string, string[]>()
+    for (const {projectPath, taskId} of pending) {
+      const ids = byProject.get(projectPath) ?? []
+      ids.push(taskId)
+      byProject.set(projectPath, ids)
+    }
+
+    const storeRemoved = new Set<string>()
+    if (this.getTaskHistoryStore !== undefined) {
+      for (const [projectPath, ids] of byProject) {
+        try {
+          const store = this.getTaskHistoryStore(projectPath)
+          // eslint-disable-next-line no-await-in-loop -- per-project sequential; project count is small
+          const removed = await store.deleteMany(ids)
+          for (const id of removed) storeRemoved.add(id)
+        } catch (error) {
+          transportLog(
+            `handleTaskDeleteBulk: store.deleteMany failed for ${projectPath}: ${error instanceof Error ? error.message : String(error)}`,
+          )
+        }
+      }
+    }
+
+    // Final removed set = in-memory hits ∪ store hits. Per-id broadcast for
+    // each — preserves the C4 contract (no broadcast for unknown ids).
+    const removedSet = new Set<string>()
+    const projectByTaskId = new Map<string, string>()
+    for (const {projectPath, taskId, wasInMemory} of pending) {
+      if (wasInMemory || storeRemoved.has(taskId)) {
+        removedSet.add(taskId)
+        projectByTaskId.set(taskId, projectPath)
+      }
+    }
+
+    for (const taskId of removedSet) {
+      this.broadcastTaskDeleted(projectByTaskId.get(taskId), taskId)
+    }
+
+    return {deletedCount: removedSet.size}
+  }
+
   private handleTaskError(data: TaskErrorEvent): void {
     const {error, taskId} = data
     const existing = this.tasks.get(taskId)
@@ -725,29 +1234,256 @@ export class TaskRouter {
     }
   }
 
-  private handleTaskList(data: TaskListRequest, clientId: string): TaskListResponse {
+  private async handleTaskGet(data: TaskGetRequest, clientId: string): Promise<TaskGetResponse> {
+    const {taskId} = data
+
+    // Try in-memory active first
+    const liveTask = this.tasks.get(taskId) ?? this.completedTasks.get(taskId)?.task
+    if (liveTask !== undefined) {
+      const synthesized = buildTaskHistoryEntry(liveTask)
+      if (synthesized !== undefined) return {task: synthesized}
+    }
+
+    // Fall back to disk
+    if (this.getTaskHistoryStore === undefined) return {task: null}
+    const projectFilter = liveTask?.projectPath ?? this.resolveClientProjectPath?.(clientId)
+    if (projectFilter === undefined) return {task: null}
+
+    try {
+      const store = this.getTaskHistoryStore(projectFilter)
+      const entry = await store.getById(taskId)
+      return {task: entry ?? null}
+    } catch (error) {
+      transportLog(
+        `handleTaskGet: store.getById failed for ${taskId}: ${error instanceof Error ? error.message : String(error)}`,
+      )
+      return {task: null}
+    }
+  }
+
+  // eslint-disable-next-line complexity
+  private async handleTaskList(data: TaskListRequest, clientId: string): Promise<TaskListResponse> {
     const projectFilter = data.projectPath ?? this.resolveClientProjectPath?.(clientId)
 
-    // No resolvable project — return empty rather than leaking every task.
-    // A client that hasn't registered a project shouldn't see other projects' work.
-    if (projectFilter === undefined) return {tasks: []}
+    // No resolvable project — return empty (don't leak other projects' work).
+    if (projectFilter === undefined) return emptyTaskListResponse(data)
 
-    const matches = (taskProject?: string): boolean =>
-      taskProject === projectFilter || taskProject === undefined
-
-    const items: TaskListItem[] = []
-
-    for (const task of this.tasks.values()) {
-      if (!matches(task.projectPath)) continue
-      items.push(toListItem(task))
+    const inMemoryTaskById = new Map<string, TaskInfo>()
+    const collectInMemory = (task: TaskInfo): void => {
+      if (task.projectPath !== undefined && task.projectPath !== projectFilter) return
+      inMemoryTaskById.set(task.taskId, task)
     }
 
-    for (const {task} of this.completedTasks.values()) {
-      if (!matches(task.projectPath)) continue
-      items.push(toListItem(task))
+    for (const task of this.tasks.values()) collectInMemory(task)
+    for (const {task} of this.completedTasks.values()) collectInMemory(task)
+
+    // Persisted entries (best-effort — tolerate store outages). Push down ONLY
+    // non-pivot filters (project + type + time). Pivot filters (status / provider
+    // / model) are evaluated at the handler level so derivative sets (counts,
+    // availableProviders, availableModels) can apply their exclusion rules.
+    let persisted: TaskListItem[] = []
+    if (this.getTaskHistoryStore !== undefined) {
+      try {
+        const store = this.getTaskHistoryStore(projectFilter)
+        persisted = await store.list({
+          projectPath: projectFilter,
+          ...(data.createdAfter === undefined ? {} : {createdAfter: data.createdAfter}),
+          ...(data.createdBefore === undefined ? {} : {createdBefore: data.createdBefore}),
+          ...(data.type === undefined ? {} : {type: data.type}),
+        })
+      } catch (error) {
+        transportLog(`handleTaskList: store.list failed: ${error instanceof Error ? error.message : String(error)}`)
+      }
     }
 
-    return {tasks: items}
+    // Step 1-2: merge candidates + apply NON-PIVOT filters with pass-1 search
+    // (project + type + time + duration + content/error.message search).
+    // Status/provider/model are pivot filters — applied later. `available*`
+    // dropdowns exclude status+provider+model pivots so users can switch
+    // selections without the dropdown shrinking. `counts` reflects the FULL
+    // current filter (including status) — chip count = visible row count.
+    //
+    // Pass-2 (full-result lazy crack) re-uses the same `candidatesNoSearch` map
+    // built below to find completed tasks whose result text matches but whose
+    // content/error.message did not. `pass2Filter` is the same shape as
+    // `nonPivotFilterArgs` minus searchText — the spread auto-inherits any
+    // future non-pivot filter dim added upstream.
+    const merged = new Map<string, TaskListItem>()
+    const nonPivotFilterArgs: ListFilterArgs = {
+      createdAfter: data.createdAfter,
+      createdBefore: data.createdBefore,
+      maxDurationMs: data.maxDurationMs,
+      minDurationMs: data.minDurationMs,
+      projectFilter,
+      searchText: data.searchText,
+      typeFilter: data.type,
+    }
+    const pass2Filter: ListFilterArgs = {...nonPivotFilterArgs, searchText: undefined}
+
+    // Single pass over persisted + in-memory: build `candidatesNoSearch` (all non-pivot
+    // filters applied EXCEPT search). `merged` derives from it by re-applying the search
+    // predicate via `matchesListFilters(item, nonPivotFilterArgs)`. Saves a 2×N traversal
+    // when searchText is set; same cost when unset.
+    const candidatesNoSearch = new Map<string, TaskListItem>()
+    for (const item of persisted) {
+      if (matchesListFilters(item, pass2Filter)) candidatesNoSearch.set(item.taskId, item)
+    }
+
+    for (const task of inMemoryTaskById.values()) {
+      const item = toListItem(task)
+      if (matchesListFilters(item, pass2Filter)) candidatesNoSearch.set(item.taskId, item)
+    }
+
+    for (const [taskId, item] of candidatesNoSearch) {
+      if (matchesListFilters(item, nonPivotFilterArgs)) merged.set(taskId, item)
+    }
+
+    // Step 3-4: pass-2 search (full-text via lazy data-file crack).
+    // Only when searchText is set AND the row has status='completed' AND it didn't match pass-1.
+    // For in-memory tasks we read result directly from TaskInfo (no I/O); for
+    // persisted we call store.getById, swallowing file-race errors.
+    if (data.searchText !== undefined && data.searchText.length > 0) {
+      const needle = data.searchText.toLowerCase()
+
+      const completedUnmatched: TaskListItem[] = []
+      for (const item of candidatesNoSearch.values()) {
+        if (item.status !== 'completed') continue
+        if (merged.has(item.taskId)) continue
+        completedUnmatched.push(item)
+      }
+
+      // Log race errors at most once per query to avoid log spam during compaction storms.
+      // The rest of the racing reads still execute; we just don't write N log lines.
+      let raceLogged = false
+
+      const matchedIds = await mapBounded(completedUnmatched, FULL_TEXT_CONCURRENCY, async (item) => {
+        // In-memory task — match against task.result directly (no I/O).
+        // Invariant: in-memory tasks with status='completed' always have task.result
+        // defined because handleTaskCompleted sets it synchronously with the status
+        // transition (TaskCompletedEvent.result is required by schema). Persisted
+        // snapshots are derived from this same TaskInfo, so no in-memory/disk
+        // result divergence is possible — fallback to getById is unnecessary here.
+        const inMem = inMemoryTaskById.get(item.taskId)
+        if (inMem !== undefined) {
+          if (inMem.result !== undefined && inMem.result.toLowerCase().includes(needle)) return item.taskId
+          return
+        }
+
+        // Persisted — load full entry via store.getById.
+        if (this.getTaskHistoryStore === undefined) return
+        try {
+          const store = this.getTaskHistoryStore(projectFilter)
+          const entry = await store.getById(item.taskId)
+          if (entry?.status === 'completed' && entry.result?.toLowerCase().includes(needle)) {
+            return item.taskId
+          }
+        } catch (error) {
+          // Swallow file-race (concurrent delete/compaction) — treat as no-match.
+          if (!raceLogged) {
+            raceLogged = true
+            transportLog(
+              `handleTaskList: pass-2 getById(${item.taskId}) failed: ${error instanceof Error ? error.message : String(error)} (further race errors in this query suppressed)`,
+            )
+          }
+        }
+      })
+
+      for (const id of matchedIds) {
+        if (id === undefined) continue
+        const fromMap = candidatesNoSearch.get(id)
+        if (fromMap !== undefined) merged.set(id, fromMap)
+      }
+    }
+
+    // Step 5: nonPivotFull = merged. Derive availableProviders/availableModels.
+    // Guard both provider AND model length > 0 — wire/index schemas accept empty
+    // strings, which would otherwise emit phantom entries like {providerId: 'openai', modelId: ''}.
+    const availableProviderSet = new Set<string>()
+    const availableModelMap = new Map<string, {modelId: string; providerId: string}>()
+    for (const item of merged.values()) {
+      const providerId = item.provider
+      const modelId = item.model
+      if (providerId !== undefined && providerId.length > 0) availableProviderSet.add(providerId)
+      if (providerId !== undefined && providerId.length > 0 && modelId !== undefined && modelId.length > 0) {
+        const key = `${providerId}|${modelId}`
+        if (!availableModelMap.has(key)) availableModelMap.set(key, {modelId, providerId})
+      }
+    }
+
+    const availableProviders = [...availableProviderSet].sort((a, b) => a.localeCompare(b))
+    const availableModels = [...availableModelMap.values()].sort((a, b) => {
+      const p = a.providerId.localeCompare(b.providerId)
+      return p === 0 ? a.modelId.localeCompare(b.modelId) : p
+    })
+
+    // Step 6: apply pivot filters (provider + model + status) → allFiltered.
+    // Hoist into consts so TS narrows the loop captures (avoids `!` assertion per CLAUDE.md).
+    const providerFilter = data.provider
+    const modelFilter = data.model
+    const statusFilter = data.status
+    const allFiltered: TaskListItem[] = []
+    for (const item of merged.values()) {
+      if (
+        providerFilter &&
+        providerFilter.length > 0 &&
+        (item.provider === undefined || !providerFilter.includes(item.provider))
+      ) {
+        continue
+      }
+
+      if (modelFilter && modelFilter.length > 0 && (item.model === undefined || !modelFilter.includes(item.model))) {
+        continue
+      }
+
+      if (statusFilter && statusFilter.length > 0 && !statusFilter.includes(item.status)) continue
+      allFiltered.push(item)
+    }
+
+    // Step 7: counts = status histogram of allFiltered (matches current filter scope — Model A).
+    // Chip count == visible row count; counts.all === total invariant.
+    const counts = {all: allFiltered.length, cancelled: 0, completed: 0, failed: 0, running: 0}
+    for (const item of allFiltered) {
+      switch (item.status) {
+        case 'cancelled': {
+          counts.cancelled++
+          break
+        }
+
+        case 'completed': {
+          counts.completed++
+          break
+        }
+
+        case 'created':
+        case 'started': {
+          counts.running++
+          break
+        }
+
+        case 'error': {
+          counts.failed++
+          break
+        }
+      }
+    }
+
+    // Step 8: Sort (createdAt DESC, taskId DESC) — stable secondary order for same-millisecond clusters.
+    allFiltered.sort((a, b) => {
+      if (b.createdAt !== a.createdAt) return b.createdAt - a.createdAt
+      if (b.taskId > a.taskId) return 1
+      if (b.taskId < a.taskId) return -1
+      return 0
+    })
+
+    // Step 9: paginate. Wire shape unchanged (result preserved per existing toListItem behavior).
+    const pageSize = Math.min(Math.max(data.pageSize ?? DEFAULT_TASK_LIST_PAGE_SIZE, 1), 1000)
+    const page = Math.max(data.page ?? 1, 1)
+    const total = allFiltered.length
+    const pageCount = Math.max(Math.ceil(total / pageSize), 1)
+    const start = (page - 1) * pageSize
+    const tasks = allFiltered.slice(start, start + pageSize)
+
+    return {availableModels, availableProviders, counts, page, pageCount, pageSize, tasks, total}
   }
 
   /**
@@ -793,6 +1529,8 @@ export class TaskRouter {
     const task = this.tasks.get(taskId)
     if (task) {
       this.tasks.set(taskId, {...task, startedAt: Date.now(), status: 'started'})
+      // No `onTaskStarted` hook — capture the transition via the throttled flush.
+      this.markDirty(taskId)
       this.transport.sendTo(task.clientId, TransportTaskEventNames.STARTED, {taskId})
 
       broadcastToProjectRoom(
@@ -816,6 +1554,24 @@ export class TaskRouter {
   }
 
   /**
+   * Mark a taskId for the next throttled `onTaskUpdate` flush.
+   * Schedules a timer if none is pending. Bursts of dirty marks within the
+   * 100ms window coalesce into a single flush.
+   */
+  private markDirty(taskId: string): void {
+    this.dirtyTaskIds.add(taskId)
+    if (this.flushTimer !== undefined) return
+    this.flushTimer = setTimeout(() => {
+      this.flushDirty().catch(() => {
+        // flushDirty already swallows per-hook errors; this catch covers
+        // unexpected scheduler-level failures.
+      })
+    }, TaskRouter.FLUSH_INTERVAL_MS)
+    // unref so a pending flush doesn't block daemon shutdown.
+    this.flushTimer.unref?.()
+  }
+
+  /**
    * Move a task to the completed tasks map with grace period cleanup.
    */
   private moveToCompleted(taskId: string): void {
@@ -824,9 +1580,11 @@ export class TaskRouter {
       this.completedTasks.set(taskId, {completedAt: Date.now(), task})
       this.tasks.delete(taskId)
 
-      setTimeout(() => {
+      const timer = setTimeout(() => {
         this.completedTasks.delete(taskId)
       }, TASK_CLEANUP_GRACE_PERIOD_MS)
+      // Don't keep the event loop alive purely for completed-task GC.
+      timer.unref?.()
     }
   }
 
@@ -959,6 +1717,14 @@ export class TaskRouter {
       return
     }
 
+    // Accumulator: mutate the live `TaskInfo` BEFORE broadcasting so a tab
+    // refresh during the next throttle window sees the in-flight state.
+    // Only mutates for ACTIVE tasks — grace-period entries already had their
+    // terminal save persisted by the lifecycle hook.
+    if (activeTask) {
+      this.accumulateLlmEvent(taskId, eventName, data)
+    }
+
     // Notify onToolResult hooks only for active tasks
     if (activeTask && eventName === LlmEventNames.TOOL_RESULT) {
       for (const hook of this.lifecycleHooks) {
@@ -1008,6 +1774,21 @@ export class TaskRouter {
     )
 
     return logIds.find((id): id is string => typeof id === 'string')
+  }
+
+  /**
+   * Invoke `resolveActiveProvider` with a try/catch so a thrown resolver
+   * cannot block task dispatch. Returns `{}` when no resolver is configured
+   * or when the resolver rejects/throws.
+   */
+  private async safeResolveActiveProvider(): Promise<{model?: string; provider?: string}> {
+    if (!this.resolveActiveProvider) return {}
+    try {
+      return await this.resolveActiveProvider()
+    } catch (error) {
+      transportLog(`resolveActiveProvider failed: ${error instanceof Error ? error.message : String(error)}`)
+      return {}
+    }
   }
 
   /**

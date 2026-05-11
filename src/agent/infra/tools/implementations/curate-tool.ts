@@ -20,6 +20,7 @@ import {
   type RuntimeSignals,
 } from '../../../../server/core/domain/knowledge/runtime-signals-schema.js'
 import {warnSidecarFailure} from '../../../../server/core/domain/knowledge/sidecar-logging.js'
+import {isExcludedFromSync} from '../../../../server/infra/context-tree/derived-artifact.js'
 import {toSnakeCase} from '../../../../server/utils/file-helpers.js'
 import {deriveImpactFromLoss, detectStructuralLoss} from '../../../core/domain/knowledge/conflict-detector.js'
 import {resolveStructuralLoss} from '../../../core/domain/knowledge/conflict-resolver.js'
@@ -358,16 +359,22 @@ type SubtopicContext = z.infer<typeof SubtopicContextSchema>
 type Content = z.infer<typeof ContentSchema>
 
 /**
- * Filter out non-existent files from rawConcept.files.
- * Returns a new content object with only valid file paths.
+ * Filter out non-existent files from rawConcept.files and derived-artifact
+ * paths from relations.
  */
 async function filterValidFiles(content: Content): Promise<Content> {
-  if (!content.rawConcept?.files || content.rawConcept.files.length === 0) {
-    return content
+  // Drop relations that won't be pushed — they'd be dangling refs on remote.
+  const cleanedRelations = content.relations?.filter((r) => !isExcludedFromSync(r))
+  const withCleanRelations: Content = cleanedRelations === content.relations
+    ? content
+    : {...content, relations: cleanedRelations}
+
+  if (!withCleanRelations.rawConcept?.files || withCleanRelations.rawConcept.files.length === 0) {
+    return withCleanRelations
   }
 
   const checks = await Promise.all(
-    content.rawConcept.files.map(async (filePath) => {
+    withCleanRelations.rawConcept.files.map(async (filePath) => {
       // Skip filesystem validation for URLs and document references
       if (filePath.includes('://')) return true
       // Skip entries that look like document references (no path separators, contain spaces)
@@ -376,13 +383,13 @@ async function filterValidFiles(content: Content): Promise<Content> {
     }),
   )
 
-  const validFiles = content.rawConcept.files.filter((_, i) => checks[i])
+  const validFiles = withCleanRelations.rawConcept.files.filter((_, i) => checks[i])
 
   // Return content with filtered files (empty array if none exist)
   return {
-    ...content,
+    ...withCleanRelations,
     rawConcept: {
-      ...content.rawConcept,
+      ...withCleanRelations.rawConcept,
       files: validFiles.length > 0 ? validFiles : undefined,
     },
   }
@@ -990,6 +997,11 @@ async function executeUpdate(
 
     // Extract previous summary from existing file's frontmatter (for review UI)
     const existingParsed = existingContent ? MarkdownWriter.parseContent(existingContent, title) : null
+    if (existingParsed?.relations?.length) {
+      // Drop legacy dangling refs before conflict-detection; otherwise resolver unions them back.
+      existingParsed.relations = existingParsed.relations.filter((r) => !isExcludedFromSync(r))
+    }
+
     const previousSummary = existingParsed?.summary
 
     // Detect structural loss and auto-resolve: merge back anything the LLM dropped

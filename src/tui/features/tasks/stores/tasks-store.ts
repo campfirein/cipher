@@ -7,6 +7,7 @@
 
 import {create} from 'zustand'
 
+import type {ReasoningContentItem, ToolCallEvent} from '../../../../shared/transport/events/task-events.js'
 import type {TaskStats} from '../../../types/ui.js'
 
 // ============================================================================
@@ -15,23 +16,7 @@ import type {TaskStats} from '../../../types/ui.js'
 
 export type TaskStatus = 'cancelled' | 'completed' | 'created' | 'error' | 'started'
 
-export interface ToolCallEvent {
-  args: Record<string, unknown>
-  callId?: string
-  error?: string
-  errorType?: string
-  result?: unknown
-  sessionId: string
-  status: 'completed' | 'error' | 'running'
-  timestamp: number
-  toolName: string
-}
-
-export interface ReasoningContentItem {
-  content: string
-  isThinking?: boolean
-  timestamp: number
-}
+export type {ReasoningContentItem, ToolCallEvent} from '../../../../shared/transport/events/task-events.js'
 
 export interface TaskErrorData {
   code?: string
@@ -95,6 +80,8 @@ export interface TasksActions {
   createTask: (taskId: string, type: 'curate' | 'query', content: string, files?: string[]) => void
   /** Get a task by ID */
   getTask: (taskId: string) => Task | undefined
+  /** Remove a task from local state (driven by `task:deleted` broadcast). */
+  removeTask: (taskId: string) => void
   /** Set task to cancelled */
   setCancelled: (taskId: string) => void
   /** Set task to completed with result */
@@ -253,6 +240,14 @@ export const useTasksStore = create<TasksActions & TasksState>()((set, get) => (
     }),
 
   getTask: (taskId) => get().tasks.get(taskId),
+
+  removeTask: (taskId) =>
+    set((state) => {
+      if (!state.tasks.has(taskId)) return state
+      const tasks = new Map(state.tasks)
+      tasks.delete(taskId)
+      return {stats: computeStats(tasks), tasks}
+    }),
 
   setCancelled: (taskId) =>
     set((state) => {

@@ -1362,7 +1362,17 @@ describe('TaskRouter', () => {
 
       const listHandler = helper.requestHandlers.get(TransportTaskEventNames.LIST)
       const result = await listHandler!({}, 'unknown-client')
-      expect(result).to.deep.equal({tasks: []})
+      // M2.16: empty response carries the full numbered-pagination shape (page=1, pageCount=1, etc.)
+      expect(result).to.deep.equal({
+        availableModels: [],
+        availableProviders: [],
+        counts: {all: 0, cancelled: 0, completed: 0, failed: 0, running: 0},
+        page: 1,
+        pageCount: 1,
+        pageSize: 50,
+        tasks: [],
+        total: 0,
+      })
     })
   })
 
@@ -1404,6 +1414,123 @@ describe('TaskRouter', () => {
       expect(state.activeTasks).to.have.lengthOf(0)
       expect(state.completedTasks).to.have.lengthOf(1)
       expect(state.completedTasks[0]).to.have.property('taskId', request.taskId)
+    })
+  })
+
+  // ==========================================================================
+  // provider/model stamping (M1.02 — ENG-2487)
+  // ==========================================================================
+
+  describe('provider/model stamping', () => {
+    // eslint-disable-next-line unicorn/consistent-function-scoping
+    function buildRouterWithResolver(resolveActiveProvider: SinonStub): void {
+      router = new TaskRouter({
+        agentPool,
+        getAgentForProject,
+        projectRegistry,
+        projectRouter,
+        resolveActiveProvider,
+        transport: transportHelper.transport,
+      })
+      router.setup()
+    }
+
+    // eslint-disable-next-line unicorn/consistent-function-scoping
+    function getCreatedBroadcastPayload(): Record<string, unknown> | undefined {
+      const broadcastCall = projectRouter.broadcastToProject.getCalls().find(
+        (c) => c.args[1] === TransportTaskEventNames.CREATED,
+      )
+      return broadcastCall?.args[2] as Record<string, unknown> | undefined
+    }
+
+    it('stamps provider + model on task:created (external provider)', async () => {
+      buildRouterWithResolver(sandbox.stub().resolves({model: 'gpt-5-pro', provider: 'openai'}))
+      const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.CREATE)
+      const request = makeTaskCreateRequest()
+
+      await handler!(request, 'client-1')
+
+      const payload = getCreatedBroadcastPayload()
+      expect(payload).to.exist
+      expect(payload).to.have.property('provider', 'openai')
+      expect(payload).to.have.property('model', 'gpt-5-pro')
+    })
+
+    it('stamps provider only on task:created (byterover internal — model undefined)', async () => {
+      buildRouterWithResolver(sandbox.stub().resolves({provider: 'byterover'}))
+      const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.CREATE)
+      const request = makeTaskCreateRequest()
+
+      await handler!(request, 'client-1')
+
+      const payload = getCreatedBroadcastPayload()
+      expect(payload).to.exist
+      expect(payload).to.have.property('provider', 'byterover')
+      expect(payload).to.not.have.property('model')
+    })
+
+    it('returns the same fields on task:list', async () => {
+      buildRouterWithResolver(sandbox.stub().resolves({model: 'gpt-5-pro', provider: 'openai'}))
+      const createHandler = transportHelper.requestHandlers.get(TransportTaskEventNames.CREATE)
+      const taskId = randomUUID()
+      await createHandler!(makeTaskCreateRequest({projectPath: '/app', taskId}), 'client-1')
+
+      const listHandler = transportHelper.requestHandlers.get(TransportTaskEventNames.LIST)
+      const result = (await listHandler!({projectPath: '/app'}, 'client-1')) as {
+        tasks: Array<{model?: string; provider?: string; taskId: string}>
+      }
+
+      const item = result.tasks.find((t) => t.taskId === taskId)
+      expect(item).to.exist
+      expect(item).to.have.property('provider', 'openai')
+      expect(item).to.have.property('model', 'gpt-5-pro')
+    })
+
+    it('omits both fields when no resolver is configured', async () => {
+      // Uses the global `router` from outer beforeEach (no resolveActiveProvider option)
+      const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.CREATE)
+      const request = makeTaskCreateRequest()
+
+      await handler!(request, 'client-1')
+
+      const payload = getCreatedBroadcastPayload()
+      expect(payload).to.exist
+      expect(payload).to.not.have.property('provider')
+      expect(payload).to.not.have.property('model')
+    })
+
+    it('omits both fields when resolver returns {}', async () => {
+      buildRouterWithResolver(sandbox.stub().resolves({}))
+      const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.CREATE)
+      const request = makeTaskCreateRequest()
+
+      await handler!(request, 'client-1')
+
+      const payload = getCreatedBroadcastPayload()
+      expect(payload).to.exist
+      expect(payload).to.not.have.property('provider')
+      expect(payload).to.not.have.property('model')
+    })
+
+    it('still creates the task when resolveActiveProvider rejects (fail-open)', async () => {
+      buildRouterWithResolver(sandbox.stub().rejects(new Error('boom')))
+      const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.CREATE)
+      const request = makeTaskCreateRequest()
+
+      const result = await handler!(request, 'client-1')
+
+      // Wait for fire-and-forget submitTask
+      await new Promise((resolve) => {
+        setTimeout(resolve, 10)
+      })
+
+      expect(result).to.deep.equal({taskId: request.taskId})
+      expect(agentPool.submitTask.calledOnce).to.be.true
+
+      const payload = getCreatedBroadcastPayload()
+      expect(payload).to.exist
+      expect(payload).to.not.have.property('provider')
+      expect(payload).to.not.have.property('model')
     })
   })
 })
