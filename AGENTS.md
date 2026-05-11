@@ -10,7 +10,9 @@ npm run dev                          # Kill daemon + build + run dev mode
 npm test                             # All tests
 npx mocha --forbid-only "test/path/to/file.test.ts"  # Single test
 npm run lint                         # ESLint
-npm run typecheck                    # TypeScript type checking
+npm run typecheck                    # TypeScript (root + src/webui/tsconfig.json)
+npm run build:ui                     # Build the web UI bundle (Vite); runs automatically as part of `build`
+npm run dev:ui                       # Vite dev server for the web UI
 ./bin/dev.js [command]               # Dev mode (ts-node)
 ./bin/run.js [command]               # Prod mode
 ```
@@ -56,10 +58,11 @@ npm run typecheck                    # TypeScript type checking
 ### Source Layout (`src/`)
 
 - `agent/` — LLM agent: `core/` (interfaces/domain), `infra/` (23 modules, including llm, memory, map, swarm, tools, document-parser), `resources/` (prompts YAML, tool `.txt` descriptions)
-- `server/` — Daemon infrastructure: `config/`, `core/` (domain/interfaces), `infra/` (30 modules, including vc, git, hub, mcp, cogit, project, provider-oauth, space, dream), `templates/`, `utils/`
+- `server/` — Daemon infrastructure: `config/`, `core/` (domain/interfaces), `infra/` (31 modules, including vc, git, hub, mcp, cogit, project, provider-oauth, space, dream, webui), `templates/`, `utils/`
 - `shared/` — Cross-module: constants, types, transport events, utils
 - `tui/` — React/Ink TUI: app (router/pages), components, features (23 modules, including vc, worktree, source, hub, curate), hooks, lib, providers, stores
-- `oclif/` — Commands grouped by topic (`vc/`, `hub/`, `worktree/`, `source/`, `space/`, `review/`, `connectors/`, `curate/`, `model/`, `providers/`, `swarm/`, `query-log/`) + top-level `.ts` commands; hooks, lib (daemon-client, task-client, json-response)
+- `webui/` — Browser dashboard (React/Vite). Entry `src/webui/index.tsx`; `features/` (15 panels), `pages/` (8 pages: home, changes, configuration, contexts, tasks, analytics, project-selector, not-found), `layouts/`, `stores/`. Connects to the daemon via Socket.IO; no imports from `server/`, `agent/`, or `tui/` (same boundary rule)
+- `oclif/` — Commands grouped by topic (`vc/`, `hub/`, `worktree/`, `source/`, `space/`, `review/`, `connectors/`, `curate/`, `model/`, `providers/`, `swarm/`, `query-log/`) + top-level `.ts` commands (`webui`, `dream`, `review`, `search`, `locations`, `query`, `login`, `logout`, `init`, `mcp`, `pull`, `push`, `restart`, `status`, `debug`); hooks, lib (daemon-client, task-client, json-response)
 
 **Import boundary** (ESLint-enforced): `tui/` must not import from `server/`, `agent/`, or `oclif/`. Use transport events or `shared/`.
 
@@ -75,24 +78,38 @@ npm run typecheck                    # TypeScript type checking
 - Agent pool manages forked child processes per project; task routing in `server/infra/process/`
 - MCP server in `server/infra/mcp/` exposes tools via Model Context Protocol; `tools/` subdir has dedicated implementations (`brv-query-tool`, `brv-curate-tool`)
 
+### Web UI (`src/webui/`, `src/server/infra/webui/`)
+
+- `brv webui [-p, --port <n>]` opens the dashboard in the default browser. Port is persisted via daemon events (`webui:getPort` / `webui:setPort`); first-run default is 7700
+- Server side: `server/infra/webui/` — `webui-server.ts` (standalone HTTP server), `webui-middleware.ts` (Express static files + `/api/ui/config`), `webui-state.ts` (port persistence). CSP headers applied
+- Browser bootstraps by fetching `/api/ui/config` to discover the daemon's dynamic Socket.IO port, then connects cross-origin
+- Daemon `ClientType` includes `'webui'` alongside `'tui' | 'cli' | 'agent' | 'mcp' | 'extension'`
+- Build/dev: `npm run build:ui` (Vite, runs as part of `npm run build`); `npm run dev:ui` for live reload. `typecheck` runs both the root and `src/webui/tsconfig.json`
+- Shared UI components live in a git submodule at `packages/byterover-packages/` (published as `@campfirein/byterover-packages`). `dev:ui` / `build:ui:submodule` read from the submodule; `build:ui` / `dev:ui:package` read from the installed `node_modules` copy. Override Vite's resolution with `BRV_UI_SOURCE=submodule|package`
+
 ### VC, Worktrees & Knowledge Sources
 
-- `brv vc` — isomorphic-git version control (add, branch, checkout, clone, commit, config, fetch, init, log, merge, pull, push, remote, reset, status); git plumbing in `server/infra/git/` (`isomorphic-git-service.ts`), VC config store in `server/infra/vc/`
+- `brv vc` — isomorphic-git version control (add, branch, checkout, clone, commit, config, diff, fetch, init, log, merge, pull, push, remote, reset, status); git plumbing in `server/infra/git/` (`isomorphic-git-service.ts`), VC config store in `server/infra/vc/`
 - `brv worktree` (add/list/remove) — git-style worktree pointer model: `.brv/` is either a real project directory OR a pointer file to a parent project; parent stores registry in `.brv/worktrees/<name>/link.json`
 - `brv source` (add/list/remove) — link another project's context tree as a read-only knowledge source with write isolation
 - `brv search <query>` — pure BM25 retrieval over the context tree (minisearch, no LLM, no token cost); structured results with paths/scores. Pairs with `brv query` (LLM-synthesized answer). Engine: `server/infra/executor/search-executor.ts`
 - `brv locations` — lists all registered projects with context-tree status (text or `--format json`); reads from `LocationsEvents` over the daemon transport
 - `brv query-log view [id]` / `brv query-log summary` — inspect query history and recall metrics (coverage, cache hit rate, top topics); store: `server/infra/storage/file-query-log-store.ts`, summary use-case in `server/infra/usecase/`
-- `brv dream [--force] [--undo] [--detach]` — background context-tree consolidation (synthesize/consolidate/prune); engine: `server/infra/dream/`
+- `brv dream [--force] [--undo] [--detach]` — background context-tree consolidation; operations in `server/infra/dream/operations/` (synthesize, consolidate, prune); lock/state via `dream-lock-service.ts` + `dream-state-service.ts`
+- Runtime signals sidecar — file-level usage/maturity data lives in `RuntimeSignalStore` (`server/infra/context-tree/runtime-signal-store.ts`, `IKeyStorage` keys `["signals", ...pathSegments]`), NOT in synthesized markdown frontmatter. Read: search-knowledge + manifest service; write: curate-service + dream-executor synthesize. Schema: `server/core/domain/knowledge/runtime-signals-schema.ts`
+- `parentTaskId` threading — `generateSummary` / `propagateStaleness` on `file-context-tree-summary-service.ts` take an optional `parentTaskId`. Curate, dream, and folder-pack executors (`server/infra/executor/`) MUST thread the operation's `taskId` through so child summary regenerations roll up under one parent task instead of N detached billing rows
 - Canonical project resolver: `resolveProject()` in `server/infra/project/` — priority `flag > direct > linked > walked-up > null`. `projectRoot` and `worktreeRoot` are threaded through transport schemas, task routing, and all executors
 - All commands are daemon-routed: `oclif/` and `tui/` never import from `server/`
 - Oclif: `src/oclif/commands/{vc,worktree,source}/`; TUI: `src/tui/features/{vc,worktree,source}/`; slash commands (`vc-*`, `worktree`, `source`) in `src/tui/features/commands/definitions/`
+- `brv curate` runs Phases 1–3 in the foreground and detaches Phase 4 (post-curate finalization: summary regeneration, manifest rebuild) to the daemon's `PostWorkRegistry`, which serializes per project and coordinates with `dream-lock-service.ts` to prevent concurrent `_index.md` writes. `--detach` makes the entire run background. Overlapping curate runs for the same project are still rejected. Behavioral contract lives in `src/server/templates/sections/` (`brv-instructions.md`, `workflow.md`, `skill/SKILL.md`) — the in-daemon agent reads these at runtime
+- `brv review [--disable | --enable]` — toggle the project-scoped HITL review log; `brv review pending` lists items, `brv review approve <id>` / `brv review reject <id>` resolve them. When disabled, sync curate skips the "X operations require review" prompt, detached curate stops emitting per-operation review markers, and `brv dream` no longer surfaces `needsReview` operations. The flag is snapshotted at task creation and propagated via `AsyncLocalStorage` (`resolveReviewDisabled`) so mid-task toggles do not race
+- `brv login` defaults to OAuth (interactive provider picker); pass `--api-key` only for CI. `brv logout` clears credentials
 
 ### Agent (`src/agent/`)
 
 - Tools: definitions in `resources/tools/*.txt`, implementations in `infra/tools/implementations/`, registry in `infra/tools/tool-registry.ts`
 - Tool categories: file ops (read/write/edit/glob/grep/list-dir), bash (exec/output), knowledge (create/expand/search), memory (read/write/edit/delete/list), swarm (query/store), todos (read/write), curate, code exec, batch, detect domains, kill process, search history
-- LLM: 18 providers in `infra/llm/providers/`; 6 compression strategies in `infra/llm/context/compression/`
+- LLM: 21 providers in `infra/llm/providers/` (incl. deepseek, glm, glm-coding-plan); compression strategies in `infra/llm/context/compression/`
 - System prompts: contributor pattern (XML sections) in `infra/system-prompt/`
 - Map/memory: `infra/map/` (agentic map, context-tree store, LLM map memory, worker pool); `infra/memory/` (memory-manager, deduplicator)
 - Storage: file-based blob (`infra/blob/`) and key storage (`infra/storage/`) — no SQLite
@@ -122,6 +139,14 @@ npm run typecheck                    # TypeScript type checking
 ## Environment
 
 - `BRV_ENV` — `development` | `production` (dev-only commands require `development`, set by `bin/dev.js` and `bin/run.js`)
+- `BRV_WEBUI_PORT` — override the web UI port (default `7700`)
+- `BRV_UI_SOURCE` — `submodule` | `package` — forces Vite's shared-UI resolution mode
+- `BRV_DATA_DIR` — override the global data dir (default `~/.brv`)
+- `BRV_GIT_REMOTE_BASE_URL` — override git remote base URL (beta vs prod testing)
+- `BRV_QUEUE_TRACE` — set to `1` to log queue/agent map traces (cipher-agent, abstract-queue)
+- `BRV_SESSION_LOG` — file path for daemon/agent session logs (auto-set by `brv-server`; can override for debugging)
+- `BRV_E2E_MODE` — `true` switches the daemon to e2e-friendly stdio handling
+- `BRV_AGENT_PROCESS_PATH` / `BRV_AGENT_PORT` / `BRV_AGENT_PROJECT_PATH` — auto-set by the daemon when forking agent child processes; do not set manually
 
 ## Stack
 

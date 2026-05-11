@@ -571,9 +571,13 @@ export class AgentLLMService implements ILLMService {
     try {
       const response = await this.generator.generateContent(request)
 
-      // Convert response to InternalMessage format
+      // Convert response to InternalMessage format. The reasoning field must
+      // round-trip on the next turn for some providers (e.g. DeepSeek-R1
+      // rejects with "reasoning_content must be passed back to the API"
+      // otherwise).
       const message: InternalMessage = {
         content: response.content,
+        ...(response.reasoning && {reasoning: response.reasoning}),
         role: 'assistant',
         toolCalls: response.toolCalls,
       }
@@ -616,12 +620,16 @@ export class AgentLLMService implements ILLMService {
   ): Promise<InternalMessage> {
     try {
       let accumulatedContent = ''
+      let accumulatedReasoning = ''
       let accumulatedToolCalls: ToolCall[] = []
 
       // Stream chunks and accumulate content
       for await (const chunk of this.generator.generateContentStream(request)) {
-        // Emit thinking/reasoning chunks as events for TUI display
+        // Emit thinking/reasoning chunks as events for TUI display + accumulate
+        // for the InternalMessage so it round-trips on the next turn (DeepSeek-R1
+        // requires reasoning_content to be passed back).
         if (chunk.type === StreamChunkType.THINKING && chunk.reasoning) {
+          accumulatedReasoning += chunk.reasoning
           this.sessionEventBus.emit('llmservice:chunk', {
             content: chunk.reasoning,
             isComplete: chunk.isComplete,
@@ -652,6 +660,7 @@ export class AgentLLMService implements ILLMService {
       // Convert accumulated response to InternalMessage format
       const message: InternalMessage = {
         content: accumulatedContent || null,
+        ...(accumulatedReasoning && {reasoning: accumulatedReasoning}),
         role: 'assistant',
         toolCalls: accumulatedToolCalls.length > 0 ? accumulatedToolCalls : undefined,
       }
@@ -1281,8 +1290,10 @@ export class AgentLLMService implements ILLMService {
       taskId: taskId || undefined,
     })
 
-    // Add assistant message to context
-    await this.contextManager.addAssistantMessage(content)
+    // Add assistant message to context. Pass reasoning so it round-trips to
+    // providers that demand it (DeepSeek-R1 rejects with "reasoning_content
+    // must be passed back to the API" otherwise).
+    await this.contextManager.addAssistantMessage(content, undefined, lastMessage.reasoning)
 
     return content
   }
@@ -1427,9 +1438,10 @@ export class AgentLLMService implements ILLMService {
     // Emit thought events if present
     this.handleThoughts(lastMessage, taskId)
 
-    // Has tool calls - add assistant message with tool calls
+    // Has tool calls - add assistant message with tool calls. Pass reasoning
+    // so it round-trips to providers that demand it.
     const assistantContent = this.extractTextContent(lastMessage)
-    await this.contextManager.addAssistantMessage(assistantContent, lastMessage.toolCalls)
+    await this.contextManager.addAssistantMessage(assistantContent, lastMessage.toolCalls, lastMessage.reasoning)
 
     // Step 1: Create pending tool parts for all tool calls
     for (const toolCall of lastMessage.toolCalls) {

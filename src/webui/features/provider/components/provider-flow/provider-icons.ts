@@ -3,6 +3,7 @@ import byterover from '../../../../assets/providers/byterover-provider.svg'
 import cerebras from '../../../../assets/providers/cerebras-provider.svg'
 import cohere from '../../../../assets/providers/cohere-provider.svg'
 import deepinfra from '../../../../assets/providers/deepinfra-provider.svg'
+import deepseek from '../../../../assets/providers/deepseek-provider.svg'
 import gemini from '../../../../assets/providers/gemini-provider.svg'
 import groq from '../../../../assets/providers/groq-provider.svg'
 import kimi from '../../../../assets/providers/kimi-provider.svg'
@@ -23,7 +24,9 @@ export const providerIcons: Record<string, string> = {
   cerebras,
   cohere,
   deepinfra,
+  deepseek,
   glm: zai,
+  'glm-coding-plan': zai,
   google: gemini,
   groq,
   minimax,

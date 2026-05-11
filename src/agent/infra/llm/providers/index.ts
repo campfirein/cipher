@@ -14,6 +14,8 @@ import {byteroverProvider} from './byterover.js'
 import {cerebrasProvider} from './cerebras.js'
 import {cohereProvider} from './cohere.js'
 import {deepinfraProvider} from './deepinfra.js'
+import {deepseekProvider} from './deepseek.js'
+import {glmCodingPlanProvider} from './glm-coding-plan.js'
 import {glmProvider} from './glm.js'
 import {googleProvider} from './google.js'
 import {groqProvider} from './groq.js'
@@ -38,7 +40,9 @@ const PROVIDER_MODULES: Readonly<Record<string, ProviderModule>> = {
   cerebras: cerebrasProvider,
   cohere: cohereProvider,
   deepinfra: deepinfraProvider,
+  deepseek: deepseekProvider,
   glm: glmProvider,
+  'glm-coding-plan': glmCodingPlanProvider,
   google: googleProvider,
   groq: groqProvider,
   minimax: minimaxProvider,

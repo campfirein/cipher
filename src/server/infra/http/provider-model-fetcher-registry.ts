@@ -63,6 +63,7 @@ export async function getModelFetcher(providerId: string): Promise<IProviderMode
     case 'cerebras': // falls through
     case 'cohere': // falls through
     case 'deepinfra': // falls through
+    case 'deepseek': // falls through
     case 'groq': // falls through
     case 'mistral': // falls through
     case 'togetherai': // falls through
@@ -80,6 +81,16 @@ export async function getModelFetcher(providerId: string): Promise<IProviderMode
         'https://api.z.ai/api/paas/v4',
         'GLM (Z.AI)',
         ['glm-4.7', 'glm-4.6', 'glm-4.5', 'glm-4.5-flash'],
+      )
+
+      break
+    }
+
+    case 'glm-coding-plan': {
+      fetcher = new ChatBasedModelFetcher(
+        'https://api.z.ai/api/coding/paas/v4',
+        'GLM Coding Plan (Z.AI)',
+        ['glm-4.7', 'glm-4.7-flash', 'glm-4.7-flashx', 'glm-5-turbo', 'glm-4.5', 'glm-4.5-flash'],
       )
 
       break

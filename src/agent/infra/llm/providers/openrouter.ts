@@ -8,6 +8,7 @@ import {createOpenRouter} from '@openrouter/ai-sdk-provider'
 
 import type {GeneratorFactoryConfig, ProviderModule} from './types.js'
 
+import {modelAcceptsSamplingParameters} from '../../../core/domain/llm/registry.js'
 import {AiSdkContentGenerator} from '../generators/ai-sdk-content-generator.js'
 
 export const openrouterProvider: ProviderModule = {
@@ -19,6 +20,7 @@ export const openrouterProvider: ProviderModule = {
     const provider = createOpenRouter({apiKey: config.apiKey!})
 
     return new AiSdkContentGenerator({
+      excludeSamplingParameters: !modelAcceptsSamplingParameters(config.model),
       model: provider.chat(config.model),
     })
   },

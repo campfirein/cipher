@@ -130,4 +130,62 @@ describe('Provider Registry', () => {
       }
     })
   })
+
+  describe('GLM Coding Plan provider', () => {
+    it('should be registered', () => {
+      expect(getProviderById('glm-coding-plan')).to.not.be.undefined
+    })
+
+    it('should point at the Z.AI Coding Plan endpoint', () => {
+      expect(getProviderById('glm-coding-plan')?.baseUrl).to.equal('https://api.z.ai/api/coding/paas/v4')
+    })
+
+    it('should reuse ZHIPU_API_KEY for env detection', () => {
+      expect(getProviderById('glm-coding-plan')?.envVars).to.include('ZHIPU_API_KEY')
+    })
+
+    it('should default to glm-4.7', () => {
+      expect(getProviderById('glm-coding-plan')?.defaultModel).to.equal('glm-4.7')
+    })
+
+    it('should not require OAuth', () => {
+      expect(getProviderById('glm-coding-plan')?.oauth).to.be.undefined
+    })
+
+    it('should require an API key by default', () => {
+      expect(providerRequiresApiKey('glm-coding-plan')).to.be.true
+    })
+
+    it('should coexist with the standard glm provider (no rename)', () => {
+      expect(getProviderById('glm')).to.not.be.undefined
+      expect(getProviderById('glm-coding-plan')).to.not.be.undefined
+      expect(getProviderById('glm')?.baseUrl).to.not.equal(getProviderById('glm-coding-plan')?.baseUrl)
+    })
+  })
+
+  describe('DeepSeek provider', () => {
+    it('should be registered', () => {
+      expect(getProviderById('deepseek')).to.not.be.undefined
+    })
+
+    it('should point at the official OpenAI-compatible API base URL', () => {
+      expect(getProviderById('deepseek')?.baseUrl).to.equal('https://api.deepseek.com/v1')
+    })
+
+    it('should detect DEEPSEEK_API_KEY from the environment', () => {
+      expect(getProviderById('deepseek')?.envVars).to.include('DEEPSEEK_API_KEY')
+    })
+
+    it('should default to deepseek-chat', () => {
+      expect(getProviderById('deepseek')?.defaultModel).to.equal('deepseek-chat')
+    })
+
+    it('should not require OAuth', () => {
+      expect(getProviderById('deepseek')?.oauth).to.be.undefined
+    })
+
+    it('should require an API key by default', () => {
+      expect(providerRequiresApiKey('deepseek')).to.be.true
+    })
+  })
 })

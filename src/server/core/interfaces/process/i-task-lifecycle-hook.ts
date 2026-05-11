@@ -27,6 +27,13 @@ export interface ITaskLifecycleHook {
   onTaskCreate?(task: TaskInfo): Promise<void | {logId?: string}>
   /** Called when a task fails with an error. */
   onTaskError?(taskId: string, errorMessage: string, task: TaskInfo): Promise<void>
+  /**
+   * Called by the throttled flush (~100ms window) for in-flight task mutations
+   * — `task:started` transition + every `llmservice:*` accumulator update.
+   * Optional: existing handlers (CurateLogHandler, QueryLogHandler) don't
+   * implement it. Implementations must never throw.
+   */
+  onTaskUpdate?(task: TaskInfo): Promise<void>
   /** Called when an LLM tool result event is received for an ACTIVE task (not grace-period). */
   onToolResult?(taskId: string, payload: LlmToolResultEvent): void
 }

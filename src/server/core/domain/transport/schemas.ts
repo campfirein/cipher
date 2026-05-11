@@ -10,8 +10,15 @@
 import {z} from 'zod'
 
 import type {AgentEventMap} from '../../../../agent/core/domain/agent-events/types.js'
+import type {
+  TaskListAvailableModel,
+  TaskListCounts,
+  TaskListRequest,
+  TaskListResponse,
+} from '../../../../shared/transport/events/task-events.js'
 
 import {QUERY_LOG_TIERS, type QueryLogTier} from '../../domain/entities/query-log-entry.js'
+import {TaskHistoryEntrySchema} from '../entities/task-history-entry.js'
 // Re-export domain types for convenience (SSOT: agent-events/types.ts)
 export type {
   AgentTerminationReason,
@@ -254,12 +261,22 @@ export const TransportTaskEventNames = {
   CANCEL: 'task:cancel',
   // Task terminal states
   CANCELLED: 'task:cancelled',
+  // Bulk delete terminal entries (M2.09)
+  CLEAR_COMPLETED: 'task:clearCompleted',
   COMPLETED: 'task:completed',
   CREATE: 'task:create',
   CREATED: 'task:created',
+  // Single delete (M2.09)
+  DELETE: 'task:delete',
+  // Multi delete (M2.09)
+  DELETE_BULK: 'task:deleteBulk',
+  // Broadcast on successful removal (M2.09)
+  DELETED: 'task:deleted',
   ERROR: 'task:error',
   // Internal (Transport → Agent)
   EXECUTE: 'task:execute',
+  // Single-task detail fetch (M2.09)
+  GET: 'task:get',
   // Snapshot query (Client → Transport)
   LIST: 'task:list',
   // Query metadata (Agent → Daemon, before task:completed)
@@ -523,6 +540,10 @@ export const TaskCreatedSchema = z.object({
   files: z.array(z.string()).optional(),
   /** Folder path for curate-folder task type */
   folderPath: z.string().optional(),
+  /** Active model id at task creation time */
+  model: z.string().optional(),
+  /** Active provider id at task creation time */
+  provider: z.string().optional(),
   /** Unique task identifier */
   taskId: z.string(),
   /** Task type */
@@ -584,7 +605,9 @@ export const TaskQueryResultEventSchema = z.object({
     })
     .optional(),
   taskId: z.string(),
-  tier: z.custom<QueryLogTier>((val) => new Set<unknown>(QUERY_LOG_TIERS).has(val), {message: 'Invalid query log tier'}),
+  tier: z.custom<QueryLogTier>((val) => new Set<unknown>(QUERY_LOG_TIERS).has(val), {
+    message: 'Invalid query log tier',
+  }),
   timing: z.object({durationMs: z.number()}),
 })
 
@@ -725,11 +748,38 @@ export const TaskCancelResponseSchema = z.object({
 /**
  * task:list - Snapshot of active and recently-completed tasks for a project.
  * Used by the web UI Tasks tab to populate state without replaying history.
+ *
+ * M2.16: cursor pagination dropped; numbered pagination (page/pageSize) +
+ * full filter dimensions (search/provider/model/time/duration).
  */
-export const TaskListRequestSchema = z.object({
-  /** Optional project filter — defaults to caller's registered project */
-  projectPath: z.string().optional(),
-})
+export const TaskListRequestSchema = z
+  .object({
+    /** Created at >= this epoch ms (M2.16). */
+    createdAfter: z.number().optional(),
+    /** Created at <= this epoch ms (M2.16). */
+    createdBefore: z.number().optional(),
+    /** Maximum elapsed time (ms) for terminal tasks (M2.16). */
+    maxDurationMs: z.number().optional(),
+    /** Minimum elapsed time (ms) for terminal tasks; only matches startedAt+completedAt rows (M2.16). */
+    minDurationMs: z.number().optional(),
+    /** Optional model id filter (M2.16). */
+    model: z.array(z.string()).optional(),
+    /** 1-based page index — server clamps to >= 1; defaults to 1 (M2.16). */
+    page: z.number().int().min(1).optional(),
+    /** Page size — server clamps to 1..1000; defaults to 50 (M2.16). */
+    pageSize: z.number().int().min(1).max(1000).optional(),
+    /** Optional project filter — defaults to caller's registered project. */
+    projectPath: z.string().optional(),
+    /** Optional provider id filter (M2.16). */
+    provider: z.array(z.string()).optional(),
+    /** Case-insensitive substring search over content + result + error.message (M2.16). */
+    searchText: z.string().optional(),
+    /** Optional status filter — return only tasks whose status matches one of these. */
+    status: z.array(z.enum(['cancelled', 'completed', 'created', 'error', 'started'])).optional(),
+    /** Optional task-type filter — e.g. ['curate'], ['query']. */
+    type: z.array(z.string()).optional(),
+  })
+  .strict() satisfies z.ZodType<TaskListRequest>
 
 export const TaskListItemStatusSchema = z.enum(['cancelled', 'completed', 'created', 'error', 'started'])
 
@@ -742,7 +792,16 @@ export const TaskListItemSchema = z.object({
   files: z.array(z.string()).optional(),
   /** Folder path for `curate-folder` tasks */
   folderPath: z.string().optional(),
+  /** Active model id at task creation time */
+  model: z.string().optional(),
   projectPath: z.string().optional(),
+  /** Active provider id at task creation time */
+  provider: z.string().optional(),
+  /**
+   * Result string. Only present for in-memory completed tasks (toListItem
+   * populates from TaskInfo.result). Persisted entries from the index do not
+   * carry result by 2-tier design — detail panel uses task:get for full text.
+   */
   result: z.string().optional(),
   startedAt: z.number().optional(),
   status: TaskListItemStatusSchema,
@@ -750,8 +809,117 @@ export const TaskListItemSchema = z.object({
   type: z.string(),
 })
 
-export const TaskListResponseSchema = z.object({
-  tasks: z.array(TaskListItemSchema),
+/** Status histogram used by FE filter-bar breakdown (M2.16). */
+export const TaskListCountsSchema = z.object({
+  all: z.number().int().nonnegative(),
+  cancelled: z.number().int().nonnegative(),
+  completed: z.number().int().nonnegative(),
+  /** Tasks with status === 'error'. */
+  failed: z.number().int().nonnegative(),
+  /** Tasks with status === 'created' || 'started'. */
+  running: z.number().int().nonnegative(),
+}) satisfies z.ZodType<TaskListCounts>
+
+/** (providerId, modelId) pair from history (M2.16). */
+export const TaskListAvailableModelSchema = z.object({
+  modelId: z.string(),
+  providerId: z.string(),
+}) satisfies z.ZodType<TaskListAvailableModel>
+
+export const TaskListResponseSchema = z
+  .object({
+    /** Distinct (providerId, modelId) pairs in candidate set. History-derived. */
+    availableModels: z.array(TaskListAvailableModelSchema),
+    /** Distinct providerId values in candidate set. History-derived (includes uninstalled). */
+    availableProviders: z.array(z.string()),
+    /**
+     * Status histogram matching current filter scope (Model A — post-filter,
+     * `counts.all === total` invariant). FE filter-bar chip count = visible
+     * row count.
+     */
+    counts: TaskListCountsSchema,
+    /**
+     * 1-based page index, echoed back as-sent. Server clamps lower bound only
+     * (page < 1 → 1). NOT clamped against `pageCount`: a request for `page=9999`
+     * against a 1-page result returns `{page: 9999, tasks: []}` so the caller
+     * can detect an out-of-range page and correct itself.
+     */
+    page: z.number().int().min(1),
+    /** Total page count = max(ceil(total/pageSize), 1). */
+    pageCount: z.number().int().min(1),
+    /** Page size echoed back, clamped to [1, 1000]. */
+    pageSize: z.number().int().min(1).max(1000),
+    /** Page slice of items after all filters. */
+    tasks: z.array(TaskListItemSchema),
+    /** Total count of items matching ALL filters (incl. status). */
+    total: z.number().int().nonnegative(),
+  })
+  .strict() satisfies z.ZodType<TaskListResponse>
+
+/**
+ * task:get — fetch full Level 2 detail for a single persisted task.
+ * Returns null when the task is unknown or its data file is corrupt.
+ */
+export const TaskGetRequestSchema = z.object({
+  taskId: z.string(),
+})
+
+export const TaskGetResponseSchema = z.object({
+  task: TaskHistoryEntrySchema.nullable(),
+})
+
+/**
+ * task:delete — remove a single task from the per-project history store.
+ * Idempotent: deleting a non-existent task returns success: true.
+ */
+export const TaskDeleteRequestSchema = z.object({
+  taskId: z.string(),
+})
+
+export const TaskDeleteResponseSchema = z.object({
+  error: z.string().optional(),
+  /**
+   * `true` when the task was actually removed (was live in-memory or persisted),
+   * `false` when the call was a no-op (taskId unknown or already tombstoned).
+   * Idempotent semantics on `success` are preserved — `success: true` indicates
+   * the request was valid; `removed` distinguishes "actually removed" from
+   * "no-op". `task:deleteBulk` uses this to compute an accurate `deletedCount`.
+   */
+  removed: z.boolean().optional(),
+  success: z.boolean(),
+})
+
+/**
+ * task:deleteBulk — delete many tasks at once. `deletedCount` reports actual removals.
+ */
+export const TaskDeleteBulkRequestSchema = z.object({
+  taskIds: z.array(z.string()),
+})
+
+export const TaskDeleteBulkResponseSchema = z.object({
+  deletedCount: z.number(),
+  error: z.string().optional(),
+})
+
+/**
+ * task:clearCompleted — remove all terminal-state tasks (completed/error/cancelled)
+ * from the project's history. Active tasks (created/started) are preserved.
+ */
+export const TaskClearCompletedRequestSchema = z.object({
+  projectPath: z.string().optional(),
+})
+
+export const TaskClearCompletedResponseSchema = z.object({
+  deletedCount: z.number(),
+  error: z.string().optional(),
+})
+
+/**
+ * task:deleted — broadcast to project room when a task is removed from history.
+ * Lets other clients (TUI, other webui tabs) drop the row from their local view.
+ */
+export const TaskDeletedEventSchema = z.object({
+  taskId: z.string(),
 })
 
 // ============================================================================
@@ -938,8 +1106,25 @@ export type TaskCancelRequest = z.infer<typeof TaskCancelRequestSchema>
 export type TaskCancelResponse = z.infer<typeof TaskCancelResponseSchema>
 export type TaskListItem = z.infer<typeof TaskListItemSchema>
 export type TaskListItemStatus = z.infer<typeof TaskListItemStatusSchema>
-export type TaskListRequest = z.infer<typeof TaskListRequestSchema>
-export type TaskListResponse = z.infer<typeof TaskListResponseSchema>
+// Re-export from task-events.ts so the hand-written interface remains the single
+// source of truth. Schemas above are bound via `satisfies z.ZodType<X>` to catch
+// any schema/interface drift at compile time.
+export type {
+  TaskListAvailableModel,
+  TaskListCounts,
+  TaskListRequest,
+  TaskListResponse,
+} from '../../../../shared/transport/events/task-events.js'
+
+export type TaskClearCompletedRequest = z.infer<typeof TaskClearCompletedRequestSchema>
+export type TaskClearCompletedResponse = z.infer<typeof TaskClearCompletedResponseSchema>
+export type TaskDeleteBulkRequest = z.infer<typeof TaskDeleteBulkRequestSchema>
+export type TaskDeleteBulkResponse = z.infer<typeof TaskDeleteBulkResponseSchema>
+export type TaskDeleteRequest = z.infer<typeof TaskDeleteRequestSchema>
+export type TaskDeleteResponse = z.infer<typeof TaskDeleteResponseSchema>
+export type TaskDeletedEvent = z.infer<typeof TaskDeletedEventSchema>
+export type TaskGetRequest = z.infer<typeof TaskGetRequestSchema>
+export type TaskGetResponse = z.infer<typeof TaskGetResponseSchema>
 
 export type SessionInfo = z.infer<typeof SessionInfoSchema>
 export type SessionStats = z.infer<typeof SessionStatsSchema>
