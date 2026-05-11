@@ -4,6 +4,7 @@ import {mkdir, readFile, rm, writeFile} from 'node:fs/promises'
 import {dirname, join, relative} from 'node:path'
 
 import {BRV_DIR, CONTEXT_TREE_DIR} from '../../server/constants.js'
+import {buildCorrectionPrompt, buildGeneratePrompt} from '../../server/core/domain/render/curate-prompt-builder.js'
 import {type HtmlWriteError, writeHtmlTopic} from '../../server/infra/render/writer/html-writer.js'
 
 /**
@@ -172,7 +173,7 @@ export async function kickoffSession(options: KickoffOptions): Promise<CurateSes
 
   return {
     ok: true,
-    prompt: buildGeneratePrompt(content),
+    prompt: buildGeneratePrompt({userIntent: content}),
     sessionId,
     status: 'needs-llm-step',
     step: 'generate-html',
@@ -250,7 +251,11 @@ export async function continueSession(options: ContinueOptions): Promise<CurateS
   return {
     errors: writeResult.errors.map((e) => mapWriterError(e)),
     ok: false,
-    prompt: buildCorrectionPrompt(state.userIntent, response, writeResult.errors),
+    prompt: buildCorrectionPrompt({
+      errors: writeResult.errors,
+      previousHtml: response,
+      userIntent: state.userIntent,
+    }),
     sessionId,
     status: 'needs-llm-step',
     step: 'correct-html',
@@ -292,47 +297,6 @@ function mapWriterError(err: HtmlWriteError): CurateSessionError {
       return {kind: err.kind, message: err.message}
     }
   }
-}
-
-/**
- * Stub generate-html prompt. TKT 03 ships the production builder with
- * the condensed bv-* schema, ELEMENT_REGISTRY-derived element list,
- * and UPDATE-vs-CREATE framing.
- */
-function buildGeneratePrompt(userIntent: string): string {
-  return [
-    'Generate a <bv-topic>...</bv-topic> HTML document for the following user intent:',
-    '',
-    userIntent,
-    '',
-    '[STUB PROMPT — TKT 03 replaces this with the full schema + UPDATE-vs-CREATE framing.]',
-    'Return ONLY the bv-topic document. No prose, no code fences.',
-  ].join('\n')
-}
-
-/**
- * Stub correction prompt. TKT 03 will translate each `kind` to a
- * one-line natural-language fix instruction; for now we hand the
- * calling agent the structured errors verbatim plus the previous
- * response.
- */
-function buildCorrectionPrompt(userIntent: string, previousResponse: string, errors: readonly HtmlWriteError[]): string {
-  const errorLines = errors.map((e) => `- ${e.kind}: ${e.message}`).join('\n')
-  return [
-    'The HTML you produced failed validation. Fix the errors below and return the corrected document.',
-    '',
-    'User intent:',
-    userIntent,
-    '',
-    'Previous response:',
-    previousResponse,
-    '',
-    'Errors:',
-    errorLines,
-    '',
-    '[STUB CORRECTION PROMPT — TKT 03 replaces this with per-kind fix guidance.]',
-    'Return ONLY the corrected <bv-topic> document. No prose, no code fences.',
-  ].join('\n')
 }
 
 async function writeSessionState(projectRoot: string, sessionId: string, state: CurateSessionState): Promise<void> {
