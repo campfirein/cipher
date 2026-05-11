@@ -1,4 +1,4 @@
-import type {StoredAnalyticsRecord} from '../../domain/analytics/stored-record.js'
+import type {StoredAnalyticsRecord} from '../../../../shared/analytics/stored-record.js'
 
 /**
  * Per-send outcome. Each input record's `id` is mirrored back in exactly

@@ -1,6 +1,6 @@
 import {z} from 'zod'
 
-import {StoredAnalyticsRecordSchema} from '../../../server/core/domain/analytics/stored-record.js'
+import {StoredAnalyticsRecordSchema} from '../../analytics/stored-record.js'
 
 export const AnalyticsEvents = {
   LIST: 'analytics:list',

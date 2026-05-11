@@ -1,7 +1,7 @@
 /* eslint-disable camelcase */
 import {expect} from 'chai'
 
-import type {StoredAnalyticsRecord} from '../../../../../src/server/core/domain/analytics/stored-record.js'
+import type {StoredAnalyticsRecord} from '../../../../../src/shared/analytics/stored-record.js'
 
 import {BoundedQueue} from '../../../../../src/server/infra/analytics/bounded-queue.js'
 

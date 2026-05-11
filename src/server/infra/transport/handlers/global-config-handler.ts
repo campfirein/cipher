@@ -9,6 +9,7 @@ import {
   type GlobalConfigSetAnalyticsRequest,
   type GlobalConfigSetAnalyticsResponse,
 } from '../../../../shared/transport/events/global-config-events.js'
+import {GLOBAL_CONFIG_VERSION} from '../../../constants.js'
 import {GlobalConfig} from '../../../core/domain/entities/global-config.js'
 
 export interface GlobalConfigHandlerDeps {
@@ -19,18 +20,24 @@ export interface GlobalConfigHandlerDeps {
 /**
  * Handles globalConfig:get and globalConfig:setAnalytics events.
  * Re-reads the file every call (no in-memory cache for transport responses)
- * so the daemon always reflects the latest on-disk state. If no config
- * exists yet, the GET path seeds a fresh one with a stable deviceId.
- * SET_ANALYTICS is idempotent: if the requested state matches current state,
- * the file is not rewritten.
+ * so the daemon always reflects the latest on-disk state.
+ *
+ * `read()` is a pure read: when no config file exists yet, returns
+ * synthetic defaults (analytics: false, empty deviceId). Persistence is
+ * deferred to the first SET_ANALYTICS write path, where deviceId is
+ * generated and stored atomically — keeping read() pure avoids a race
+ * where two concurrent GETs each create+write a different deviceId.
+ *
+ * SET_ANALYTICS is idempotent: if the requested state matches current
+ * state, the file is not rewritten.
  *
  * Maintains a SYNC in-process cache of the analytics flag for consumers
- * that need a synchronous getter (M2.5's AnalyticsClient.isEnabled). The
- * cache is populated by an explicit `await refreshCache()` (the daemon
+ * that need a synchronous getter (AnalyticsClient.isEnabled). The cache
+ * is populated by an explicit `await refreshCache()` (the daemon
  * bootstrap awaits this once before constructing AnalyticsClient) and
- * refreshed after every successful SET_ANALYTICS write or GET seed.
- * Transport responses still read fresh from disk — the cache is purely
- * an in-process bridge for sync consumers.
+ * refreshed after every successful SET_ANALYTICS write or read of an
+ * existing on-disk config. Transport responses still read fresh from
+ * disk — the cache is purely an in-process bridge for sync consumers.
  */
 export class GlobalConfigHandler {
   private cachedAnalytics: boolean | undefined
@@ -104,13 +111,16 @@ export class GlobalConfigHandler {
       }
     }
 
-    const seeded = GlobalConfig.create(randomUUID())
-    await this.globalConfigStore.write(seeded)
-    this.cachedAnalytics = seeded.analytics
+    // No config on disk yet — return synthetic defaults. Persistence is
+    // deferred to the first SET_ANALYTICS write path, where deviceId is
+    // generated and stored atomically. Keeping read() side-effect-free
+    // closes the race where two concurrent GETs would each create+write a
+    // different deviceId. Cache population for synchronous consumers
+    // happens via refreshCache() at daemon bootstrap, not here.
     return {
-      analytics: seeded.analytics,
-      deviceId: seeded.deviceId,
-      version: seeded.version,
+      analytics: false,
+      deviceId: '',
+      version: GLOBAL_CONFIG_VERSION,
     }
   }
 

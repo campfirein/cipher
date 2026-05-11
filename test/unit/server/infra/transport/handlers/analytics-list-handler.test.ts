@@ -2,12 +2,12 @@
 import {expect} from 'chai'
 import {spy} from 'sinon'
 
-import type {StoredAnalyticsRecord} from '../../../../../../src/server/core/domain/analytics/stored-record.js'
 import type {
   IJsonlAnalyticsStore,
   JsonlAnalyticsStoreListOptions,
   JsonlAnalyticsStoreListResult,
 } from '../../../../../../src/server/core/interfaces/analytics/i-jsonl-analytics-store.js'
+import type {StoredAnalyticsRecord} from '../../../../../../src/shared/analytics/stored-record.js'
 
 import {AnalyticsListHandler} from '../../../../../../src/server/infra/transport/handlers/analytics-list-handler.js'
 import {AnalyticsEvents} from '../../../../../../src/shared/transport/events/analytics-events.js'

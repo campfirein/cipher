@@ -3,11 +3,11 @@ import {expect} from 'chai'
 import {spy, stub} from 'sinon'
 
 import type {Identity} from '../../../../../src/server/core/domain/analytics/identity.js'
-import type {StoredAnalyticsRecord} from '../../../../../src/server/core/domain/analytics/stored-record.js'
 import type {IAnalyticsSender, SendResult} from '../../../../../src/server/core/interfaces/analytics/i-analytics-sender.js'
 import type {IIdentityResolver} from '../../../../../src/server/core/interfaces/analytics/i-identity-resolver.js'
 import type {IJsonlAnalyticsStore, JsonlAnalyticsStoreUpdateStatus} from '../../../../../src/server/core/interfaces/analytics/i-jsonl-analytics-store.js'
 import type {ISuperPropertiesResolver, SuperProperties} from '../../../../../src/server/core/interfaces/analytics/i-super-properties-resolver.js'
+import type {StoredAnalyticsRecord} from '../../../../../src/shared/analytics/stored-record.js'
 
 import {AnalyticsBatch} from '../../../../../src/server/core/domain/analytics/batch.js'
 import {AnalyticsClient} from '../../../../../src/server/infra/analytics/analytics-client.js'

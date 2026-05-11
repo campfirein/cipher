@@ -1,4 +1,4 @@
-import type {StoredAnalyticsRecord} from '../../server/core/domain/analytics/stored-record.js'
+import type {StoredAnalyticsRecord} from './stored-record.js'
 
 /**
  * Field names that MUST NOT appear inside an analytics event's `properties`

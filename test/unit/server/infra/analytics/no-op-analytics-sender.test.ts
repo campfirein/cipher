@@ -2,8 +2,8 @@
 import {expect} from 'chai'
 import {randomUUID} from 'node:crypto'
 
-import type {StoredAnalyticsRecord} from '../../../../../src/server/core/domain/analytics/stored-record.js'
 import type {SendResult} from '../../../../../src/server/core/interfaces/analytics/i-analytics-sender.js'
+import type {StoredAnalyticsRecord} from '../../../../../src/shared/analytics/stored-record.js'
 
 import {NoOpAnalyticsSender} from '../../../../../src/server/infra/analytics/no-op-analytics-sender.js'
 

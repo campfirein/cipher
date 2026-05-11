@@ -1,4 +1,4 @@
-import type {StoredAnalyticsRecord} from '../../core/domain/analytics/stored-record.js'
+import type {StoredAnalyticsRecord} from '../../../shared/analytics/stored-record.js'
 import type {IAnalyticsSender, SendResult} from '../../core/interfaces/analytics/i-analytics-sender.js'
 
 /**

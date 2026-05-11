@@ -1,6 +1,6 @@
 import {randomUUID} from 'node:crypto'
 
-import type {StoredAnalyticsRecord} from '../../core/domain/analytics/stored-record.js'
+import type {StoredAnalyticsRecord} from '../../../shared/analytics/stored-record.js'
 import type {IAnalyticsClient} from '../../core/interfaces/analytics/i-analytics-client.js'
 import type {IAnalyticsQueue} from '../../core/interfaces/analytics/i-analytics-queue.js'
 import type {IAnalyticsSender, SendResult} from '../../core/interfaces/analytics/i-analytics-sender.js'
@@ -8,8 +8,8 @@ import type {IIdentityResolver} from '../../core/interfaces/analytics/i-identity
 import type {IJsonlAnalyticsStore} from '../../core/interfaces/analytics/i-jsonl-analytics-store.js'
 import type {ISuperPropertiesResolver} from '../../core/interfaces/analytics/i-super-properties-resolver.js'
 
+import {toWireEvent} from '../../../shared/analytics/stored-record.js'
 import {AnalyticsBatch} from '../../core/domain/analytics/batch.js'
-import {toWireEvent} from '../../core/domain/analytics/stored-record.js'
 
 export interface AnalyticsClientDeps {
   identityResolver: IIdentityResolver

@@ -1,8 +1,6 @@
 /* eslint-disable camelcase */
 import {z} from 'zod'
 
-import type {AnalyticsEventWithIdentity} from './batch.js'
-
 /**
  * Maximum number of send attempts before a record terminates as `'failed'`.
  *
@@ -24,11 +22,10 @@ const StoredStatusSchema = z.enum(['pending', 'sent', 'failed'])
 export type StoredStatus = z.infer<typeof StoredStatusSchema>
 
 /**
- * Mirrors the wire identity schema from `batch.ts` so disk-persisted rows
- * are validated against the same contract events flow through. Kept private
- * here (mirror per M9.1 plan) rather than refactoring `batch.ts` to export
- * its private schemas — keeps M9.1 minimal and avoids touching the M2.6
- * wire boundary.
+ * Wire-format identity, snake_case per the analytics spec. `device_id` is
+ * always present; the rest are optional and only stamped when the user is
+ * authenticated. Kept here so the stored-record schema is self-contained
+ * and importable from any layer (no cross-layer reach into server/).
  */
 const IdentityWireSchema = z.object({
   device_id: z.string().refine((s) => s.trim().length > 0, {
@@ -40,8 +37,8 @@ const IdentityWireSchema = z.object({
 })
 
 /**
- * A local-only stored record. Extends the wire-format
- * `AnalyticsEventWithIdentity` shape with three daemon-internal fields:
+ * A local-only stored record. Extends the wire-format analytics event
+ * shape with three daemon-internal fields:
  *
  * - `id`: stable per-row identifier (uuid v4) for `updateStatus` mutations
  * - `status`: `'pending' | 'sent' | 'failed'`
@@ -70,13 +67,21 @@ export const StoredAnalyticsRecordSchema = z.object({
 export type StoredAnalyticsRecord = Readonly<z.infer<typeof StoredAnalyticsRecordSchema>>
 
 /**
- * Strips local-only fields (`id`, `status`, `attempts`) from a stored
- * record and returns the wire-format `AnalyticsEventWithIdentity` that can
- * be shipped to the backend. M4's HTTP sender uses this on the way out;
- * M9.3 (in-process) and M11.2 (over transport) both keep the local fields
- * for their own purposes.
+ * The wire-shape view of a stored record (no `id` / `status` / `attempts`).
+ * Structurally identical to the daemon-side `AnalyticsEventWithIdentity`
+ * type; declared here as a `Pick` so this module has no dependency on
+ * server-side domain code and can be imported by `shared/`.
  */
-export function toWireEvent(record: StoredAnalyticsRecord): AnalyticsEventWithIdentity {
+export type WireAnalyticsEvent = Pick<StoredAnalyticsRecord, 'identity' | 'name' | 'properties' | 'timestamp'>
+
+/**
+ * Strips local-only fields (`id`, `status`, `attempts`) from a stored
+ * record and returns the wire-format event shape that can be shipped to
+ * the backend. M4's HTTP sender uses this on the way out; M9.3
+ * (in-process) and M11.2 (over transport) both keep the local fields for
+ * their own purposes.
+ */
+export function toWireEvent(record: StoredAnalyticsRecord): WireAnalyticsEvent {
   return {
     identity: record.identity,
     name: record.name,

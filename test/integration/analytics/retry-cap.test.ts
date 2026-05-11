@@ -7,15 +7,15 @@ import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
 import type {Identity} from '../../../src/server/core/domain/analytics/identity.js'
-import type {StoredAnalyticsRecord} from '../../../src/server/core/domain/analytics/stored-record.js'
 import type {IAnalyticsSender, SendResult} from '../../../src/server/core/interfaces/analytics/i-analytics-sender.js'
 import type {IIdentityResolver} from '../../../src/server/core/interfaces/analytics/i-identity-resolver.js'
 import type {ISuperPropertiesResolver, SuperProperties} from '../../../src/server/core/interfaces/analytics/i-super-properties-resolver.js'
+import type {StoredAnalyticsRecord} from '../../../src/shared/analytics/stored-record.js'
 
-import {MAX_ATTEMPTS} from '../../../src/server/core/domain/analytics/stored-record.js'
 import {AnalyticsClient} from '../../../src/server/infra/analytics/analytics-client.js'
 import {BoundedQueue} from '../../../src/server/infra/analytics/bounded-queue.js'
 import {JsonlAnalyticsStore} from '../../../src/server/infra/analytics/jsonl-analytics-store.js'
+import {MAX_ATTEMPTS} from '../../../src/shared/analytics/stored-record.js'
 
 const validDeviceId = '550e8400-e29b-41d4-a716-446655440000'
 

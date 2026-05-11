@@ -2,7 +2,7 @@ import {randomUUID} from 'node:crypto'
 import {mkdir, open, readFile, rename, rm, writeFile} from 'node:fs/promises'
 import {dirname, join} from 'node:path'
 
-import type {StoredAnalyticsRecord} from '../../core/domain/analytics/stored-record.js'
+import type {StoredAnalyticsRecord} from '../../../shared/analytics/stored-record.js'
 import type {
   IJsonlAnalyticsStore,
   JsonlAnalyticsStoreListOptions,
@@ -10,7 +10,7 @@ import type {
   JsonlAnalyticsStoreUpdateStatus,
 } from '../../core/interfaces/analytics/i-jsonl-analytics-store.js'
 
-import {MAX_ATTEMPTS, StoredAnalyticsRecordSchema} from '../../core/domain/analytics/stored-record.js'
+import {MAX_ATTEMPTS, StoredAnalyticsRecordSchema} from '../../../shared/analytics/stored-record.js'
 
 const DEFAULT_FILE_NAME = 'analytics-queue.jsonl'
 const DEFAULT_MAX_ROWS = 5000

@@ -1,4 +1,4 @@
-import type {StoredAnalyticsRecord} from '../../domain/analytics/stored-record.js'
+import type {StoredAnalyticsRecord} from '../../../../shared/analytics/stored-record.js'
 
 /**
  * In-memory queue contract for identity-stamped analytics records.

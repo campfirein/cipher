@@ -5,10 +5,10 @@ import {mkdir, readFile, stat, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
-import type {StoredAnalyticsRecord} from '../../../../../src/server/core/domain/analytics/stored-record.js'
+import type {StoredAnalyticsRecord} from '../../../../../src/shared/analytics/stored-record.js'
 
-import {MAX_ATTEMPTS, StoredAnalyticsRecordSchema} from '../../../../../src/server/core/domain/analytics/stored-record.js'
 import {JsonlAnalyticsStore, JsonlCapFullError} from '../../../../../src/server/infra/analytics/jsonl-analytics-store.js'
+import {MAX_ATTEMPTS, StoredAnalyticsRecordSchema} from '../../../../../src/shared/analytics/stored-record.js'
 
 const validIdentity = {
   device_id: '550e8400-e29b-41d4-a716-446655440000',

@@ -1,4 +1,4 @@
-import type {StoredAnalyticsRecord, StoredStatus} from '../../domain/analytics/stored-record.js'
+import type {StoredAnalyticsRecord, StoredStatus} from '../../../../shared/analytics/stored-record.js'
 
 /**
  * Filter and pagination options for `list()`.

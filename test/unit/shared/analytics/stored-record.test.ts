@@ -1,11 +1,7 @@
 /* eslint-disable camelcase */
 import {expect} from 'chai'
 
-import {
-  MAX_ATTEMPTS,
-  StoredAnalyticsRecordSchema,
-  toWireEvent,
-} from '../../../../../../src/server/core/domain/analytics/stored-record.js'
+import {MAX_ATTEMPTS, StoredAnalyticsRecordSchema, toWireEvent} from '../../../../src/shared/analytics/stored-record.js'
 
 const validIdentity = {
   device_id: '550e8400-e29b-41d4-a716-446655440000',
@@ -182,11 +178,10 @@ describe('StoredAnalyticsRecord', () => {
     })
 
     it('should silently strip extra unknown fields (Zod default behavior, matches batch.ts precedent)', () => {
-      // Decision (M9.1, 2026-05-10): use Zod default strip (NOT `.strict()` or `.passthrough()`).
-      // Mirrors batch.ts wire schemas — strip is forward-compatible: a future binary that adds
-      // a new known field, reading rows written by the old binary, will not crash. Cost: if a
-      // row on disk has unknown extra fields, M9.2 read-modify-rewrite will lose them. Accepted
-      // because we do not currently support out-of-schema extension.
+      // Use Zod default strip (NOT `.strict()` or `.passthrough()`). Mirrors batch.ts wire
+      // schemas: strip is forward-compatible — a future binary that adds a new known field,
+      // reading rows written by the old binary, will not crash. Cost: if a row on disk has
+      // unknown extra fields, the M9.2 read-modify-rewrite cycle will lose them.
       const parsed = StoredAnalyticsRecordSchema.safeParse({
         ...validRecord,
         unknown_extra_field: 'should be stripped',

@@ -1,4 +1,4 @@
-import type {StoredAnalyticsRecord} from '../../core/domain/analytics/stored-record.js'
+import type {StoredAnalyticsRecord} from '../../../shared/analytics/stored-record.js'
 import type {IAnalyticsQueue} from '../../core/interfaces/analytics/i-analytics-queue.js'
 
 const DEFAULT_MAX_SIZE = 1000
