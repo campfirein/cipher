@@ -61,8 +61,12 @@ const buildRequestContext = (socket: Socket): RequestContext => {
   const originHeader = socket.handshake.headers.origin
   const origin = typeof originHeader === 'string' ? originHeader : undefined
 
+  const cwdQuery = socket.handshake.query.cwd
+  const cwd = typeof cwdQuery === 'string' ? cwdQuery : undefined
+
   return {
     auth: tokenValue === undefined ? undefined : {token: tokenValue},
+    cwd,
     origin,
     transport: 'socket.io',
   }

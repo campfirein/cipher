@@ -16,6 +16,13 @@ export type RequestContext = {
     readonly token?: string
   }
   /**
+   * Client's working directory, sent on the Socket.IO handshake query.
+   * Channel handlers use this to resolve the project root for storage paths
+   * (`<cwd>/.brv/context-tree/channel/...`). Pre-existing semantics — the
+   * same value populates {@link ConnectionMetadata.cwd} at connect time.
+   */
+  readonly cwd?: string
+  /**
    * The `Origin` header value (or equivalent) from the client's handshake, if
    * the transport carries one. Used for origin allowlisting in channel auth.
    */
