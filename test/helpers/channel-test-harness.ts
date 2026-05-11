@@ -1,35 +1,29 @@
+import {spawn} from 'node:child_process'
+import {promises as fs} from 'node:fs'
+import {tmpdir} from 'node:os'
+import {dirname, join, resolve} from 'node:path'
+import {fileURLToPath} from 'node:url'
+
 /**
- * ChannelTestHarness — daemon boot + oclif runner for Phase 1 integration tests.
+ * ChannelTestHarness — subprocess-based daemon boot + oclif runner.
  *
- * STATUS: STUB. The shape is locked in Slice 1.1 so the failing happy-path
- * integration test compiles; the runtime is filled in across Slices 1.4 (when
- * the channel orchestrator + handler exist) and 1.5 (when oclif channel
- * commands exist). Until then, `boot()` and `run()` throw to surface the red
- * signal each subsequent slice turns green.
+ * Each harness instance owns:
+ *   - a temp `BRV_DATA_DIR` (so the daemon spawns with isolated state and
+ *     each test gets its own daemon-auth-token + InstanceInfo)
+ *   - the `projectDir` passed in by the test (used as `cwd` for every oclif
+ *     subprocess so channel commands resolve `projectRoot` correctly)
  *
- * Consumers (see test/integration/channel-phase1-*.test.ts):
+ * `run()` spawns `./bin/dev.js <args>` as a subprocess. The first call
+ * triggers the published `ensureDaemonRunning` in channel-client.ts, which
+ * forks the daemon. Subsequent calls reuse it. `shutdown()` reads the
+ * daemon's pid from `<BRV_DATA_DIR>/instances/*.json` and sends SIGTERM
+ * (with a hard SIGKILL fallback) so the next test isn't blocked on a stale
+ * port lock.
  *
- *   const projectDir = await makeTempContextTree()
- *   const harness = await ChannelTestHarness.boot({ projectDir })
- *   try {
- *     const result = await harness.run('channel new pi-test')
- *     // result.exitCode === 0
- *     // result.stdout / result.stderr available
- *
- *     // Auth-rejection canary: point at an orphan BRV_DATA_DIR.
- *     const orphan = await makeTempDir()
- *     const denied = await harness.run('channel new should-fail', { env: { BRV_DATA_DIR: orphan } })
- *     // denied.exitCode !== 0; denied.stderr matches /CHANNEL_UNAUTHORIZED|DAEMON_NOT_INITIALISED/
- *   } finally {
- *     await harness.shutdown()
- *   }
- *
- * Slice 1.4 / 1.5 will replace the stub with one of:
- *   (a) In-process: boot SocketIOTransportServer + register channel-handler,
- *       run oclif commands via @oclif/core's Config.runCommand against a
- *       daemon-client pointed at the in-process server.
- *   (b) Subprocess: spawn ./bin/dev.js for daemon and each command (slower,
- *       more realistic). Fallback per IMPLEMENTATION_PHASE_1.md §1.1 Risks.
+ * Tradeoffs vs. an in-process harness: slower (~3-5s per `run()` for ts-node
+ * startup), but it exercises the full ts-node → oclif → channel-client →
+ * socket.io → daemon → handler → orchestrator stack end-to-end. That's the
+ * critical path Phase 1 needs to prove, so the cost is the right one.
  */
 
 export type ChannelTestHarnessBootOptions = {
@@ -46,46 +40,188 @@ export type ChannelTestHarnessRunResult = {
   readonly stdout: string
 }
 
-const NOT_IMPLEMENTED =
-  'ChannelTestHarness is a Slice 1.1 stub. Runtime lands in Slices 1.4 (handler) and 1.5 (oclif). ' +
-  'See plan/channel-protocol/IMPLEMENTATION_PHASE_1.md for the schedule.'
+const HARNESS_DIR = dirname(fileURLToPath(import.meta.url))
+// test/helpers/ → up two levels to byterover-cli/
+const REPO_ROOT = resolve(HARNESS_DIR, '..', '..')
+const BIN_DEV = join(REPO_ROOT, 'bin', 'dev.js')
 
-export class ChannelTestHarness {
-  private constructor(
-    public readonly projectDir: string,
-  ) {}
-
-  static async boot(_options: ChannelTestHarnessBootOptions): Promise<ChannelTestHarness> {
-    throw new Error(NOT_IMPLEMENTED)
+const splitArgs = (input: string): string[] => {
+  // Lightweight shell-style splitter: handles single + double quotes, no
+  // escapes. The integration tests only use plain words and quoted strings,
+  // so this is sufficient. Full shell parsing is YAGNI for Phase 1.
+  const out: string[] = []
+  let buf = ''
+  let quote: "'" | '"' | undefined
+  for (const ch of input) {
+    if (quote !== undefined) {
+      if (ch === quote) {
+        quote = undefined
+      } else {
+        buf += ch
+      }
+    } else if (ch === '"' || ch === "'") {
+      quote = ch
+    } else if (ch === ' ' || ch === '\t') {
+      if (buf !== '') {
+        out.push(buf)
+        buf = ''
+      }
+    } else {
+      buf += ch
+    }
   }
 
-  async run(_args: string, _options?: ChannelTestHarnessRunOptions): Promise<ChannelTestHarnessRunResult> {
-    throw new Error(NOT_IMPLEMENTED)
+  if (buf !== '') out.push(buf)
+  return out
+}
+
+const killByPid = async (pid: number): Promise<void> => {
+  try {
+    process.kill(pid, 'SIGTERM')
+  } catch {
+    // Already gone.
+    return
+  }
+
+  // Wait briefly for graceful exit before SIGKILL. The await-in-loop is
+  // intentional: each iteration probes the process and sleeps before the
+  // next probe, which is the standard "wait for X" pattern.
+  for (let i = 0; i < 30; i += 1) {
+    try {
+      process.kill(pid, 0)
+    } catch {
+      return
+    }
+
+    // eslint-disable-next-line no-await-in-loop
+    await new Promise((r) => {
+      setTimeout(r, 100)
+    })
+  }
+
+  try {
+    process.kill(pid, 'SIGKILL')
+  } catch {
+    // Already gone.
+  }
+}
+
+export class ChannelTestHarness {
+  public readonly dataDir: string
+
+  private constructor(
+    public readonly projectDir: string,
+    dataDir: string,
+  ) {
+    this.dataDir = dataDir
+  }
+
+  static async boot(options: ChannelTestHarnessBootOptions): Promise<ChannelTestHarness> {
+    const dataDir = await fs.mkdtemp(join(tmpdir(), 'brv-channel-harness-'))
+    return new ChannelTestHarness(options.projectDir, dataDir)
+  }
+
+  async run(args: string, options?: ChannelTestHarnessRunOptions): Promise<ChannelTestHarnessRunResult> {
+    const argv = splitArgs(args)
+
+    const env = {
+      ...process.env,
+      BRV_DATA_DIR: this.dataDir,
+      BRV_ENV: 'development',
+      ...options?.env,
+    }
+
+    return new Promise((resolveResult) => {
+      const child = spawn('node', [BIN_DEV, ...argv], {
+        cwd: this.projectDir,
+        env,
+        stdio: ['ignore', 'pipe', 'pipe'],
+      })
+
+      let stdout = ''
+      let stderr = ''
+      child.stdout.on('data', (chunk: Buffer) => {
+        stdout += chunk.toString('utf8')
+      })
+      child.stderr.on('data', (chunk: Buffer) => {
+        stderr += chunk.toString('utf8')
+      })
+
+      child.on('close', (code) => {
+        resolveResult({exitCode: code ?? 0, stderr, stdout})
+      })
+
+      child.on('error', (err) => {
+        resolveResult({
+          exitCode: 127,
+          stderr: stderr + (err instanceof Error ? err.message : String(err)),
+          stdout,
+        })
+      })
+    })
   }
 
   async shutdown(): Promise<void> {
-    // No-op until boot() has a runtime; the stub never holds resources.
+    // Find the daemon spawned under our isolated BRV_DATA_DIR and kill it so
+    // the next test's boot doesn't fight an old daemon for the port. The
+    // daemon writes its InstanceInfo to `<dataDir>/daemon.json`.
+    try {
+      const raw = await fs.readFile(join(this.dataDir, 'daemon.json'), 'utf8')
+      const parsed = JSON.parse(raw) as {pid?: unknown}
+      if (typeof parsed.pid === 'number') {
+        await killByPid(parsed.pid)
+      }
+    } catch {
+      // No daemon.json → nothing to clean up (test failed before daemon spawn).
+    }
+
+    // Best-effort: clean up the data dir.
+    await fs.rm(this.dataDir, {force: true, recursive: true}).catch(() => {})
   }
 
   /**
    * Crash-recovery fault injection: deletes the `turn.json` snapshot for the
    * given (channel, turn) so the reader is forced to replay `events.jsonl`.
-   * Implementation lands in Slice 1.3 (storage) — path resolution uses the
-   * canonical layout under `<projectDir>/.brv/context-tree/channel/<id>/`.
+   * Uses the canonical layout under `<projectDir>/.brv/context-tree/channel/<id>/`.
    */
-  async simulateSnapshotLoss(_channelId: string, _turnId: string): Promise<void> {
-    throw new Error(NOT_IMPLEMENTED)
+  async simulateSnapshotLoss(channelId: string, turnId: string): Promise<void> {
+    const snapshotPath = join(
+      this.projectDir,
+      '.brv',
+      'context-tree',
+      'channel',
+      channelId,
+      'turns',
+      turnId,
+      'turn.json',
+    )
+    await fs.rm(snapshotPath, {force: true})
   }
 }
 
 /**
- * Parse JSON from a command's stdout. Throws with the raw output included in
- * the error message when parsing fails, so test failures are debuggable
- * without an extra round-trip.
+ * Parse JSON from a command's stdout, tolerating a non-JSON preamble such as
+ * the `[dotenv@17.x.x] injecting env ...` banner that bin/dev.js prints
+ * before any command output. Finds the first `{` or `[` and parses from there.
  */
 export const parseJson = <T = unknown>(stdout: string): T => {
+  // Find the first line that starts (at column 0) with `{` or `[`. This skips
+  // the dotenv banner (`[dotenv@17.x.x] ...`) that bin/dev.js prints, since
+  // that line starts with `[d` (not bare `[` / `{`).
+  const lines = stdout.split('\n')
+  let jsonStart = -1
+  for (const [index, line] of lines.entries()) {
+    if (line.startsWith('{') || line.startsWith('[')) {
+      // Reject the dotenv banner: it always starts with `[dotenv@`.
+      if (line.startsWith('[dotenv@')) continue
+      jsonStart = index
+      break
+    }
+  }
+
+  const slice = jsonStart === -1 ? stdout : lines.slice(jsonStart).join('\n')
   try {
-    return JSON.parse(stdout) as T
+    return JSON.parse(slice) as T
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     throw new Error(`Failed to parse JSON from stdout: ${message}\n---stdout---\n${stdout}\n---end---`)

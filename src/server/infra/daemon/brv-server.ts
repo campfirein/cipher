@@ -24,6 +24,7 @@
 
 import {GlobalInstanceManager} from '@campfirein/brv-transport-client'
 import express from 'express'
+import {nanoid} from 'nanoid'
 import {fork, type StdioOptions} from 'node:child_process'
 import {randomUUID} from 'node:crypto'
 import {mkdirSync, readdirSync, readFileSync, unlinkSync} from 'node:fs'
@@ -50,6 +51,13 @@ import {
 import {getGlobalDataDir} from '../../utils/global-data-path.js'
 import {getProjectDataDir} from '../../utils/path-utils.js'
 import {crashLog, processLog} from '../../utils/process-logger.js'
+import {readOrCreateDaemonAuthToken} from '../auth/daemon-token-store.js'
+import {ChannelStore} from '../channel/channel-store.js'
+import {ChannelOrchestrator} from '../channel/orchestrator.js'
+import {ChannelEventsWriter} from '../channel/storage/events-writer.js'
+import {ChannelSnapshotWriter} from '../channel/storage/snapshot-writer.js'
+import {ChannelTreeReader} from '../channel/storage/tree-reader.js'
+import {ChannelWriteSerializer} from '../channel/storage/write-serializer.js'
 import {ClientManager} from '../client/client-manager.js'
 import {ProjectConfigStore} from '../config/file-config-store.js'
 import {readContextTreeRemoteUrl} from '../context-tree/read-context-tree-remote.js'
@@ -75,6 +83,7 @@ import {FileProviderConfigStore} from '../storage/file-provider-config-store.js'
 import {FileReviewBackupStore} from '../storage/file-review-backup-store.js'
 import {createProviderKeychainStore} from '../storage/provider-keychain-store.js'
 import {createTokenStore} from '../storage/token-store.js'
+import {ChannelHandler} from '../transport/handlers/channel-handler.js'
 import {SocketIOTransportServer} from '../transport/socket-io-transport-server.js'
 import {createWebUiMiddleware} from '../webui/webui-middleware.js'
 import {WebUiServer} from '../webui/webui-server.js'
@@ -184,6 +193,13 @@ async function main(): Promise<void> {
 
   log(`Instance acquired (PID: ${process.pid}, port: ${port})`)
   const daemonStartedAt = Date.now()
+
+  // Create the daemon-auth-token file EARLY in bootstrap so clients that
+  // discover the daemon via `ensureDaemonRunning` always find a valid token
+  // on disk by the time they're cleared to connect. The channel handler
+  // bootstrap later in this file consumes this same token; the read is
+  // idempotent so re-reading is safe.
+  const daemonAuthToken = await readOrCreateDaemonAuthToken()
 
   // Steps 4-10 are wrapped so that partial startup is cleaned up.
   // Without this, a partial startup leaves daemon.json pointing to
@@ -686,6 +702,36 @@ async function main(): Promise<void> {
       transport: transportServer,
       webuiPort: webuiServer?.getPort(),
     })
+
+    // Register channel-protocol handlers (Phase 1 — passive turns only).
+    // CHANNEL_PROTOCOL.md §2 requires every channel:* request carry a daemon-
+    // local auth token; that token was created early in bootstrap (above)
+    // so it's on disk before any client could discover the daemon and try to
+    // connect over socket.io.
+    const channelWriteSerializer = new ChannelWriteSerializer()
+    const channelStore = new ChannelStore({
+      eventsWriter: new ChannelEventsWriter({serializer: channelWriteSerializer}),
+      snapshotWriter: new ChannelSnapshotWriter(),
+      treeReader: new ChannelTreeReader(),
+      writeSerializer: channelWriteSerializer,
+    })
+
+    const channelTransport = transportServer
+    const channelOrchestrator = new ChannelOrchestrator({
+      broadcaster: {
+        broadcastToChannel(channelId, event, data) {
+          channelTransport.broadcastTo(`channel:${channelId}`, event, data)
+        },
+      },
+      clock: () => new Date(),
+      idGenerator: () => nanoid(),
+      store: channelStore,
+    })
+
+    new ChannelHandler({
+      authToken: daemonAuthToken,
+      orchestrator: channelOrchestrator,
+    }).registerOn(channelTransport)
 
     // Load auth token AFTER feature handlers are registered.
     // AuthHandler's onAuthChanged/onAuthExpired callbacks must be wired first
