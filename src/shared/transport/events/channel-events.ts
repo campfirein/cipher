@@ -1,8 +1,11 @@
 import {z} from 'zod'
 
 import {
+  ChannelMemberSchema,
   ChannelSchema,
   ContentBlockSchema,
+  HandleSchema,
+  RequestPermissionOutcomeSchema,
   TurnDeliverySchema,
   TurnEventSchema,
   TurnSchema,
@@ -165,3 +168,122 @@ export const ChannelStateChangeBroadcastSchema = z.object({
   channelId: z.string(),
 })
 export type ChannelStateChangeBroadcast = z.infer<typeof ChannelStateChangeBroadcastSchema>
+
+export const ChannelMemberUpdateBroadcastSchema = z.object({
+  channelId: z.string(),
+  member: ChannelMemberSchema,
+  op: z.enum(['added', 'updated', 'removed']),
+})
+export type ChannelMemberUpdateBroadcast = z.infer<typeof ChannelMemberUpdateBroadcastSchema>
+
+// ─── Phase-2 request schemas (CHANNEL_PROTOCOL.md §8.2 + §8.4 + §8.5) ──────
+
+// channel:invite -------------------------------------------------------------
+
+const InvocationSchema = z.object({
+  args: z.array(z.string()),
+  command: z.string(),
+  cwd: z.string(),
+  env: z.record(z.string()).optional(),
+})
+
+/**
+ * §8.2 verbatim shape plus two Phase-2 refinements:
+ *   (a) `handle` MUST start with `@` (canonical-handle convention).
+ *   (b) `profileName` XOR `invocation` — exactly one must be present.
+ *
+ * Phase 2's handler additionally rejects `profileName` with
+ * `CHANNEL_INVALID_REQUEST` because the driver-profile registry doesn't
+ * land until Phase 3.
+ */
+export const ChannelInviteRequestSchema = z
+  .object({
+    capabilities: z.array(z.string()).optional(),
+    channelId: z.string(),
+    handle: HandleSchema,
+    invocation: InvocationSchema.optional(),
+    profileName: z.string().optional(),
+  })
+  .refine(
+    (data) => (data.profileName === undefined) !== (data.invocation === undefined),
+    {
+      message: 'exactly one of `profileName` or `invocation` must be provided',
+      path: ['invocation'],
+    },
+  )
+export type ChannelInviteRequest = z.infer<typeof ChannelInviteRequestSchema>
+
+export const ChannelInviteResponseSchema = z.object({
+  member: ChannelMemberSchema,
+})
+export type ChannelInviteResponse = z.infer<typeof ChannelInviteResponseSchema>
+
+// channel:uninvite -----------------------------------------------------------
+
+export const ChannelUninviteRequestSchema = z.object({
+  channelId: z.string(),
+  memberHandle: HandleSchema,
+})
+export type ChannelUninviteRequest = z.infer<typeof ChannelUninviteRequestSchema>
+
+export const ChannelUninviteResponseSchema = z.object({
+  member: ChannelMemberSchema,
+})
+export type ChannelUninviteResponse = z.infer<typeof ChannelUninviteResponseSchema>
+
+// channel:mention ------------------------------------------------------------
+
+export const ChannelMentionRequestSchema = z.object({
+  channelId: z.string(),
+  idempotencyKey: z.string().optional(),
+  lookback: z
+    .object({
+      facts: z.number().int().nonnegative().optional(),
+      recentTurns: z.number().int().nonnegative().optional(),
+    })
+    .optional(),
+  // Both prompt fields are optional at the schema layer — §8.4 emptiness
+  // is enforced after normalisation by the prompt normaliser so the wire
+  // error surfaces as CHANNEL_PROMPT_EMPTY.
+  mentions: z.array(HandleSchema).optional(),
+  prompt: z.string().optional(),
+  promptBlocks: z.array(ContentBlockSchema).optional(),
+})
+export type ChannelMentionRequest = z.infer<typeof ChannelMentionRequestSchema>
+
+/**
+ * `channel:mention` and `channel:cancel` both return the §8.4
+ * `ChannelTurnAcceptedResponse` shape `{turn, deliveries}`.
+ */
+export const ChannelTurnAcceptedResponseSchema = z.object({
+  deliveries: z.array(TurnDeliverySchema),
+  turn: TurnSchema,
+})
+export type ChannelTurnAcceptedResponse = z.infer<typeof ChannelTurnAcceptedResponseSchema>
+
+// channel:cancel -------------------------------------------------------------
+
+export const ChannelCancelRequestSchema = z.object({
+  channelId: z.string(),
+  deliveryId: z.string().optional(),
+  turnId: z.string(),
+})
+export type ChannelCancelRequest = z.infer<typeof ChannelCancelRequestSchema>
+
+export const ChannelCancelResponseSchema = ChannelTurnAcceptedResponseSchema
+export type ChannelCancelResponse = z.infer<typeof ChannelCancelResponseSchema>
+
+// channel:permission-decision ------------------------------------------------
+
+export const ChannelPermissionDecisionRequestSchema = z.object({
+  channelId: z.string(),
+  outcome: RequestPermissionOutcomeSchema,
+  permissionRequestId: z.string(),
+  turnId: z.string(),
+})
+export type ChannelPermissionDecisionRequest = z.infer<typeof ChannelPermissionDecisionRequestSchema>
+
+export const ChannelPermissionDecisionResponseSchema = z.object({
+  event: TurnEventSchema,
+})
+export type ChannelPermissionDecisionResponse = z.infer<typeof ChannelPermissionDecisionResponseSchema>

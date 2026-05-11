@@ -1,6 +1,7 @@
 import type {
   Channel,
   Turn,
+  TurnDelivery,
   TurnEvent,
 } from '../../../../shared/types/channel.js'
 
@@ -62,6 +63,12 @@ export type GetTurnArgs = {
 }
 
 export type GetTurnResult = {
+  /**
+   * Phase-2 active turns include per-delivery records reconstructed from
+   * `deliveries/<id>.json` snapshots or replayed from `events.jsonl`.
+   * Omitted for passive Phase-1 turns that have no deliveries.
+   */
+  readonly deliveries?: TurnDelivery[]
   readonly events: TurnEvent[]
   readonly turn: Turn
 }

@@ -206,7 +206,9 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
     })
     if (result === undefined) throw new ChannelTurnNotFoundError(args.channelId, args.turnId)
 
-    return {events: result.events, turn: result.turn}
+    return result.deliveries === undefined
+      ? {events: result.events, turn: result.turn}
+      : {deliveries: result.deliveries, events: result.events, turn: result.turn}
   }
 
   // ─── Turns ─────────────────────────────────────────────────────────────

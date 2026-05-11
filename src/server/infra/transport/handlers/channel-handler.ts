@@ -181,10 +181,12 @@ export class ChannelHandler {
         projectRoot,
         turnId: req.turnId,
       })
-      // Passive Phase-1 turns have no deliveries; omit the field entirely
-      // per CHANNEL_PROTOCOL.md §8.4 (deliveries became optional in fixup
-      // `bae8bbf2`).
-      return {events: result.events, turn: result.turn}
+      // Phase-1 passive turns: omit `deliveries` entirely (the field is
+      // optional in `ChannelGetTurnResponseSchema` per fixup `bae8bbf2`).
+      // Phase-2 active turns: forward the reconstructed delivery list.
+      return result.deliveries === undefined
+        ? {events: result.events, turn: result.turn}
+        : {deliveries: result.deliveries, events: result.events, turn: result.turn}
     })
   }
 }

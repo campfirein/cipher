@@ -1,6 +1,6 @@
 import {promises as fs} from 'node:fs'
 
-import type {Turn, TurnEvent} from '../../../../shared/types/channel.js'
+import type {Turn, TurnDelivery, TurnEvent} from '../../../../shared/types/channel.js'
 
 import {TurnSchema} from '../../../../shared/types/channel.js'
 import {channelPaths} from './paths.js'
@@ -103,6 +103,64 @@ export class ChannelTreeReader {
     return this.reconstructTurnFromEvents(args.channelId, args.turnId, events)
   }
 
+  /**
+   * Phase-2 replay path: walks `events.jsonl` once and emits one
+   * {@link TurnDelivery} per distinct `deliveryId` seen on
+   * `delivery_state_change` events, with the latest-observed state as the
+   * current state. Returns `[]` when no delivery events exist (passive
+   * Phase-1 turns).
+   */
+  async replayDeliveries(args: ReadEventsArgs): Promise<TurnDelivery[]> {
+    const events = await this.readEvents(args)
+    if (events.length === 0) return []
+
+    type Accumulator = {
+      firstEmittedAt: string
+      lastEmittedAt: string
+      memberHandle: string
+      state: TurnDelivery['state']
+    }
+    const byDelivery = new Map<string, Accumulator>()
+
+    for (const event of events) {
+      if (event.kind !== 'delivery_state_change') continue
+      const deliveryId = event.deliveryId ?? undefined
+      if (deliveryId === undefined) continue
+      const memberHandle = event.memberHandle ?? '@unknown'
+
+      const existing = byDelivery.get(deliveryId)
+      if (existing === undefined) {
+        byDelivery.set(deliveryId, {
+          firstEmittedAt: event.emittedAt,
+          lastEmittedAt: event.emittedAt,
+          memberHandle,
+          state: event.to,
+        })
+      } else {
+        existing.state = event.to
+        existing.lastEmittedAt = event.emittedAt
+      }
+    }
+
+    const TERMINAL_STATES = new Set<TurnDelivery['state']>(['cancelled', 'completed', 'errored'])
+    const result: TurnDelivery[] = []
+    for (const [deliveryId, acc] of byDelivery) {
+      result.push({
+        artifactsTouched: [],
+        channelId: args.channelId,
+        deliveryId,
+        endedAt: TERMINAL_STATES.has(acc.state) ? acc.lastEmittedAt : undefined,
+        memberHandle: acc.memberHandle,
+        startedAt: acc.firstEmittedAt,
+        state: acc.state,
+        toolCallCount: 0,
+        turnId: args.turnId,
+      })
+    }
+
+    return result
+  }
+
   private reconstructTurnFromEvents(
     channelId: string,
     turnId: string,
@@ -114,7 +172,12 @@ export class ChannelTreeReader {
       .find((e): e is Extract<TurnEvent, {kind: 'turn_state_change'}> => e.kind === 'turn_state_change')
 
     const startedAt = events[0]?.emittedAt ?? new Date(0).toISOString()
-    const endedAt = lastStateChange?.emittedAt
+    // Phase 2: only terminal states carry endedAt. `dispatched` is non-terminal
+    // (see CHANNEL_PROTOCOL.md §4.5 table), so an in-flight turn surfaces with
+    // `endedAt: undefined` after replay.
+    const state = lastStateChange?.to ?? 'pending'
+    const TERMINAL: Turn['state'][] = ['completed', 'cancelled']
+    const endedAt = TERMINAL.includes(state) ? lastStateChange?.emittedAt : undefined
 
     return {
       author: FALLBACK_EMPTY_AUTHOR,
@@ -124,7 +187,7 @@ export class ChannelTreeReader {
       promptBlocks: firstMessage === undefined ? [] : [{text: firstMessage.content, type: 'text'}],
       promptedBy: 'user',
       startedAt,
-      state: lastStateChange?.to ?? 'pending',
+      state,
       turnId,
     }
   }

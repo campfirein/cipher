@@ -1,7 +1,7 @@
 import {promises as fs} from 'node:fs'
 import {dirname, join} from 'node:path'
 
-import type {Channel, ChannelMeta} from '../../../shared/types/channel.js'
+import type {Channel, ChannelMeta, TurnDelivery} from '../../../shared/types/channel.js'
 import type {
   ChannelStoreAppendEventArgs,
   ChannelStoreCreateArgs,
@@ -9,14 +9,17 @@ import type {
   ChannelStoreListTurnsArgs,
   ChannelStoreListTurnsResult,
   ChannelStoreReadArgs,
+  ChannelStoreReadDeliveriesArgs,
   ChannelStoreReadTurnArgs,
   ChannelStoreReadTurnResult,
   ChannelStoreSnapshotArgs,
   ChannelStoreUpdateMetaArgs,
+  ChannelStoreWriteDeliveryArgs,
+  ChannelStoreWriteMessageArgs,
   IChannelStore,
 } from '../../core/interfaces/channel/i-channel-store.js'
 
-import {ChannelMetaSchema} from '../../../shared/types/channel.js'
+import {ChannelMetaSchema, TurnDeliverySchema} from '../../../shared/types/channel.js'
 import {ChannelEventsWriter} from './storage/events-writer.js'
 import {channelPaths} from './storage/paths.js'
 import {ChannelSnapshotWriter} from './storage/snapshot-writer.js'
@@ -179,6 +182,46 @@ export class ChannelStore implements IChannelStore {
     return meta === undefined ? undefined : toChannelProjection(meta)
   }
 
+  async readChannelMeta(args: ChannelStoreReadArgs): Promise<ChannelMeta | undefined> {
+    const target = channelPaths.metaFile(args.projectRoot, args.channelId)
+    return tryReadMeta(target)
+  }
+
+  async readDeliveries(args: ChannelStoreReadDeliveriesArgs): Promise<TurnDelivery[]> {
+    const deliveriesDir = join(
+      channelPaths.turnDir(args.projectRoot, args.channelId, args.turnId),
+      'deliveries',
+    )
+
+    let entries: string[] = []
+    try {
+      entries = await fs.readdir(deliveriesDir)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    }
+
+    const snapshots: TurnDelivery[] = []
+    for (const entry of entries) {
+      if (!entry.endsWith('.json')) continue
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        const raw = await fs.readFile(join(deliveriesDir, entry), 'utf8')
+        snapshots.push(TurnDeliverySchema.parse(JSON.parse(raw)))
+      } catch {
+        // Skip corrupt snapshots; replay will fill the gap.
+      }
+    }
+
+    if (snapshots.length > 0) return snapshots
+
+    // No snapshot files → replay from events.jsonl.
+    return this.treeReader.replayDeliveries({
+      channelId: args.channelId,
+      projectRoot: args.projectRoot,
+      turnId: args.turnId,
+    })
+  }
+
   async readTurn(args: ChannelStoreReadTurnArgs): Promise<ChannelStoreReadTurnResult | undefined> {
     const turn = await this.treeReader.readTurn({
       channelId: args.channelId,
@@ -193,7 +236,16 @@ export class ChannelStore implements IChannelStore {
       turnId: args.turnId,
     })
 
-    return {events, turn}
+    // Phase-2 active turns include delivery records; passive Phase-1 turns
+    // have none. Omit the field entirely when empty to preserve the
+    // Phase-1 wire shape.
+    const deliveries = await this.readDeliveries({
+      channelId: args.channelId,
+      projectRoot: args.projectRoot,
+      turnId: args.turnId,
+    })
+
+    return deliveries.length === 0 ? {events, turn} : {deliveries, events, turn}
   }
 
   async updateChannelMeta(args: ChannelStoreUpdateMetaArgs): Promise<Channel> {
@@ -208,6 +260,26 @@ export class ChannelStore implements IChannelStore {
       const next = ChannelMetaSchema.parse(mutate(existing))
       await writeAtomically(target, JSON.stringify(next, undefined, 2))
       return toChannelProjection(next)
+    })
+  }
+
+  async writeDeliverySnapshot(args: ChannelStoreWriteDeliveryArgs): Promise<void> {
+    await this.snapshotWriter.writeDeliverySnapshot({
+      channelId: args.channelId,
+      delivery: args.delivery,
+      deliveryId: args.deliveryId,
+      projectRoot: args.projectRoot,
+      turnId: args.turnId,
+    })
+  }
+
+  async writeMessage(args: ChannelStoreWriteMessageArgs): Promise<void> {
+    await this.snapshotWriter.writeMessage({
+      body: args.body,
+      channelId: args.channelId,
+      deliveryId: args.deliveryId,
+      projectRoot: args.projectRoot,
+      turnId: args.turnId,
     })
   }
 

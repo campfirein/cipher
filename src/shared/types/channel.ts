@@ -104,6 +104,13 @@ export type TurnAuthor = z.infer<typeof TurnAuthorSchema>
 
 // ─── ChannelMember ──────────────────────────────────────────────────────────
 
+/**
+ * Canonical Phase-2 handle: must start with `@`. Phase 1 shipped passive
+ * channels with no members, so no migration is required; this refinement
+ * is enforced at the schema layer from Phase 2 onward.
+ */
+export const HandleSchema = z.string().regex(/^@/, 'channel member handle must start with "@"')
+
 const ChannelMemberBaseShape = {
   joinedAt: z.string().datetime(),
   lastTurnAt: z.string().datetime().optional(),
@@ -133,7 +140,7 @@ const HumanMessagingStatusSchema = z.enum(['active', 'paired', 'muted', 'left'])
 const ChannelMemberAcpAgentSchema = z.object({
   ...ChannelMemberBaseShape,
   memberKind: z.literal('acp-agent'),
-  handle: z.string(),
+  handle: HandleSchema,
   agentName: z.string(),
   invocation: z.object({
     command: z.string(),
@@ -150,7 +157,7 @@ const ChannelMemberAcpAgentSchema = z.object({
 const ChannelMemberLocalAgentSchema = z.object({
   ...ChannelMemberBaseShape,
   memberKind: z.literal('local-agent'),
-  handle: z.string(),
+  handle: HandleSchema,
   agentName: z.string(),
   status: LocalAgentStatusSchema,
 })
@@ -161,7 +168,7 @@ const ChannelMemberHumanMessagingSchema = z.object({
   transport: z.literal('whatsapp'),
   accountId: z.string(),
   peerId: z.string(),
-  handle: z.string(),
+  handle: HandleSchema,
   displayName: z.string().optional(),
   status: HumanMessagingStatusSchema,
 })
@@ -247,18 +254,20 @@ const TurnEventBaseShape = {
   seq: z.number().int().nonnegative(),
 } as const
 
-const PermissionOptionSchema = z
+export const PermissionOptionSchema = z
   .object({
     optionId: z.string(),
     name: z.string(),
     kind: z.enum(['allow_once', 'allow_always', 'reject_once', 'reject_always']),
   })
   .passthrough()
+export type PermissionOption = z.infer<typeof PermissionOptionSchema>
 
-const RequestPermissionOutcomeSchema = z.discriminatedUnion('outcome', [
+export const RequestPermissionOutcomeSchema = z.discriminatedUnion('outcome', [
   z.object({outcome: z.literal('cancelled')}),
   z.object({outcome: z.literal('selected'), optionId: z.string()}),
 ])
+export type RequestPermissionOutcome = z.infer<typeof RequestPermissionOutcomeSchema>
 
 export const TurnEventSchema = z.discriminatedUnion('kind', [
   z.object({
