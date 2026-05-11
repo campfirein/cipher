@@ -121,6 +121,91 @@ export class ChannelTestHarness {
     return new ChannelTestHarness(options.projectDir, dataDir)
   }
 
+  /**
+   * Poll `brv channel show <channel> <turnId> --json` until an event matching
+   * `predicate` is observed in `events[]`. Returns the matched event.
+   */
+  async pollForEvent<T = Record<string, unknown>>(
+    channelId: string,
+    turnId: string,
+    predicate: (event: Record<string, unknown>) => boolean,
+    options?: {timeoutMs?: number},
+  ): Promise<T> {
+    const timeoutMs = options?.timeoutMs ?? 60_000
+    const deadline = Date.now() + timeoutMs
+     
+    while (Date.now() < deadline) {
+      // eslint-disable-next-line no-await-in-loop
+      const res = await this.run(`channel show ${channelId} ${turnId} --json`)
+      if (res.exitCode === 0) {
+        try {
+          const parsed = parseJson<{events: Array<Record<string, unknown>>}>(res.stdout)
+          const match = parsed.events.find((e) => predicate(e))
+          if (match !== undefined) return match as T
+        } catch {
+          // Ignore parse blips; keep polling.
+        }
+      }
+
+      // eslint-disable-next-line no-await-in-loop
+      await new Promise((r) => {
+        setTimeout(r, 200)
+      })
+    }
+
+    throw new Error(
+      `pollForEvent: predicate did not match within ${timeoutMs}ms for turn ${turnId} in channel ${channelId}`,
+    )
+  }
+
+  /**
+   * Poll `brv channel list-turns --json` until the named turn reaches a
+   * terminal state (`completed` or `cancelled` — per CHANNEL_PROTOCOL.md §4.5,
+   * these are the only terminal `TurnState` values; delivery-level errors
+   * surface as `delivery_state_change → errored` while the turn finalises as
+   * `completed`).
+   *
+   * Times out after `timeoutMs` (default 60_000) and rejects with a clear
+   * error including the last observed state.
+   */
+  async pollForTerminal(
+    channelId: string,
+    turnId: string,
+    options?: {timeoutMs?: number},
+  ): Promise<{state: 'cancelled' | 'completed'; turn: Record<string, unknown>}> {
+    const timeoutMs = options?.timeoutMs ?? 60_000
+    const deadline = Date.now() + timeoutMs
+    let lastState: string | undefined
+     
+    while (Date.now() < deadline) {
+      // eslint-disable-next-line no-await-in-loop
+      const res = await this.run(`channel list-turns ${channelId} --json`)
+      if (res.exitCode === 0) {
+        try {
+          const parsed = parseJson<{turns: Array<{state?: string; turnId?: string}>}>(res.stdout)
+          const turn = parsed.turns.find((t) => t.turnId === turnId)
+          if (turn !== undefined) {
+            lastState = turn.state
+            if (turn.state === 'completed' || turn.state === 'cancelled') {
+              return {state: turn.state, turn: turn as Record<string, unknown>}
+            }
+          }
+        } catch {
+          // Ignore parse blips; keep polling.
+        }
+      }
+
+      // eslint-disable-next-line no-await-in-loop
+      await new Promise((r) => {
+        setTimeout(r, 200)
+      })
+    }
+
+    throw new Error(
+      `pollForTerminal: turn ${turnId} in channel ${channelId} did not reach terminal within ${timeoutMs}ms (last state: ${lastState ?? 'unknown'})`,
+    )
+  }
+
   async run(args: string, options?: ChannelTestHarnessRunOptions): Promise<ChannelTestHarnessRunResult> {
     const argv = splitArgs(args)
 

@@ -89,6 +89,15 @@ export type ChannelClient = {
    * canonical wire code (CHANNEL_*, ACP_*, AGENT_DRIVER_PROFILE_*) on failure.
    */
   request<TReq = unknown, TRes = unknown>(event: string, data: TReq): Promise<TRes>
+  /**
+   * Phase-2: join the Socket.IO room `channel:<channelId>` so broadcasts
+   * (`channel:turn-event`, `channel:state-change`, `channel:member-update`)
+   * for that channel reach this client. Awaits the server ack so callers
+   * can safely send a request that triggers broadcasts immediately after.
+   */
+  subscribe(channelId: string): Promise<void>
+  /** Phase-2: leave the channel's Socket.IO room. */
+  unsubscribe(channelId: string): Promise<void>
 }
 
 export type ChannelClientOptions = {
@@ -181,6 +190,29 @@ export const connectChannelClient = async (options?: ChannelClientOptions): Prom
 
   const connectedSocket = socket
 
+  const roomEmit = (event: 'room:join' | 'room:leave', channelId: string): Promise<void> =>
+    new Promise((resolve, reject) => {
+      const room = `channel:${channelId}`
+      connectedSocket.emit(event, room, (response: unknown) => {
+        if (
+          typeof response === 'object' &&
+          response !== null &&
+          'success' in response &&
+          (response as {success: unknown}).success === true
+        ) {
+          resolve()
+          return
+        }
+
+        reject(
+          new ChannelClientError(
+            CONNECT_FAILED,
+            `${event} for ${room} failed: ${JSON.stringify(response)}`,
+          ),
+        )
+      })
+    })
+
   return {
     disconnect() {
       if (connectedSocket.connected) connectedSocket.disconnect()
@@ -225,6 +257,12 @@ export const connectChannelClient = async (options?: ChannelClientOptions): Prom
           )
         })
       }),
+    subscribe(channelId: string): Promise<void> {
+      return roomEmit('room:join', channelId)
+    },
+    unsubscribe(channelId: string): Promise<void> {
+      return roomEmit('room:leave', channelId)
+    },
   }
 }
 
