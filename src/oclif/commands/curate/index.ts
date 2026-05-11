@@ -9,6 +9,7 @@ import {BRV_DIR, CONTEXT_TREE_DIR} from '../../../server/constants.js'
 import {ProviderConfigResponse, TransportStateEventNames} from '../../../server/core/domain/transport/index.js'
 import {extractCurateOperations} from '../../../server/utils/curate-result-parser.js'
 import {TaskEvents} from '../../../shared/transport/events/index.js'
+import {continueSession, kickoffSession, resolveProjectRoot} from '../../lib/curate-session.js'
 import {
   type DaemonClientOptions,
   formatConnectionError,
@@ -26,8 +27,17 @@ type CurateFlags = {
   files?: string[]
   folder?: string[]
   format?: 'json' | 'text'
+  response?: string
+  session?: string
   timeout?: number
 }
+
+/**
+ * Env-var opt-in for tool-mode kickoff (TKT 01 placeholder protocol).
+ * Continuation is detected by `--session` presence (env var not required);
+ * TKT 02 replaces this with a BrvConfig field.
+ */
+const TOOL_MODE_ENV_VAR = 'BRV_CURATE_TOOL_MODE'
 
 export default class Curate extends Command {
   public static args = {
@@ -87,6 +97,19 @@ Bad examples:
       description: 'Output format (text or json)',
       options: ['text', 'json'],
     }),
+    response: Flags.string({
+      // Pairs with --session for tool-mode continuation. The opaque
+      // text is interpreted by the orchestrator per the step it last
+      // emitted (HTML for generate-html / correct-html). Presence
+      // without --session is rejected during validation.
+      description: 'Tool-mode continuation payload (paired with --session)',
+    }),
+    session: Flags.string({
+      // Tool-mode continuation: resumes an existing session by id.
+      // Presence of --session implies tool mode; the env var
+      // BRV_CURATE_TOOL_MODE is only consulted for kickoff.
+      description: 'Tool-mode session id to continue (returned by a prior kickoff)',
+    }),
     timeout: Flags.integer({
       default: DEFAULT_TIMEOUT_SECONDS,
       description: 'Maximum seconds to wait for task completion',
@@ -106,9 +129,28 @@ Bad examples:
       files: rawFlags.files,
       folder: rawFlags.folder,
       format: rawFlags.format === 'json' ? 'json' : rawFlags.format === 'text' ? 'text' : undefined,
+      response: rawFlags.response,
+      session: rawFlags.session,
       timeout: rawFlags.timeout,
     }
     const format: 'json' | 'text' = flags.format ?? 'text'
+
+    // Tool-mode dispatch — runs before the legacy provider check and
+    // task lifecycle. Continuation is implied by --session; kickoff
+    // requires the BRV_CURATE_TOOL_MODE env var (TKT 02 replaces with
+    // a BrvConfig flag). Without either, fall through to the legacy
+    // agent-driven path unchanged.
+    if (flags.session !== undefined) {
+      // Narrow at the call site so the handler doesn't need a non-null
+      // assertion on flags.session.
+      await this.handleToolModeContinuation({flags, format, sessionId: flags.session})
+      return
+    }
+
+    if (process.env[TOOL_MODE_ENV_VAR] === '1') {
+      await this.handleToolModeKickoff({args, format})
+      return
+    }
 
     if (!this.validateInput(args, flags, format)) return
 
@@ -213,6 +255,40 @@ Bad examples:
     return changes
   }
 
+  /**
+   * Wire-envelope emitter for tool-mode (TKT 01). JSON mode dumps the
+   * envelope inside the standard `{command, data, success, timestamp}`
+   * wrapper for symmetry with the rest of the CLI. Text mode prints a
+   * terse human-readable digest; the main consumer is the calling
+   * agent in `--format json` mode.
+   */
+  private emitToolModeEnvelope(
+    envelope: Awaited<ReturnType<typeof kickoffSession>>,
+    format: 'json' | 'text',
+  ): void {
+    if (format === 'json') {
+      writeJsonResponse({command: 'curate', data: envelope, success: envelope.ok})
+      return
+    }
+
+    if (envelope.status === 'needs-llm-step') {
+      this.log(
+        `Session ${envelope.sessionId} awaiting ${envelope.step}. Run: brv curate --session ${envelope.sessionId} --response "<your output>"`,
+      )
+      if (envelope.prompt) {
+        this.log('\nPrompt:')
+        this.log(envelope.prompt)
+      }
+    } else if (envelope.status === 'done') {
+      this.log(`✓ Curated to ${envelope.filePath}`)
+    } else {
+      this.log('✗ Curate failed')
+      for (const err of envelope.errors ?? []) {
+        this.log(`  ${err.kind}: ${err.message}`)
+      }
+    }
+  }
+
   private extractChangesFromApplied(
     applied: CurateLogOperation[],
     changes: {created: string[]; updated: string[]},
@@ -245,6 +321,72 @@ Bad examples:
     const idx = filePath.indexOf(marker)
     if (idx === -1) return undefined
     return filePath.slice(idx + marker.length)
+  }
+
+  /**
+   * Tool-mode continuation (TKT 01 placeholder). Resumes a session by
+   * id, accepts the response payload, returns the next envelope.
+   * Always returns `done` on first continuation in the placeholder.
+   */
+  private async handleToolModeContinuation(props: {
+    flags: CurateFlags
+    format: 'json' | 'text'
+    sessionId: string
+  }): Promise<void> {
+    const {flags, format, sessionId} = props
+    if (flags.response === undefined) {
+      this.emitToolModeEnvelope(
+        {
+          errors: [
+            {
+              kind: 'missing-response',
+              message: '--session requires --response. Pass the calling agent\'s LLM output via --response.',
+            },
+          ],
+          ok: false,
+          status: 'failed',
+        },
+        format,
+      )
+      return
+    }
+
+    const envelope = await continueSession({
+      projectRoot: resolveProjectRoot(),
+      response: flags.response,
+      sessionId,
+    })
+    this.emitToolModeEnvelope(envelope, format)
+  }
+
+  /**
+   * Tool-mode kickoff (TKT 01 placeholder). Runs the in-CLI placeholder
+   * orchestrator and writes the wire envelope to stdout. No daemon
+   * connection, no provider check — tool mode never invokes the
+   * byterover LLM. TKT 02 moves this dispatch into the daemon when the
+   * real state machine needs the search service + index for UPDATE
+   * detection.
+   */
+  private async handleToolModeKickoff(props: {
+    args: {context?: string}
+    format: 'json' | 'text'
+  }): Promise<void> {
+    const {args, format} = props
+    const content = args.context?.trim() ?? ''
+    if (content.length === 0) {
+      this.emitToolModeEnvelope(
+        {
+          errors: [{kind: 'missing-content', message: 'Tool-mode kickoff requires a context argument.'}],
+          ok: false,
+          status: 'failed',
+        },
+        format,
+      )
+      return
+    }
+
+    const envelope = await kickoffSession({content, projectRoot: resolveProjectRoot()})
+    this.emitToolModeEnvelope(envelope, format)
   }
 
   /**
