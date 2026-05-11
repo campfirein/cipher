@@ -9,6 +9,7 @@ import type {
   TurnEventPayload,
 } from '../../../core/interfaces/channel/i-acp-driver.js'
 
+import {AcpHandshakeFailedError} from '../../../core/domain/channel/errors.js'
 import {projectSessionUpdate} from './acp-event-projector.js'
 import {AcpRpcClient, AcpRpcError} from './acp-rpc-client.js'
 
@@ -24,14 +25,7 @@ export type AcpDriverOptions = {
   readonly invocation: AcpDriverInvocation
 }
 
-export class AcpHandshakeFailedError extends Error {
-  public readonly code = 'ACP_HANDSHAKE_FAILED'
 
-  constructor(handle: string, reason: string) {
-    super(`ACP handshake failed for ${handle}: ${reason}`)
-    this.name = 'AcpHandshakeFailedError'
-  }
-}
 
 type SessionUpdateNotification = {
   sessionId: string
@@ -289,3 +283,5 @@ export class AcpDriver implements IAcpDriver {
     }
   }
 }
+
+export {AcpHandshakeFailedError} from '../../../core/domain/channel/errors.js'

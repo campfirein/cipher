@@ -2,7 +2,8 @@ import {expect} from 'chai'
 import {dirname, resolve} from 'node:path'
 import {fileURLToPath} from 'node:url'
 
-import {AcpDriver, AcpHandshakeFailedError} from '../../../../../../src/server/infra/channel/drivers/acp-driver.js'
+import {AcpHandshakeFailedError} from '../../../../../../src/server/core/domain/channel/errors.js'
+import {AcpDriver} from '../../../../../../src/server/infra/channel/drivers/acp-driver.js'
 
 // Slice 2.2 — subprocess-driven ACP driver. Spawns the mock-acp.js fixtures
 // from Slice 2.1 and exercises start() / prompt() / cancel() / stop().

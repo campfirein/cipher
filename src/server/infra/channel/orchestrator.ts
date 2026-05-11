@@ -25,10 +25,10 @@ import {
   ChannelAlreadyExistsError,
   ChannelArchivedError,
   ChannelNotFoundError,
-  ChannelPromptEmptyError,
   ChannelTurnNotFoundError,
 } from '../../core/domain/channel/errors.js'
 import {assertLegalTurnTransition} from '../../core/domain/channel/turn-state-machine.js'
+import {normalisePrompt} from './prompt-normaliser.js'
 
 /**
  * Phase-1 channel orchestrator. Composes the channel store + broadcaster +
@@ -56,47 +56,6 @@ export type ChannelOrchestratorDeps = {
   readonly clock: () => Date
   readonly idGenerator: () => string
   readonly store: IChannelStore
-}
-
-const isWhitespaceOnly = (text: string): boolean => text.trim() === ''
-
-const blockIsEmpty = (block: ContentBlock): boolean => {
-  if (block.type === 'text') return isWhitespaceOnly(block.text)
-  // Non-text blocks (resource_link, resource, image, audio) are always
-  // considered non-empty per CHANNEL_PROTOCOL.md §8.4: a structured-only
-  // request with a resource_link is valid even with no text.
-  return false
-}
-
-/**
- * Normalise `(prompt, promptBlocks)` into the final ContentBlock[] per the
- * §8.4 precedence rules. Throws ChannelPromptEmptyError if the result would
- * be empty (no blocks, or only whitespace-only text blocks).
- */
-const normalisePrompt = (args: {
-  prompt?: string
-  promptBlocks?: ContentBlock[]
-}): ContentBlock[] => {
-  const hasPrompt = args.prompt !== undefined && !isWhitespaceOnly(args.prompt)
-  const hasBlocks = args.promptBlocks !== undefined && args.promptBlocks.length > 0
-
-  if (!hasPrompt && !hasBlocks) throw new ChannelPromptEmptyError()
-
-  let result: ContentBlock[]
-  if (hasBlocks && hasPrompt) {
-    result = [...args.promptBlocks!, {text: args.prompt!, type: 'text'}]
-  } else if (hasBlocks) {
-    result = args.promptBlocks!
-  } else {
-    // prompt only
-    result = [{text: args.prompt!, type: 'text'}]
-  }
-
-  // The only block-shaped emptiness left is "blocks were provided but every
-  // block is whitespace-only text".
-  if (result.every((b) => blockIsEmpty(b))) throw new ChannelPromptEmptyError()
-
-  return result
 }
 
 const firstTextOf = (blocks: ContentBlock[]): string => {
