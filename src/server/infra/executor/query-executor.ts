@@ -23,7 +23,7 @@ import {
 import {loadSources} from '../../core/domain/source/source-schema.js'
 import {isDerivedArtifact} from '../context-tree/derived-artifact.js'
 import {FileContextTreeManifestService} from '../context-tree/file-context-tree-manifest-service.js'
-import {MarkdownOnlyFormatDetector} from '../render/format/markdown-only-format-detector.js'
+import {ExtensionAwareFormatDetector} from '../render/format/extension-aware-format-detector.js'
 import {renderHtmlTopicForLlm} from '../render/reader/html-renderer.js'
 import {
   canRespondDirectly,
@@ -59,10 +59,12 @@ export interface QueryExecutorDeps {
   /** File system for reading full document content and computing fingerprints */
   fileSystem?: IFileSystem
   /**
-   * Format-mode detector for `QueryExecutorResult.format` .
-   * Defaults to {@link MarkdownOnlyFormatDetector} which always reports
-   * `'markdown'` until the format-detector task lands the real extension-aware
-   * detector.
+   * Format-mode detector for `QueryExecutorResult.format`. Defaults to
+   * {@link ExtensionAwareFormatDetector} — inspects each `matchedDoc.path`
+   * extension and reports `'html'` if any HTML doc is in the recall, else
+   * `'markdown'`. The legacy {@link MarkdownOnlyFormatDetector} stub is kept
+   * around for tests that pin pre-migration behaviour but should not be
+   * wired as the production default.
    */
   formatDetector?: IFormatDetector
   /** Search service for pre-fetching relevant context before calling the LLM */
@@ -100,7 +102,7 @@ export class QueryExecutor implements IQueryExecutor {
   constructor(deps?: QueryExecutorDeps) {
     this.baseDirectory = deps?.baseDirectory
     this.fileSystem = deps?.fileSystem
-    this.formatDetector = deps?.formatDetector ?? new MarkdownOnlyFormatDetector()
+    this.formatDetector = deps?.formatDetector ?? new ExtensionAwareFormatDetector()
     this.searchService = deps?.searchService
     if (deps?.enableCache) {
       this.cache = new QueryResultCache()
