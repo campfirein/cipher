@@ -33,6 +33,14 @@ export class ExtensionAwareFormatDetector implements IFormatDetector {
  * Shared-source paths are namespaced as `[alias]:<rel-path>`. The read-side
  * `getFormatForRead` only understands filesystem-style paths, so strip the
  * alias before delegation. Local paths pass through unchanged.
+ *
+ * Defense-in-depth note: today `path.extname` would still return the right
+ * extension on a `[alias]:rel/path.html` input because the colon lives in
+ * the dirname segment and `extname` operates on the basename. The helper is
+ * kept anyway so (a) the detector's contract stays independent of
+ * `getFormatForRead`'s internals — e.g. if it ever switches to URL-style
+ * parsing the alias prefix would break it, and (b) the alias-stripping
+ * branch is testable in isolation.
  */
 function stripSharedAlias(p: string): string {
   if (!p.startsWith('[')) return p

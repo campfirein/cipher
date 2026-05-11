@@ -450,6 +450,31 @@ describe('ByteRoverLlmHttpService', () => {
       expect(terminatingChunk?.rawResponse).to.deep.equal(backendResponse)
     })
 
+    it('should attach rawResponse on the candidates-empty terminating chunk (safety-filter / refusal shape)', async () => {
+      // Gemini emits this shape on safety-filter blocks with usageMetadata
+      // populated; Claude can return it on refusals. Both surfaces have
+      // billable tokens the telemetry pipeline must still capture, so the
+      // candidates-empty early-return must forward rawResponse the same way
+      // the other terminating branches do.
+      const backendResponse = {
+        candidates: [],
+        usageMetadata: {candidatesTokenCount: 0, promptTokenCount: 9, totalTokenCount: 9},
+      }
+      nock(baseUrl).post('/api/llm/generate').reply(200, createMockResponse(backendResponse))
+
+      const chunks = []
+      for await (const chunk of service.generateContentStream(
+        [{parts: [{text: 'blocked content'}], role: 'user'}],
+        {},
+      )) {
+        chunks.push(chunk)
+      }
+
+      const terminatingChunk = chunks.at(-1)
+      expect(terminatingChunk?.isComplete).to.equal(true)
+      expect(terminatingChunk?.rawResponse).to.deep.equal(backendResponse)
+    })
+
     it('should attach rawResponse on the function-call terminating chunk', async () => {
       const backendResponse = {
         candidates: [
