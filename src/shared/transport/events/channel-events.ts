@@ -146,7 +146,7 @@ export const ChannelGetTurnRequestSchema = z.object({
 export type ChannelGetTurnRequest = z.infer<typeof ChannelGetTurnRequestSchema>
 
 export const ChannelGetTurnResponseSchema = z.object({
-  deliveries: z.array(TurnDeliverySchema),
+  deliveries: z.array(TurnDeliverySchema).optional(), // passive channels (Phase 1) have no deliveries
   events: z.array(TurnEventSchema),
   turn: TurnSchema,
 })
