@@ -39,7 +39,7 @@ Every kickoff and continuation call returns the same JSON envelope under the sta
   "data": {
     "ok": <bool>,
     "status": "done" | "needs-llm-step" | "failed",
-    "sessionId": "<uuid>",       // present when status = needs-llm-step
+    "sessionId": "<uuid>",       // present on needs-llm-step AND on transient failed (see below)
     "step": "generate-html" | "correct-html",
     "prompt": "<free-text>",      // free-text instruction for the calling agent's LLM
     "schema": { ... },            // optional per-step schema slice (TKT 03 populates)
@@ -74,15 +74,17 @@ Every kickoff and continuation call returns the same JSON envelope under the sta
 
 ### Error `kind` values
 
-| `kind` | When | Notes |
-|---|---|---|
-| `missing-content` | Kickoff invoked without a context argument | Kickoff-time failure |
-| `missing-response` | `--session` invoked without `--response` | Continuation-time failure |
-| `unknown-session` | `--session <id>` references a session that doesn't exist or was already completed | Continuation-time failure |
-| `empty-response` | Continuation received an empty `--response` | Continuation-time failure (placeholder check) |
-| `missing-attribute` | (TKT 02) Schema validation found a missing required attribute | Correction path |
-| `unknown-element` | (TKT 02) Schema validation found a `<bv-*>` tag not in the registry | Correction path |
-| `unsafe-path` | (TKT 02) Generated topic's `path` attribute attempts traversal | Correction path |
+| `kind` | Lifecycle | Terminal? | Notes |
+|---|---|---|---|
+| `missing-content` | Kickoff | **terminal** | Kickoff invoked without a context argument; no session created |
+| `missing-response` | Continuation | **terminal** | `--session` invoked without `--response`; session unaffected |
+| `unknown-session` | Continuation | **terminal** | Session id doesn't exist, was already completed, or fails uuid validation |
+| `empty-response` | Continuation | **transient** (session kept live) | Continuation received an empty `--response`; caller retries with the same `sessionId` |
+| `missing-attribute` | Continuation (TKT 02) | **transient** | Schema validation found a missing required attribute; corrected via `correct-html` step |
+| `unknown-element` | Continuation (TKT 02) | **transient** | Schema validation found a `<bv-*>` tag not in the registry |
+| `unsafe-path` | Continuation (TKT 02) | **transient** | Generated topic's `path` attribute attempts traversal |
+
+**Terminal vs transient.** Terminal failures end the session — the caller cannot retry the same `sessionId` and must start a new kickoff. Transient failures keep the session alive on disk; the envelope echoes the `sessionId` back and the caller is expected to issue a corrected continuation against it.
 
 The list grows as TKT 02 + TKT 03 add real validation. Calling agents should switch on `kind`, fall back gracefully on unknown kinds, and surface the `message` text to the user.
 

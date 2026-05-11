@@ -18,7 +18,7 @@
 
 import {expect} from 'chai'
 import {existsSync} from 'node:fs'
-import {mkdtemp, readFile, rm} from 'node:fs/promises'
+import {mkdir, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
@@ -27,6 +27,7 @@ import {
   CURATE_SESSION_PREFIX,
   CURATE_SESSIONS_DIR,
   kickoffSession,
+  resolveProjectRoot,
 } from '../../../../src/oclif/lib/curate-session.js'
 import {BRV_DIR} from '../../../../src/server/constants.js'
 
@@ -168,6 +169,109 @@ describe('curate-session placeholder', () => {
 
       expect(envelope.status).to.equal('failed')
       expect(envelope.errors![0].kind).to.equal('unknown-session')
+    })
+  })
+
+  describe('continueSession — security + robustness', () => {
+    it('rejects path-traversal sessionId before any filesystem access', async () => {
+      // `--session "../../../etc"` would, without validation, get
+      // path-joined into `.brv/sessions/curate-../../../etc/state.json`
+      // and resolve outside the project. The fix: validate against the
+      // uuid shape up front. Either way the caller sees the same
+      // `unknown-session` outcome — we don't leak that we're
+      // path-traversal-checking.
+      const traversalAttempts = [
+        '../../../etc',
+        '../sibling-project',
+        '/absolute/path',
+        '..',
+        'curate-/../escape',
+        '8609bc28-9a44-41a1-b52d-423213d5f59d/extra', // looks uuid-ish but trailing segment
+      ]
+
+      for (const sessionId of traversalAttempts) {
+        // eslint-disable-next-line no-await-in-loop
+        const envelope = await continueSession({projectRoot, response: 'x', sessionId})
+        expect(envelope.status, `case: ${sessionId}`).to.equal('failed')
+        expect(envelope.errors![0].kind, `case: ${sessionId}`).to.equal('unknown-session')
+      }
+    })
+
+    it('treats a corrupted state.json as no session (type-guarded readback)', async () => {
+      const kickoff = await kickoffSession({content: 'x', projectRoot})
+      const sessionId = kickoff.sessionId!
+
+      // Corrupt the on-disk state — schema-skewed shape that would have
+      // sneaked through `as CurateSessionState`. The type guard treats
+      // it as "no session" so the placeholder doesn't proceed with
+      // garbage fields.
+      const statePath = join(
+        projectRoot,
+        BRV_DIR,
+        CURATE_SESSIONS_DIR,
+        `${CURATE_SESSION_PREFIX}${sessionId}`,
+        'state.json',
+      )
+      await writeFile(statePath, JSON.stringify({totally: 'wrong shape'}), 'utf8')
+
+      const envelope = await continueSession({projectRoot, response: 'x', sessionId})
+      expect(envelope.status).to.equal('failed')
+      expect(envelope.errors![0].kind).to.equal('unknown-session')
+    })
+
+    it('treats unparseable state.json (truncated write) as no session', async () => {
+      const kickoff = await kickoffSession({content: 'x', projectRoot})
+      const sessionId = kickoff.sessionId!
+
+      const statePath = join(
+        projectRoot,
+        BRV_DIR,
+        CURATE_SESSIONS_DIR,
+        `${CURATE_SESSION_PREFIX}${sessionId}`,
+        'state.json',
+      )
+      await writeFile(statePath, '{ this is not json', 'utf8')
+
+      const envelope = await continueSession({projectRoot, response: 'x', sessionId})
+      expect(envelope.status).to.equal('failed')
+      expect(envelope.errors![0].kind).to.equal('unknown-session')
+    })
+  })
+
+  describe('resolveProjectRoot', () => {
+    it('returns the directory that contains the .brv/ marker when called from a subdirectory', async () => {
+      const project = await mkdtemp(join(tmpdir(), 'curate-session-root-'))
+      try {
+        await mkdir(join(project, BRV_DIR), {recursive: true})
+        const nested = join(project, 'src', 'agent')
+        await mkdir(nested, {recursive: true})
+
+        expect(resolveProjectRoot(nested)).to.equal(project)
+      } finally {
+        await rm(project, {force: true, recursive: true})
+      }
+    })
+
+    it('returns the input directory itself when it contains .brv/', async () => {
+      const project = await mkdtemp(join(tmpdir(), 'curate-session-root-'))
+      try {
+        await mkdir(join(project, BRV_DIR), {recursive: true})
+        expect(resolveProjectRoot(project)).to.equal(project)
+      } finally {
+        await rm(project, {force: true, recursive: true})
+      }
+    })
+
+    it('falls back to the start directory when no .brv/ marker is found upward', async () => {
+      // A fresh tmpdir with no .brv/ anywhere upward should fall back to
+      // the start path — matches today's curate behavior of creating
+      // .brv/ alongside cwd on first use.
+      const project = await mkdtemp(join(tmpdir(), 'curate-session-no-brv-'))
+      try {
+        expect(resolveProjectRoot(project)).to.equal(project)
+      } finally {
+        await rm(project, {force: true, recursive: true})
+      }
     })
   })
 

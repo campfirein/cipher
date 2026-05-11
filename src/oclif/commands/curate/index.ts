@@ -9,7 +9,7 @@ import {BRV_DIR, CONTEXT_TREE_DIR} from '../../../server/constants.js'
 import {ProviderConfigResponse, TransportStateEventNames} from '../../../server/core/domain/transport/index.js'
 import {extractCurateOperations} from '../../../server/utils/curate-result-parser.js'
 import {TaskEvents} from '../../../shared/transport/events/index.js'
-import {continueSession, kickoffSession} from '../../lib/curate-session.js'
+import {continueSession, kickoffSession, resolveProjectRoot} from '../../lib/curate-session.js'
 import {
   type DaemonClientOptions,
   formatConnectionError,
@@ -141,7 +141,9 @@ Bad examples:
     // a BrvConfig flag). Without either, fall through to the legacy
     // agent-driven path unchanged.
     if (flags.session !== undefined) {
-      await this.handleToolModeContinuation({flags, format})
+      // Narrow at the call site so the handler doesn't need a non-null
+      // assertion on flags.session.
+      await this.handleToolModeContinuation({flags, format, sessionId: flags.session})
       return
     }
 
@@ -329,8 +331,9 @@ Bad examples:
   private async handleToolModeContinuation(props: {
     flags: CurateFlags
     format: 'json' | 'text'
+    sessionId: string
   }): Promise<void> {
-    const {flags, format} = props
+    const {flags, format, sessionId} = props
     if (flags.response === undefined) {
       this.emitToolModeEnvelope(
         {
@@ -349,9 +352,9 @@ Bad examples:
     }
 
     const envelope = await continueSession({
-      projectRoot: process.cwd(),
+      projectRoot: resolveProjectRoot(),
       response: flags.response,
-      sessionId: flags.session!,
+      sessionId,
     })
     this.emitToolModeEnvelope(envelope, format)
   }
@@ -382,7 +385,7 @@ Bad examples:
       return
     }
 
-    const envelope = await kickoffSession({content, projectRoot: process.cwd()})
+    const envelope = await kickoffSession({content, projectRoot: resolveProjectRoot()})
     this.emitToolModeEnvelope(envelope, format)
   }
 
