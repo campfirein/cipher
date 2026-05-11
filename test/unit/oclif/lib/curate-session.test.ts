@@ -1,20 +1,21 @@
 /**
- * curate-session placeholder tests.
+ * curate-session orchestrator tests.
  *
- * TKT 01 ships a placeholder orchestrator that locks the wire protocol
- * before TKT 02's real state machine lands. The tests below pin:
+ * TKT 02 wires the real state machine on top of TKT 01's protocol
+ * surface: continuations run `validateHtmlTopic` + `writeHtmlTopic`
+ * against the response; valid input writes the topic file and ends the
+ * session with `done`; invalid input emits a `correct-html` step
+ * carrying structured errors and keeps the session alive; after
+ * MAX_ATTEMPTS (= 4: one generate + three corrections) the session
+ * terminates `failed`.
  *
- *   - Kickoff returns a fresh sessionId and `needs-llm-step` envelope.
- *   - On-disk state is created at the documented path and survives
- *     read-back.
- *   - Continuation with a valid sessionId returns `done` and clears
- *     state.
- *   - Unknown sessionId returns `failed` with `kind: unknown-session`.
- *   - Empty continuation response returns `failed` with `kind:
- *     empty-response` and keeps the session live for retry.
- *   - Envelope shape matches `docs/curate-protocol.md` (presence
- *     /absence of each optional field per status).
+ * Tests cover the full state machine, retry cap, error mapping from
+ * the writer to the wire envelope, path-traversal sessionId rejection,
+ * corrupted state handling, and the documented envelope-shape contract.
  */
+
+const VALID_TOPIC_HTML = '<bv-topic path="security/auth" title="JWT auth"><bv-reason>x</bv-reason></bv-topic>'
+const TOPIC_WITHOUT_PATH = '<bv-topic title="JWT auth"></bv-topic>'
 
 import {expect} from 'chai'
 import {existsSync} from 'node:fs'
@@ -70,7 +71,7 @@ describe('curate-session placeholder', () => {
       expect(envelope.errors).to.equal(undefined)
     })
 
-    it('writes on-disk state at the documented path', async () => {
+    it('writes on-disk state at the documented path with the initial schema', async () => {
       const envelope = await kickoffSession({content: 'x', projectRoot})
       const statePath = join(
         projectRoot,
@@ -85,6 +86,8 @@ describe('curate-session placeholder', () => {
       const state = JSON.parse(await readFile(statePath, 'utf8'))
       expect(state.userIntent).to.equal('x')
       expect(state.step).to.equal('awaiting-generate')
+      expect(state.attempts).to.equal(0)
+      expect(state.lastResponse).to.equal('')
       expect(state.createdAt).to.be.a('number')
     })
 
@@ -96,35 +99,142 @@ describe('curate-session placeholder', () => {
     })
   })
 
-  describe('continueSession', () => {
-    it('returns done and clears state on the first continuation', async () => {
-      const kickoff = await kickoffSession({content: 'x', projectRoot})
+  describe('continueSession — happy path (valid HTML)', () => {
+    it('writes the topic file and returns done with the relative path on first valid response', async () => {
+      const kickoff = await kickoffSession({content: 'remember JWT', projectRoot})
       const sessionId = kickoff.sessionId!
 
-      const envelope = await continueSession({
-        projectRoot,
-        response: '<bv-topic path="x" title="t"></bv-topic>',
-        sessionId,
-      })
+      const envelope = await continueSession({projectRoot, response: VALID_TOPIC_HTML, sessionId})
 
       expect(envelope.ok).to.equal(true)
       expect(envelope.status).to.equal('done')
-      expect(envelope.filePath).to.be.a('string')
-      expect(envelope.filePath!).to.include(sessionId)
+      // filePath is relative to .brv/context-tree/, derived from the bv-topic's path attribute
+      expect(envelope.filePath).to.equal('security/auth.html')
 
-      const stateDir = join(
-        projectRoot,
-        BRV_DIR,
-        CURATE_SESSIONS_DIR,
-        `${CURATE_SESSION_PREFIX}${sessionId}`,
-      )
+      // File actually landed on disk
+      const onDisk = join(projectRoot, BRV_DIR, 'context-tree', 'security', 'auth.html')
+      expect(existsSync(onDisk)).to.equal(true)
+
+      // Session cleared on success
+      const stateDir = join(projectRoot, BRV_DIR, CURATE_SESSIONS_DIR, `${CURATE_SESSION_PREFIX}${sessionId}`)
       expect(existsSync(stateDir)).to.equal(false)
     })
 
+    it('second continuation against a completed sessionId returns unknown-session', async () => {
+      const kickoff = await kickoffSession({content: 'x', projectRoot})
+      const sessionId = kickoff.sessionId!
+
+      // First continuation succeeds and clears state
+      await continueSession({projectRoot, response: VALID_TOPIC_HTML, sessionId})
+
+      // Second continuation must fail — done sessions are not resumable
+      const envelope = await continueSession({projectRoot, response: VALID_TOPIC_HTML, sessionId})
+
+      expect(envelope.status).to.equal('failed')
+      expect(envelope.errors![0].kind).to.equal('unknown-session')
+    })
+  })
+
+  describe('continueSession — correction loop (invalid HTML)', () => {
+    it('emits correct-html with structured errors on first invalid response; session stays alive', async () => {
+      const kickoff = await kickoffSession({content: 'x', projectRoot})
+      const sessionId = kickoff.sessionId!
+
+      const envelope = await continueSession({projectRoot, response: TOPIC_WITHOUT_PATH, sessionId})
+
+      expect(envelope.ok).to.equal(false)
+      expect(envelope.status).to.equal('needs-llm-step')
+      expect(envelope.step).to.equal('correct-html')
+      expect(envelope.sessionId).to.equal(sessionId)
+      expect(envelope.prompt).to.be.a('string')
+
+      // Errors carry the writer's missing-path-attribute kind
+      expect(envelope.errors!.some((e) => e.kind === 'missing-path-attribute')).to.equal(true)
+
+      // Session stays on disk for the retry
+      const stateDir = join(projectRoot, BRV_DIR, CURATE_SESSIONS_DIR, `${CURATE_SESSION_PREFIX}${sessionId}`)
+      expect(existsSync(stateDir)).to.equal(true)
+
+      // State machine advanced to awaiting-correct + attempts=1
+      const state = JSON.parse(await readFile(join(stateDir, 'state.json'), 'utf8'))
+      expect(state.step).to.equal('awaiting-correct')
+      expect(state.attempts).to.equal(1)
+      expect(state.lastResponse).to.equal(TOPIC_WITHOUT_PATH)
+    })
+
+    it('accepts a corrected response after an invalid one and writes the file', async () => {
+      const kickoff = await kickoffSession({content: 'x', projectRoot})
+      const sessionId = kickoff.sessionId!
+
+      // First: invalid → correct-html
+      await continueSession({projectRoot, response: TOPIC_WITHOUT_PATH, sessionId})
+
+      // Second: valid → done
+      const envelope = await continueSession({projectRoot, response: VALID_TOPIC_HTML, sessionId})
+
+      expect(envelope.status).to.equal('done')
+      expect(envelope.filePath).to.equal('security/auth.html')
+      const stateDir = join(projectRoot, BRV_DIR, CURATE_SESSIONS_DIR, `${CURATE_SESSION_PREFIX}${sessionId}`)
+      expect(existsSync(stateDir)).to.equal(false)
+    })
+
+    it('terminates the session with retry-cap-exceeded after MAX_ATTEMPTS invalid responses', async () => {
+      const kickoff = await kickoffSession({content: 'x', projectRoot})
+      const sessionId = kickoff.sessionId!
+
+      // Submit MAX_ATTEMPTS=4 invalid responses in a row. The first
+      // three each move state machine to awaiting-correct; the fourth
+      // exhausts the retry cap and terminates `failed`.
+      const envelopes: Array<Awaited<ReturnType<typeof continueSession>>> = []
+      for (let i = 0; i < 4; i++) {
+        // eslint-disable-next-line no-await-in-loop
+        const envelope = await continueSession({projectRoot, response: TOPIC_WITHOUT_PATH, sessionId})
+        envelopes.push(envelope)
+      }
+
+      // First 3 invalid responses → correct-html, session alive
+      for (let i = 0; i < 3; i++) {
+        expect(envelopes[i].status, `attempt ${i + 1}`).to.equal('needs-llm-step')
+        expect(envelopes[i].step, `attempt ${i + 1}`).to.equal('correct-html')
+      }
+
+      // 4th invalid response → terminal failed with retry-cap-exceeded
+      const final = envelopes[3]
+      expect(final.status).to.equal('failed')
+      expect(final.errors!.some((e) => e.kind === 'retry-cap-exceeded')).to.equal(true)
+      expect(final.sessionId).to.equal(undefined)
+
+      // Session cleared on terminal failure
+      const stateDir = join(projectRoot, BRV_DIR, CURATE_SESSIONS_DIR, `${CURATE_SESSION_PREFIX}${sessionId}`)
+      expect(existsSync(stateDir)).to.equal(false)
+    })
+
+    it('correction-prompt embeds the previous response so the calling agent can target the fix', async () => {
+      const kickoff = await kickoffSession({content: 'x', projectRoot})
+      const envelope = await continueSession({projectRoot, response: TOPIC_WITHOUT_PATH, sessionId: kickoff.sessionId!})
+
+      expect(envelope.prompt).to.include(TOPIC_WITHOUT_PATH)
+    })
+
+    it('maps writer error kinds into the envelope error shape', async () => {
+      const kickoff = await kickoffSession({content: 'x', projectRoot})
+      const sessionId = kickoff.sessionId!
+
+      // Trigger unknown-bv-element error: a tag that isn't in the registry
+      const html = '<bv-topic path="x/y" title="t"><bv-not-a-real-tag/></bv-topic>'
+      const envelope = await continueSession({projectRoot, response: html, sessionId})
+
+      const unknown = envelope.errors!.find((e) => e.kind === 'unknown-element')
+      expect(unknown, 'expected unknown-element error in envelope').to.not.equal(undefined)
+      expect(unknown!.tag).to.equal('bv-not-a-real-tag')
+    })
+  })
+
+  describe('continueSession — non-HTML failures', () => {
     it('returns failed with unknown-session for an unknown sessionId', async () => {
       const envelope = await continueSession({
         projectRoot,
-        response: 'anything',
+        response: VALID_TOPIC_HTML,
         sessionId: '00000000-0000-0000-0000-000000000000',
       })
 
@@ -140,35 +250,12 @@ describe('curate-session placeholder', () => {
 
       const envelope = await continueSession({projectRoot, response: '   ', sessionId})
 
-      expect(envelope.ok).to.equal(false)
       expect(envelope.status).to.equal('failed')
       expect(envelope.errors![0].kind).to.equal('empty-response')
-      // sessionId is still returned so the caller can retry
       expect(envelope.sessionId).to.equal(sessionId)
 
-      // State directory must still exist — empty-response is a transient
-      // error, the session is preserved for the next retry.
-      const stateDir = join(
-        projectRoot,
-        BRV_DIR,
-        CURATE_SESSIONS_DIR,
-        `${CURATE_SESSION_PREFIX}${sessionId}`,
-      )
+      const stateDir = join(projectRoot, BRV_DIR, CURATE_SESSIONS_DIR, `${CURATE_SESSION_PREFIX}${sessionId}`)
       expect(existsSync(stateDir)).to.equal(true)
-    })
-
-    it('second continuation against the same sessionId returns unknown-session (state already cleared)', async () => {
-      const kickoff = await kickoffSession({content: 'x', projectRoot})
-      const sessionId = kickoff.sessionId!
-
-      // First continuation succeeds and clears state
-      await continueSession({projectRoot, response: '<bv-topic/>', sessionId})
-
-      // Second continuation must fail — placeholder doesn't preserve done sessions
-      const envelope = await continueSession({projectRoot, response: '<bv-topic/>', sessionId})
-
-      expect(envelope.status).to.equal('failed')
-      expect(envelope.errors![0].kind).to.equal('unknown-session')
     })
   })
 
@@ -293,7 +380,7 @@ describe('curate-session placeholder', () => {
       const kickoff = await kickoffSession({content: 'x', projectRoot})
       const envelope = await continueSession({
         projectRoot,
-        response: '<bv-topic/>',
+        response: VALID_TOPIC_HTML,
         sessionId: kickoff.sessionId!,
       })
 

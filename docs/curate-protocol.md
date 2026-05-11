@@ -4,7 +4,10 @@ The session protocol lets a calling agent (Claude Code, Cursor, etc.) drive `brv
 
 This document defines the wire contract: CLI surface, JSON envelope, lifecycle. SKILL.md authors and other tool consumers key off the shapes documented here.
 
-> **TKT 01 status.** The protocol surface and JSON envelope are stable. The orchestrator behind them is a placeholder — kickoff always emits one `needs-llm-step`, continuation always returns `done`. TKT 02 lands the real state machine. Wire-shape consumers can build against this contract today.
+> **TKT 02 status.** The real state machine runs end-to-end:
+> - Kickoff returns `needs-llm-step` with a generate-html prompt (stub — TKT 03 replaces with the real prompt + condensed bv-* schema).
+> - Continuation runs `validateHtmlTopic` + `writeHtmlTopic`; on success writes to `.brv/context-tree/<topic.path>.html` atomically.
+> - On validation failure the session enters a correction loop with retry cap = 3 (one initial generate + three corrections = `MAX_ATTEMPTS = 4` total LLM responses).
 
 ## CLI surface
 
@@ -51,7 +54,7 @@ Every kickoff and continuation call returns the same JSON envelope under the sta
         "message": "<human-readable>"
       }
     ],
-    "filePath": "<relative-path>"  // present when status = done
+    "filePath": "<relative-path>"  // relative to .brv/context-tree/; present when status = done
   },
   "timestamp": "<iso>"
 }
@@ -80,13 +83,19 @@ Every kickoff and continuation call returns the same JSON envelope under the sta
 | `missing-response` | Continuation | **terminal** | `--session` invoked without `--response`; session unaffected |
 | `unknown-session` | Continuation | **terminal** | Session id doesn't exist, was already completed, or fails uuid validation |
 | `empty-response` | Continuation | **transient** (session kept live) | Continuation received an empty `--response`; caller retries with the same `sessionId` |
-| `missing-attribute` | Continuation (TKT 02) | **transient** | Schema validation found a missing required attribute; corrected via `correct-html` step |
-| `unknown-element` | Continuation (TKT 02) | **transient** | Schema validation found a `<bv-*>` tag not in the registry |
-| `unsafe-path` | Continuation (TKT 02) | **transient** | Generated topic's `path` attribute attempts traversal |
+| `retry-cap-exceeded` | Continuation | **terminal** | `MAX_ATTEMPTS = 4` (1 generate + 3 corrections) reached without valid HTML; session cleared. Accompanied by the validation errors that pushed the session over the cap. |
+| `missing-bv-topic` | Continuation | **transient** (correction) | Response had zero `<bv-topic>` root elements |
+| `multiple-bv-topic` | Continuation | **transient** (correction) | Response had more than one `<bv-topic>` root |
+| `missing-path-attribute` | Continuation | **transient** (correction) | `<bv-topic>` is missing a non-empty `path` attribute |
+| `unsafe-path` | Continuation | **transient** (correction) | `<bv-topic path>` contains `..` or `.` segments |
+| `unknown-element` | Continuation | **transient** (correction) | Response contains a `<bv-*>` tag outside the closed registry; `tag` field carries the offending name |
+| `attribute-validation` | Continuation | **transient** (correction) | An element's attributes failed its registered validator. `tag` carries the element, `attribute` the offending field. |
 
 **Terminal vs transient.** Terminal failures end the session — the caller cannot retry the same `sessionId` and must start a new kickoff. Transient failures keep the session alive on disk; the envelope echoes the `sessionId` back and the caller is expected to issue a corrected continuation against it.
 
-The list grows as TKT 02 + TKT 03 add real validation. Calling agents should switch on `kind`, fall back gracefully on unknown kinds, and surface the `message` text to the user.
+**Retry cap.** Each transient correction increments an internal `attempts` counter on the session. After `MAX_ATTEMPTS = 4` consecutive invalid responses (the initial generate plus three corrections) the orchestrator terminates with `retry-cap-exceeded` and clears the session. Calling agents should surface this as "I couldn't produce valid HTML after several attempts; want to try a different framing?".
+
+Calling agents should switch on `kind`, fall back gracefully on unknown kinds, and surface the `message` text to the user.
 
 ## Lifecycle — worked example
 
@@ -129,7 +138,7 @@ Response (placeholder):
 brv curate --session 8c3f9e2a-... --response "<bv-topic ...>...</bv-topic>" --format json
 ```
 
-Response (placeholder always succeeds on first continuation):
+Response on a valid HTML topic:
 
 ```json
 {
@@ -138,17 +147,19 @@ Response (placeholder always succeeds on first continuation):
   "data": {
     "ok": true,
     "status": "done",
-    "filePath": "placeholder/8c3f9e2a-....html"
+    "filePath": "security/auth.html"
   },
   "timestamp": "2026-05-11T12:00:01.000Z"
 }
 ```
 
-Once TKT 02 ships the real orchestrator, validation may fail on the first continuation. The envelope then carries `status: "needs-llm-step"`, `step: "correct-html"`, and `errors[]` for the calling agent to fix in a retry round-trip. Maximum 3 corrections before `status: "failed"`.
+If validation fails (e.g. the agent forgot `path=` on `<bv-topic>`), the envelope instead carries `status: "needs-llm-step"`, `step: "correct-html"`, and `errors[]` for the calling agent to fix. Up to 3 corrections (MAX_ATTEMPTS = 4 total) before terminal `status: "failed"` with `kind: retry-cap-exceeded`.
 
-## Session storage (TKT 01 placeholder)
+## Session storage
 
-CLI-side. Per-project, on disk at `<projectRoot>/.brv/sessions/curate-<sessionId>/state.json`. State is removed when the session reaches `done`. Abandoned sessions are not yet pruned — TKT 02 wires the 1-hour TTL when state moves into the daemon's existing task-session sandbox vars.
+CLI-side. Per-project, on disk at `<projectRoot>/.brv/sessions/curate-<sessionId>/state.json`. State carries `attempts`, `step` (`awaiting-generate` vs `awaiting-correct`), and the last response (for the correction prompt). State is removed when the session reaches terminal `done` or terminal `failed` (including `retry-cap-exceeded`).
+
+Abandoned sessions are not yet pruned — a 1-hour TTL is a planned follow-up that pairs with moving state into the daemon's existing task-session lifecycle.
 
 ## Stability promise
 
