@@ -49,19 +49,18 @@ describe('Channel Phase 2 — capability-gated lookback', function () {
   })
 
   it('baseline agent: lookback rendered as text block; user prompt is the trailing text', async () => {
-    expect((await harness.run('channel new pi-test')).exitCode).to.equal(0)
+    // MOCK_ACP_CAPTURE_FILE must be on the DAEMON's env (the daemon is the
+    // process that spawns the agent). The daemon inherits the env of the
+    // first `harness.run()` that triggers `ensureDaemonRunning`, so we set
+    // it on every call to be safe.
+    const env = {MOCK_ACP_CAPTURE_FILE: captureFile}
+    expect((await harness.run('channel new pi-test', {env})).exitCode).to.equal(0)
     expect(
-      (await harness.run(`channel invite pi-test @mock -- node ${MOCK_ACP_PATH}`, {
-        env: {MOCK_ACP_CAPTURE_FILE: captureFile},
-      })).exitCode,
+      (await harness.run(`channel invite pi-test @mock -- node ${MOCK_ACP_PATH}`, {env})).exitCode,
     ).to.equal(0)
+    expect((await harness.run('channel post pi-test "first message"', {env})).exitCode).to.equal(0)
 
-    // First, a passive post to give the channel some prior history.
-    expect((await harness.run('channel post pi-test "first message"')).exitCode).to.equal(0)
-
-    const mention = await harness.run('channel mention pi-test "@mock hello" --no-wait --json', {
-      env: {MOCK_ACP_CAPTURE_FILE: captureFile},
-    })
+    const mention = await harness.run('channel mention pi-test "@mock hello" --no-wait --json', {env})
     expect(mention.exitCode, mention.stderr).to.equal(0)
     const accepted = parseJson<{turn: {turnId: string}}>(mention.stdout)
     await harness.pollForTerminal('pi-test', accepted.turn.turnId)
@@ -70,27 +69,21 @@ describe('Channel Phase 2 — capability-gated lookback', function () {
     expect(captures.length).to.be.greaterThan(0)
     const {prompt} = (captures.at(-1)!)
 
-    // Baseline: prior turns → first block is a text block carrying `## brv channel lookback`.
     expect(prompt[0].type).to.equal('text')
     expect(prompt[0].text).to.match(/## brv channel lookback/)
-    // §8.4: when prompt: string was supplied, host appends a trailing text block.
     expect(prompt.at(-1)?.type).to.equal('text')
     expect(prompt.at(-1)?.text).to.equal('@mock hello')
   })
 
   it('embeddedContext agent: lookback rendered as resource block', async () => {
-    expect((await harness.run('channel new pi-test')).exitCode).to.equal(0)
+    const env = {MOCK_ACP_CAPTURE_FILE: captureFile}
+    expect((await harness.run('channel new pi-test', {env})).exitCode).to.equal(0)
     expect(
-      (await harness.run(`channel invite pi-test @mock -- node ${MOCK_EMBEDDED_PATH}`, {
-        env: {MOCK_ACP_CAPTURE_FILE: captureFile},
-      })).exitCode,
+      (await harness.run(`channel invite pi-test @mock -- node ${MOCK_EMBEDDED_PATH}`, {env})).exitCode,
     ).to.equal(0)
+    expect((await harness.run('channel post pi-test "first message"', {env})).exitCode).to.equal(0)
 
-    expect((await harness.run('channel post pi-test "first message"')).exitCode).to.equal(0)
-
-    const mention = await harness.run('channel mention pi-test "@mock hello" --no-wait --json', {
-      env: {MOCK_ACP_CAPTURE_FILE: captureFile},
-    })
+    const mention = await harness.run('channel mention pi-test "@mock hello" --no-wait --json', {env})
     expect(mention.exitCode).to.equal(0)
     const accepted = parseJson<{turn: {turnId: string}}>(mention.stdout)
     await harness.pollForTerminal('pi-test', accepted.turn.turnId)

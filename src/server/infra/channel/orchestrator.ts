@@ -672,6 +672,25 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
 
   // ─── private helpers ──────────────────────────────────────────────────
 
+  private async fetchPriorTurns(args: {
+    channelId: string
+    currentTurnId: string
+    projectRoot: string
+  }): Promise<Array<{events: TurnEvent[]; turn: Turn}>> {
+    const list = await this.store.listTurns({channelId: args.channelId, projectRoot: args.projectRoot})
+    const out: Array<{events: TurnEvent[]; turn: Turn}> = []
+    for (const turn of list.turns) {
+      if (turn.turnId === args.currentTurnId) continue
+      // eslint-disable-next-line no-await-in-loop
+      const full = await this.store.readTurn({channelId: args.channelId, projectRoot: args.projectRoot, turnId: turn.turnId})
+      if (full !== undefined) out.push({events: full.events, turn: full.turn})
+    }
+
+    // listTurns returns most-recent-first; the lookback builder takes the
+    // tail (last N), so reverse to oldest-first.
+    return out.reverse()
+  }
+
   private async finaliseTurn(active: ActiveTurn): Promise<void> {
     // Persist turn snapshot + delivery snapshots + message body for each delivery.
     await this.store.writeTurnSnapshot({
@@ -787,14 +806,16 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
       return
     }
 
-    // Build lookback prefix (capability-gated).
+    // Build lookback prefix (capability-gated). Fetch the channel's prior
+    // turns from the store so the renderer has actual context to fold in.
     const acpMember = member.memberKind === 'acp-agent' ? member : undefined
     const capabilities = acpMember?.capabilities ?? []
+    const priorTurns = await this.fetchPriorTurns({channelId, currentTurnId: turnId, projectRoot})
     const lookback = buildLookback({
       capabilities,
       channelId,
       normalisedPromptBlocks,
-      priorTurns: [],
+      priorTurns,
     })
 
     const envelope = {
