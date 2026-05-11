@@ -1,0 +1,203 @@
+import type {HtmlWriteError} from '../../../infra/render/writer/html-writer.js'
+
+import {ELEMENT_REGISTRY} from '../../../infra/render/elements/registry.js'
+import {ELEMENT_NAMES} from './element-types.js'
+
+/**
+ * Curate-prompt builder for tool mode.
+ *
+ * The orchestrator (TKT 02) emits `prompt` strings that the calling
+ * agent's LLM consumes. This module assembles those prompts, with two
+ * design goals:
+ *
+ *   1. The bv-* schema slice is DERIVED FROM `ELEMENT_REGISTRY` at module
+ *      load time. Adding an element to the registry automatically
+ *      updates the prompt. No hand-maintained vocabulary table — that
+ *      pattern drifts.
+ *
+ *   2. Prompts are kept TIGHT (~2KB schema slice budget). Each kickoff
+ *      round-trip costs the calling agent's context budget; we ship
+ *      only what's needed to author valid HTML, no internal-agent
+ *      framing.
+ *
+ * Lives under `core/domain/render/` so future tool consumers (other
+ * agents, MCP if revisited, other byterover CLI commands) import from
+ * a single canonical home — not from `oclif/lib/`.
+ */
+
+/**
+ * Condensed bv-* vocabulary spec the calling agent's LLM uses to
+ * author valid HTML. Generated once at module load by walking
+ * `ELEMENT_REGISTRY`; renders one block per element with tag name,
+ * allowed-children semantics, required/optional attribute lists, and
+ * the registry's `description` field. Re-rendered any time the
+ * registry changes.
+ */
+export const CURATE_SCHEMA_PROMPT: string = buildSchemaPrompt()
+
+/**
+ * Build the kickoff `generate-html` prompt for a fresh session.
+ *
+ * Embeds the user's intent verbatim, the condensed vocabulary spec,
+ * and the output contract. Stays under ~3KB total so the calling
+ * agent's context budget isn't dominated by byterover guidance.
+ */
+export function buildGeneratePrompt(options: {userIntent: string}): string {
+  return [
+    'You are authoring a `<bv-topic>` HTML document for a knowledge base.',
+    '',
+    '# User intent',
+    '',
+    options.userIntent,
+    '',
+    '# Output contract',
+    '',
+    OUTPUT_CONTRACT,
+    '',
+    '# Path format',
+    '',
+    PATH_FORMAT,
+    '',
+    '# Element vocabulary (closed)',
+    '',
+    CURATE_SCHEMA_PROMPT,
+  ].join('\n')
+}
+
+/**
+ * Build the `correct-html` prompt for a session that just failed
+ * validation. Carries the previous response verbatim plus per-error
+ * fix hints derived from `kind`, so the calling agent can edit
+ * targeted spans rather than regenerating from scratch (which often
+ * introduces new errors).
+ */
+export function buildCorrectionPrompt(options: {
+  errors: readonly HtmlWriteError[]
+  previousHtml: string
+  userIntent: string
+}): string {
+  const {errors, previousHtml, userIntent} = options
+
+  const fixInstructions = errors.length === 0
+    ? 'No structured errors were reported. Re-emit the document carefully and double-check every required attribute.'
+    : errors.map((err) => `- **${err.kind}** — ${err.message} ${kindToFixHint(err)}`.trim()).join('\n')
+
+  return [
+    'The HTML you produced failed validation. Fix the errors below and return the corrected document.',
+    '',
+    '# Original user intent',
+    '',
+    userIntent,
+    '',
+    '# Your previous response',
+    '',
+    '```html',
+    previousHtml,
+    '```',
+    '',
+    '# Errors to fix',
+    '',
+    fixInstructions,
+    '',
+    '# Output contract',
+    '',
+    OUTPUT_CONTRACT,
+  ].join('\n')
+}
+
+// ── Private helpers ──────────────────────────────────────────────
+
+const OUTPUT_CONTRACT = [
+  '- Output is HTML, and only HTML.',
+  '- First character of your response must be `<`. Last characters must be `</bv-topic>`.',
+  '- DO NOT wrap the response in a code fence. No ``` html, no markdown formatting around the HTML.',
+  '- Exactly one `<bv-topic>` per output. It is the root container.',
+  '- All attribute names lowercase; all attribute values double-quoted.',
+  '- Do not invent elements or attributes outside the schema below.',
+  '- Do not emit `importance`, `maturity`, `recency`, `createdat`, or `updatedat` on `<bv-topic>` — those are system-managed sidecar signals.',
+].join('\n')
+
+const PATH_FORMAT = [
+  'The `path` attribute on `<bv-topic>` is `<domain>/<topic>` or `<domain>/<topic>/<subtopic>`, snake_case segments.',
+  'Pick descriptive domain names (1–3 words). Reuse existing domains where they fit; avoid generic names like `misc`, `general`.',
+].join('\n')
+
+/**
+ * Walk `ELEMENT_REGISTRY` in `ELEMENT_NAMES` order, emit one compact
+ * block per element. Order matches the canonical declaration so
+ * `bv-topic` (root) comes first, body-section elements next.
+ */
+function buildSchemaPrompt(): string {
+  return ELEMENT_NAMES.map((name) => renderElement(name)).join('\n\n')
+}
+
+function renderElement(name: typeof ELEMENT_NAMES[number]): string {
+  const entry = ELEMENT_REGISTRY[name]
+  const lines: string[] = [`<${entry.name}>`]
+
+  if (entry.requiredAttributes.length > 0) {
+    lines.push(`  required: ${entry.requiredAttributes.join(', ')}`)
+  }
+
+  if (entry.optionalAttributes.length > 0) {
+    lines.push(`  optional: ${entry.optionalAttributes.join(', ')}`)
+  }
+
+  lines.push(`  children: ${entry.allowedChildren}`, `  ${condenseDescription(entry.description)}`)
+  return lines.join('\n')
+}
+
+/**
+ * Strip the MD-rendering preface from registry descriptions. Two
+ * forms appear in the registry today:
+ *   - em-dash separator: "Renders as `**X:**` inside the `## Y` — Z"
+ *   - period separator: "Renders as `**X:**` inside the `## Y`. Z"
+ * Both prefixes are markdown-rendering metadata the calling agent
+ * doesn't need (it's authoring HTML, not consuming the rendered MD).
+ * Stripping saves ~700 bytes across the 19-element schema slice.
+ */
+function condenseDescription(description: string): string {
+  return description
+    .replace(/^Renders as [^—]+— /u, '')
+    .replace(/^Renders as [^.]+\.\s*/u, '')
+}
+
+/**
+ * Translate an html-writer error kind to a one-line fix hint the LLM
+ * can act on. Free-text errors are guess-the-format from the model's
+ * side; structured hints converge faster.
+ *
+ * Falls back to an empty string for unknown kinds so future registry
+ * additions don't blank-out the entire correction prompt.
+ */
+function kindToFixHint(err: HtmlWriteError): string {
+  switch (err.kind) {
+    case 'attribute-validation': {
+      return `Check that the value of \`${err.field}\` on \`<${err.tag}>\` matches the schema (allowed values, format).`
+    }
+
+    case 'missing-bv-topic': {
+      return 'Wrap the entire response in exactly one `<bv-topic>...</bv-topic>` root element.'
+    }
+
+    case 'missing-path-attribute': {
+      return 'Add a `path="<domain>/<topic>"` attribute (snake_case, slash-separated) to the `<bv-topic>` root.'
+    }
+
+    case 'multiple-bv-topic': {
+      return 'Merge the topics into one `<bv-topic>` — only one root element per response.'
+    }
+
+    case 'unknown-bv-element': {
+      return `Remove \`<${err.tag}>\` or replace it with a registered element from the vocabulary above.`
+    }
+
+    case 'unsafe-path': {
+      return 'Use a relative path with snake_case segments, no `..` or `.` parts.'
+    }
+
+    default: {
+      return ''
+    }
+  }
+}
