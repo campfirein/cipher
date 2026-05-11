@@ -4,6 +4,7 @@ export * from '../types/dto.js'
 // Event constants and types
 export * from './agent-events.js'
 export * from './auth-events.js'
+export * from './channel-events.js'
 export * from './client-events.js'
 export * from './config-events.js'
 export * from './connector-events.js'
@@ -30,6 +31,7 @@ export * from './worktree-events.js'
 // Utility exports
 import {AgentEvents} from './agent-events.js'
 import {AuthEvents} from './auth-events.js'
+import {ChannelEvents} from './channel-events.js'
 import {ClientEvents} from './client-events.js'
 import {ConfigEvents} from './config-events.js'
 import {ConnectorEvents} from './connector-events.js'
@@ -60,6 +62,7 @@ import {WorktreeEvents} from './worktree-events.js'
 export const AllEventGroups = [
   AgentEvents,
   AuthEvents,
+  ChannelEvents,
   ClientEvents,
   ConfigEvents,
   ConnectorEvents,
