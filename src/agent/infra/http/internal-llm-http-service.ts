@@ -191,10 +191,16 @@ export class ByteRoverLlmHttpService {
   private *extractContentFromResponse(response: GenerateContentResponse): Generator<GenerateContentChunk> {
     const {candidates} = response
     if (!candidates || candidates.length === 0) {
+      // Gemini emits this shape on safety-filter blocks (with
+      // `usageMetadata` populated); Claude on refusals. Forward the
+      // backend response so `LoggingContentGenerator` can still surface
+      // billable tokens even on no-content outcomes — same contract as
+      // the empty-parts and full-content terminating chunks below.
       yield {
         content: '',
         finishReason: 'stop',
         isComplete: true,
+        rawResponse: response,
       }
       return
     }
