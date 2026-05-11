@@ -68,9 +68,17 @@ describe('ChannelHandler (Slice 1.4)', () => {
       orchestratorCalls.push({args, method: 'archiveChannel'})
       return {...sampleChannel, archivedAt: '2026-05-11T00:00:02.000Z'}
     },
+    async cancelTurn(args) {
+      orchestratorCalls.push({args, method: 'cancelTurn'})
+      return {deliveries: [], turn: sampleTurn}
+    },
     async createChannel(args) {
       orchestratorCalls.push({args, method: 'createChannel'})
       return sampleChannel
+    },
+    async dispatchMention(args) {
+      orchestratorCalls.push({args, method: 'dispatchMention'})
+      return {deliveries: [], turn: sampleTurn}
     },
     async getChannel(args) {
       orchestratorCalls.push({args, method: 'getChannel'})
@@ -80,6 +88,19 @@ describe('ChannelHandler (Slice 1.4)', () => {
       orchestratorCalls.push({args, method: 'getTurn'})
       return {events: sampleEvents, turn: sampleTurn}
     },
+    async inviteMember(args) {
+      orchestratorCalls.push({args, method: 'inviteMember'})
+      return {
+        agentName: '@mock',
+        capabilities: [],
+        driverClass: 'C-prime',
+        handle: '@mock',
+        invocation: {args: [], command: 'node', cwd: '/tmp'},
+        joinedAt: '2026-05-11T00:00:00.000Z',
+        memberKind: 'acp-agent',
+        status: 'idle',
+      } as never
+    },
     async listChannels(args) {
       orchestratorCalls.push({args, method: 'listChannels'})
       return [sampleChannel]
@@ -88,9 +109,26 @@ describe('ChannelHandler (Slice 1.4)', () => {
       orchestratorCalls.push({args, method: 'listTurns'})
       return {turns: [sampleTurn]}
     },
+    async permissionDecision(args) {
+      orchestratorCalls.push({args, method: 'permissionDecision'})
+      return sampleEvents[0]
+    },
     async postTurn(args) {
       orchestratorCalls.push({args, method: 'postTurn'})
       return sampleTurn
+    },
+    async uninviteMember(args) {
+      orchestratorCalls.push({args, method: 'uninviteMember'})
+      return {
+        agentName: '@mock',
+        capabilities: [],
+        driverClass: 'C-prime',
+        handle: '@mock',
+        invocation: {args: [], command: 'node', cwd: '/tmp'},
+        joinedAt: '2026-05-11T00:00:00.000Z',
+        memberKind: 'acp-agent',
+        status: 'left',
+      } as never
     },
   }
 
@@ -109,8 +147,9 @@ describe('ChannelHandler (Slice 1.4)', () => {
 
   // ─── Registration shape ─────────────────────────────────────────────────
 
-  it('registers exactly the 7 Phase-1 client-to-host event handlers', () => {
-    const phase1Events = [
+  it('registers every Phase-1 + Phase-2 client-to-host event handler', () => {
+    const wireEvents = [
+      // Phase 1
       ChannelEvents.CREATE,
       ChannelEvents.LIST,
       ChannelEvents.GET,
@@ -118,21 +157,24 @@ describe('ChannelHandler (Slice 1.4)', () => {
       ChannelEvents.POST,
       ChannelEvents.LIST_TURNS,
       ChannelEvents.GET_TURN,
+      // Phase 2
+      ChannelEvents.INVITE,
+      ChannelEvents.UNINVITE,
+      ChannelEvents.MENTION,
+      ChannelEvents.CANCEL,
+      ChannelEvents.PERMISSION_DECISION,
     ]
-    for (const event of phase1Events) {
+    for (const event of wireEvents) {
       expect(registeredHandlers.has(event), `missing handler for ${event}`).to.equal(true)
     }
 
-    expect(registeredHandlers.size).to.equal(phase1Events.length)
+    expect(registeredHandlers.size).to.equal(wireEvents.length)
   })
 
-  it('does NOT register Phase-2 events (mention/cancel/invite/uninvite/members/permission)', () => {
-    expect(registeredHandlers.has(ChannelEvents.MENTION)).to.equal(false)
-    expect(registeredHandlers.has(ChannelEvents.CANCEL)).to.equal(false)
-    expect(registeredHandlers.has(ChannelEvents.INVITE)).to.equal(false)
-    expect(registeredHandlers.has(ChannelEvents.UNINVITE)).to.equal(false)
+  it('does NOT register Phase-3 events (channel:members, channel:onboard, channel:doctor)', () => {
     expect(registeredHandlers.has(ChannelEvents.MEMBERS)).to.equal(false)
-    expect(registeredHandlers.has(ChannelEvents.PERMISSION_DECISION)).to.equal(false)
+    expect(registeredHandlers.has(ChannelEvents.ONBOARD)).to.equal(false)
+    expect(registeredHandlers.has(ChannelEvents.DOCTOR)).to.equal(false)
   })
 
   // ─── Auth ────────────────────────────────────────────────────────────────

@@ -32,7 +32,9 @@ import {dirname, join} from 'node:path'
 import {fileURLToPath} from 'node:url'
 
 import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
+import type {IChannelBroadcaster} from '../../core/interfaces/channel/i-channel-broadcaster.js'
 
+import {ChannelEvents} from '../../../shared/transport/events/channel-events.js'
 import {ReviewEvents} from '../../../shared/transport/events/review-events.js'
 import {
   AGENT_IDLE_CHECK_INTERVAL_MS,
@@ -53,10 +55,15 @@ import {getProjectDataDir} from '../../utils/path-utils.js'
 import {crashLog, processLog} from '../../utils/process-logger.js'
 import {readOrCreateDaemonAuthToken} from '../auth/daemon-token-store.js'
 import {ChannelStore} from '../channel/channel-store.js'
+import {AcpDriverPool} from '../channel/drivers/acp-driver-pool.js'
+import {AcpDriver} from '../channel/drivers/acp-driver.js'
+import {CancelCoordinator} from '../channel/drivers/cancel-coordinator.js'
+import {PermissionBroker} from '../channel/drivers/permission-broker.js'
 import {ChannelOrchestrator} from '../channel/orchestrator.js'
 import {ChannelEventsWriter} from '../channel/storage/events-writer.js'
 import {ChannelSnapshotWriter} from '../channel/storage/snapshot-writer.js'
 import {ChannelTreeReader} from '../channel/storage/tree-reader.js'
+import {TurnSequenceAllocator} from '../channel/storage/turn-sequence-allocator.js'
 import {ChannelWriteSerializer} from '../channel/storage/write-serializer.js'
 import {ClientManager} from '../client/client-manager.js'
 import {ProjectConfigStore} from '../config/file-config-store.js'
@@ -717,14 +724,32 @@ async function main(): Promise<void> {
     })
 
     const channelTransport = transportServer
-    const channelOrchestrator = new ChannelOrchestrator({
-      broadcaster: {
-        broadcastToChannel(channelId, event, data) {
-          channelTransport.broadcastTo(`channel:${channelId}`, event, data)
-        },
+    const channelPool = new AcpDriverPool()
+    const channelBroker = new PermissionBroker()
+    const channelSeqAllocator = new TurnSequenceAllocator()
+    const channelBroadcaster: IChannelBroadcaster = {
+      broadcastToChannel(channelId, event, data) {
+        channelTransport.broadcastTo(`channel:${channelId}`, event, data)
       },
+    }
+    const channelCancelCoordinator = new CancelCoordinator({
+      broker: channelBroker,
+      pool: channelPool,
+      seqAllocator: channelSeqAllocator,
+      async writeEvent(event, ctx) {
+        await channelStore.appendTurnEvent({channelId: ctx.channelId, event, projectRoot: ctx.projectRoot, turnId: ctx.turnId})
+        channelBroadcaster.broadcastToChannel(ctx.channelId, ChannelEvents.TURN_EVENT, {channelId: ctx.channelId, event})
+      },
+    })
+    const channelOrchestrator = new ChannelOrchestrator({
+      broadcaster: channelBroadcaster,
+      cancelCoordinator: channelCancelCoordinator,
       clock: () => new Date(),
+      driverFactory: (invocation, handle) => new AcpDriver({handle, invocation}),
       idGenerator: () => nanoid(),
+      permissionBroker: channelBroker,
+      pool: channelPool,
+      seqAllocator: channelSeqAllocator,
       store: channelStore,
     })
 
@@ -732,6 +757,16 @@ async function main(): Promise<void> {
       authToken: daemonAuthToken,
       orchestrator: channelOrchestrator,
     }).registerOn(channelTransport)
+
+    // Best-effort: release every channel driver on SIGTERM/SIGINT so
+    // subprocess agents do not leak. Phase 3 wires a first-class
+    // shutdown-handler hook; for Phase 2 we hook the existing signal
+    // listeners that already drive `shutdownHandler.shutdown()` below.
+    const releasePoolOnExit = (): void => {
+      channelPool.releaseAll().catch(() => {})
+    }
+
+    process.once('beforeExit', releasePoolOnExit)
 
     // Load auth token AFTER feature handlers are registered.
     // AuthHandler's onAuthChanged/onAuthExpired callbacks must be wired first

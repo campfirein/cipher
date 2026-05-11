@@ -1,61 +1,96 @@
 import type {
   Channel,
+  ChannelMember,
+  ChannelMemberAcpAgent,
   ChannelMeta,
   ContentBlock,
   Turn,
+  TurnDelivery,
   TurnEvent,
 } from '../../../shared/types/channel.js'
+import type {IAcpDriver, TurnEventPayload} from '../../core/interfaces/channel/i-acp-driver.js'
 import type {IChannelBroadcaster} from '../../core/interfaces/channel/i-channel-broadcaster.js'
 import type {
   ArchiveChannelArgs,
+  CancelTurnArgs,
+  CancelTurnResult,
   CreateChannelArgs,
+  DispatchMentionArgs,
+  DispatchMentionResult,
   GetChannelArgs,
   GetTurnArgs,
   GetTurnResult,
   IChannelOrchestrator,
+  InviteMemberArgs,
   ListChannelsArgs,
   ListTurnsArgs,
   ListTurnsResult,
+  PermissionDecisionArgs,
   PostTurnArgs,
+  UninviteMemberArgs,
 } from '../../core/interfaces/channel/i-channel-orchestrator.js'
 import type {IChannelStore} from '../../core/interfaces/channel/i-channel-store.js'
+import type {IAcpDriverPool} from '../../core/interfaces/channel/i-driver-pool.js'
+import type {ITurnSequenceAllocator} from '../../core/interfaces/channel/i-turn-sequence-allocator.js'
 
 import {ChannelEvents} from '../../../shared/transport/events/channel-events.js'
 import {
+  AcpPromptFailedError,
   ChannelAlreadyExistsError,
   ChannelArchivedError,
+  ChannelInvalidRequestError,
+  ChannelMentionEmptyError,
   ChannelNotFoundError,
   ChannelTurnNotFoundError,
 } from '../../core/domain/channel/errors.js'
 import {assertLegalTurnTransition} from '../../core/domain/channel/turn-state-machine.js'
+import {CancelCoordinator, type CancelDeliveryRef} from './drivers/cancel-coordinator.js'
+import {IPermissionBroker} from './drivers/permission-broker.js'
+import {buildLookback} from './lookback-builder.js'
+import {resolveMentions} from './member-resolver.js'
+import {parseMentions} from './mention-parser.js'
 import {normalisePrompt} from './prompt-normaliser.js'
 
 /**
- * Phase-1 channel orchestrator. Composes the channel store + broadcaster +
- * id-generator + clock to implement the 7 Phase-1 orchestrator methods
- * (create / list / get / archive / postTurn / listTurns / getTurn).
+ * Channel orchestrator (Phase 1 lifecycle + Phase 2 active dispatch).
  *
- * Phase-1 turn lifecycle for passive `channel:post`:
+ * Phase 1 surface: create / list / get / archive / postTurn / listTurns /
+ * getTurn — passive transcript management.
  *
- *   1. Validate prompt-emptiness per CHANNEL_PROTOCOL.md §8.4 (throws
- *      ChannelPromptEmptyError on whitespace-only / no-blocks input).
- *   2. Normalise prompt + promptBlocks into a final ContentBlock[].
- *   3. Allocate turnId, write `Turn` in `state: 'pending'` (via the events
- *      writer's first append).
- *   4. Append a `message` TurnEvent capturing the prompt text.
- *   5. Transition pending → completed (state-machine asserts legality).
- *   6. Append a `turn_state_change` event.
- *   7. Write the one-shot `turn.json` snapshot.
- *   8. Broadcast every event over `channel:turn-event`.
- *
- * Phase-2 mention/cancel/permission methods extend this surface; they are
- * intentionally absent from the Phase-1 interface.
+ * Phase 2 surface (Slice 2.4):
+ *   - `inviteMember`: spawn + ACP `initialize` synchronously, persist member,
+ *     register driver in the pool. Failure does NOT persist anything.
+ *   - `uninviteMember`: cancel in-flight deliveries, release pool driver,
+ *     remove member from meta.json.
+ *   - `dispatchMention`: synchronous validation + dispatch (emit message
+ *     seq-0 + turn_state_change + delivery_state_change) then RETURN; the
+ *     background streaming task continues to consume the driver iterator,
+ *     emit events, persist snapshots, and finalise the turn.
+ *   - `cancelTurn`: delegate to {@link CancelCoordinator} for §7.2 ordering.
+ *   - `permissionDecision`: delegate to {@link PermissionBroker.resolve},
+ *     emit delivery_state_change + permission_decision events.
  */
 export type ChannelOrchestratorDeps = {
   readonly broadcaster: IChannelBroadcaster
+  readonly cancelCoordinator: CancelCoordinator
   readonly clock: () => Date
+  readonly driverFactory: (
+    invocation: ChannelMemberAcpAgent['invocation'],
+    handle: string,
+  ) => IAcpDriver
   readonly idGenerator: () => string
+  readonly permissionBroker: IPermissionBroker
+  readonly pool: IAcpDriverPool
+  readonly seqAllocator: ITurnSequenceAllocator
   readonly store: IChannelStore
+}
+
+type ActiveTurn = {
+  channelId: string
+  deliveries: TurnDelivery[]
+  members: ChannelMember[]
+  projectRoot: string
+  turn: Turn
 }
 
 const firstTextOf = (blocks: ContentBlock[]): string => {
@@ -63,25 +98,48 @@ const firstTextOf = (blocks: ContentBlock[]): string => {
     if (b.type === 'text') return b.text
   }
 
-  // Fall back to a structural marker so the message event still has content
-  // even for structured-only prompts (e.g. resource_link).
   return '[structured prompt]'
 }
 
+const collectBlockText = (b: ContentBlock): string => (b.type === 'text' ? b.text : '')
+
+const RESERVED_MENTIONS = new Set(['@all', '@everyone'])
+
+const NON_TERMINAL_DELIVERY_STATES = new Set<TurnDelivery['state']>([
+  'awaiting_permission',
+  'dispatched',
+  'queued',
+  'streaming',
+])
+
 export class ChannelOrchestrator implements IChannelOrchestrator {
+  private readonly activeTurns = new Map<string, ActiveTurn>()
   private readonly broadcaster: IChannelBroadcaster
+  private readonly cancelCoordinator: CancelCoordinator
   private readonly clock: () => Date
+  private readonly driverFactory: (
+    invocation: ChannelMemberAcpAgent['invocation'],
+    handle: string,
+  ) => IAcpDriver
   private readonly idGenerator: () => string
+  private readonly permissionBroker: IPermissionBroker
+  private readonly pool: IAcpDriverPool
+  private readonly seqAllocator: ITurnSequenceAllocator
   private readonly store: IChannelStore
 
   public constructor(deps: ChannelOrchestratorDeps) {
     this.broadcaster = deps.broadcaster
+    this.cancelCoordinator = deps.cancelCoordinator
     this.clock = deps.clock
+    this.driverFactory = deps.driverFactory
     this.idGenerator = deps.idGenerator
+    this.permissionBroker = deps.permissionBroker
+    this.pool = deps.pool
+    this.seqAllocator = deps.seqAllocator
     this.store = deps.store
   }
 
-  // ─── Lifecycle ─────────────────────────────────────────────────────────
+  // ─── Phase-1 lifecycle ─────────────────────────────────────────────────
 
   async archiveChannel(args: ArchiveChannelArgs): Promise<Channel> {
     const now = this.clock().toISOString()
@@ -100,12 +158,58 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
       throw error
     }
 
+    await this.pool.releaseChannel(args.channelId)
     this.broadcaster.broadcastToChannel(args.channelId, ChannelEvents.STATE_CHANGE, {
       channel,
       channelId: args.channelId,
     })
 
     return channel
+  }
+
+  // ─── Phase-2 cancel ───────────────────────────────────────────────────
+
+  async cancelTurn(args: CancelTurnArgs): Promise<CancelTurnResult> {
+    const active = this.activeTurns.get(args.turnId)
+    if (active === undefined) throw new ChannelTurnNotFoundError(args.channelId, args.turnId)
+
+    const inFlight: CancelDeliveryRef[] = active.deliveries.map((d) => ({
+      deliveryId: d.deliveryId,
+      memberHandle: d.memberHandle,
+      state: d.state,
+    }))
+
+    if (args.deliveryId === undefined) {
+      await this.cancelCoordinator.cancelTurn({
+        channelId: args.channelId,
+        inFlightDeliveries: inFlight,
+        projectRoot: args.projectRoot,
+        turnId: args.turnId,
+        turnState: active.turn.state,
+      })
+
+      // Update in-memory state.
+      const endedAt = this.clock().toISOString()
+      for (const d of active.deliveries) {
+        if (NON_TERMINAL_DELIVERY_STATES.has(d.state)) d.state = 'cancelled'
+      }
+
+      active.turn.state = 'cancelled'
+      active.turn.endedAt = endedAt
+      await this.finaliseTurn(active)
+    } else {
+      const delivery = active.deliveries.find((d) => d.deliveryId === args.deliveryId)
+      if (delivery === undefined) throw new ChannelTurnNotFoundError(args.channelId, args.turnId)
+      await this.cancelCoordinator.cancelDelivery({
+        channelId: args.channelId,
+        delivery: {deliveryId: delivery.deliveryId, memberHandle: delivery.memberHandle, state: delivery.state},
+        projectRoot: args.projectRoot,
+        turnId: args.turnId,
+      })
+      delivery.state = 'cancelled'
+    }
+
+    return {deliveries: active.deliveries, turn: active.turn}
   }
 
   async createChannel(args: CreateChannelArgs): Promise<Channel> {
@@ -124,10 +228,7 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
     try {
       channel = await this.store.createChannel({meta, projectRoot: args.projectRoot})
     } catch (error) {
-      if (
-        error instanceof Error &&
-        /already exists/i.test(error.message)
-      ) {
+      if (error instanceof Error && /already exists/i.test(error.message)) {
         throw new ChannelAlreadyExistsError(channelId)
       }
 
@@ -140,6 +241,151 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
     })
 
     return channel
+  }
+
+  // ─── Phase-2 dispatch ─────────────────────────────────────────────────
+
+  async dispatchMention(args: DispatchMentionArgs): Promise<DispatchMentionResult> {
+    const meta = await this.store.readChannelMeta({
+      channelId: args.channelId,
+      projectRoot: args.projectRoot,
+    })
+    if (meta === undefined) throw new ChannelNotFoundError(args.channelId)
+    if (meta.archivedAt !== undefined) throw new ChannelArchivedError(args.channelId)
+
+    const promptBlocks = normalisePrompt({prompt: args.prompt, promptBlocks: args.promptBlocks})
+
+    // Union parsed mentions + explicit mentions[]; dedupe in first-occurrence
+    // order so the parser's deterministic ordering is preserved.
+    const seen = new Set<string>()
+    const allHandles: string[] = []
+    for (const handle of parseMentions(promptBlocks.map((b) => collectBlockText(b)).join(' '))) {
+      if (!seen.has(handle)) {
+        seen.add(handle)
+        allHandles.push(handle)
+      }
+    }
+
+    for (const handle of args.mentions ?? []) {
+      if (!seen.has(handle)) {
+        seen.add(handle)
+        allHandles.push(handle)
+      }
+    }
+
+    if (allHandles.length === 0) throw new ChannelMentionEmptyError()
+
+    // Reject reserved handles before resolving membership.
+    for (const handle of allHandles) {
+      if (RESERVED_MENTIONS.has(handle)) {
+        throw new ChannelInvalidRequestError(
+          `Reserved mention ${handle} (e.g. @everyone, @all) is not supported in v0.1.`,
+          {handle},
+        )
+      }
+    }
+
+    const members = resolveMentions(meta, allHandles)
+
+    // Phase-2 dispatch cap: at most one effective recipient. Phase 3 lifts
+    // the cap to four parallel deliveries.
+    if (members.length > 1) {
+      throw new ChannelInvalidRequestError(
+        'multi-agent dispatch lands in Phase 3 — Phase 2 supports one recipient per channel:mention.',
+        {effectiveMentions: allHandles, phase: 2},
+      )
+    }
+
+    const turnId = this.idGenerator()
+    const startedAt = this.clock().toISOString()
+    this.seqAllocator.reset({channelId: args.channelId, turnId})
+
+    // Step 7: emit user `message` event at seq 0.
+    const messageSeq = this.seqAllocator.next({channelId: args.channelId, turnId})
+    const messageEvent: TurnEvent = {
+      channelId: args.channelId,
+      content: firstTextOf(promptBlocks),
+      deliveryId: null,
+      emittedAt: startedAt,
+      kind: 'message',
+      memberHandle: null,
+      role: 'user',
+      seq: messageSeq,
+      turnId,
+    }
+    await this.persistAndBroadcast(args.channelId, args.projectRoot, turnId, messageEvent)
+
+    // Step 8: build in-memory Turn + one TurnDelivery (`queued`).
+    const member = members[0]
+    const deliveryId = this.idGenerator()
+    const delivery: TurnDelivery = {
+      artifactsTouched: [],
+      channelId: args.channelId,
+      deliveryId,
+      memberHandle: member.handle,
+      startedAt,
+      state: 'queued',
+      toolCallCount: 0,
+      turnId,
+    }
+    const turn: Turn = {
+      author: {handle: 'you', kind: 'local-user'},
+      channelId: args.channelId,
+      idempotencyKey: args.idempotencyKey,
+      mentions: allHandles,
+      promptBlocks,
+      promptedBy: 'user',
+      startedAt,
+      state: 'pending',
+      turnId,
+    }
+
+    // Step 9: emit `turn_state_change pending → dispatched`.
+    assertLegalTurnTransition('pending', 'dispatched')
+    turn.state = 'dispatched'
+    await this.persistAndBroadcast(args.channelId, args.projectRoot, turnId, {
+      channelId: args.channelId,
+      deliveryId: null,
+      emittedAt: this.clock().toISOString(),
+      from: 'pending',
+      kind: 'turn_state_change',
+      memberHandle: null,
+      seq: this.seqAllocator.next({channelId: args.channelId, turnId}),
+      to: 'dispatched',
+      turnId,
+    })
+
+    // Step 10: emit `delivery_state_change queued → dispatched`.
+    delivery.state = 'dispatched'
+    await this.persistAndBroadcast(args.channelId, args.projectRoot, turnId, {
+      channelId: args.channelId,
+      deliveryId,
+      emittedAt: this.clock().toISOString(),
+      from: 'queued',
+      kind: 'delivery_state_change',
+      memberHandle: member.handle,
+      seq: this.seqAllocator.next({channelId: args.channelId, turnId}),
+      to: 'dispatched',
+      turnId,
+    })
+
+    // Track the in-flight turn so cancel can introspect.
+    const active: ActiveTurn = {
+      channelId: args.channelId,
+      deliveries: [delivery],
+      members,
+      projectRoot: args.projectRoot,
+      turn,
+    }
+    this.activeTurns.set(turnId, active)
+
+    // Step 11–13: kick off the background streaming task — DO NOT await.
+    this.runBackgroundStreaming(active, member, promptBlocks).catch(() => {
+      // Background errors are surfaced via delivery_state_change → errored.
+    })
+
+    // Step 13: return synchronously with the dispatched snapshot.
+    return {deliveries: [delivery], turn}
   }
 
   async getChannel(args: GetChannelArgs): Promise<Channel> {
@@ -170,7 +416,75 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
       : {deliveries: result.deliveries, events: result.events, turn: result.turn}
   }
 
-  // ─── Turns ─────────────────────────────────────────────────────────────
+  // ─── Phase-2 invite/uninvite ──────────────────────────────────────────
+
+  async inviteMember(args: InviteMemberArgs): Promise<ChannelMember> {
+    if (args.profileName !== undefined && args.invocation !== undefined) {
+      throw new ChannelInvalidRequestError(
+        'channel:invite accepts profileName OR invocation, not both',
+        {fields: ['profileName', 'invocation']},
+      )
+    }
+
+    if (args.profileName !== undefined) {
+      throw new ChannelInvalidRequestError(
+        'profileName references the AgentDriverProfile registry which lands in Phase 3. Use --inline -- <command> in Phase 2.',
+        {phase: 3},
+      )
+    }
+
+    if (args.invocation === undefined) {
+      throw new ChannelInvalidRequestError(
+        'channel:invite requires invocation in Phase 2 (profileName arrives in Phase 3).',
+        {fields: ['invocation']},
+      )
+    }
+
+    // Spawn driver + run initialize synchronously. Failure does NOT persist.
+    const driver = this.driverFactory(args.invocation, args.handle)
+    await driver.start()
+
+    const member: ChannelMemberAcpAgent = {
+      acpVersion: driver.protocolVersion === undefined ? undefined : String(driver.protocolVersion),
+      agentName: args.handle,
+      capabilities: [...driver.capabilities, ...(args.capabilities ?? [])],
+      driverClass: 'C-prime',
+      handle: args.handle,
+      invocation: args.invocation,
+      joinedAt: this.clock().toISOString(),
+      memberKind: 'acp-agent',
+      status: 'idle',
+    }
+
+    try {
+      await this.store.updateChannelMeta({
+        channelId: args.channelId,
+        mutate: (meta) => {
+          // Replace any prior member with the same handle.
+          const existing = meta.members.filter((m) => m.handle !== args.handle)
+          return {...meta, members: [...existing, member], updatedAt: this.clock().toISOString()}
+        },
+        projectRoot: args.projectRoot,
+      })
+    } catch (error) {
+      // Failed to persist → stop the driver, propagate.
+      await driver.stop()
+      if (error instanceof Error && /not found/i.test(error.message)) {
+        throw new ChannelNotFoundError(args.channelId)
+      }
+
+      throw error
+    }
+
+    this.pool.register({channelId: args.channelId, driver})
+    this.broadcaster.broadcastToChannel(args.channelId, ChannelEvents.MEMBER_UPDATE, {
+      channelId: args.channelId,
+      member,
+      op: 'added',
+    })
+
+    return member
+  }
 
   async listChannels(args: ListChannelsArgs): Promise<Channel[]> {
     return this.store.listChannels({
@@ -180,7 +494,6 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
   }
 
   async listTurns(args: ListTurnsArgs): Promise<ListTurnsResult> {
-    // Phase 1: ensure the channel exists; throwing here matches the §8.4 spec.
     const channel = await this.store.readChannel({
       channelId: args.channelId,
       projectRoot: args.projectRoot,
@@ -197,6 +510,59 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
     return {nextCursor: result.nextCursor, turns: result.turns}
   }
 
+  // ─── Phase-2 permission decision ──────────────────────────────────────
+
+  async permissionDecision(args: PermissionDecisionArgs): Promise<TurnEvent> {
+    const active = this.activeTurns.get(args.turnId)
+    if (active === undefined || active.channelId !== args.channelId) {
+      throw new ChannelTurnNotFoundError(args.channelId, args.turnId)
+    }
+
+    const result = await this.permissionBroker.resolve({
+      channelId: args.channelId,
+      outcome: args.outcome,
+      permissionRequestId: args.permissionRequestId,
+      turnId: args.turnId,
+    })
+
+    const delivery = active.deliveries.find((d) => d.deliveryId === result.deliveryId)
+    const memberHandle = delivery?.memberHandle ?? '@unknown'
+
+    // Emit permission_decision event.
+    const decisionSeq = this.seqAllocator.next({channelId: args.channelId, turnId: args.turnId})
+    const decisionEvent: TurnEvent = {
+      channelId: args.channelId,
+      deliveryId: result.deliveryId,
+      emittedAt: this.clock().toISOString(),
+      kind: 'permission_decision',
+      memberHandle,
+      outcome: args.outcome,
+      permissionRequestId: args.permissionRequestId,
+      seq: decisionSeq,
+      turnId: args.turnId,
+    }
+    await this.persistAndBroadcast(args.channelId, args.projectRoot, args.turnId, decisionEvent)
+
+    // Emit delivery_state_change (awaiting_permission → streaming or cancelled).
+    if (delivery !== undefined && delivery.state === 'awaiting_permission') {
+      const to: TurnDelivery['state'] = result.isCancellation ? 'cancelled' : 'streaming'
+      delivery.state = to
+      await this.persistAndBroadcast(args.channelId, args.projectRoot, args.turnId, {
+        channelId: args.channelId,
+        deliveryId: result.deliveryId,
+        emittedAt: this.clock().toISOString(),
+        from: 'awaiting_permission',
+        kind: 'delivery_state_change',
+        memberHandle,
+        seq: this.seqAllocator.next({channelId: args.channelId, turnId: args.turnId}),
+        to,
+        turnId: args.turnId,
+      })
+    }
+
+    return decisionEvent
+  }
+
   async postTurn(args: PostTurnArgs): Promise<Turn> {
     const channel = await this.store.readChannel({
       channelId: args.channelId,
@@ -209,7 +575,6 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
     const turnId = this.idGenerator()
     const startedAt = this.clock().toISOString()
 
-    // Append message event (seq 0).
     const messageEvent: TurnEvent = {
       channelId: args.channelId,
       content: firstTextOf(promptBlocks),
@@ -221,19 +586,8 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
       seq: 0,
       turnId,
     }
-    await this.store.appendTurnEvent({
-      channelId: args.channelId,
-      event: messageEvent,
-      projectRoot: args.projectRoot,
-      turnId,
-    })
-    this.broadcaster.broadcastToChannel(args.channelId, ChannelEvents.TURN_EVENT, {
-      channelId: args.channelId,
-      event: messageEvent,
-    })
+    await this.persistAndBroadcast(args.channelId, args.projectRoot, turnId, messageEvent)
 
-    // Transition pending → completed (state-machine assertion, single step
-    // for passive turns).
     assertLegalTurnTransition('pending', 'completed')
     const endedAt = this.clock().toISOString()
     const stateChange: TurnEvent = {
@@ -247,18 +601,8 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
       to: 'completed',
       turnId,
     }
-    await this.store.appendTurnEvent({
-      channelId: args.channelId,
-      event: stateChange,
-      projectRoot: args.projectRoot,
-      turnId,
-    })
-    this.broadcaster.broadcastToChannel(args.channelId, ChannelEvents.TURN_EVENT, {
-      channelId: args.channelId,
-      event: stateChange,
-    })
+    await this.persistAndBroadcast(args.channelId, args.projectRoot, turnId, stateChange)
 
-    // Persist the finalisation snapshot.
     const turn: Turn = {
       author: {handle: 'you', kind: 'local-user'},
       channelId: args.channelId,
@@ -279,5 +623,280 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
     })
 
     return turn
+  }
+
+  async uninviteMember(args: UninviteMemberArgs): Promise<ChannelMember> {
+    const meta = await this.store.readChannelMeta({
+      channelId: args.channelId,
+      projectRoot: args.projectRoot,
+    })
+    if (meta === undefined) throw new ChannelNotFoundError(args.channelId)
+
+    const existing = meta.members.find((m) => m.handle === args.memberHandle)
+    if (existing === undefined) {
+      throw new ChannelInvalidRequestError(`No member ${args.memberHandle} to uninvite`, {
+        handle: args.memberHandle,
+      })
+    }
+
+    // Cancel any in-flight deliveries for this member.
+    for (const [turnId, active] of this.activeTurns) {
+      const delivery = active.deliveries.find(
+        (d) => d.memberHandle === args.memberHandle && NON_TERMINAL_DELIVERY_STATES.has(d.state),
+      )
+      if (delivery === undefined) continue
+      // eslint-disable-next-line no-await-in-loop
+      await this.cancelTurn({channelId: args.channelId, deliveryId: delivery.deliveryId, projectRoot: args.projectRoot, turnId})
+    }
+
+    await this.pool.release({channelId: args.channelId, memberHandle: args.memberHandle})
+
+    await this.store.updateChannelMeta({
+      channelId: args.channelId,
+      mutate: (m) => ({
+        ...m,
+        members: m.members.filter((mem) => mem.handle !== args.memberHandle),
+        updatedAt: this.clock().toISOString(),
+      }),
+      projectRoot: args.projectRoot,
+    })
+
+    this.broadcaster.broadcastToChannel(args.channelId, ChannelEvents.MEMBER_UPDATE, {
+      channelId: args.channelId,
+      member: existing,
+      op: 'removed',
+    })
+
+    return existing
+  }
+
+  // ─── private helpers ──────────────────────────────────────────────────
+
+  private async finaliseTurn(active: ActiveTurn): Promise<void> {
+    // Persist turn snapshot + delivery snapshots + message body for each delivery.
+    await this.store.writeTurnSnapshot({
+      channelId: active.channelId,
+      projectRoot: active.projectRoot,
+      turn: active.turn,
+      turnId: active.turn.turnId,
+    })
+    for (const delivery of active.deliveries) {
+      // eslint-disable-next-line no-await-in-loop
+      await this.store.writeDeliverySnapshot({
+        channelId: active.channelId,
+        delivery,
+        deliveryId: delivery.deliveryId,
+        projectRoot: active.projectRoot,
+        turnId: active.turn.turnId,
+      })
+    }
+
+    this.activeTurns.delete(active.turn.turnId)
+    this.seqAllocator.reset({channelId: active.channelId, turnId: active.turn.turnId})
+  }
+
+  private async handleDriverPayload(
+    active: ActiveTurn,
+    delivery: TurnDelivery,
+    member: ChannelMember,
+    payload: TurnEventPayload,
+  ): Promise<void> {
+    const {channelId} = active
+    const {turnId} = active.turn
+    const {projectRoot} = active
+
+    // Transition delivery dispatched → streaming on the FIRST upstream event.
+    if (delivery.state === 'dispatched') {
+      delivery.state = 'streaming'
+      await this.persistAndBroadcast(channelId, projectRoot, turnId, {
+        channelId,
+        deliveryId: delivery.deliveryId,
+        emittedAt: this.clock().toISOString(),
+        from: 'dispatched',
+        kind: 'delivery_state_change',
+        memberHandle: member.handle,
+        seq: this.seqAllocator.next({channelId, turnId}),
+        to: 'streaming',
+        turnId,
+      })
+    }
+
+    if (payload.kind === 'permission_request') {
+      // Track in the broker BEFORE writing the event so a concurrent
+      // permissionDecision finds the pending entry.
+      const driver = this.pool.acquire({channelId, memberHandle: delivery.memberHandle})
+      if (driver !== undefined) {
+        this.permissionBroker.track({
+          channelId,
+          deliveryId: delivery.deliveryId,
+          driver,
+          permissionRequestId: payload.permissionRequestId,
+          turnId,
+        })
+      }
+
+      // delivery_state_change streaming → awaiting_permission.
+      if (delivery.state === 'streaming') {
+        delivery.state = 'awaiting_permission'
+        await this.persistAndBroadcast(channelId, projectRoot, turnId, {
+          channelId,
+          deliveryId: delivery.deliveryId,
+          emittedAt: this.clock().toISOString(),
+          from: 'streaming',
+          kind: 'delivery_state_change',
+          memberHandle: member.handle,
+          seq: this.seqAllocator.next({channelId, turnId}),
+          to: 'awaiting_permission',
+          turnId,
+        })
+      }
+    }
+
+    // Wrap the payload with TurnEventBase + seq.
+    const wrapped = this.wrapPayload({channelId, delivery, memberHandle: member.handle, payload, turnId})
+    await this.persistAndBroadcast(channelId, projectRoot, turnId, wrapped)
+  }
+
+  private async persistAndBroadcast(
+    channelId: string,
+    projectRoot: string,
+    turnId: string,
+    event: TurnEvent,
+  ): Promise<void> {
+    await this.store.appendTurnEvent({channelId, event, projectRoot, turnId})
+    this.broadcaster.broadcastToChannel(channelId, ChannelEvents.TURN_EVENT, {channelId, event})
+  }
+
+  private async runBackgroundStreaming(
+    active: ActiveTurn,
+    member: ChannelMember,
+    normalisedPromptBlocks: ContentBlock[],
+  ): Promise<void> {
+    const {channelId} = active
+    const {turnId} = active.turn
+    const {projectRoot} = active
+    const delivery = active.deliveries[0]
+    if (delivery === undefined) return
+
+    const driver = this.pool.acquire({channelId, memberHandle: member.handle})
+    if (driver === undefined) {
+      delivery.state = 'errored'
+      active.turn.state = 'completed'
+      active.turn.endedAt = this.clock().toISOString()
+      await this.finaliseTurn(active)
+      return
+    }
+
+    // Build lookback prefix (capability-gated).
+    const acpMember = member.memberKind === 'acp-agent' ? member : undefined
+    const capabilities = acpMember?.capabilities ?? []
+    const lookback = buildLookback({
+      capabilities,
+      channelId,
+      normalisedPromptBlocks,
+      priorTurns: [],
+    })
+
+    const envelope = {
+      author: active.turn.author,
+      channelId,
+      deliveryId: delivery.deliveryId,
+      lookbackDigest: lookback.digest,
+      members: [],
+      mentions: active.turn.mentions,
+      schemaVersion: '1',
+      turnId,
+    }
+
+    try {
+      const iterator = driver.prompt({
+        meta: {_meta: {'brv.channel': envelope}},
+        prompt: lookback.blocks,
+        turnId,
+      })
+
+      for await (const payload of iterator) {
+         
+        await this.handleDriverPayload(active, delivery, member, payload)
+      }
+
+      // Driver returned normally → delivery completed.
+      if (NON_TERMINAL_DELIVERY_STATES.has(delivery.state)) {
+        const from = delivery.state
+        delivery.state = 'completed'
+        await this.persistAndBroadcast(channelId, projectRoot, turnId, {
+          channelId,
+          deliveryId: delivery.deliveryId,
+          emittedAt: this.clock().toISOString(),
+          from,
+          kind: 'delivery_state_change',
+          memberHandle: member.handle,
+          seq: this.seqAllocator.next({channelId, turnId}),
+          to: 'completed',
+          turnId,
+        })
+      }
+    } catch (error) {
+      // Background-task error path: mark delivery errored, do NOT propagate.
+      const reason = error instanceof Error ? error.message : String(error)
+      const promptError = new AcpPromptFailedError(reason)
+      if (NON_TERMINAL_DELIVERY_STATES.has(delivery.state)) {
+        const from = delivery.state
+        delivery.state = 'errored'
+        delivery.errorCode = promptError.code
+        delivery.errorMessage = promptError.message
+        await this.persistAndBroadcast(channelId, projectRoot, turnId, {
+          channelId,
+          deliveryId: delivery.deliveryId,
+          emittedAt: this.clock().toISOString(),
+          error: promptError.message,
+          from,
+          kind: 'delivery_state_change',
+          memberHandle: member.handle,
+          seq: this.seqAllocator.next({channelId, turnId}),
+          to: 'errored',
+          turnId,
+        })
+      }
+    }
+
+    // If the cancel coordinator already finalised the turn, skip.
+    if (!this.activeTurns.has(turnId)) return
+
+    if (active.turn.state === 'dispatched') {
+      active.turn.state = 'completed'
+      active.turn.endedAt = this.clock().toISOString()
+      await this.persistAndBroadcast(channelId, projectRoot, turnId, {
+        channelId,
+        deliveryId: null,
+        emittedAt: active.turn.endedAt,
+        from: 'dispatched',
+        kind: 'turn_state_change',
+        memberHandle: null,
+        seq: this.seqAllocator.next({channelId, turnId}),
+        to: 'completed',
+        turnId,
+      })
+    }
+
+    await this.finaliseTurn(active)
+  }
+
+  private wrapPayload(args: {
+    channelId: string
+    delivery: TurnDelivery
+    memberHandle: string
+    payload: TurnEventPayload
+    turnId: string
+  }): TurnEvent {
+    const base = {
+      channelId: args.channelId,
+      deliveryId: args.delivery.deliveryId,
+      emittedAt: this.clock().toISOString(),
+      memberHandle: args.memberHandle,
+      seq: this.seqAllocator.next({channelId: args.channelId, turnId: args.turnId}),
+      turnId: args.turnId,
+    } as const
+    return {...args.payload, ...base} as TurnEvent
   }
 }

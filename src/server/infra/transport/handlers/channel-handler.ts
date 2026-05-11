@@ -9,13 +9,18 @@ import type {
 
 import {
   ChannelArchiveRequestSchema,
+  ChannelCancelRequestSchema,
   ChannelCreateRequestSchema,
   ChannelEvents,
   ChannelGetRequestSchema,
   ChannelGetTurnRequestSchema,
+  ChannelInviteRequestSchema,
   ChannelListRequestSchema,
   ChannelListTurnsRequestSchema,
+  ChannelMentionRequestSchema,
+  ChannelPermissionDecisionRequestSchema,
   ChannelPostRequestSchema,
+  ChannelUninviteRequestSchema,
 } from '../../../../shared/transport/events/channel-events.js'
 import {
   ChannelInvalidRequestError,
@@ -187,6 +192,77 @@ export class ChannelHandler {
       return result.deliveries === undefined
         ? {events: result.events, turn: result.turn}
         : {deliveries: result.deliveries, events: result.events, turn: result.turn}
+    })
+
+    // ─── Phase-2 request events ───────────────────────────────────────
+
+    // channel:invite
+    register(ChannelEvents.INVITE, async (data, _clientId, ctx) => {
+      const projectRoot = projectRootFromCtx(ctx)
+      const req = parseOrThrow(ChannelInviteRequestSchema, data)
+      const member = await this.orchestrator.inviteMember({
+        capabilities: req.capabilities,
+        channelId: req.channelId,
+        handle: req.handle,
+        invocation: req.invocation,
+        profileName: req.profileName,
+        projectRoot,
+      })
+      return {member}
+    })
+
+    // channel:uninvite
+    register(ChannelEvents.UNINVITE, async (data, _clientId, ctx) => {
+      const projectRoot = projectRootFromCtx(ctx)
+      const req = parseOrThrow(ChannelUninviteRequestSchema, data)
+      const member = await this.orchestrator.uninviteMember({
+        channelId: req.channelId,
+        memberHandle: req.memberHandle,
+        projectRoot,
+      })
+      return {member}
+    })
+
+    // channel:mention — synchronous validation + dispatch; background streams.
+    register(ChannelEvents.MENTION, async (data, _clientId, ctx) => {
+      const projectRoot = projectRootFromCtx(ctx)
+      const req = parseOrThrow(ChannelMentionRequestSchema, data)
+      const result = await this.orchestrator.dispatchMention({
+        channelId: req.channelId,
+        idempotencyKey: req.idempotencyKey,
+        mentions: req.mentions,
+        projectRoot,
+        prompt: req.prompt,
+        promptBlocks: req.promptBlocks,
+      })
+      return {deliveries: result.deliveries, turn: result.turn}
+    })
+
+    // channel:cancel
+    register(ChannelEvents.CANCEL, async (data, _clientId, ctx) => {
+      const projectRoot = projectRootFromCtx(ctx)
+      const req = parseOrThrow(ChannelCancelRequestSchema, data)
+      const result = await this.orchestrator.cancelTurn({
+        channelId: req.channelId,
+        deliveryId: req.deliveryId,
+        projectRoot,
+        turnId: req.turnId,
+      })
+      return {deliveries: result.deliveries, turn: result.turn}
+    })
+
+    // channel:permission-decision
+    register(ChannelEvents.PERMISSION_DECISION, async (data, _clientId, ctx) => {
+      const projectRoot = projectRootFromCtx(ctx)
+      const req = parseOrThrow(ChannelPermissionDecisionRequestSchema, data)
+      const event = await this.orchestrator.permissionDecision({
+        channelId: req.channelId,
+        outcome: req.outcome,
+        permissionRequestId: req.permissionRequestId,
+        projectRoot,
+        turnId: req.turnId,
+      })
+      return {event}
     })
   }
 }

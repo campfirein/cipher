@@ -137,7 +137,7 @@ const LocalAgentStatusSchema = z.enum([
 
 const HumanMessagingStatusSchema = z.enum(['active', 'paired', 'muted', 'left'])
 
-const ChannelMemberAcpAgentSchema = z.object({
+export const ChannelMemberAcpAgentSchema = z.object({
   ...ChannelMemberBaseShape,
   memberKind: z.literal('acp-agent'),
   handle: HandleSchema,
@@ -153,6 +153,7 @@ const ChannelMemberAcpAgentSchema = z.object({
   capabilities: z.array(z.string()),
   status: AcpAgentStatusSchema,
 })
+export type ChannelMemberAcpAgent = z.infer<typeof ChannelMemberAcpAgentSchema>
 
 const ChannelMemberLocalAgentSchema = z.object({
   ...ChannelMemberBaseShape,

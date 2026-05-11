@@ -11,10 +11,15 @@ import {
   ChannelTurnNotFoundError,
 } from '../../../../../src/server/core/domain/channel/errors.js'
 import {ChannelStore} from '../../../../../src/server/infra/channel/channel-store.js'
+import {AcpDriverPool} from '../../../../../src/server/infra/channel/drivers/acp-driver-pool.js'
+import {CancelCoordinator} from '../../../../../src/server/infra/channel/drivers/cancel-coordinator.js'
+import {MockAcpDriver} from '../../../../../src/server/infra/channel/drivers/mock-driver.js'
+import {PermissionBroker} from '../../../../../src/server/infra/channel/drivers/permission-broker.js'
 import {ChannelOrchestrator} from '../../../../../src/server/infra/channel/orchestrator.js'
 import {ChannelEventsWriter} from '../../../../../src/server/infra/channel/storage/events-writer.js'
 import {ChannelSnapshotWriter} from '../../../../../src/server/infra/channel/storage/snapshot-writer.js'
 import {ChannelTreeReader} from '../../../../../src/server/infra/channel/storage/tree-reader.js'
+import {TurnSequenceAllocator} from '../../../../../src/server/infra/channel/storage/turn-sequence-allocator.js'
 import {ChannelWriteSerializer} from '../../../../../src/server/infra/channel/storage/write-serializer.js'
 import {makeTempContextTree} from '../../../../helpers/temp-context-tree.js'
 import {removeTempDir} from '../../../../helpers/temp-dir.js'
@@ -58,10 +63,27 @@ describe('ChannelOrchestrator (Phase 1 / passive only)', () => {
       writeSerializer: serializer,
     })
 
+    const broker = new PermissionBroker()
+    const pool = new AcpDriverPool()
+    const seqAllocator = new TurnSequenceAllocator()
+    const cancelCoordinator = new CancelCoordinator({
+      broker,
+      pool,
+      seqAllocator,
+      async writeEvent() {
+        // Phase-1 passive tests do not exercise cancel-coordinator output.
+      },
+    })
+
     orchestrator = new ChannelOrchestrator({
       broadcaster: mockBroadcaster(),
+      cancelCoordinator,
       clock,
+      driverFactory: (_invocation, handle) => new MockAcpDriver({events: [], handle}),
       idGenerator: monotonicId,
+      permissionBroker: broker,
+      pool,
+      seqAllocator,
       store,
     })
   })

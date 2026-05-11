@@ -1,5 +1,8 @@
 import type {
   Channel,
+  ChannelMember,
+  ContentBlock,
+  RequestPermissionOutcome,
   Turn,
   TurnDelivery,
   TurnEvent,
@@ -73,6 +76,59 @@ export type GetTurnResult = {
   readonly turn: Turn
 }
 
+// ─── Phase-2 method args ────────────────────────────────────────────────────
+
+export type InviteMemberArgs = {
+  readonly capabilities?: string[]
+  readonly channelId: string
+  readonly handle: string
+  readonly invocation?: {
+    readonly args: string[]
+    readonly command: string
+    readonly cwd: string
+    readonly env?: Record<string, string>
+  }
+  readonly profileName?: string
+  readonly projectRoot: string
+}
+
+export type UninviteMemberArgs = {
+  readonly channelId: string
+  readonly memberHandle: string
+  readonly projectRoot: string
+}
+
+export type DispatchMentionArgs = {
+  readonly channelId: string
+  readonly idempotencyKey?: string
+  readonly mentions?: string[]
+  readonly projectRoot: string
+  readonly prompt?: string
+  readonly promptBlocks?: ContentBlock[]
+}
+
+export type DispatchMentionResult = {
+  readonly deliveries: TurnDelivery[]
+  readonly turn: Turn
+}
+
+export type CancelTurnArgs = {
+  readonly channelId: string
+  readonly deliveryId?: string
+  readonly projectRoot: string
+  readonly turnId: string
+}
+
+export type CancelTurnResult = DispatchMentionResult
+
+export type PermissionDecisionArgs = {
+  readonly channelId: string
+  readonly outcome: RequestPermissionOutcome
+  readonly permissionRequestId: string
+  readonly projectRoot: string
+  readonly turnId: string
+}
+
 /**
  * Phase-1 orchestrator surface. Implementations MUST validate inputs against
  * the channel-events.ts zod request schemas before calling these methods —
@@ -84,10 +140,15 @@ export type GetTurnResult = {
  */
 export interface IChannelOrchestrator {
   archiveChannel(args: ArchiveChannelArgs): Promise<Channel>
+  cancelTurn(args: CancelTurnArgs): Promise<CancelTurnResult>
   createChannel(args: CreateChannelArgs): Promise<Channel>
+  dispatchMention(args: DispatchMentionArgs): Promise<DispatchMentionResult>
   getChannel(args: GetChannelArgs): Promise<Channel>
   getTurn(args: GetTurnArgs): Promise<GetTurnResult>
+  inviteMember(args: InviteMemberArgs): Promise<ChannelMember>
   listChannels(args: ListChannelsArgs): Promise<Channel[]>
   listTurns(args: ListTurnsArgs): Promise<ListTurnsResult>
+  permissionDecision(args: PermissionDecisionArgs): Promise<TurnEvent>
   postTurn(args: PostTurnArgs): Promise<Turn>
+  uninviteMember(args: UninviteMemberArgs): Promise<ChannelMember>
 }
