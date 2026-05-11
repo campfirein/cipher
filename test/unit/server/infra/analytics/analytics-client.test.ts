@@ -749,4 +749,58 @@ describe('AnalyticsClient', () => {
       expect(event).to.not.have.property('status')
     })
   })
+
+  describe('M10.2 single-flight: concurrent flush() invocations collapse to one underlying run', () => {
+    it('should call sender.send only once when two flush() calls are awaited in parallel', async () => {
+      // Without single-flight, both flushes load the same pending set, both call sender, and
+      // both mirror updateStatus(failed, ids) into the writeChain — the writes serialize but
+      // attempts get double-incremented (cycle counter advances 2x). The single-flight guard
+      // makes a concurrent call join the in-flight promise instead.
+      const jsonlStore = makeFakeJsonlStore()
+      const sender = makeFakeSender({kind: 'all-failed'})
+      const client = new AnalyticsClient({
+        identityResolver: makeStubIdentityResolver(makeAnonIdentity()),
+        isEnabled: () => true,
+        jsonlStore,
+        queue: new BoundedQueue(),
+        sender,
+        superPropsResolver: makeStubSuperPropsResolver(makeSuperProps()),
+      })
+
+      await seedPending(client, 3)
+
+      const [batchA, batchB] = await Promise.all([client.flush(), client.flush()])
+
+      // Single-flight collapsed both calls into one sender invocation with the same record set.
+      expect(sender.calls, 'two concurrent flushes must share one sender.send invocation').to.have.lengthOf(1)
+      // Concurrent callers receive the same batch object (joined in-flight promise).
+      expect(batchA).to.equal(batchB)
+      // updateStatus(failed, ids) called exactly once for the failed branch (succeeded branch
+      // is also called once with []).
+      const failedCalls = jsonlStore.updateStatusCalls.filter((c) => c.status === 'failed' && c.ids.length > 0)
+      expect(failedCalls, 'failed-updateStatus must run exactly once across the two concurrent flushes').to.have.lengthOf(1)
+    })
+
+    it('should release the in-flight slot after the flush settles so the next call runs fresh', async () => {
+      const jsonlStore = makeFakeJsonlStore()
+      const sender = makeFakeSender({kind: 'all-succeeded'})
+      const client = new AnalyticsClient({
+        identityResolver: makeStubIdentityResolver(makeAnonIdentity()),
+        isEnabled: () => true,
+        jsonlStore,
+        queue: new BoundedQueue(),
+        sender,
+        superPropsResolver: makeStubSuperPropsResolver(makeSuperProps()),
+      })
+
+      await seedPending(client, 1)
+      await client.flush() // first flush: sender called, record marked sent
+      // After settle, loadPending now returns [] because record is 'sent'.
+      // The next flush should run fresh (NOT return the previous batch).
+      const second = await client.flush()
+
+      expect(sender.calls, 'sequential flushes must each invoke sender').to.have.lengthOf(2)
+      expect(second.events, 'second flush sees no pending rows after first settled').to.deep.equal([])
+    })
+  })
 })

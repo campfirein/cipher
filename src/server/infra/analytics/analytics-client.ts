@@ -45,6 +45,14 @@ export interface AnalyticsClientDeps {
  */
 export class AnalyticsClient implements IAnalyticsClient {
   private readonly deps: AnalyticsClientDeps
+  // Single-flight slot for an in-flight `flush()`. Concurrent callers join the
+  // existing promise instead of starting a second read-then-decide cycle —
+  // without this, two parallel flushes would both `loadPending()` the same set,
+  // both invoke `sender.send`, and both mirror `updateStatus(_, 'failed')` into
+  // the write chain (which serializes the WRITES but not the READ-decisions),
+  // double-incrementing `attempts` per cycle and tripping the M9.2 retry cap
+  // in MAX_ATTEMPTS/2 cycles instead of MAX_ATTEMPTS.
+  private pendingFlush?: Promise<AnalyticsBatch>
 
   public constructor(deps: AnalyticsClientDeps) {
     this.deps = deps
@@ -70,6 +78,31 @@ export class AnalyticsClient implements IAnalyticsClient {
    * `flush()` is a thin caller — it does not inspect attempts.
    */
   public async flush(): Promise<AnalyticsBatch> {
+    // Single-flight: if a flush is already running, hand its promise to the
+    // joining caller so both observe the same loadPending snapshot, the same
+    // sender invocation, and the same mirror writes.
+    if (this.pendingFlush !== undefined) return this.pendingFlush
+
+    this.pendingFlush = this.runFlush()
+    try {
+      return await this.pendingFlush
+    } finally {
+      this.pendingFlush = undefined
+    }
+  }
+
+  public track(event: string, properties?: Record<string, unknown>): void {
+    if (!this.deps.isEnabled()) return
+    // Capture the timestamp synchronously at call-site so it reflects WHEN the
+    // user action happened, not when the async resolver chain settled. Under
+    // burst load (many tracks queued before the first resolver completes) this
+    // preserves the inter-event durations downstream consumers care about.
+    const timestamp = Date.now()
+    // eslint-disable-next-line no-void
+    void this.trackAsync(event, properties, timestamp)
+  }
+
+  private async runFlush(): Promise<AnalyticsBatch> {
     const records = await this.deps.jsonlStore.loadPending()
 
     let result: SendResult
@@ -83,17 +116,6 @@ export class AnalyticsClient implements IAnalyticsClient {
     await this.deps.jsonlStore.updateStatus(result.failed, 'failed')
 
     return AnalyticsBatch.create(records.map((r) => toWireEvent(r)))
-  }
-
-  public track(event: string, properties?: Record<string, unknown>): void {
-    if (!this.deps.isEnabled()) return
-    // Capture the timestamp synchronously at call-site so it reflects WHEN the
-    // user action happened, not when the async resolver chain settled. Under
-    // burst load (many tracks queued before the first resolver completes) this
-    // preserves the inter-event durations downstream consumers care about.
-    const timestamp = Date.now()
-    // eslint-disable-next-line no-void
-    void this.trackAsync(event, properties, timestamp)
   }
 
   private async trackAsync(
