@@ -121,6 +121,8 @@ const NON_TERMINAL_DELIVERY_STATES = new Set<TurnDelivery['state']>([
   'streaming',
 ])
 
+const FAN_OUT_DEFAULT_MAX_PARALLEL = 4
+
 export class ChannelOrchestrator implements IChannelOrchestrator {
   private readonly activeTurns = new Map<string, ActiveTurn>()
   private readonly broadcaster: IChannelBroadcaster
@@ -298,14 +300,10 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
 
     const members = resolveMentions(meta, allHandles)
 
-    // Phase-2 dispatch cap: at most one effective recipient. Phase 3 lifts
-    // the cap to four parallel deliveries.
-    if (members.length > 1) {
-      throw new ChannelInvalidRequestError(
-        'multi-agent dispatch lands in Phase 3 — Phase 2 supports one recipient per channel:mention.',
-        {effectiveMentions: allHandles, phase: 2},
-      )
-    }
+    // Phase-3 fan-out: cap from channel settings (default 4). Surplus
+    // members queue FIFO behind the in-flight slots. Phase 4+ may
+    // introduce a global ChannelSettings.maxParallelAgents wire surface.
+    const maxParallel = meta.settings?.maxParallelAgents ?? FAN_OUT_DEFAULT_MAX_PARALLEL
 
     const turnId = this.idGenerator()
     const startedAt = this.clock().toISOString()
@@ -326,19 +324,17 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
     }
     await this.persistAndBroadcast(args.channelId, args.projectRoot, turnId, messageEvent)
 
-    // Step 8: build in-memory Turn + one TurnDelivery (`queued`).
-    const member = members[0]
-    const deliveryId = this.idGenerator()
-    const delivery: TurnDelivery = {
+    // Step 8: build in-memory Turn + N TurnDelivery (all `queued`).
+    const deliveries: TurnDelivery[] = members.map((m) => ({
       artifactsTouched: [],
       channelId: args.channelId,
-      deliveryId,
-      memberHandle: member.handle,
+      deliveryId: this.idGenerator(),
+      memberHandle: m.handle,
       startedAt,
       state: 'queued',
       toolCallCount: 0,
       turnId,
-    }
+    }))
     const turn: Turn = {
       author: {handle: 'you', kind: 'local-user'},
       channelId: args.channelId,
@@ -366,37 +362,49 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
       turnId,
     })
 
-    // Step 10: emit `delivery_state_change queued → dispatched`.
-    delivery.state = 'dispatched'
-    await this.persistAndBroadcast(args.channelId, args.projectRoot, turnId, {
-      channelId: args.channelId,
-      deliveryId,
-      emittedAt: this.clock().toISOString(),
-      from: 'queued',
-      kind: 'delivery_state_change',
-      memberHandle: member.handle,
-      seq: this.seqAllocator.next({channelId: args.channelId, turnId}),
-      to: 'dispatched',
-      turnId,
-    })
-
-    // Track the in-flight turn so cancel can introspect.
+    // Track the in-flight turn so cancel/fan-out can introspect.
     const active: ActiveTurn = {
       channelId: args.channelId,
-      deliveries: [delivery],
+      deliveries,
       members,
       projectRoot: args.projectRoot,
       turn,
     }
     this.activeTurns.set(turnId, active)
 
-    // Step 11–13: kick off the background streaming task — DO NOT await.
-    this.runBackgroundStreaming(active, member, promptBlocks).catch(() => {
-      // Background errors are surfaced via delivery_state_change → errored.
-    })
+    // Step 10: emit `delivery_state_change queued → dispatched` for the
+    // first `maxParallel` deliveries; the rest stay `queued` and are
+    // released as in-flight deliveries reach terminal state.
+    const inFlight: Array<{delivery: TurnDelivery; member: ChannelMember}> = []
+    for (let i = 0; i < deliveries.length && i < maxParallel; i += 1) {
+      const delivery = deliveries[i]
+      delivery.state = 'dispatched'
+      // eslint-disable-next-line no-await-in-loop
+      await this.persistAndBroadcast(args.channelId, args.projectRoot, turnId, {
+        channelId: args.channelId,
+        deliveryId: delivery.deliveryId,
+        emittedAt: this.clock().toISOString(),
+        from: 'queued',
+        kind: 'delivery_state_change',
+        memberHandle: delivery.memberHandle,
+        seq: this.seqAllocator.next({channelId: args.channelId, turnId}),
+        to: 'dispatched',
+        turnId,
+      })
+      inFlight.push({delivery, member: members[i]})
+    }
 
-    // Step 13: return synchronously with the dispatched snapshot.
-    return {deliveries: [delivery], turn}
+    // Step 11–13: kick off one background streaming task per in-flight
+    // delivery. Each task, on terminal, releases the next queued delivery.
+    for (const {delivery, member} of inFlight) {
+      this.runBackgroundStreaming(active, member, delivery, promptBlocks).catch(() => {
+        // Background errors surface via delivery_state_change → errored.
+      })
+    }
+
+    // Step 13: return synchronously with the snapshot — dispatched/queued
+    // states as set above.
+    return {deliveries, turn}
   }
 
   async getChannel(args: GetChannelArgs): Promise<Channel> {
@@ -803,6 +811,40 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
     await this.persistAndBroadcast(channelId, projectRoot, turnId, wrapped)
   }
 
+  /**
+   * Emit `turn_state_change dispatched → completed` + finalise snapshots
+   * ONLY when every delivery has reached a terminal state. Multiple
+   * background tasks may call this; the activeTurns Map gate ensures
+   * we don't finalise twice.
+   */
+  private async maybeFinaliseTurn(active: ActiveTurn): Promise<void> {
+    const {channelId} = active
+    const {turnId} = active.turn
+    const {projectRoot} = active
+    if (!this.activeTurns.has(turnId)) return
+
+    const allTerminal = active.deliveries.every((d) => !NON_TERMINAL_DELIVERY_STATES.has(d.state))
+    if (!allTerminal) return
+
+    if (active.turn.state === 'dispatched') {
+      active.turn.state = 'completed'
+      active.turn.endedAt = this.clock().toISOString()
+      await this.persistAndBroadcast(channelId, projectRoot, turnId, {
+        channelId,
+        deliveryId: null,
+        emittedAt: active.turn.endedAt,
+        from: 'dispatched',
+        kind: 'turn_state_change',
+        memberHandle: null,
+        seq: this.seqAllocator.next({channelId, turnId}),
+        to: 'completed',
+        turnId,
+      })
+    }
+
+    await this.finaliseTurn(active)
+  }
+
   private async persistAndBroadcast(
     channelId: string,
     projectRoot: string,
@@ -813,23 +855,52 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
     this.broadcaster.broadcastToChannel(channelId, ChannelEvents.TURN_EVENT, {channelId, event})
   }
 
+  /**
+   * Fan-out scheduler: when an in-flight delivery reaches a terminal
+   * state, find the next `queued` delivery (FIFO order matches mention
+   * order from {@link parseMentions}) and dispatch it.
+   */
+  private async releaseNextQueued(active: ActiveTurn, normalisedPromptBlocks: ContentBlock[]): Promise<void> {
+    const next = active.deliveries.find((d) => d.state === 'queued')
+    if (next === undefined) return
+    const member = active.members.find((m) => m.handle === next.memberHandle)
+    if (member === undefined) {
+      next.state = 'errored'
+      return
+    }
+
+    next.state = 'dispatched'
+    await this.persistAndBroadcast(active.channelId, active.projectRoot, active.turn.turnId, {
+      channelId: active.channelId,
+      deliveryId: next.deliveryId,
+      emittedAt: this.clock().toISOString(),
+      from: 'queued',
+      kind: 'delivery_state_change',
+      memberHandle: next.memberHandle,
+      seq: this.seqAllocator.next({channelId: active.channelId, turnId: active.turn.turnId}),
+      to: 'dispatched',
+      turnId: active.turn.turnId,
+    })
+
+    // Fire-and-forget — errors surface via delivery_state_change → errored.
+    this.runBackgroundStreaming(active, member, next, normalisedPromptBlocks).catch(() => {})
+  }
+
   private async runBackgroundStreaming(
     active: ActiveTurn,
     member: ChannelMember,
+    delivery: TurnDelivery,
     normalisedPromptBlocks: ContentBlock[],
   ): Promise<void> {
     const {channelId} = active
     const {turnId} = active.turn
     const {projectRoot} = active
-    const delivery = active.deliveries[0]
-    if (delivery === undefined) return
 
     const driver = this.pool.acquire({channelId, memberHandle: member.handle})
     if (driver === undefined) {
       delivery.state = 'errored'
-      active.turn.state = 'completed'
-      active.turn.endedAt = this.clock().toISOString()
-      await this.finaliseTurn(active)
+      // Don't tear down the whole turn — other deliveries may still be running.
+      await this.maybeFinaliseTurn(active)
       return
     }
 
@@ -911,23 +982,11 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
     // If the cancel coordinator already finalised the turn, skip.
     if (!this.activeTurns.has(turnId)) return
 
-    if (active.turn.state === 'dispatched') {
-      active.turn.state = 'completed'
-      active.turn.endedAt = this.clock().toISOString()
-      await this.persistAndBroadcast(channelId, projectRoot, turnId, {
-        channelId,
-        deliveryId: null,
-        emittedAt: active.turn.endedAt,
-        from: 'dispatched',
-        kind: 'turn_state_change',
-        memberHandle: null,
-        seq: this.seqAllocator.next({channelId, turnId}),
-        to: 'completed',
-        turnId,
-      })
-    }
+    // Fan-out: release the next queued delivery, if any.
+    await this.releaseNextQueued(active, normalisedPromptBlocks)
 
-    await this.finaliseTurn(active)
+    // Try to finalise — only when every delivery is terminal.
+    await this.maybeFinaliseTurn(active)
   }
 
   private wrapPayload(args: {

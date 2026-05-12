@@ -225,18 +225,19 @@ describe('ChannelOrchestrator (Phase 2)', () => {
       expect(finalEvents.some((e) => e.kind === 'turn_state_change' && (e as Extract<TurnEvent, {kind: 'turn_state_change'}>).to === 'completed')).to.equal(true)
     })
 
-    it('rejects effective mention set > 1 with CHANNEL_INVALID_REQUEST', async () => {
+    it('Phase-3 fan-out: two mentions both dispatch immediately by default', async () => {
       await createChannel()
       await invite('@a')
       await invite('@b')
 
-      try {
-        await orchestrator.dispatchMention({channelId, projectRoot, prompt: '@a @b ping'})
-        expect.fail('expected ChannelInvalidRequestError')
-      } catch (error) {
-        expect(error).to.be.instanceOf(ChannelInvalidRequestError)
-        expect((error as Error).message).to.match(/multi-agent|Phase 3/i)
-      }
+      const result = await orchestrator.dispatchMention({channelId, projectRoot, prompt: '@a @b ping'})
+      expect(result.deliveries).to.have.lengthOf(2)
+      expect(result.deliveries.every((d) => d.state === 'dispatched')).to.equal(true)
+
+      // Drain background streaming so the tempdir cleanup does not race.
+      await new Promise((r) => {
+        setTimeout(r, 150)
+      })
     })
 
     it('rejects an empty mention list with CHANNEL_MENTION_EMPTY', async () => {
