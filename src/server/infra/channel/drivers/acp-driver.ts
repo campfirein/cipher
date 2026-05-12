@@ -111,6 +111,12 @@ type PermissionContext = {
 }
 
 type PromptQueueState = {
+  /**
+   * Set by `AcpDriver.cancel()` (review fix #3). The iterator observes
+   * this AFTER the queue-drain loop exits and skips the `await
+   * promptPromise` that would otherwise hang on a non-responding child.
+   */
+  cancelled: boolean
   done: boolean
   queue: TurnEventPayload[]
   resolveNext: (() => void) | undefined
@@ -133,6 +139,21 @@ async function* iteratePromptQueue(
     })
   }
 
+  // Review fix #3: if the child hangs on `session/prompt` (network stall,
+  // dead agent), `promptPromise` never resolves and the orchestrator's
+  // background streaming task leaks forever — `releaseNextQueued` and
+  // `maybeFinaliseTurn` are never reached. `cancel()` flips `state.done`
+  // and resolves any pending permission contexts; observing `state.done`
+  // here means the cancellation path owns finalisation. Discard the hung
+  // promise's eventual settlement (it's now orphaned, which is fine for a
+  // child we're about to kill via `stop()`).
+  if (state.cancelled) {
+    promptPromise.catch(() => {
+      // Detach — the host has already moved on.
+    })
+    return
+  }
+
   await promptPromise
 }
 
@@ -151,6 +172,14 @@ export class AcpDriver implements IAcpDriver {
   public protocolVersion: number | undefined
   public status: AcpDriverStatus = 'idle'
   private child: ChildProcessWithoutNullStreams | undefined
+  /**
+   * Review fix #3: the per-prompt iterator state, exposed to `cancel()`
+   * so it can flip `state.cancelled = true` AND `state.done = true` AND
+   * wake the parked `resolveNext` promise. Without this, a stuck
+   * `session/prompt` would never let `iteratePromptQueue` exit.
+   */
+  private currentPromptState: PromptQueueState | undefined
+  private currentPromptWakeup: (() => void) | undefined
   private readonly invocation: AcpDriverInvocation
   private pendingPermissions = new Map<string, PermissionContext>()
   private rpc: AcpRpcClient | undefined
@@ -163,10 +192,20 @@ export class AcpDriver implements IAcpDriver {
 
   async cancel(_turnId?: string): Promise<void> {
     if (this.rpc === undefined || this.sessionId === undefined) return
-    try {
-      await this.rpc.call('session/cancel', {sessionId: this.sessionId})
-    } catch {
-      // session/cancel is best-effort; the child may already be exiting.
+
+    // Review fix #3: flip the iterator's `cancelled` + `done` flags + wake
+    // the parked resolver BEFORE awaiting session/cancel. If the child is
+    // hung on session/prompt (network stall, dead agent), the iterator
+    // would otherwise leak forever — this short-circuits its
+    // `await promptPromise` and lets the orchestrator's background task
+    // continue to releaseNextQueued / maybeFinaliseTurn.
+    if (this.currentPromptState !== undefined) {
+      this.currentPromptState.cancelled = true
+      this.currentPromptState.done = true
+    }
+
+    if (this.currentPromptWakeup !== undefined) {
+      this.currentPromptWakeup()
     }
 
     // Resolve any pending permission contexts with a cancellation outcome so
@@ -176,6 +215,13 @@ export class AcpDriver implements IAcpDriver {
     }
 
     this.pendingPermissions.clear()
+
+    try {
+      await this.rpc.call('session/cancel', {sessionId: this.sessionId})
+    } catch {
+      // session/cancel is best-effort; the child may already be exiting
+      // or hung. We've already unblocked the iterator above.
+    }
   }
 
   /**
@@ -225,7 +271,7 @@ export class AcpDriver implements IAcpDriver {
       return result.sessionId
     }
 
-    const state: PromptQueueState = {done: false, queue: [], resolveNext: undefined}
+    const state: PromptQueueState = {cancelled: false, done: false, queue: [], resolveNext: undefined}
     const wakeup = (): void => {
       if (state.resolveNext !== undefined) {
         const r = state.resolveNext
@@ -233,6 +279,12 @@ export class AcpDriver implements IAcpDriver {
         r()
       }
     }
+
+    // Review fix #3: publish state + wakeup so cancel() can flip them.
+    // Cleared inside dispatchPrompt's finally block (the only path that
+    // both successful prompts and errors flow through).
+    this.currentPromptState = state
+    this.currentPromptWakeup = wakeup
 
     rpc.onNotification('session/update', (params) => {
       const note = params as SessionUpdateNotification
@@ -436,6 +488,11 @@ export class AcpDriver implements IAcpDriver {
     } finally {
       deps.state.done = true
       deps.wakeup()
+      // Review fix #3: clear the published cancel hooks now that the prompt
+      // has run to completion (or thrown). A subsequent cancel() must NOT
+      // race against an already-resolved iterator.
+      this.currentPromptState = undefined
+      this.currentPromptWakeup = undefined
     }
   }
 }

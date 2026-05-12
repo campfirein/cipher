@@ -853,6 +853,16 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
     const {projectRoot} = active
     if (!this.activeTurns.has(turnId)) return
 
+    // Review fix #1: cancelTurn flips `active.cancelling = true` synchronously
+    // before awaiting the coordinator; the mutation `active.turn.state =
+    // 'cancelled'` happens AFTER that await. Without this guard, a background
+    // task that completes its delivery DURING the cancel await would see
+    // `state === 'dispatched'` (still true) and race to emit
+    // `turn_state_change → completed`, leaving the on-disk transcript with
+    // two contradictory terminal events. cancelTurn owns finalisation when
+    // `cancelling` is set; we bail.
+    if (active.cancelling) return
+
     const allTerminal = active.deliveries.every((d) => !NON_TERMINAL_DELIVERY_STATES.has(d.state))
     if (!allTerminal) return
 
