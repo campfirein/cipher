@@ -202,6 +202,54 @@ brv space list       # Deprecated — use web dashboard
 brv space switch     # Deprecated — use brv vc clone
 ```
 
+### Settings
+
+`brv` ships with operational defaults that suit most users. The `brv settings` command group lets you inspect and override these values.
+
+```bash
+brv settings                    # List all settings with current and default values
+brv settings list               # Alias for `brv settings`
+brv settings get <key>          # Show current and default for one key
+brv settings set <key> <value>  # Update one key (restart required)
+brv settings reset <key>        # Restore one key to its default (restart required)
+```
+
+Available keys:
+
+| Key | Default | What it controls |
+|---|---|---|
+| `agentPool.maxSize` | 10 | Maximum concurrent active projects (one agent process per project) |
+| `agentPool.maxConcurrentTasksPerProject` | 5 | Parallel `brv curate` / `brv query` tasks within a single project |
+| `taskHistory.maxEntries` | 1000 | Number of task records `brv query-log view` retains per project |
+
+Settings persist in `settings.json` under the `brv` global data directory:
+
+- Linux: `$XDG_DATA_HOME/brv/settings.json` (defaults to `~/.local/share/brv/settings.json`)
+- macOS: `~/Library/Application Support/brv/settings.json`
+- Windows: `%LOCALAPPDATA%/brv/settings.json`
+
+Set the `BRV_DATA_DIR` environment variable to override the directory.
+
+Changes apply after `brv restart`. The daemon reads the file once at startup and does not observe file changes during runtime. This keeps every running agent on the same configuration for the lifetime of the daemon.
+
+Example session:
+
+```bash
+$ brv settings list
+KEY                                       CURRENT  DEFAULT  RESTART?
+agentPool.maxSize                         10       10       yes
+agentPool.maxConcurrentTasksPerProject    5        5        yes
+taskHistory.maxEntries                    1000     1000     yes
+
+$ brv settings set agentPool.maxSize 20
+Setting saved. Run `brv restart` to apply.
+
+$ brv settings get agentPool.maxSize
+20  (default: 10)
+```
+
+Every command supports `--format json` for scripting. Validation errors (unknown key, value out of range) exit with code 1 and a message naming the key.
+
 ### Other
 
 ```bash
