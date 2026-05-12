@@ -384,3 +384,37 @@ export const ChannelMetaSchema = z.object({
   settings: ChannelSettingsSchema.optional(),
 })
 export type ChannelMeta = z.infer<typeof ChannelMetaSchema>
+
+// ─── AgentDriverProfile (Phase 3) ───────────────────────────────────────────
+
+/**
+ * Phase-3 driver profile (CHANNEL_PROTOCOL.md §8.3 + Phase-3 spec edit).
+ *
+ * Profiles are per-user runtime invocation recipes persisted under
+ * `$BRV_DATA_DIR/state/agent-driver-profiles.json`. They are not connector
+ * config — connectors are agent-side plugins; profiles are host-side
+ * recipes for spawning a candidate ACP driver.
+ *
+ * `probedAt` is the ISO timestamp of the last successful onboard probe; the
+ * doctor's freshness check compares against this. It is optional for
+ * back-compat with profiles produced by pre-Phase-3 hosts; the doctor
+ * surfaces an `unknown` freshness when absent.
+ */
+export const AgentDriverProfileInvocationSchema = z.object({
+  command: z.string(),
+  args: z.array(z.string()),
+  cwd: z.string(),
+  env: z.record(z.string()).optional(),
+})
+export type AgentDriverProfileInvocation = z.infer<typeof AgentDriverProfileInvocationSchema>
+
+export const AgentDriverProfileSchema = z.object({
+  name: z.string().min(1),
+  displayName: z.string(),
+  driverClass: z.enum(['A', 'B', 'C-prime']),
+  invocation: AgentDriverProfileInvocationSchema,
+  detectedAcpVersion: z.string().optional(),
+  capabilities: z.array(z.string()).optional(),
+  probedAt: z.string().datetime().optional(),
+})
+export type AgentDriverProfile = z.infer<typeof AgentDriverProfileSchema>

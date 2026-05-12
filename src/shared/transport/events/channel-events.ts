@@ -1,6 +1,7 @@
 import {z} from 'zod'
 
 import {
+  AgentDriverProfileSchema,
   ChannelMemberSchema,
   ChannelSchema,
   ContentBlockSchema,
@@ -37,6 +38,12 @@ export const ChannelEvents = {
   MEMBERS: 'channel:members',
   ONBOARD: 'channel:onboard',
   DOCTOR: 'channel:doctor',
+
+  // Phase 3 ops (rotate-token + profile registry CRUD)
+  ROTATE_TOKEN: 'channel:rotate-token',
+  PROFILE_LIST: 'channel:profile-list',
+  PROFILE_SHOW: 'channel:profile-show',
+  PROFILE_REMOVE: 'channel:profile-remove',
 
   // Turns (Phase 1: post/list-turns/get-turn; Phase 2: mention/cancel/permission)
   POST: 'channel:post',
@@ -287,3 +294,64 @@ export const ChannelPermissionDecisionResponseSchema = z.object({
   event: TurnEventSchema,
 })
 export type ChannelPermissionDecisionResponse = z.infer<typeof ChannelPermissionDecisionResponseSchema>
+
+// ─── Phase-3 request schemas ────────────────────────────────────────────────
+
+// channel:rotate-token -------------------------------------------------------
+
+/**
+ * `confirm: true` is a literal — `false` and `undefined` are rejected so a
+ * client cannot accidentally rotate the daemon-auth token. The CLI surface
+ * (`brv channel rotate-token --yes`) is the user-visible guard; this schema
+ * is the wire-side belt-and-suspenders.
+ */
+export const ChannelRotateTokenRequestSchema = z.object({
+  confirm: z.literal(true),
+})
+export type ChannelRotateTokenRequest = z.infer<typeof ChannelRotateTokenRequestSchema>
+
+export const ChannelRotateTokenResponseSchema = z.object({
+  disconnectedClients: z.number().int().nonnegative(),
+  tokenFingerprint: z.string(),
+})
+export type ChannelRotateTokenResponse = z.infer<typeof ChannelRotateTokenResponseSchema>
+
+// channel:profile-list -------------------------------------------------------
+
+export const ChannelProfileListRequestSchema = z.object({})
+export type ChannelProfileListRequest = z.infer<typeof ChannelProfileListRequestSchema>
+
+export const ChannelProfileListResponseSchema = z.object({
+  profiles: z.array(AgentDriverProfileSchema),
+})
+export type ChannelProfileListResponse = z.infer<typeof ChannelProfileListResponseSchema>
+
+// channel:profile-show -------------------------------------------------------
+
+export const ChannelProfileShowRequestSchema = z.object({
+  name: z.string().min(1),
+})
+export type ChannelProfileShowRequest = z.infer<typeof ChannelProfileShowRequestSchema>
+
+export const ChannelProfileShowResponseSchema = z.object({
+  profile: AgentDriverProfileSchema,
+})
+export type ChannelProfileShowResponse = z.infer<typeof ChannelProfileShowResponseSchema>
+
+// channel:profile-remove -----------------------------------------------------
+
+export const ChannelProfileRemoveRequestSchema = z.object({
+  name: z.string().min(1),
+})
+export type ChannelProfileRemoveRequest = z.infer<typeof ChannelProfileRemoveRequestSchema>
+
+export const ChannelProfileRemoveResponseSchema = z.object({
+  removed: z.boolean(),
+})
+export type ChannelProfileRemoveResponse = z.infer<typeof ChannelProfileRemoveResponseSchema>
+
+// Re-export the invocation sub-schema so Slice 3.2's onboard service and
+// downstream tests can import a single canonical source.
+
+
+export {AgentDriverProfileInvocationSchema} from '../../types/channel.js'

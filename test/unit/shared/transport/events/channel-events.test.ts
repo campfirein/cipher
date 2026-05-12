@@ -22,11 +22,13 @@ import {ContentBlockSchema} from '../../../../../src/shared/types/channel.js'
 //  - Phase-2 event constants exist, but no request schema is exported for them.
 describe('ChannelEvents (Slice 1.2)', () => {
   describe('constants', () => {
-    it('exports the full set of 19 channel:* event names per CHANNEL_PROTOCOL.md §3', () => {
+    it('exports the full set of channel:* event names per CHANNEL_PROTOCOL.md §3', () => {
       // Set comparison is order-insensitive; the canonical grouping
-      // (lifecycle / membership / turns / broadcasts) is preserved in the
-      // source file via /* eslint-disable perfectionist/sort-objects */.
+      // (lifecycle / membership / phase-3 ops / turns / broadcasts) is
+      // preserved in the source file via
+      // /* eslint-disable perfectionist/sort-objects */.
       const expected = new Set([
+        // Phase 1 + 2 lifecycle / membership / turns / broadcasts (19)
         'channel:archive',
         'channel:cancel',
         'channel:create',
@@ -43,6 +45,11 @@ describe('ChannelEvents (Slice 1.2)', () => {
         'channel:onboard',
         'channel:permission-decision',
         'channel:post',
+        // Phase 3 ops surface (rotate-token + profile-list/show/remove)
+        'channel:profile-list',
+        'channel:profile-remove',
+        'channel:profile-show',
+        'channel:rotate-token',
         'channel:state-change',
         'channel:turn-event',
         'channel:uninvite',

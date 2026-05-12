@@ -20,6 +20,8 @@ export const CHANNEL_ERROR_CODE = {
   ALREADY_EXISTS: 'CHANNEL_ALREADY_EXISTS',
   ARCHIVED: 'CHANNEL_ARCHIVED',
   DELIVERY_NOT_FOUND: 'CHANNEL_DELIVERY_NOT_FOUND',
+  // Phase 3 additions ------------------------------------------------------
+  DISABLED: 'CHANNEL_DISABLED',
   INVALID_CURSOR: 'CHANNEL_INVALID_CURSOR',
   INVALID_REQUEST: 'CHANNEL_INVALID_REQUEST',
   MEMBER_NOT_FOUND: 'CHANNEL_MEMBER_NOT_FOUND',
@@ -28,7 +30,9 @@ export const CHANNEL_ERROR_CODE = {
   NOT_FOUND: 'CHANNEL_NOT_FOUND',
   PERMISSION_ALREADY_RESOLVED: 'CHANNEL_PERMISSION_ALREADY_RESOLVED',
   PERMISSION_NOT_FOUND: 'CHANNEL_PERMISSION_NOT_FOUND',
+  PROFILE_NOT_FOUND: 'CHANNEL_PROFILE_NOT_FOUND',
   PROMPT_EMPTY: 'CHANNEL_PROMPT_EMPTY',
+  REQUEST_TIMEOUT: 'CHANNEL_REQUEST_TIMEOUT',
   TURN_NOT_CANCELLABLE: 'CHANNEL_TURN_NOT_CANCELLABLE',
   TURN_NOT_FOUND: 'CHANNEL_TURN_NOT_FOUND',
   UNAUTHORIZED: 'CHANNEL_UNAUTHORIZED',
@@ -242,5 +246,57 @@ export class AcpPermissionFailedError extends ChannelError {
     )
     this.name = 'AcpPermissionFailedError'
     this.permissionRequestId = permissionRequestId
+  }
+}
+
+// ─── Phase-3 errors ─────────────────────────────────────────────────────────
+
+/**
+ * Returned by every `channel:*` stub handler when the host has channels
+ * administratively disabled (e.g. `BRV_CHANNELS_ENABLED=false`). The stub
+ * registration prevents the ack callback from hanging — see DESIGN.md and
+ * IMPLEMENTATION_PHASE_3.md §3.5.
+ */
+export class ChannelDisabledError extends ChannelError {
+  public constructor(message?: string) {
+    super(
+      message ?? 'Channel surface is disabled on this host (BRV_CHANNELS_ENABLED is unset or false)',
+      CHANNEL_ERROR_CODE.DISABLED,
+    )
+    this.name = 'ChannelDisabledError'
+  }
+}
+
+/**
+ * Client-side error raised by `ChannelClient.request()` when the daemon ack
+ * does not arrive within the configured timeout. Hosts never throw this —
+ * it's a client safety net.
+ */
+export class ChannelRequestTimeoutError extends ChannelError {
+  public readonly event: string
+  public readonly timeoutMs: number
+
+  public constructor(event: string, timeoutMs: number) {
+    super(
+      `Channel request "${event}" did not receive a response within ${timeoutMs}ms`,
+      CHANNEL_ERROR_CODE.REQUEST_TIMEOUT,
+    )
+    this.name = 'ChannelRequestTimeoutError'
+    this.event = event
+    this.timeoutMs = timeoutMs
+  }
+}
+
+/**
+ * `channel:profile-show` referenced a profile name that is not in the
+ * registry. `channel:profile-remove` does NOT raise this — see §11.
+ */
+export class ChannelProfileNotFoundError extends ChannelError {
+  public readonly profileName: string
+
+  public constructor(profileName: string) {
+    super(`Driver profile not found: ${profileName}`, CHANNEL_ERROR_CODE.PROFILE_NOT_FOUND)
+    this.name = 'ChannelProfileNotFoundError'
+    this.profileName = profileName
   }
 }
