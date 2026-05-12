@@ -124,6 +124,10 @@ export const TASK_HISTORY_STALE_THRESHOLD_MS = 600_000
 
 // Review backups (stores pre-curate file content for local HITL review diffs)
 export const REVIEW_BACKUPS_DIR = 'review-backups'
+
+// User-configurable operational settings (global, restart-required)
+export const SETTINGS_FILE = 'settings.json'
+export const SETTINGS_SCHEMA_VERSION = '1'
 // === Hierarchical DAG (summary, archive, manifest) ===
 export const SUMMARY_INDEX_FILE = '_index.md'
 export const ARCHIVE_DIR = '_archived'
