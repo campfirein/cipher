@@ -224,6 +224,37 @@ export const connectChannelClient = async (options?: ChannelClientOptions): Prom
     },
     request: <TReq, TRes>(event: string, data: TReq): Promise<TRes> =>
       new Promise<TRes>((resolve, reject) => {
+        // Slice 3.5b safety net: if the daemon never invokes the ack
+        // callback (e.g. because it has no registered handler for the
+        // event), the promise would hang forever. The timeout below
+        // surfaces this as `CHANNEL_REQUEST_TIMEOUT` so the CLI exits
+        // non-zero. Override via `BRV_CHANNEL_REQUEST_TIMEOUT_MS`; the
+        // default (60s) is long enough for the slowest production
+        // request path (synchronous invite-time ACP `initialize`).
+        const timeoutMs = Number.parseInt(
+          process.env.BRV_CHANNEL_REQUEST_TIMEOUT_MS ?? '60000',
+          10,
+        )
+        let settled = false
+        const timer = Number.isFinite(timeoutMs) && timeoutMs > 0
+          ? setTimeout(() => {
+              if (settled) return
+              settled = true
+              reject(
+                new ChannelClientError(
+                  'CHANNEL_REQUEST_TIMEOUT',
+                  `Channel request "${event}" did not receive a response within ${timeoutMs}ms`,
+                ),
+              )
+            }, timeoutMs)
+          : undefined
+        const settle = <T>(action: (value: T) => void, value: T): void => {
+          if (settled) return
+          settled = true
+          if (timer !== undefined) clearTimeout(timer)
+          action(value)
+        }
+
         connectedSocket.emit(event, data, (response: unknown) => {
           // Match the SocketIOTransportServer.registerEventHandler envelope:
           //   success path:   { success: true, data: ... }
@@ -236,11 +267,12 @@ export const connectChannelClient = async (options?: ChannelClientOptions): Prom
               success: boolean
             }
             if (env.success) {
-              resolve(env.data as TRes)
+              settle(resolve, env.data as TRes)
               return
             }
 
-            reject(
+            settle(
+              reject,
               new ChannelClientError(
                 env.code ?? 'CHANNEL_REQUEST_FAILED',
                 env.error ?? 'Channel request failed',
@@ -249,7 +281,8 @@ export const connectChannelClient = async (options?: ChannelClientOptions): Prom
             return
           }
 
-          reject(
+          settle(
+            reject,
             new ChannelClientError(
               'CHANNEL_REQUEST_FAILED',
               `Malformed response from daemon for ${event}`,

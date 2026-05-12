@@ -37,6 +37,17 @@ export type TransportServerConfig = {
   corsOrigin?: OriginCallback | RegExp | RegExp[] | string | string[]
 
   /**
+   * Phase-3 handshake middleware (Slice 3.5b). Runs BEFORE `connection`
+   * fires, so middleware that calls `next(err)` rejects the handshake.
+   * Used by the channel-protocol Origin allowlist to block non-localhost
+   * origins per CHANNEL_PROTOCOL.md §13.1.
+   */
+  handshakeMiddleware?: (
+    socket: {handshake: {headers: Record<string, string | undefined>}},
+    next: (err?: Error) => void,
+  ) => void
+
+  /**
    * Ping interval in milliseconds for heartbeat.
    * Lower = faster disconnect detection, higher network overhead.
    */

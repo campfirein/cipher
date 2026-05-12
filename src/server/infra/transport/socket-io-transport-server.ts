@@ -108,6 +108,7 @@ export class SocketIOTransportServer implements ITransportServer {
   constructor(config?: TransportServerConfig) {
     this.config = {
       corsOrigin: config?.corsOrigin ?? '*',
+      handshakeMiddleware: config?.handshakeMiddleware ?? ((_socket, next) => { next() }),
       pingIntervalMs: config?.pingIntervalMs ?? TRANSPORT_PING_INTERVAL_MS,
       pingTimeoutMs: config?.pingTimeoutMs ?? TRANSPORT_PING_TIMEOUT_MS,
     }
@@ -241,6 +242,19 @@ export class SocketIOTransportServer implements ITransportServer {
         })
         transportLog('Socket.IO Admin UI enabled - connect at https://admin.socket.io')
       }
+
+      // Phase-3 (Slice 3.5b): handshake middleware runs BEFORE the
+      // `connection` event so middleware that calls next(err) rejects the
+      // handshake outright. The channel-protocol Origin allowlist plugs
+      // in here. Socket.IO's Socket type carries variadic generics that
+      // don't align with the structural type our config exposes; we cast
+      // through `unknown` because we only read `socket.handshake.headers`.
+      this.io.use((socket, next) => {
+        this.config.handshakeMiddleware(
+          socket as unknown as {handshake: {headers: Record<string, string | undefined>}},
+          next,
+        )
+      })
 
       this.io.on('connection', (socket) => {
         const clientId = socket.id

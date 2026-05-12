@@ -54,6 +54,7 @@ import {getGlobalDataDir} from '../../utils/global-data-path.js'
 import {getProjectDataDir} from '../../utils/path-utils.js'
 import {crashLog, processLog} from '../../utils/process-logger.js'
 import {DaemonTokenProvider} from '../auth/daemon-token-provider.js'
+import {allowlistFromEnv, makeOriginAllowlist} from '../auth/origin-allowlist.js'
 import {ChannelStore} from '../channel/channel-store.js'
 import {ChannelDoctorService} from '../channel/doctor-service.js'
 import {FileDriverProfileStore} from '../channel/driver-profile-store.js'
@@ -93,6 +94,7 @@ import {FileProviderConfigStore} from '../storage/file-provider-config-store.js'
 import {FileReviewBackupStore} from '../storage/file-review-backup-store.js'
 import {createProviderKeychainStore} from '../storage/provider-keychain-store.js'
 import {createTokenStore} from '../storage/token-store.js'
+import {channelsEnabled, registerDisabledStubs} from '../transport/handlers/channel-disabled-handler.js'
 import {ChannelHandler} from '../transport/handlers/channel-handler.js'
 import {SocketIOTransportServer} from '../transport/socket-io-transport-server.js'
 import {createWebUiMiddleware} from '../webui/webui-middleware.js'
@@ -224,7 +226,14 @@ async function main(): Promise<void> {
 
   try {
     // 4a. Construct transport server. start() is deferred to step 11 so all handlers register before sockets connect.
-    transportServer = new SocketIOTransportServer()
+    // Slice 3.5b: install the Phase-3 Origin allowlist as a handshake
+    // middleware. Loopback origins are accepted by default; the env
+    // `BRV_ALLOWED_ORIGINS` (comma-separated) extends the list for the
+    // dev web UI / cloud-bridge cases.
+    const channelOriginAllowlist = makeOriginAllowlist(allowlistFromEnv())
+    transportServer = new SocketIOTransportServer({
+      handshakeMiddleware: channelOriginAllowlist.socketioMiddleware,
+    })
 
     // 4b. Start Web UI server on stable port (separate from transport)
     const daemonDir = dirname(fileURLToPath(import.meta.url))
@@ -774,16 +783,24 @@ async function main(): Promise<void> {
       store: channelStore,
     })
 
-    new ChannelHandler({
-      // Slice 3.5a: pass a provider callback so token rotation takes effect
-      // immediately. The middleware reads `getCurrent()` per request.
-      authToken: () => daemonTokenProvider.getCurrent(),
-      doctorService: channelDoctorService,
-      onboardService: channelOnboardService,
-      orchestrator: channelOrchestrator,
-      profileStore: channelProfileStore,
-      rotateToken: () => daemonTokenProvider.rotate(),
-    }).registerOn(channelTransport)
+    // Slice 3.5b: gate the FULL handler registration on
+    // `BRV_CHANNELS_ENABLED`. When unset/off, register stubs that return
+    // CHANNEL_DISABLED for every channel:* event so the CLI ack callback
+    // fires (never hangs).
+    if (channelsEnabled()) {
+      new ChannelHandler({
+        // Slice 3.5a: pass a provider callback so token rotation takes
+        // effect immediately. Middleware reads getCurrent() per request.
+        authToken: () => daemonTokenProvider.getCurrent(),
+        doctorService: channelDoctorService,
+        onboardService: channelOnboardService,
+        orchestrator: channelOrchestrator,
+        profileStore: channelProfileStore,
+        rotateToken: () => daemonTokenProvider.rotate(),
+      }).registerOn(channelTransport)
+    } else {
+      registerDisabledStubs(channelTransport)
+    }
 
     // Best-effort: release every channel driver on SIGTERM/SIGINT so
     // subprocess agents do not leak. Phase 3 wires a first-class

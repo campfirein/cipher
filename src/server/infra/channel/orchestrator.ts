@@ -743,6 +743,13 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
   }
 
   private async finaliseTurn(active: ActiveTurn): Promise<void> {
+    // Idempotency guard: cancelTurn and the background streaming task can
+    // race to call finaliseTurn (both observe `activeTurns.has(turnId)`
+    // true before either calls writeTurnSnapshot). Removing the entry
+    // BEFORE any await ensures only one caller proceeds to disk writes.
+    if (!this.activeTurns.has(active.turn.turnId)) return
+    this.activeTurns.delete(active.turn.turnId)
+
     // Persist turn snapshot + delivery snapshots + message body for each delivery.
     await this.store.writeTurnSnapshot({
       channelId: active.channelId,
@@ -761,7 +768,6 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
       })
     }
 
-    this.activeTurns.delete(active.turn.turnId)
     this.seqAllocator.reset({channelId: active.channelId, turnId: active.turn.turnId})
   }
 
