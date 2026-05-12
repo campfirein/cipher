@@ -4,7 +4,7 @@ import {mkdir, readFile, rename, unlink, writeFile} from 'node:fs/promises'
 import {join} from 'node:path'
 
 import type {SettingItem} from '../../core/domain/entities/settings.js'
-import type {ISettingsStore} from '../../core/interfaces/storage/i-settings-store.js'
+import type {ISettingsStore, SettingsStartupSnapshot} from '../../core/interfaces/storage/i-settings-store.js'
 
 import {SETTINGS_FILE, SETTINGS_SCHEMA_VERSION} from '../../constants.js'
 import {SETTINGS_REGISTRY} from '../../core/domain/entities/settings.js'
@@ -24,6 +24,15 @@ export type FileSettingsStoreOptions = {
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error)
+}
+
+type RawReadResult =
+  | {readonly kind: 'corrupt'; readonly parseError: string}
+  | {readonly kind: 'missing'}
+  | {readonly kind: 'ok'; readonly values: Record<string, unknown>}
 
 /**
  * Persists user setting overrides to `<BRV_DATA_DIR>/settings.json` using an
@@ -61,6 +70,15 @@ export class FileSettingsStore implements ISettingsStore {
     }))
   }
 
+  public async readStartupSnapshot(): Promise<SettingsStartupSnapshot> {
+    const result = await this.readRawValuesOrError()
+    if (result.kind === 'missing') return {invalid: [], values: {}}
+    if (result.kind === 'corrupt') return {invalid: [], parseError: result.parseError, values: {}}
+
+    const {invalid, valid} = this.validator.partition(result.values)
+    return {invalid, values: valid}
+  }
+
   public async reset(key: string): Promise<void> {
     this.validator.validateKey(key)
     const raw = await this.readRawValues()
@@ -95,21 +113,38 @@ export class FileSettingsStore implements ISettingsStore {
   }
 
   private async readRawValues(): Promise<Record<string, unknown>> {
+    const result = await this.readRawValuesOrError()
+    return result.kind === 'ok' ? result.values : {}
+  }
+
+  private async readRawValuesOrError(): Promise<RawReadResult> {
     const path = this.filePath()
-    if (!existsSync(path)) return {}
+    if (!existsSync(path)) return {kind: 'missing'}
 
+    let content: string
     try {
-      const content = await readFile(path, 'utf8')
-      const parsed: unknown = JSON.parse(content)
-      if (!isRecord(parsed)) return {}
-
-      const {values} = parsed
-      if (!isRecord(values)) return {}
-
-      return {...values}
-    } catch {
-      return {}
+      content = await readFile(path, 'utf8')
+    } catch (error) {
+      return {kind: 'corrupt', parseError: errorMessage(error)}
     }
+
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(content)
+    } catch (error) {
+      return {kind: 'corrupt', parseError: `invalid JSON: ${errorMessage(error)}`}
+    }
+
+    if (!isRecord(parsed)) {
+      return {kind: 'corrupt', parseError: 'expected top-level JSON object'}
+    }
+
+    if (parsed.values === undefined) return {kind: 'ok', values: {}}
+    if (!isRecord(parsed.values)) {
+      return {kind: 'corrupt', parseError: "expected object at '.values'"}
+    }
+
+    return {kind: 'ok', values: {...parsed.values}}
   }
 
   private async writeFile(file: SettingsFile): Promise<void> {

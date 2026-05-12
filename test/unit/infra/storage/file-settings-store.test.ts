@@ -276,6 +276,64 @@ describe('FileSettingsStore', () => {
       expect(files.filter((f) => f.endsWith('.tmp'))).to.have.lengthOf(0)
     })
 
+    it('readStartupSnapshot returns defaults when the file is missing', async () => {
+      const snapshot = await store.readStartupSnapshot()
+      expect(snapshot.values).to.deep.equal({})
+      expect(snapshot.invalid).to.deep.equal([])
+    })
+
+    it('readStartupSnapshot returns valid entries and an empty invalid list when the file is fully valid', async () => {
+      await store.set('agentPool.maxSize', 25)
+      await store.set('taskHistory.maxEntries', 5000)
+      const snapshot = await store.readStartupSnapshot()
+      expect(snapshot.values).to.deep.equal({
+        'agentPool.maxSize': 25,
+        'taskHistory.maxEntries': 5000,
+      })
+      expect(snapshot.invalid).to.deep.equal([])
+    })
+
+    it('readStartupSnapshot returns valid entries and lists invalid entries for partial files', async () => {
+      await writeFile(
+        join(tempDir, SETTINGS_FILENAME),
+        JSON.stringify({
+          values: {
+            'agentPool.maxSize': 'oops',
+            'not.a.key': 7,
+            'taskHistory.maxEntries': 5000,
+          },
+          version: '1',
+        }),
+        'utf8',
+      )
+
+      const snapshot = await store.readStartupSnapshot()
+      expect(snapshot.values).to.deep.equal({'taskHistory.maxEntries': 5000})
+      expect(snapshot.invalid).to.have.lengthOf(2)
+      const invalidKeys = snapshot.invalid.map((i) => i.key).sort()
+      expect(invalidKeys).to.deep.equal(['agentPool.maxSize', 'not.a.key'])
+    })
+
+    it('readStartupSnapshot surfaces parseError when the file is corrupt JSON', async () => {
+      await writeFile(join(tempDir, SETTINGS_FILENAME), 'not json', 'utf8')
+      const snapshot = await store.readStartupSnapshot()
+      expect(snapshot.values).to.deep.equal({})
+      expect(snapshot.invalid).to.deep.equal([])
+      expect(snapshot.parseError).to.be.a('string')
+    })
+
+    it('readStartupSnapshot surfaces parseError when the top-level JSON is not an object', async () => {
+      await writeFile(join(tempDir, SETTINGS_FILENAME), JSON.stringify(['arr']), 'utf8')
+      const snapshot = await store.readStartupSnapshot()
+      expect(snapshot.values).to.deep.equal({})
+      expect(snapshot.parseError).to.be.a('string')
+    })
+
+    it('readStartupSnapshot returns no parseError when the file is missing', async () => {
+      const snapshot = await store.readStartupSnapshot()
+      expect(snapshot.parseError).to.be.undefined
+    })
+
     it('leaves the file in a parseable state after concurrent writes (last-write-wins)', async () => {
       await Promise.all([
         store.set('agentPool.maxSize', 25),
