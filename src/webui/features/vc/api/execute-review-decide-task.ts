@@ -9,6 +9,7 @@ import {
 } from '../../../../shared/transport/events/review-events'
 import {useTransportStore} from '../../../stores/transport-store'
 import {getAgentChangesQueryOptions} from './get-agent-changes'
+import {getVcStatusQueryOptions} from './get-vc-status'
 
 export const executeReviewDecideTask = (request: ReviewDecideTaskRequest): Promise<ReviewDecideTaskResponse> => {
   const {apiClient} = useTransportStore.getState()
@@ -28,6 +29,7 @@ export const useReviewDecideTask = ({mutationConfig}: UseReviewDecideTaskOptions
   return useMutation({
     onSuccess(...args) {
       queryClient.invalidateQueries({queryKey: getAgentChangesQueryOptions().queryKey})
+      queryClient.invalidateQueries({queryKey: getVcStatusQueryOptions().queryKey})
       onSuccess?.(...args)
     },
     ...rest,

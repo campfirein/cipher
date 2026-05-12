@@ -1,4 +1,4 @@
-const REASON_PREFIX_PATTERN = /^\[([^/\]]+)\/([^\]]+)]\s*(.*)$/s
+const REASON_PREFIX_PATTERN = /^\[([^/\]]+)\/([^/\]]+)]\s*(.*)$/s
 
 export function splitReasonPrefix(text: string): {body: string; prefix: string | undefined} {
   const match = REASON_PREFIX_PATTERN.exec(text)

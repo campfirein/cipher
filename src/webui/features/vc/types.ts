@@ -19,15 +19,9 @@ export interface AgentChangeMeta {
   type: 'ADD' | 'DELETE' | 'MERGE' | 'UPDATE' | 'UPSERT'
 }
 
-/**
- * Derive the effective impact when the agent didn't populate `impact` explicitly.
- * DELETE and pending-review ops are always high-impact (`needsReview = DELETE || impact === 'high'`),
- * everything else falls back to low.
- */
 export function getEffectiveImpact(agentMeta: AgentChangeMeta): 'high' | 'low' {
   if (agentMeta.impact) return agentMeta.impact
   if (agentMeta.type === 'DELETE') return 'high'
-  if (agentMeta.reviewStatus === 'pending') return 'high'
   return 'low'
 }
 

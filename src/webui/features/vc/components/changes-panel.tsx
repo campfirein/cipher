@@ -134,7 +134,13 @@ export function ChangesPanel() {
   }
 
   const handleStageFile = async (file: ChangeFile) => {
-    await runAction(addMutation.mutateAsync({ filePaths: [file.path] }), 'Failed to stage file')
+    try {
+      await addMutation.mutateAsync({ filePaths: [file.path] })
+    } catch (error) {
+      toast.error(formatError(error, 'Failed to stage file'))
+      return
+    }
+
     await decidePendingFiles([file], 'approved')
   }
 
@@ -144,7 +150,13 @@ export function ChangesPanel() {
   const handleStageAll = async () => {
     if (unstaged.length === 0) return
     const filePaths = unstaged.map((f) => f.path)
-    await runAction(addMutation.mutateAsync({ filePaths }), 'Failed to stage all')
+    try {
+      await addMutation.mutateAsync({ filePaths })
+    } catch (error) {
+      toast.error(formatError(error, 'Failed to stage all'))
+      return
+    }
+
     await decidePendingFiles(unstaged, 'approved')
   }
 

@@ -37,4 +37,9 @@ describe('splitReasonPrefix', () => {
     const result = splitReasonPrefix('[dream] body')
     expect(result).to.deep.equal({body: '[dream] body', prefix: undefined})
   })
+
+  it('does not match prefixes with nested slashes in the action segment', () => {
+    const result = splitReasonPrefix('[dream/sub/action] body')
+    expect(result).to.deep.equal({body: '[dream/sub/action] body', prefix: undefined})
+  })
 })

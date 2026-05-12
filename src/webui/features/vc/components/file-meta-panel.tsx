@@ -6,6 +6,7 @@ import { Sparkles } from 'lucide-react'
 import type { AgentChangeMeta } from '../types'
 
 import { getEffectiveImpact } from '../types'
+import { shouldShowAgentPulse } from '../utils/should-show-agent-pulse'
 import { splitReasonPrefix } from '../utils/split-reason-prefix'
 
 interface FileMetaPanelProps {
@@ -55,7 +56,7 @@ function ReasonBody({ agentMeta }: { agentMeta: AgentChangeMeta }) {
 export function FileMetaPanel({ agentMeta }: FileMetaPanelProps) {
   const impact = getEffectiveImpact(agentMeta)
   const isHigh = impact === 'high'
-  const isHighPending = isHigh && agentMeta.reviewStatus === 'pending'
+  const showPulse = shouldShowAgentPulse(agentMeta)
 
   return (
     <section className="bg-card rounded-t-md px-4 py-3">
@@ -76,7 +77,7 @@ export function FileMetaPanel({ agentMeta }: FileMetaPanelProps) {
         >
           {impact} impact
         </Badge>
-        {isHighPending && (
+        {showPulse && (
           <Tooltip>
             <TooltipTrigger
               render={<span className="ml-1 size-1.5 animate-pulse rounded-full bg-amber-500" />}
