@@ -498,7 +498,13 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
     const member: ChannelMemberAcpAgent = {
       acpVersion: driver.protocolVersion === undefined ? undefined : String(driver.protocolVersion),
       agentName: args.handle,
-      capabilities: [...inviteCapabilities, ...driver.capabilities, ...(args.capabilities ?? [])],
+      // Dedupe — profile.capabilities and driver.capabilities are populated
+      // from the same source (the agent's `initialize` advertisement) so a
+      // Phase-3 invite-by-profile flow doubles every cap. The Set preserves
+      // first-seen order which matches the prior concatenation order.
+      capabilities: [
+        ...new Set([...(args.capabilities ?? []), ...driver.capabilities, ...inviteCapabilities]),
+      ],
       driverClass,
       handle: args.handle,
       invocation,

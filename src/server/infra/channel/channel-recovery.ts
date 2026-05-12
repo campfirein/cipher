@@ -109,7 +109,18 @@ export const runChannelRecovery = async (deps: ChannelRecoveryDeps): Promise<Cha
       }
       // eslint-disable-next-line no-await-in-loop
       await deps.store.appendTurnEvent({channelId, event, projectRoot, turnId})
-      deps.broadcaster.broadcastToChannel(channelId, ChannelEvents.TURN_EVENT, {channelId, event})
+      // Recovery runs during daemon bootstrap, BEFORE the Socket.IO server
+      // is listening. broadcastToChannel will throw "Server not started"
+      // here; that must not abort the loop — persistence is the source of
+      // truth, and any clients that connect after bootstrap re-read events
+      // from disk via `channel show` / `channel list-turns`.
+      try {
+        deps.broadcaster.broadcastToChannel(channelId, ChannelEvents.TURN_EVENT, {channelId, event})
+      } catch {
+        // Broadcast is best-effort during recovery — event is already
+        // durably persisted on disk.
+      }
+
       erroredDeliveryIds.add(entry.deliveryId)
       recoveredDeliveries += 1
     }
@@ -141,7 +152,11 @@ export const runChannelRecovery = async (deps: ChannelRecoveryDeps): Promise<Cha
     }
     // eslint-disable-next-line no-await-in-loop
     await deps.store.appendTurnEvent({channelId, event: finaliseEvent, projectRoot, turnId})
-    deps.broadcaster.broadcastToChannel(channelId, ChannelEvents.TURN_EVENT, {channelId, event: finaliseEvent})
+    try {
+      deps.broadcaster.broadcastToChannel(channelId, ChannelEvents.TURN_EVENT, {channelId, event: finaliseEvent})
+    } catch {
+      // See above — broadcast is best-effort during bootstrap.
+    }
 
     // Write the terminal turn.json snapshot — but only if it does not
     // already exist (the daemon may have finalised before crashing and

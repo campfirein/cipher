@@ -263,6 +263,7 @@ export const connectChannelClient = async (options?: ChannelClientOptions): Prom
             const env = response as {
               code?: string
               data?: unknown
+              details?: unknown
               error?: string
               success: boolean
             }
@@ -276,6 +277,7 @@ export const connectChannelClient = async (options?: ChannelClientOptions): Prom
               new ChannelClientError(
                 env.code ?? 'CHANNEL_REQUEST_FAILED',
                 env.error ?? 'Channel request failed',
+                env.details,
               ),
             )
             return

@@ -356,9 +356,20 @@ export class SocketIOTransportServer implements ITransportServer {
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'Unknown error'
         const errorCode = error instanceof Error && 'code' in error ? (error.code as string) : undefined
-        const errorPayload = errorCode
+        // Phase-4 (Slice 4.2): preserve structured `details` so the client
+        // can render auth-method remediation hints, validation field lists,
+        // etc. The CHANNEL_PROTOCOL.md §11 error envelope is `{code, message,
+        // details?}` — keeping `details` off the wire silently dropped
+        // AcpAuthRequiredError.authMethods.
+        const errorDetails =
+          error instanceof Error && 'details' in error
+            ? (error as Error & {details?: unknown}).details
+            : undefined
+        const basePayload = errorCode
           ? {code: errorCode, error: errorMessage, success: false}
           : {error: errorMessage, success: false}
+        const errorPayload =
+          errorDetails === undefined ? basePayload : {...basePayload, details: errorDetails}
 
         if (callback) {
           callback(errorPayload)
