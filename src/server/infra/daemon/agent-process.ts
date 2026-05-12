@@ -25,6 +25,7 @@ import {appendFileSync} from 'node:fs'
 import {join} from 'node:path'
 
 import type {ISearchKnowledgeService} from '../../../agent/infra/sandbox/tools-sdk.js'
+import type {TaskCancelRequest} from '../../../shared/transport/events/task-events.js'
 import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
 import type {ProviderConfigResponse, TaskExecute} from '../../core/domain/transport/schemas.js'
 import type {IRuntimeSignalStore} from '../../core/interfaces/storage/i-runtime-signal-store.js'
@@ -63,6 +64,7 @@ import {SearchExecutor} from '../executor/search-executor.js'
 import {FileCurateLogStore} from '../storage/file-curate-log-store.js'
 import {FileReviewBackupStore} from '../storage/file-review-backup-store.js'
 import {AgentInstanceDiscovery} from '../transport/agent-instance-discovery.js'
+import {handleAgentCancelEvent} from './agent-cancel-listener.js'
 import {createAgentLogger} from './agent-logger.js'
 import {PostWorkRegistry} from './post-work-registry.js'
 import {resolveSessionId} from './session-resolver.js'
@@ -427,6 +429,12 @@ async function start(): Promise<void> {
       configResult.storagePath,
       daemonRuntimeSignalStore,
     )
+  })
+
+  transport.on<TaskCancelRequest>(TransportTaskEventNames.CANCEL, ({taskId}) => {
+    if (!agent || !transport) return
+    // eslint-disable-next-line no-void
+    void handleAgentCancelEvent({agent, log: agentLog, taskId, transport})
   })
 
   // 8. Register with transport server (for TransportHandlers tracking)
