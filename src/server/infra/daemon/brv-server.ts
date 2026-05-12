@@ -36,7 +36,6 @@ import {ReviewEvents} from '../../../shared/transport/events/review-events.js'
 import {
   AGENT_IDLE_CHECK_INTERVAL_MS,
   AGENT_IDLE_TIMEOUT_MS,
-  AGENT_POOL_MAX_SIZE,
   BRV_DIR,
   HEARTBEAT_FILE,
   WEBUI_DEFAULT_PORT,
@@ -61,7 +60,10 @@ import {CurateLogHandler} from '../process/curate-log-handler.js'
 import {setupFeatureHandlers} from '../process/feature-handlers.js'
 import {QueryLogHandler} from '../process/query-log-handler.js'
 import {TaskHistoryHook} from '../process/task-history-hook.js'
-import {getStore as getTaskHistoryStore} from '../process/task-history-store-cache.js'
+import {
+  configureTaskHistoryStoreCache,
+  getStore as getTaskHistoryStore,
+} from '../process/task-history-store-cache.js'
 import {TransportHandlers} from '../process/transport-handlers.js'
 import {ProjectRegistry} from '../project/project-registry.js'
 import {createProviderOAuthTokenStore} from '../provider-oauth/provider-oauth-token-store.js'
@@ -73,6 +75,7 @@ import {ProjectStateLoader} from '../state/project-state-loader.js'
 import {FileCurateLogStore} from '../storage/file-curate-log-store.js'
 import {FileProviderConfigStore} from '../storage/file-provider-config-store.js'
 import {FileReviewBackupStore} from '../storage/file-review-backup-store.js'
+import {FileSettingsStore} from '../storage/file-settings-store.js'
 import {createProviderKeychainStore} from '../storage/provider-keychain-store.js'
 import {createTokenStore} from '../storage/token-store.js'
 import {SocketIOTransportServer} from '../transport/socket-io-transport-server.js'
@@ -90,6 +93,7 @@ import {DaemonResilience} from './daemon-resilience.js'
 import {HeartbeatWriter} from './heartbeat.js'
 import {IdleTimeoutPolicy} from './idle-timeout-policy.js'
 import {selectDaemonPort} from './port-selector.js'
+import {bootstrapSettings} from './settings-bootstrap.js'
 import {ShutdownHandler} from './shutdown-handler.js'
 
 function log(msg: string): void {
@@ -259,6 +263,13 @@ async function main(): Promise<void> {
     daemonResilience.install()
 
     // 7. Create services (auth, project state, agent pool, handlers)
+    // Settings bootstrap: read settings.json once, apply user overrides to
+    // AgentPool and task-history cache. Missing or invalid entries fall
+    // back to defaults; parseErrors and rejected entries are logged here.
+    const settingsStore = new FileSettingsStore()
+    const resolvedSettings = await bootstrapSettings({log, store: settingsStore})
+    configureTaskHistoryStoreCache({maxEntries: resolvedSettings.taskHistoryMaxEntries})
+
     const projectRegistry = new ProjectRegistry({log})
     const projectRouter = new ProjectRouter({transport: transportServer})
     const clientManager = new ClientManager()
@@ -377,6 +388,8 @@ async function main(): Promise<void> {
         return fork(agentProcessPath, [], forkOptions)
       },
       log,
+      maxConcurrentTasks: resolvedSettings.agentMaxConcurrentTasks,
+      maxSize: resolvedSettings.agentPoolMaxSize,
       transportServer,
     })
 
@@ -640,7 +653,7 @@ async function main(): Promise<void> {
       agentIdleStatus: agentIdleTimeoutPolicy.getIdleStatus(),
       agentPool: {
         entries: agentPool!.getEntries(),
-        maxSize: AGENT_POOL_MAX_SIZE,
+        maxSize: resolvedSettings.agentPoolMaxSize,
         queue: agentPool!.getQueueState(),
         size: agentPool!.getSize(),
       },
