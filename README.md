@@ -220,7 +220,10 @@ Available keys:
 |---|---|---|
 | `agentPool.maxSize` | 10 | Maximum concurrent active projects (one agent process per project) |
 | `agentPool.maxConcurrentTasksPerProject` | 5 | Parallel `brv curate` / `brv query` tasks within a single project |
+| `llm.iterationBudgetMs` | 600000 | Wall-clock budget for the agentic loop on one task, in milliseconds |
 | `taskHistory.maxEntries` | 1000 | Number of task records `brv query-log view` retains per project |
+
+Raise `llm.iterationBudgetMs` when a single `brv curate` or `brv query` on a slow local LLM (Ollama on CPU, heavy quantization, cold model load) routinely hits the default 10-minute cap on legitimate work. Lower it on cloud providers when you want a stuck task to surface as an error faster instead of waiting out the full budget. The cap is enforced per task, not per request.
 
 Settings persist in `settings.json` under the `brv` global data directory:
 

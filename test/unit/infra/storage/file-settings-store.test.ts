@@ -49,6 +49,7 @@ describe('FileSettingsStore', () => {
       expect(keys).to.deep.equal([
         'agentPool.maxConcurrentTasksPerProject',
         'agentPool.maxSize',
+        'llm.iterationBudgetMs',
         'taskHistory.maxEntries',
       ])
       for (const item of items) {

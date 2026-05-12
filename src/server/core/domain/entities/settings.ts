@@ -1,4 +1,9 @@
-import {AGENT_MAX_CONCURRENT_TASKS, AGENT_POOL_MAX_SIZE, TASK_HISTORY_DEFAULT_MAX_ENTRIES} from '../../../constants.js'
+import {
+  AGENT_LLM_ITERATION_BUDGET_MS,
+  AGENT_MAX_CONCURRENT_TASKS,
+  AGENT_POOL_MAX_SIZE,
+  TASK_HISTORY_DEFAULT_MAX_ENTRIES,
+} from '../../../constants.js'
 
 /**
  * Descriptor for a single user-configurable setting.
@@ -42,6 +47,16 @@ export const SETTINGS_REGISTRY: readonly SettingDescriptor[] = [
     key: 'agentPool.maxConcurrentTasksPerProject',
     max: 50,
     min: 1,
+    restartRequired: true,
+    type: 'integer',
+  },
+  {
+    default: AGENT_LLM_ITERATION_BUDGET_MS,
+    description:
+      'Maximum wall-clock budget for the agentic loop on one task, in milliseconds. Raise for slow local LLMs (Ollama on CPU); lower for faster failure detection on cloud providers.',
+    key: 'llm.iterationBudgetMs',
+    max: 7_200_000,
+    min: 60_000,
     restartRequired: true,
     type: 'integer',
   },
