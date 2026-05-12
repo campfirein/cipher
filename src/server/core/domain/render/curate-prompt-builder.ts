@@ -99,16 +99,24 @@ export function buildCorrectionPrompt(options: {
 
   // When the writer's overwrite guard fired, inline the prior file's
   // bytes so the calling LLM can merge new content into the existing
-  // structure without parsing JSON. Multiple `path-exists` errors in
-  // a single response would be unusual (one topic per response), but
-  // we render each separately so the prompt is unambiguous.
-  const pathExistsErrors = errors.filter((e): e is Extract<HtmlWriteError, {kind: 'path-exists'}> => e.kind === 'path-exists')
-  const existingTopicBlock = pathExistsErrors.length === 0
+  // structure without parsing JSON. We only render the block when the
+  // prior content was readable — otherwise an empty `<existing-topic>`
+  // would lead the LLM to conclude the prior topic was empty and
+  // produce a merge with no carryover, defeating the guard's purpose.
+  // Multiple `path-exists` errors in a single response would be unusual
+  // (one topic per response), but we render each separately so the
+  // prompt is unambiguous.
+  type PathExistsError = Extract<HtmlWriteError, {kind: 'path-exists'}>
+  const pathExistsErrors = errors.filter((e): e is PathExistsError => e.kind === 'path-exists')
+  const readableExistingTopics = pathExistsErrors.filter(
+    (err): err is PathExistsError & {existingContent: string} => err.existingContent !== undefined,
+  )
+  const existingTopicBlock = readableExistingTopics.length === 0
     ? ''
     : ['', '# Existing topic on disk', '',
         'A topic already exists at the path you chose. Decide between merging into it (preferred — preserves prior facts) or asking the user to confirm replacement.',
         '',
-        ...pathExistsErrors.flatMap((err) => [
+        ...readableExistingTopics.flatMap((err) => [
           `<existing-topic path="${err.topicPath}">`,
           err.existingContent,
           '</existing-topic>',

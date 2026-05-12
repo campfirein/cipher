@@ -80,10 +80,13 @@ const SESSION_ID_RE = /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$
 export type CurateSessionError = {
   attribute?: string
   /**
-   * Present on `kind: 'path-exists'` only. Carries the prior file's
-   * full bytes so the calling agent can merge new content into the
-   * existing topic instead of silently clobbering it. Mirrors what is
-   * embedded inline into the correction prompt.
+   * Present on `kind: 'path-exists'` when the prior file was readable.
+   * Carries the existing file's full bytes so the calling agent can
+   * merge new content into the existing topic instead of silently
+   * clobbering it. Mirrors what is embedded inline into the correction
+   * prompt. Absent (`undefined`) when the file exists but its content
+   * could not be read — consumers MUST treat that as "prior content
+   * unavailable", NOT as "topic is empty".
    */
   existingContent?: string
   kind: string

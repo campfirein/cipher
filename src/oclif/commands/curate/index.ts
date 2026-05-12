@@ -146,6 +146,27 @@ Bad examples:
     }
     const format: 'json' | 'text' = flags.format ?? 'text'
 
+    // `--overwrite` is meaningful only on tool-mode continuation. The
+    // legacy agent-driven path has its own pendingReview machinery and
+    // does not consult this flag. Reject early so the user doesn't
+    // believe overwrite semantics took effect on a legacy curate.
+    if (flags.overwrite && flags.session === undefined) {
+      this.emitToolModeEnvelope(
+        {
+          errors: [
+            {
+              kind: 'invalid-flag-combination',
+              message: '--overwrite requires --session (tool-mode continuation). On a legacy curate run, this flag has no effect; remove it or pair it with --session <id>.',
+            },
+          ],
+          ok: false,
+          status: 'failed',
+        },
+        format,
+      )
+      return
+    }
+
     // Tool-mode dispatch — runs before the legacy provider check and
     // task lifecycle. Continuation is implied by --session; kickoff
     // requires the BRV_CURATE_TOOL_MODE env var (TKT 02 replaces with

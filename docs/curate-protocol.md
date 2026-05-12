@@ -89,6 +89,7 @@ Every kickoff and continuation call returns the same JSON envelope under the sta
 |---|---|---|---|
 | `missing-content` | Kickoff | **terminal** | Kickoff invoked without a context argument; no session created |
 | `missing-response` | Continuation | **terminal** | `--session` invoked without `--response`; session unaffected |
+| `invalid-flag-combination` | Continuation | **terminal** | Emitted before any session lookup when a flag is used outside its supported call shape. Today the only producer is `--overwrite` passed without `--session` (legacy curate path does not honour `--overwrite`). |
 | `unknown-session` | Continuation | **terminal** | Session id doesn't exist, was already completed, or fails uuid validation |
 | `empty-response` | Continuation | **transient** (session kept live) | Continuation received an empty `--response`; caller retries with the same `sessionId` |
 | `retry-cap-exceeded` | Continuation | **terminal** | `MAX_ATTEMPTS = 4` (1 generate + 3 corrections) reached without valid HTML; session cleared. Accompanied by the validation errors that pushed the session over the cap. |

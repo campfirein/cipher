@@ -270,6 +270,27 @@ describe('curate-prompt-builder', () => {
       expect(prompt).to.not.include('<existing-topic')
     })
 
+    it('omits the <existing-topic> block when path-exists carries undefined existingContent (unreadable)', () => {
+      // If the existing file was unreadable, the writer surfaces
+      // existingContent: undefined. The prompt MUST NOT render an empty
+      // <existing-topic> block — that would lead the LLM to conclude
+      // the prior topic was empty and produce a merge with no carry-over.
+      const errors = [
+        {
+          existingContent: undefined,
+          kind: 'path-exists' as const,
+          message: 'A topic already exists at "x/y" but its content could not be read.',
+          topicPath: 'x/y',
+        },
+      ]
+      const prompt = buildCorrectionPrompt({errors, previousHtml, userIntent})
+
+      expect(prompt).to.not.include('# Existing topic on disk')
+      expect(prompt).to.not.include('<existing-topic')
+      // The fix hint still appears so the agent knows to use --overwrite or pick a different path.
+      expect(prompt).to.include('merge your new content')
+    })
+
     it('falls back to a generic instruction when given zero errors', () => {
       const prompt = buildCorrectionPrompt({errors: [], previousHtml, userIntent})
       expect(prompt).to.include('No structured errors')

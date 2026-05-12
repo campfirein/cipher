@@ -402,6 +402,37 @@ describe('html-writer', () => {
         const second = await writeHtmlTopic({contextTreeRoot: tmpRoot, rawHtml: otherTopic})
         expect(second.ok).to.equal(true)
       })
+
+      it('surfaces existingContent as undefined when the prior file exists but is unreadable', async () => {
+        // Edge case raised in PR review: if existsSync succeeds but
+        // readFileSync throws (perms change, concurrent unlink, broken
+        // symlink), the guard MUST NOT emit `existingContent: ''` —
+        // that would lead a downstream merge-then-overwrite path to
+        // produce new-only HTML and silently clobber the prior file
+        // (the same data-loss class this guard prevents, through a
+        // different door). Verify by chmod-ing the file unreadable
+        // before triggering the guard.
+        const first = await writeHtmlTopic({contextTreeRoot: tmpRoot, rawHtml: VALID_TOPIC})
+        expect(first.ok).to.equal(true)
+        if (!first.ok) return
+
+        const {chmodSync} = await import('node:fs')
+        chmodSync(first.filePath, 0)
+        try {
+          const second = await writeHtmlTopic({contextTreeRoot: tmpRoot, rawHtml: VALID_TOPIC})
+          expect(second.ok).to.equal(false)
+          if (!second.ok) {
+            const pathExists = second.errors.find((e) => e.kind === 'path-exists')
+            expect(pathExists, 'expected path-exists error').to.not.equal(undefined)
+            if (pathExists && pathExists.kind === 'path-exists') {
+              expect(pathExists.existingContent, 'existingContent must be undefined for unreadable prior file').to.equal(undefined)
+              expect(pathExists.message).to.include('could not be read')
+            }
+          }
+        } finally {
+          chmodSync(first.filePath, 0o644)
+        }
+      })
     })
   })
 })

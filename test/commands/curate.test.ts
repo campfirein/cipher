@@ -143,6 +143,21 @@ describe('Curate Command', () => {
       expect(json.success).to.be.false
       expect(json.data).to.have.property('message').that.includes('Either a context argument')
     })
+
+    it('should reject --overwrite without --session (legacy path does not honour the flag)', async () => {
+      // --overwrite is a tool-mode-continuation-only flag. On a legacy
+      // curate (no --session) it would silently be ignored — fail fast
+      // so the user doesn't believe overwrite semantics took effect.
+      await createJsonCommand('some context', '--overwrite').run()
+
+      const json = parseJsonOutput()
+      expect(json.success).to.be.false
+      const data = json.data as {errors?: Array<{kind: string; message: string}>; status?: string}
+      expect(data.status).to.equal('failed')
+      const errors = data.errors ?? []
+      expect(errors.some((e) => e.kind === 'invalid-flag-combination')).to.equal(true)
+      expect(errors[0].message).to.include('--overwrite requires --session')
+    })
   })
 
   // ==================== Provider Validation ====================
