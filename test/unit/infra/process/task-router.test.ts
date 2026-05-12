@@ -74,10 +74,12 @@ function makeStubTransportServer(sandbox: SinonSandbox) {
 }
 
 function makeStubAgentPool(sandbox: SinonSandbox): IAgentPool & {
+  cancelQueuedTask: SinonStub
   notifyTaskCompleted: SinonStub
   submitTask: SinonStub
 } {
   return {
+    cancelQueuedTask: sandbox.stub().returns(false),
     getEntries: sandbox.stub().returns([]),
     getSize: sandbox.stub().returns(0),
     handleAgentDisconnected: sandbox.stub(),
@@ -768,6 +770,14 @@ describe('TaskRouter', () => {
       )).to.be.true
     })
 
+    it('should notify agentPool on task:cancelled so the project queue drains (T1.3 queue-advance)', () => {
+      const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.CANCELLED)
+
+      handler!({taskId}, 'agent-1')
+
+      expect(agentPool.notifyTaskCompleted.calledWith('/app')).to.be.true
+    })
+
     it('should remove task from active tasks after completion', () => {
       const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.COMPLETED)
 
@@ -839,6 +849,57 @@ describe('TaskRouter', () => {
       const result = handler!({taskId: 'nonexistent'}, 'client-1')
 
       expect(result).to.deep.equal({error: 'Task not found', success: false})
+    })
+
+    describe('queued task cancellation (T1.3)', () => {
+      it('cancels a queued task directly via agentPool, broadcasts cancelled, never forwards to agent', () => {
+        agentPool.cancelQueuedTask.returns(true)
+        const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.CANCEL)
+
+        const result = handler!({taskId}, 'client-1')
+
+        expect(result).to.deep.equal({success: true})
+        expect(agentPool.cancelQueuedTask.calledOnceWithExactly(taskId)).to.equal(true)
+
+        // Agent must NOT receive the forwarded cancel
+        const forwardedToAgent = (transportHelper.transport.sendTo as SinonStub).getCalls().some(
+          (c) => c.args[0] === 'agent-1' && c.args[1] === TransportTaskEventNames.CANCEL,
+        )
+        expect(forwardedToAgent).to.equal(false)
+
+        // Client receives task:cancelled directly from the daemon
+        expect((transportHelper.transport.sendTo as SinonStub).calledWith(
+          'client-1',
+          TransportTaskEventNames.CANCELLED,
+          {taskId},
+        )).to.be.true
+
+        // Task removed from in-memory map
+        expect(router.getTasksForProject('/app')).to.have.lengthOf(0)
+      })
+
+      it('does NOT call agentPool.notifyTaskCompleted for queued cancel (the task never occupied a pool slot)', () => {
+        agentPool.cancelQueuedTask.returns(true)
+        const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.CANCEL)
+
+        handler!({taskId}, 'client-1')
+
+        expect(agentPool.notifyTaskCompleted.called).to.equal(false)
+      })
+
+      it('falls through to forward-to-agent when cancelQueuedTask returns false (task is mid-execution)', () => {
+        agentPool.cancelQueuedTask.returns(false)
+        const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.CANCEL)
+
+        const result = handler!({taskId}, 'client-1')
+
+        expect(result).to.deep.equal({success: true})
+        expect((transportHelper.transport.sendTo as SinonStub).calledWith(
+          'agent-1',
+          TransportTaskEventNames.CANCEL,
+          {taskId},
+        )).to.be.true
+      })
     })
   })
 
