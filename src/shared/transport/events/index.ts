@@ -20,6 +20,7 @@ export * from './push-events.js'
 export * from './reset-events.js'
 export * from './review-events.js'
 export * from './session-events.js'
+export * from './settings-events.js'
 export * from './source-events.js'
 export * from './space-events.js'
 export * from './status-events.js'
@@ -46,6 +47,7 @@ import {PushEvents} from './push-events.js'
 import {ResetEvents} from './reset-events.js'
 import {ReviewEvents} from './review-events.js'
 import {SessionEvents} from './session-events.js'
+import {SettingsEvents} from './settings-events.js'
 import {SourceEvents} from './source-events.js'
 import {SpaceEvents} from './space-events.js'
 import {StatusEvents} from './status-events.js'
@@ -75,6 +77,7 @@ export const AllEventGroups = [
   ResetEvents,
   ReviewEvents,
   SessionEvents,
+  SettingsEvents,
   LocationsEvents,
   SourceEvents,
   SpaceEvents,

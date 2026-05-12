@@ -14,6 +14,7 @@ import type {IProviderKeychainStore} from '../../core/interfaces/i-provider-keyc
 import type {IProviderOAuthTokenStore} from '../../core/interfaces/i-provider-oauth-token-store.js'
 import type {IProjectRegistry} from '../../core/interfaces/project/i-project-registry.js'
 import type {IAuthStateStore} from '../../core/interfaces/state/i-auth-state-store.js'
+import type {ISettingsStore} from '../../core/interfaces/storage/i-settings-store.js'
 import type {ITransportServer} from '../../core/interfaces/transport/i-transport-server.js'
 import type {ProjectBroadcaster, ProjectPathResolver} from '../transport/handlers/handler-types.js'
 
@@ -62,6 +63,7 @@ import {
   PushHandler,
   ResetHandler,
   ReviewHandler,
+  SettingsHandler,
   SourceHandler,
   SpaceHandler,
   StatusHandler,
@@ -81,6 +83,7 @@ export interface FeatureHandlersOptions {
   providerKeychainStore: IProviderKeychainStore
   providerOAuthTokenStore: IProviderOAuthTokenStore
   resolveProjectPath: ProjectPathResolver
+  settingsStore: ISettingsStore
   transport: ITransportServer
   webuiPort?: number
 }
@@ -99,6 +102,7 @@ export async function setupFeatureHandlers({
   providerKeychainStore,
   providerOAuthTokenStore,
   resolveProjectPath,
+  settingsStore,
   transport,
   webuiPort,
 }: FeatureHandlersOptions): Promise<void> {
@@ -119,6 +123,7 @@ export async function setupFeatureHandlers({
 
   // Global handlers (no project context needed)
   new ConfigHandler({transport}).setup()
+  new SettingsHandler({store: settingsStore, transport}).setup()
 
   new AuthHandler({
     authService: new OAuthService(authConfig),
