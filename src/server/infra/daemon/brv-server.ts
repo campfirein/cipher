@@ -53,7 +53,7 @@ import {
 import {getGlobalDataDir} from '../../utils/global-data-path.js'
 import {getProjectDataDir} from '../../utils/path-utils.js'
 import {crashLog, processLog} from '../../utils/process-logger.js'
-import {readOrCreateDaemonAuthToken} from '../auth/daemon-token-store.js'
+import {DaemonTokenProvider} from '../auth/daemon-token-provider.js'
 import {ChannelStore} from '../channel/channel-store.js'
 import {ChannelDoctorService} from '../channel/doctor-service.js'
 import {FileDriverProfileStore} from '../channel/driver-profile-store.js'
@@ -209,7 +209,7 @@ async function main(): Promise<void> {
   // on disk by the time they're cleared to connect. The channel handler
   // bootstrap later in this file consumes this same token; the read is
   // idempotent so re-reading is safe.
-  const daemonAuthToken = await readOrCreateDaemonAuthToken()
+  const daemonTokenProvider = await DaemonTokenProvider.boot()
 
   // Steps 4-10 are wrapped so that partial startup is cleaned up.
   // Without this, a partial startup leaves daemon.json pointing to
@@ -775,12 +775,14 @@ async function main(): Promise<void> {
     })
 
     new ChannelHandler({
-      authToken: daemonAuthToken,
+      // Slice 3.5a: pass a provider callback so token rotation takes effect
+      // immediately. The middleware reads `getCurrent()` per request.
+      authToken: () => daemonTokenProvider.getCurrent(),
       doctorService: channelDoctorService,
       onboardService: channelOnboardService,
       orchestrator: channelOrchestrator,
       profileStore: channelProfileStore,
-      // rotateToken hook lands in Slice 3.5 alongside the DaemonTokenProvider.
+      rotateToken: () => daemonTokenProvider.rotate(),
     }).registerOn(channelTransport)
 
     // Best-effort: release every channel driver on SIGTERM/SIGINT so

@@ -63,7 +63,12 @@ import {makeChannelAuthMiddleware} from '../../auth/channel-auth-middleware.js'
  * they are not request handlers.
  */
 export type ChannelHandlerDeps = {
-  readonly authToken: string
+  /**
+   * Either a static token (legacy / unit tests) OR a provider callback
+   * (production wiring as of Slice 3.5a). The middleware reads the value
+   * on every request so rotation takes effect without re-registering.
+   */
+  readonly authToken: (() => string) | string
   /** Phase-3 doctor service. Optional so Phase-1/2 tests can omit it. */
   readonly doctorService?: IChannelDoctorService
   /** Phase-3 onboard service. Optional so Phase-1/2 tests can omit it. */
@@ -110,7 +115,7 @@ const projectRootFromCtx = (ctx?: RequestContext): string => {
 }
 
 export class ChannelHandler {
-  private readonly authToken: string
+  private readonly authToken: (() => string) | string
   private readonly doctorService: IChannelDoctorService | undefined
   private readonly onboardService: IChannelOnboardService | undefined
   private readonly orchestrator: IChannelOrchestrator

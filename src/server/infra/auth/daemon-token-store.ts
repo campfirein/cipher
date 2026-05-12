@@ -30,7 +30,8 @@ const TOKEN_BYTES = 32 // 256-bit token
 
 const IS_POSIX = process.platform !== 'win32'
 
-const getTokenPath = (): string => join(getGlobalDataDir(), TOKEN_DIR_NAME, TOKEN_FILE_NAME)
+const getTokenPath = (dataDir?: string): string =>
+  join(dataDir ?? getGlobalDataDir(), TOKEN_DIR_NAME, TOKEN_FILE_NAME)
 
 const generateToken = (): string => randomBytes(TOKEN_BYTES).toString('hex')
 
@@ -61,8 +62,8 @@ const writeTokenAtomically = async (tokenPath: string, token: string): Promise<v
  * Windows note: POSIX ACL checks are skipped; Windows-native ACL tightening
  * is a follow-up (Phase 3 candidate).
  */
-export const readOrCreateDaemonAuthToken = async (): Promise<string> => {
-  const tokenPath = getTokenPath()
+export const readOrCreateDaemonAuthToken = async (options?: {dataDir?: string}): Promise<string> => {
+  const tokenPath = getTokenPath(options?.dataDir)
 
   let stat: Awaited<ReturnType<typeof fs.stat>> | undefined
   try {
@@ -99,4 +100,16 @@ export const readOrCreateDaemonAuthToken = async (): Promise<string> => {
   }
 
   return existing
+}
+
+/**
+ * Phase-3 rotation primitive: generate a fresh token, write atomically with
+ * mode 0600, return it. Slice 3.5a's {@link DaemonTokenProvider} uses this
+ * inside `rotate()` so callers never touch the disk directly.
+ */
+export const rotateDaemonAuthToken = async (options?: {dataDir?: string}): Promise<string> => {
+  const tokenPath = getTokenPath(options?.dataDir)
+  const fresh = generateToken()
+  await writeTokenAtomically(tokenPath, fresh)
+  return fresh
 }
