@@ -50,6 +50,7 @@ describe('FileSettingsStore', () => {
         'agentPool.maxConcurrentTasksPerProject',
         'agentPool.maxSize',
         'llm.iterationBudgetMs',
+        'llm.requestTimeoutMs',
         'taskHistory.maxEntries',
       ])
       for (const item of items) {
@@ -123,6 +124,30 @@ describe('FileSettingsStore', () => {
     it('rejects out-of-range values', async () => {
       try {
         await store.set('agentPool.maxSize', 0)
+        expect.fail('expected throw')
+      } catch (error) {
+        expect(error).to.be.instanceOf(InvalidSettingValueError)
+      }
+    })
+
+    it('rejects llm.requestTimeoutMs when it would exceed llm.iterationBudgetMs', async () => {
+      await store.set('llm.iterationBudgetMs', 300_000)
+      try {
+        await store.set('llm.requestTimeoutMs', 600_000)
+        expect.fail('expected throw')
+      } catch (error) {
+        expect(error).to.be.instanceOf(InvalidSettingValueError)
+        if (error instanceof InvalidSettingValueError) {
+          expect(error.message).to.include('llm.requestTimeoutMs')
+          expect(error.message).to.include('llm.iterationBudgetMs')
+        }
+      }
+    })
+
+    it('rejects llm.iterationBudgetMs when it would be smaller than llm.requestTimeoutMs', async () => {
+      await store.set('llm.requestTimeoutMs', 600_000)
+      try {
+        await store.set('llm.iterationBudgetMs', 300_000)
         expect.fail('expected throw')
       } catch (error) {
         expect(error).to.be.instanceOf(InvalidSettingValueError)

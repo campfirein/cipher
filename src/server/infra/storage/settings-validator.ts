@@ -29,6 +29,14 @@ export type PartitionedSettings = {
   readonly valid: Readonly<Record<string, number>>
 }
 
+export type CouplingViolation = {
+  readonly keys: readonly string[]
+  readonly reason: string
+}
+
+const COUPLING_REQUEST_TIMEOUT = 'llm.requestTimeoutMs'
+const COUPLING_ITERATION_BUDGET = 'llm.iterationBudgetMs'
+
 /**
  * Single source of truth for settings validation. Used by the store to gate
  * writes and by daemon startup to filter a raw on-disk record into the valid
@@ -66,6 +74,19 @@ export class SettingsValidator {
       }
     }
 
+    // Enforce coupling rules across the valid set. Per project AC,
+    // a violation demotes every key participating in the rule back to
+    // its registered default; surfaced via `invalid` so the daemon
+    // startup loader can log one warning per demoted key.
+    for (const violation of this.validateCoupling(valid)) {
+      for (const key of violation.keys) {
+        if (key in valid) {
+          invalid.push({key, reason: violation.reason, value: valid[key]})
+          delete valid[key]
+        }
+      }
+    }
+
     return {invalid, valid}
   }
 
@@ -76,6 +97,28 @@ export class SettingsValidator {
   public validate(key: string, value: unknown): number {
     const descriptor = this.validateKey(key)
     return this.validateAgainst(descriptor, value)
+  }
+
+  /**
+   * Cross-key invariant checks (`llm.requestTimeoutMs <= llm.iterationBudgetMs`).
+   * Missing keys in `values` are filled in from the registry defaults so the
+   * check works on partial states (e.g. user has only overridden one side).
+   * Returns an empty array when no rule is violated.
+   */
+  public validateCoupling(values: Readonly<Record<string, number>>): readonly CouplingViolation[] {
+    const violations: CouplingViolation[] = []
+
+    const requestTimeout = values[COUPLING_REQUEST_TIMEOUT] ?? findSettingDescriptor(COUPLING_REQUEST_TIMEOUT)?.default
+    const iterationBudget = values[COUPLING_ITERATION_BUDGET] ?? findSettingDescriptor(COUPLING_ITERATION_BUDGET)?.default
+
+    if (requestTimeout !== undefined && iterationBudget !== undefined && requestTimeout > iterationBudget) {
+      violations.push({
+        keys: [COUPLING_REQUEST_TIMEOUT, COUPLING_ITERATION_BUDGET],
+        reason: `${COUPLING_REQUEST_TIMEOUT} (${requestTimeout}) must be <= ${COUPLING_ITERATION_BUDGET} (${iterationBudget})`,
+      })
+    }
+
+    return violations
   }
 
   /**

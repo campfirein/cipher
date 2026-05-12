@@ -78,6 +78,32 @@ describe('bootstrapSettings', () => {
     expect(log.messages.find((m) => m.includes('not.a.key'))).to.exist
   })
 
+  it('falls back to defaults for BOTH coupled keys when the file violates llm.requestTimeoutMs <= llm.iterationBudgetMs', async () => {
+    const store = new StubSettingsStore({
+      invalid: [
+        {
+          key: 'llm.requestTimeoutMs',
+          reason: 'llm.requestTimeoutMs (900000) must be <= llm.iterationBudgetMs (300000)',
+          value: 900_000,
+        },
+        {
+          key: 'llm.iterationBudgetMs',
+          reason: 'llm.requestTimeoutMs (900000) must be <= llm.iterationBudgetMs (300000)',
+          value: 300_000,
+        },
+      ],
+      values: {},
+    })
+    const log = newLogger()
+
+    await bootstrapSettings({log: log.write, store})
+
+    const requestTimeoutWarn = log.messages.find((m) => m.includes('llm.requestTimeoutMs'))
+    const budgetWarn = log.messages.find((m) => m.includes('llm.iterationBudgetMs'))
+    expect(requestTimeoutWarn, 'warning for llm.requestTimeoutMs').to.exist
+    expect(budgetWarn, 'warning for llm.iterationBudgetMs').to.exist
+  })
+
   it('applies all overrides and emits no log when the file is fully valid', async () => {
     const store = new StubSettingsStore({
       invalid: [],

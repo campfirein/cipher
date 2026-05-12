@@ -120,6 +120,52 @@ describe('SettingsValidator', () => {
         }
       }
     })
+
+    it('accepts llm.requestTimeoutMs within the documented 10_000 to 7_200_000 ms range', () => {
+      expect(validator.validate('llm.requestTimeoutMs', 10_000)).to.equal(10_000)
+      expect(validator.validate('llm.requestTimeoutMs', 120_000)).to.equal(120_000)
+      expect(validator.validate('llm.requestTimeoutMs', 7_200_000)).to.equal(7_200_000)
+    })
+
+    it('rejects llm.requestTimeoutMs below the 10_000 ms minimum', () => {
+      expect(() => validator.validate('llm.requestTimeoutMs', 5000)).to.throw(InvalidSettingValueError)
+    })
+
+    it('rejects llm.requestTimeoutMs above the 7_200_000 ms maximum', () => {
+      expect(() => validator.validate('llm.requestTimeoutMs', 7_200_001)).to.throw(InvalidSettingValueError)
+    })
+  })
+
+  describe('validateCoupling', () => {
+    it('returns no violations when both keys are within bounds and request <= budget', () => {
+      const violations = validator.validateCoupling({
+        'llm.iterationBudgetMs': 600_000,
+        'llm.requestTimeoutMs': 120_000,
+      })
+      expect(violations).to.deep.equal([])
+    })
+
+    it('flags a violation when requestTimeoutMs exceeds iterationBudgetMs', () => {
+      const violations = validator.validateCoupling({
+        'llm.iterationBudgetMs': 300_000,
+        'llm.requestTimeoutMs': 600_000,
+      })
+      expect(violations).to.have.lengthOf(1)
+      expect(violations[0].keys).to.have.members(['llm.requestTimeoutMs', 'llm.iterationBudgetMs'])
+      expect(violations[0].reason).to.include('600000')
+      expect(violations[0].reason).to.include('300000')
+    })
+
+    it('uses the registered default for the missing key when only one is supplied', () => {
+      // Default iterationBudgetMs = 600_000. requestTimeoutMs=900_000 violates.
+      const violations = validator.validateCoupling({'llm.requestTimeoutMs': 900_000})
+      expect(violations).to.have.lengthOf(1)
+    })
+
+    it('returns no violations when neither coupled key is registered in the record', () => {
+      const violations = validator.validateCoupling({'agentPool.maxSize': 25})
+      expect(violations).to.deep.equal([])
+    })
   })
 
   describe('partition', () => {

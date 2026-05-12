@@ -9,7 +9,7 @@ import type {ISettingsStore, SettingsStartupSnapshot} from '../../core/interface
 import {SETTINGS_FILE, SETTINGS_SCHEMA_VERSION} from '../../constants.js'
 import {SETTINGS_REGISTRY} from '../../core/domain/entities/settings.js'
 import {getGlobalDataDir} from '../../utils/global-data-path.js'
-import {SettingsValidator} from './settings-validator.js'
+import {InvalidSettingValueError, SettingsValidator} from './settings-validator.js'
 
 type SettingsFile = {
   readonly values: Record<string, number>
@@ -98,8 +98,14 @@ export class FileSettingsStore implements ISettingsStore {
   public async set(key: string, value: unknown): Promise<void> {
     const validatedValue = this.validator.validate(key, value)
     const overrides = await this.readOverrides()
-    overrides[key] = validatedValue
-    await this.writeFile({values: overrides, version: SETTINGS_SCHEMA_VERSION})
+    const proposed = {...overrides, [key]: validatedValue}
+
+    const violations = this.validator.validateCoupling(proposed)
+    if (violations.length > 0) {
+      throw new InvalidSettingValueError(key, value, violations[0].reason)
+    }
+
+    await this.writeFile({values: proposed, version: SETTINGS_SCHEMA_VERSION})
   }
 
   private filePath(): string {

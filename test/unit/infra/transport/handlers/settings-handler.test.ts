@@ -87,6 +87,7 @@ describe('SettingsHandler', () => {
         'agentPool.maxConcurrentTasksPerProject',
         'agentPool.maxSize',
         'llm.iterationBudgetMs',
+        'llm.requestTimeoutMs',
         'taskHistory.maxEntries',
       ])
       const maxSizeItem = result.items.find((i) => i.key === 'agentPool.maxSize')
