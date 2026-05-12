@@ -128,6 +128,10 @@ export const REVIEW_BACKUPS_DIR = 'review-backups'
 // User-configurable operational settings (global, restart-required)
 export const SETTINGS_FILE = 'settings.json'
 export const SETTINGS_SCHEMA_VERSION = '1'
+
+// Default wall-clock budget for the agentic loop (`llm.iterationBudgetMs`).
+// Slow local-LLM users override via `brv settings set llm.iterationBudgetMs <ms>`.
+export const AGENT_LLM_ITERATION_BUDGET_MS = 600_000 // 10 minutes
 // === Hierarchical DAG (summary, archive, manifest) ===
 export const SUMMARY_INDEX_FILE = '_index.md'
 export const ARCHIVE_DIR = '_archived'

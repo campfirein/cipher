@@ -92,6 +92,34 @@ describe('SettingsValidator', () => {
       expect(validator.validate('agentPool.maxConcurrentTasksPerProject', 3)).to.equal(3)
       expect(validator.validate('taskHistory.maxEntries', 5000)).to.equal(5000)
     })
+
+    it('accepts llm.iterationBudgetMs within the documented 60_000 to 7_200_000 ms range', () => {
+      expect(validator.validate('llm.iterationBudgetMs', 60_000)).to.equal(60_000)
+      expect(validator.validate('llm.iterationBudgetMs', 1_800_000)).to.equal(1_800_000)
+      expect(validator.validate('llm.iterationBudgetMs', 7_200_000)).to.equal(7_200_000)
+    })
+
+    it('rejects llm.iterationBudgetMs below the 60_000 ms minimum', () => {
+      expect(() => validator.validate('llm.iterationBudgetMs', 30_000)).to.throw(InvalidSettingValueError)
+    })
+
+    it('rejects llm.iterationBudgetMs above the 7_200_000 ms maximum', () => {
+      expect(() => validator.validate('llm.iterationBudgetMs', 7_200_001)).to.throw(InvalidSettingValueError)
+    })
+
+    it('names the key and the expected range on llm.iterationBudgetMs validation failure', () => {
+      try {
+        validator.validate('llm.iterationBudgetMs', 1)
+        expect.fail('expected throw')
+      } catch (error) {
+        expect(error).to.be.instanceOf(InvalidSettingValueError)
+        if (error instanceof InvalidSettingValueError) {
+          expect(error.key).to.equal('llm.iterationBudgetMs')
+          expect(error.message).to.include('60000')
+          expect(error.message).to.include('7200000')
+        }
+      }
+    })
   })
 
   describe('partition', () => {

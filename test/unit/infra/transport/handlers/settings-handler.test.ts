@@ -86,6 +86,7 @@ describe('SettingsHandler', () => {
       expect(result.items.map((i) => i.key).sort()).to.deep.equal([
         'agentPool.maxConcurrentTasksPerProject',
         'agentPool.maxSize',
+        'llm.iterationBudgetMs',
         'taskHistory.maxEntries',
       ])
       const maxSizeItem = result.items.find((i) => i.key === 'agentPool.maxSize')
