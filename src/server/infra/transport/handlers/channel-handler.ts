@@ -6,12 +6,14 @@ import type {
   RequestContext,
   RequestHandler,
 } from '../../../core/interfaces/transport/i-transport-server.js'
+import type {IChannelDoctorService} from '../../channel/doctor-service.js'
 import type {IChannelOnboardService} from '../../channel/onboard-service.js'
 
 import {
   ChannelArchiveRequestSchema,
   ChannelCancelRequestSchema,
   ChannelCreateRequestSchema,
+  ChannelDoctorRequestSchema,
   ChannelEvents,
   ChannelGetRequestSchema,
   ChannelGetTurnRequestSchema,
@@ -56,6 +58,8 @@ import {makeChannelAuthMiddleware} from '../../auth/channel-auth-middleware.js'
  */
 export type ChannelHandlerDeps = {
   readonly authToken: string
+  /** Phase-3 doctor service. Optional so Phase-1/2 tests can omit it. */
+  readonly doctorService?: IChannelDoctorService
   /** Phase-3 onboard service. Optional so Phase-1/2 tests can omit it. */
   readonly onboardService?: IChannelOnboardService
   readonly orchestrator: IChannelOrchestrator
@@ -93,11 +97,13 @@ const projectRootFromCtx = (ctx?: RequestContext): string => {
 
 export class ChannelHandler {
   private readonly authToken: string
+  private readonly doctorService: IChannelDoctorService | undefined
   private readonly onboardService: IChannelOnboardService | undefined
   private readonly orchestrator: IChannelOrchestrator
 
   public constructor(deps: ChannelHandlerDeps) {
     this.authToken = deps.authToken
+    this.doctorService = deps.doctorService
     this.onboardService = deps.onboardService
     this.orchestrator = deps.orchestrator
   }
@@ -290,6 +296,27 @@ export class ChannelHandler {
         displayName: req.displayName,
         invocation: req.invocation,
         profileName: req.profileName,
+      })
+      return result
+    })
+
+    // channel:doctor — aggregate channel/pool/broker/profile diagnostics.
+    register(ChannelEvents.DOCTOR, async (data, _clientId, ctx) => {
+      const projectRoot = projectRootFromCtx(ctx)
+      const req = parseOrThrow(ChannelDoctorRequestSchema, data)
+      const svc = this.doctorService
+      if (svc === undefined) {
+        throw new ChannelInvalidRequestError(
+          'channel:doctor is not wired on this host (the daemon was built without the doctor service)',
+          {phase: 3},
+        )
+      }
+
+      const result = await svc.run({
+        channelId: req.channelId,
+        memberHandle: req.memberHandle,
+        profileName: req.profileName,
+        projectRoot,
       })
       return result
     })

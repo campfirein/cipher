@@ -69,9 +69,21 @@ export type PermissionBrokerDrainResult = {
   permissionRequestId: string
 }
 
+export type PermissionBrokerInspectEntry = {
+  channelId: string
+  deliveryId: string
+  permissionRequestId: string
+  turnId: string
+}
+
 export interface IPermissionBroker {
   drainDelivery(args: PermissionBrokerDrainDeliveryArgs): Promise<PermissionBrokerDrainResult[]>
   drainTurn(args: PermissionBrokerDrainTurnArgs): Promise<PermissionBrokerDrainResult[]>
+  /**
+   * Phase-3 doctor support: enumerate every pending permission. Read-only —
+   * does not mutate broker state.
+   */
+  inspect(): PermissionBrokerInspectEntry[]
   resolve(args: PermissionBrokerResolveArgs): Promise<PermissionBrokerResolveResult>
   track(args: PermissionBrokerTrackArgs): void
 }
@@ -98,6 +110,20 @@ export class PermissionBroker implements IPermissionBroker {
     }
 
     return this.cancelPending(targets)
+  }
+
+  inspect(): PermissionBrokerInspectEntry[] {
+    const out: PermissionBrokerInspectEntry[] = []
+    for (const [permissionRequestId, p] of this.pending) {
+      out.push({
+        channelId: p.channelId,
+        deliveryId: p.deliveryId,
+        permissionRequestId,
+        turnId: p.turnId,
+      })
+    }
+
+    return out
   }
 
   async resolve(args: PermissionBrokerResolveArgs): Promise<PermissionBrokerResolveResult> {

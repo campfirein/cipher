@@ -55,6 +55,7 @@ import {getProjectDataDir} from '../../utils/path-utils.js'
 import {crashLog, processLog} from '../../utils/process-logger.js'
 import {readOrCreateDaemonAuthToken} from '../auth/daemon-token-store.js'
 import {ChannelStore} from '../channel/channel-store.js'
+import {ChannelDoctorService} from '../channel/doctor-service.js'
 import {FileDriverProfileStore} from '../channel/driver-profile-store.js'
 import {AcpDriverPool} from '../channel/drivers/acp-driver-pool.js'
 import {AcpDriver} from '../channel/drivers/acp-driver.js'
@@ -765,8 +766,17 @@ async function main(): Promise<void> {
       store: channelProfileStore,
     })
 
+    const channelDoctorService = new ChannelDoctorService({
+      broker: channelBroker,
+      clock: () => new Date(),
+      pool: channelPool,
+      profileStore: channelProfileStore,
+      store: channelStore,
+    })
+
     new ChannelHandler({
       authToken: daemonAuthToken,
+      doctorService: channelDoctorService,
       onboardService: channelOnboardService,
       orchestrator: channelOrchestrator,
     }).registerOn(channelTransport)

@@ -163,9 +163,10 @@ describe('ChannelHandler (Slice 1.4)', () => {
       ChannelEvents.MENTION,
       ChannelEvents.CANCEL,
       ChannelEvents.PERMISSION_DECISION,
-      // Phase 3 (Slice 3.2 ships onboard; doctor + profile-* + rotate-token
-      // land in later slices).
+      // Phase 3 — onboard + doctor; profile-* + rotate-token + members land
+      // in later slices.
       ChannelEvents.ONBOARD,
+      ChannelEvents.DOCTOR,
     ]
     for (const event of wireEvents) {
       expect(registeredHandlers.has(event), `missing handler for ${event}`).to.equal(true)
@@ -174,9 +175,8 @@ describe('ChannelHandler (Slice 1.4)', () => {
     expect(registeredHandlers.size).to.equal(wireEvents.length)
   })
 
-  it('does NOT register Phase-3 events that have not shipped yet (members, doctor, rotate-token, profile-*)', () => {
+  it('does NOT register Phase-3 events that have not shipped yet (members, rotate-token, profile-*)', () => {
     expect(registeredHandlers.has(ChannelEvents.MEMBERS)).to.equal(false)
-    expect(registeredHandlers.has(ChannelEvents.DOCTOR)).to.equal(false)
     expect(registeredHandlers.has(ChannelEvents.ROTATE_TOKEN)).to.equal(false)
     expect(registeredHandlers.has(ChannelEvents.PROFILE_LIST)).to.equal(false)
   })
