@@ -38,10 +38,38 @@ export type AcpDriverStatus = 'errored' | 'idle' | 'stopped' | 'streaming'
  *    subsequent prompts still work.
  *  - `stop()` terminates the child (graceful → SIGTERM → SIGKILL).
  */
+/**
+ * Raw ACP initialize response captured for Phase-3 onboarding /
+ * driver-class classification. Drivers expose the un-flattened structure
+ * so the classifier can inspect nested capability flags (the flat
+ * `capabilities: string[]` is for runtime branching; the structured form
+ * is for probe-time classification).
+ */
+export type AcpInitializeSnapshot = {
+  readonly _meta?: Record<string, unknown>
+  readonly agentCapabilities?: {
+    readonly promptCapabilities?: Record<string, boolean>
+    readonly toolCallSupport?: boolean
+  }
+}
+
 export interface IAcpDriver {
+  /**
+   * Raw `initialize` response, captured during {@link IAcpDriver.start}.
+   * `undefined` before start resolves. Phase-3 onboarding reads this for
+   * driver-class classification.
+   */
+  readonly acpInitialize: AcpInitializeSnapshot | undefined
   cancel(turnId?: string): Promise<void>
   readonly capabilities: string[]
   readonly handle: string
+  /**
+   * Phase-3 onboarding probe: explicitly attempt ACP `session/new` and
+   * tear down the resulting session immediately. Returns `true` when the
+   * agent answered with a sessionId; `false` when `session/new` errored.
+   * Idempotent: safe to call multiple times.
+   */
+  probeSession(): Promise<boolean>
   prompt(args: AcpDriverPromptArgs): AsyncIterableIterator<TurnEventPayload>
   readonly protocolVersion: number | undefined
   respondToPermission(permissionRequestId: string, response: unknown): Promise<void>

@@ -1,6 +1,7 @@
 import type {
   AcpDriverPromptArgs,
   AcpDriverStatus,
+  AcpInitializeSnapshot,
   IAcpDriver,
   TurnEventPayload,
 } from '../../../core/interfaces/channel/i-acp-driver.js'
@@ -15,9 +16,13 @@ import type {
  * iteration cleanly.
  */
 export type MockAcpDriverOptions = {
+  /** Phase-3 onboarding: optional pre-canned initialize snapshot. */
+  readonly acpInitialize?: AcpInitializeSnapshot
   readonly capabilities?: string[]
   readonly events: TurnEventPayload[]
   readonly handle: string
+  /** Phase-3 onboarding: pre-canned `session/new` outcome for the probe. */
+  readonly probeSessionResult?: boolean
   readonly protocolVersion?: number
 }
 
@@ -50,8 +55,10 @@ async function* iteratePrompt(
 }
 
 export class MockAcpDriver implements IAcpDriver {
+  public acpInitialize: AcpInitializeSnapshot | undefined
   public readonly capabilities: string[]
   public readonly handle: string
+  public probeSessionResult: boolean
   public protocolVersion: number | undefined
   public status: AcpDriverStatus = 'idle'
   private cancelled = false
@@ -63,6 +70,8 @@ export class MockAcpDriver implements IAcpDriver {
     this.capabilities = options.capabilities ?? []
     this.events = [...options.events]
     this.protocolVersion = options.protocolVersion
+    this.acpInitialize = options.acpInitialize
+    this.probeSessionResult = options.probeSessionResult ?? true
   }
 
    
@@ -70,6 +79,10 @@ export class MockAcpDriver implements IAcpDriver {
     this.cancelled = true
     for (const gate of this.permissionGates.values()) gate.resolve()
     this.permissionGates.clear()
+  }
+
+  async probeSession(): Promise<boolean> {
+    return this.probeSessionResult
   }
 
   prompt(_args: AcpDriverPromptArgs): AsyncIterableIterator<TurnEventPayload> {

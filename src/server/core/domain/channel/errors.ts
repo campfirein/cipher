@@ -300,3 +300,20 @@ export class ChannelProfileNotFoundError extends ChannelError {
     this.profileName = profileName
   }
 }
+
+/**
+ * `channel:invite` referenced a `profileName` that the driver-profile
+ * registry does not know. Carries the canonical §11 code
+ * `AGENT_DRIVER_PROFILE_NOT_FOUND` rather than the channel-side
+ * `CHANNEL_PROFILE_NOT_FOUND` so the wire surface mirrors the spec's
+ * `AGENT_*` family for the driver-profile registry.
+ */
+export class AgentDriverProfileNotFoundError extends ChannelError {
+  public readonly profileName: string
+
+  public constructor(profileName: string) {
+    super(`Agent driver profile not found: ${profileName}`, 'AGENT_DRIVER_PROFILE_NOT_FOUND')
+    this.name = 'AgentDriverProfileNotFoundError'
+    this.profileName = profileName
+  }
+}

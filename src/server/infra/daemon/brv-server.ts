@@ -55,10 +55,12 @@ import {getProjectDataDir} from '../../utils/path-utils.js'
 import {crashLog, processLog} from '../../utils/process-logger.js'
 import {readOrCreateDaemonAuthToken} from '../auth/daemon-token-store.js'
 import {ChannelStore} from '../channel/channel-store.js'
+import {FileDriverProfileStore} from '../channel/driver-profile-store.js'
 import {AcpDriverPool} from '../channel/drivers/acp-driver-pool.js'
 import {AcpDriver} from '../channel/drivers/acp-driver.js'
 import {CancelCoordinator} from '../channel/drivers/cancel-coordinator.js'
 import {PermissionBroker} from '../channel/drivers/permission-broker.js'
+import {ChannelOnboardService} from '../channel/onboard-service.js'
 import {ChannelOrchestrator} from '../channel/orchestrator.js'
 import {ChannelEventsWriter} from '../channel/storage/events-writer.js'
 import {ChannelSnapshotWriter} from '../channel/storage/snapshot-writer.js'
@@ -741,20 +743,31 @@ async function main(): Promise<void> {
         channelBroadcaster.broadcastToChannel(ctx.channelId, ChannelEvents.TURN_EVENT, {channelId: ctx.channelId, event})
       },
     })
+    const channelProfileStore = new FileDriverProfileStore({dataDir: getGlobalDataDir()})
+    const channelDriverFactory = (invocation: import('../channel/onboard-service.js').OnboardArgs['invocation'], handle: string) =>
+      new AcpDriver({handle, invocation})
     const channelOrchestrator = new ChannelOrchestrator({
       broadcaster: channelBroadcaster,
       cancelCoordinator: channelCancelCoordinator,
       clock: () => new Date(),
-      driverFactory: (invocation, handle) => new AcpDriver({handle, invocation}),
+      driverFactory: channelDriverFactory,
       idGenerator: () => nanoid(),
       permissionBroker: channelBroker,
       pool: channelPool,
+      profileStore: channelProfileStore,
       seqAllocator: channelSeqAllocator,
       store: channelStore,
     })
 
+    const channelOnboardService = new ChannelOnboardService({
+      clock: () => new Date(),
+      driverFactory: channelDriverFactory,
+      store: channelProfileStore,
+    })
+
     new ChannelHandler({
       authToken: daemonAuthToken,
+      onboardService: channelOnboardService,
       orchestrator: channelOrchestrator,
     }).registerOn(channelTransport)
 

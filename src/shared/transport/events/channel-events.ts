@@ -297,6 +297,46 @@ export type ChannelPermissionDecisionResponse = z.infer<typeof ChannelPermission
 
 // ─── Phase-3 request schemas ────────────────────────────────────────────────
 
+// channel:onboard + channel:doctor (CHANNEL_PROTOCOL.md §8.3) ---------------
+
+export const DoctorDiagnosticSchema = z.object({
+  code: z.string(),
+  details: z.unknown().optional(),
+  message: z.string(),
+  severity: z.enum(['error', 'info', 'warning']),
+})
+export type DoctorDiagnostic = z.infer<typeof DoctorDiagnosticSchema>
+
+export const ChannelOnboardRequestSchema = z.object({
+  displayName: z.string(),
+  invocation: z.object({
+    args: z.array(z.string()),
+    command: z.string(),
+    cwd: z.string(),
+    env: z.record(z.string()).optional(),
+  }),
+  profileName: z.string().min(1),
+})
+export type ChannelOnboardRequest = z.infer<typeof ChannelOnboardRequestSchema>
+
+export const ChannelOnboardResponseSchema = z.object({
+  diagnostics: z.array(DoctorDiagnosticSchema),
+  profile: AgentDriverProfileSchema,
+})
+export type ChannelOnboardResponse = z.infer<typeof ChannelOnboardResponseSchema>
+
+export const ChannelDoctorRequestSchema = z.object({
+  channelId: z.string().optional(),
+  memberHandle: z.string().optional(),
+  profileName: z.string().optional(),
+})
+export type ChannelDoctorRequest = z.infer<typeof ChannelDoctorRequestSchema>
+
+export const ChannelDoctorResponseSchema = z.object({
+  diagnostics: z.array(DoctorDiagnosticSchema),
+})
+export type ChannelDoctorResponse = z.infer<typeof ChannelDoctorResponseSchema>
+
 // channel:rotate-token -------------------------------------------------------
 
 /**

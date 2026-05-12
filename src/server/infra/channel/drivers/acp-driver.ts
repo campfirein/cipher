@@ -72,6 +72,7 @@ async function* iteratePromptQueue(
  * notifications to payload-only {@link TurnEventPayload}.
  */
 export class AcpDriver implements IAcpDriver {
+  public acpInitialize: import('../../../core/interfaces/channel/i-acp-driver.js').AcpInitializeSnapshot | undefined
   public capabilities: string[] = []
   public readonly handle: string
   public protocolVersion: number | undefined
@@ -102,6 +103,25 @@ export class AcpDriver implements IAcpDriver {
     }
 
     this.pendingPermissions.clear()
+  }
+
+  /**
+   * Phase-3 onboarding probe: explicitly attempt ACP `session/new` and
+   * report whether it succeeded. The driver does NOT keep the probed
+   * session — it is closed (by not being referenced) so the next
+   * `prompt()` call starts a fresh session.
+   *
+   * Returns `false` on any error response so the onboard classifier can
+   * tag the driver as `C-prime` instead of `B`.
+   */
+  async probeSession(): Promise<boolean> {
+    if (this.rpc === undefined) return false
+    try {
+      const result = (await this.rpc.call('session/new', {})) as {sessionId?: string}
+      return typeof result?.sessionId === 'string' && result.sessionId.length > 0
+    } catch {
+      return false
+    }
   }
 
   prompt(args: AcpDriverPromptArgs): AsyncIterableIterator<TurnEventPayload> {
@@ -201,12 +221,21 @@ export class AcpDriver implements IAcpDriver {
       const result = (await rpc.call('initialize', {
         clientCapabilities: {},
         protocolVersion: 1,
-      })) as {agentCapabilities?: {promptCapabilities?: Record<string, boolean>}; protocolVersion: number}
+      })) as {
+        _meta?: Record<string, unknown>
+        agentCapabilities?: {
+          promptCapabilities?: Record<string, boolean>
+          toolCallSupport?: boolean
+        }
+        protocolVersion: number
+      }
       this.protocolVersion = result.protocolVersion
+      this.acpInitialize = {_meta: result._meta, agentCapabilities: result.agentCapabilities}
       const promptCaps = result.agentCapabilities?.promptCapabilities ?? {}
       this.capabilities = Object.entries(promptCaps)
         .filter(([, v]) => v === true)
         .map(([k]) => k)
+      if (result.agentCapabilities?.toolCallSupport === true) this.capabilities.push('toolCallSupport')
     } catch (error) {
       this.status = 'errored'
       await this.stop()

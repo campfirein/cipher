@@ -1,4 +1,5 @@
 import type {
+  AgentDriverProfileInvocation,
   Channel,
   ChannelMember,
   ChannelMemberAcpAgent,
@@ -31,11 +32,13 @@ import type {
 } from '../../core/interfaces/channel/i-channel-orchestrator.js'
 import type {IChannelStore} from '../../core/interfaces/channel/i-channel-store.js'
 import type {IAcpDriverPool} from '../../core/interfaces/channel/i-driver-pool.js'
+import type {IDriverProfileStore} from '../../core/interfaces/channel/i-driver-profile-store.js'
 import type {ITurnSequenceAllocator} from '../../core/interfaces/channel/i-turn-sequence-allocator.js'
 
 import {ChannelEvents} from '../../../shared/transport/events/channel-events.js'
 import {
   AcpPromptFailedError,
+  AgentDriverProfileNotFoundError,
   ChannelAlreadyExistsError,
   ChannelArchivedError,
   ChannelInvalidRequestError,
@@ -81,6 +84,12 @@ export type ChannelOrchestratorDeps = {
   readonly idGenerator: () => string
   readonly permissionBroker: IPermissionBroker
   readonly pool: IAcpDriverPool
+  /**
+   * Phase-3 driver-profile registry. Optional so Phase-1/2 unit tests can
+   * keep constructing the orchestrator without ferrying a store in.
+   * `inviteMember` consults the store when `profileName` is supplied.
+   */
+  readonly profileStore?: IDriverProfileStore
   readonly seqAllocator: ITurnSequenceAllocator
   readonly store: IChannelStore
 }
@@ -124,6 +133,7 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
   private readonly idGenerator: () => string
   private readonly permissionBroker: IPermissionBroker
   private readonly pool: IAcpDriverPool
+  private readonly profileStore: IDriverProfileStore | undefined
   private readonly seqAllocator: ITurnSequenceAllocator
   private readonly store: IChannelStore
 
@@ -135,6 +145,7 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
     this.idGenerator = deps.idGenerator
     this.permissionBroker = deps.permissionBroker
     this.pool = deps.pool
+    this.profileStore = deps.profileStore
     this.seqAllocator = deps.seqAllocator
     this.store = deps.store
   }
@@ -426,31 +437,47 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
       )
     }
 
+    // Resolve invocation + classification: Phase 3 reads profileName via the
+    // driver-profile registry; Phase 2's inline invocation flow still works.
+    let invocation: AgentDriverProfileInvocation
+    let driverClass: 'A' | 'B' | 'C-prime' = 'C-prime'
+    let inviteCapabilities: string[] = []
     if (args.profileName !== undefined) {
-      throw new ChannelInvalidRequestError(
-        'profileName references the AgentDriverProfile registry which lands in Phase 3. Use --inline -- <command> in Phase 2.',
-        {phase: 3},
-      )
-    }
+      if (this.profileStore === undefined) {
+        throw new ChannelInvalidRequestError(
+          'channel:invite by profileName requires the daemon to be running with the Phase-3 driver-profile registry wired in',
+          {phase: 3},
+        )
+      }
 
-    if (args.invocation === undefined) {
+      const profile = await this.profileStore.get(args.profileName)
+      if (profile === undefined) {
+        throw new AgentDriverProfileNotFoundError(args.profileName)
+      }
+
+      invocation = profile.invocation
+      driverClass = profile.driverClass
+      inviteCapabilities = [...(profile.capabilities ?? [])]
+    } else if (args.invocation === undefined) {
       throw new ChannelInvalidRequestError(
-        'channel:invite requires invocation in Phase 2 (profileName arrives in Phase 3).',
-        {fields: ['invocation']},
+        'channel:invite requires profileName OR invocation',
+        {fields: ['profileName', 'invocation']},
       )
+    } else {
+      invocation = args.invocation
     }
 
     // Spawn driver + run initialize synchronously. Failure does NOT persist.
-    const driver = this.driverFactory(args.invocation, args.handle)
+    const driver = this.driverFactory(invocation, args.handle)
     await driver.start()
 
     const member: ChannelMemberAcpAgent = {
       acpVersion: driver.protocolVersion === undefined ? undefined : String(driver.protocolVersion),
       agentName: args.handle,
-      capabilities: [...driver.capabilities, ...(args.capabilities ?? [])],
-      driverClass: 'C-prime',
+      capabilities: [...inviteCapabilities, ...driver.capabilities, ...(args.capabilities ?? [])],
+      driverClass,
       handle: args.handle,
-      invocation: args.invocation,
+      invocation,
       joinedAt: this.clock().toISOString(),
       memberKind: 'acp-agent',
       status: 'idle',

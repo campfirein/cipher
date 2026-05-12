@@ -6,6 +6,7 @@ import type {
   RequestContext,
   RequestHandler,
 } from '../../../core/interfaces/transport/i-transport-server.js'
+import type {IChannelOnboardService} from '../../channel/onboard-service.js'
 
 import {
   ChannelArchiveRequestSchema,
@@ -18,6 +19,7 @@ import {
   ChannelListRequestSchema,
   ChannelListTurnsRequestSchema,
   ChannelMentionRequestSchema,
+  ChannelOnboardRequestSchema,
   ChannelPermissionDecisionRequestSchema,
   ChannelPostRequestSchema,
   ChannelUninviteRequestSchema,
@@ -54,6 +56,8 @@ import {makeChannelAuthMiddleware} from '../../auth/channel-auth-middleware.js'
  */
 export type ChannelHandlerDeps = {
   readonly authToken: string
+  /** Phase-3 onboard service. Optional so Phase-1/2 tests can omit it. */
+  readonly onboardService?: IChannelOnboardService
   readonly orchestrator: IChannelOrchestrator
 }
 
@@ -89,10 +93,12 @@ const projectRootFromCtx = (ctx?: RequestContext): string => {
 
 export class ChannelHandler {
   private readonly authToken: string
+  private readonly onboardService: IChannelOnboardService | undefined
   private readonly orchestrator: IChannelOrchestrator
 
   public constructor(deps: ChannelHandlerDeps) {
     this.authToken = deps.authToken
+    this.onboardService = deps.onboardService
     this.orchestrator = deps.orchestrator
   }
 
@@ -263,6 +269,29 @@ export class ChannelHandler {
         turnId: req.turnId,
       })
       return {event}
+    })
+
+    // ─── Phase-3 request events ───────────────────────────────────────
+
+    // channel:onboard — probe a candidate agent and persist the profile.
+    register(ChannelEvents.ONBOARD, async (data, _clientId, ctx) => {
+      // Ensure cwd is present for parity with the rest of the channel surface.
+      projectRootFromCtx(ctx)
+      const req = parseOrThrow(ChannelOnboardRequestSchema, data)
+      const svc = this.onboardService
+      if (svc === undefined) {
+        throw new ChannelInvalidRequestError(
+          'channel:onboard is not wired on this host (the daemon was built without the onboard service)',
+          {phase: 3},
+        )
+      }
+
+      const result = await svc.onboard({
+        displayName: req.displayName,
+        invocation: req.invocation,
+        profileName: req.profileName,
+      })
+      return result
     })
   }
 }

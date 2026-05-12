@@ -147,7 +147,7 @@ describe('ChannelHandler (Slice 1.4)', () => {
 
   // ─── Registration shape ─────────────────────────────────────────────────
 
-  it('registers every Phase-1 + Phase-2 client-to-host event handler', () => {
+  it('registers every Phase-1 + Phase-2 + Phase-3 client-to-host event handler', () => {
     const wireEvents = [
       // Phase 1
       ChannelEvents.CREATE,
@@ -163,6 +163,9 @@ describe('ChannelHandler (Slice 1.4)', () => {
       ChannelEvents.MENTION,
       ChannelEvents.CANCEL,
       ChannelEvents.PERMISSION_DECISION,
+      // Phase 3 (Slice 3.2 ships onboard; doctor + profile-* + rotate-token
+      // land in later slices).
+      ChannelEvents.ONBOARD,
     ]
     for (const event of wireEvents) {
       expect(registeredHandlers.has(event), `missing handler for ${event}`).to.equal(true)
@@ -171,10 +174,11 @@ describe('ChannelHandler (Slice 1.4)', () => {
     expect(registeredHandlers.size).to.equal(wireEvents.length)
   })
 
-  it('does NOT register Phase-3 events (channel:members, channel:onboard, channel:doctor)', () => {
+  it('does NOT register Phase-3 events that have not shipped yet (members, doctor, rotate-token, profile-*)', () => {
     expect(registeredHandlers.has(ChannelEvents.MEMBERS)).to.equal(false)
-    expect(registeredHandlers.has(ChannelEvents.ONBOARD)).to.equal(false)
     expect(registeredHandlers.has(ChannelEvents.DOCTOR)).to.equal(false)
+    expect(registeredHandlers.has(ChannelEvents.ROTATE_TOKEN)).to.equal(false)
+    expect(registeredHandlers.has(ChannelEvents.PROFILE_LIST)).to.equal(false)
   })
 
   // ─── Auth ────────────────────────────────────────────────────────────────
