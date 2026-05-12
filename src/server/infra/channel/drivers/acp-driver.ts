@@ -2,6 +2,7 @@ import type {ChildProcessWithoutNullStreams} from 'node:child_process'
 
 import {spawn} from 'node:child_process'
 
+import type {ChannelAuthMethod} from '../../../core/domain/channel/errors.js'
 import type {
   AcpDriverPromptArgs,
   AcpDriverStatus,
@@ -9,9 +10,81 @@ import type {
   TurnEventPayload,
 } from '../../../core/interfaces/channel/i-acp-driver.js'
 
-import {AcpHandshakeFailedError} from '../../../core/domain/channel/errors.js'
+import {
+  AcpAuthRequiredError,
+  AcpBinaryNotFoundError,
+  AcpHandshakeFailedError,
+  resolveHandshakeTimeoutMs,
+} from '../../../core/domain/channel/errors.js'
 import {projectSessionUpdate} from './acp-event-projector.js'
 import {AcpRpcClient, AcpRpcError} from './acp-rpc-client.js'
+
+/**
+ * Slice 4.2 — classify an `AcpRpcError` raised by `initialize` or
+ * `session/new` into an `AcpAuthRequiredError`. Returns `undefined` for
+ * non-auth errors so the caller can fall back to the generic
+ * AcpHandshakeFailedError path.
+ *
+ * Recognised forms:
+ *  - JSON-RPC code -32000 with `data.authMethods` (real kimi-cli — see
+ *    upstream `src/kimi_cli/acp/server.py:148`).
+ *  - JSON-RPC code -32602 (defensive: some legacy ACP variants).
+ *  - JSON-RPC code 'AUTH_REQUIRED' string (defensive: unstable-protocol
+ *    variants that emit the symbolic code).
+ */
+const classifyAcpAuthError = (error: unknown, handle: string): AcpAuthRequiredError | undefined => {
+  if (!(error instanceof AcpRpcError)) return undefined
+  const codeMatches =
+    error.code === -32_000 ||
+    error.code === -32_602 ||
+    (error.code as unknown) === 'AUTH_REQUIRED'
+  if (!codeMatches) return undefined
+
+  const data = error.data as undefined | {authMethods?: unknown}
+  const rawMethods = Array.isArray(data?.authMethods) ? data?.authMethods : []
+  // -32000 and -32602 are both shared with generic agent errors (kimi raises
+  // -32000 for tool failures and -32602 for any Pydantic validation reject).
+  // Only classify as AUTH_REQUIRED when `data.authMethods` is present — the
+  // contract real ACP servers use to signal "this is an auth prompt, here's
+  // how to satisfy it". The symbolic 'AUTH_REQUIRED' string is unambiguous
+  // and passes through without the authMethods guard.
+  if (rawMethods.length === 0 && (error.code as unknown) !== 'AUTH_REQUIRED') return undefined
+
+  const methods: ChannelAuthMethod[] = rawMethods
+    .map((m): ChannelAuthMethod | undefined => {
+      if (m === null || typeof m !== 'object') return undefined
+      const obj = m as Record<string, unknown>
+      const id = typeof obj.id === 'string' ? obj.id : undefined
+      if (id === undefined) return undefined
+      const meta = obj.fieldMeta as undefined | {terminalAuth?: unknown}
+      const terminal = meta?.terminalAuth as
+        | undefined
+        | {args?: unknown; command?: unknown; env?: unknown}
+      const terminalAuth =
+        terminal !== undefined && typeof terminal.command === 'string'
+          ? {
+              args: Array.isArray(terminal.args)
+                ? (terminal.args.filter((a): a is string => typeof a === 'string') as readonly string[])
+                : undefined,
+              command: terminal.command,
+              env:
+                terminal.env !== null &&
+                typeof terminal.env === 'object'
+                  ? (terminal.env as Record<string, string>)
+                  : undefined,
+            }
+          : undefined
+      return {
+        description: typeof obj.description === 'string' ? obj.description : undefined,
+        fieldMeta: terminalAuth === undefined ? undefined : {terminalAuth},
+        id,
+        name: typeof obj.name === 'string' ? obj.name : undefined,
+      }
+    })
+    .filter((m): m is ChannelAuthMethod => m !== undefined)
+
+  return new AcpAuthRequiredError(handle, methods)
+}
 
 export type AcpDriverInvocation = {
   readonly args: string[]
@@ -117,9 +190,21 @@ export class AcpDriver implements IAcpDriver {
   async probeSession(): Promise<boolean> {
     if (this.rpc === undefined) return false
     try {
-      const result = (await this.rpc.call('session/new', {})) as {sessionId?: string}
+      // Send the same `session/new` shape the production path uses; real
+      // agents (e.g. kimi-cli) validate params with Pydantic and reject
+      // `{}` with -32602 Invalid params, which the auth classifier would
+      // then mis-classify as AUTH_REQUIRED.
+      const result = (await this.rpc.call('session/new', {
+        cwd: this.invocation.cwd,
+        mcpServers: [],
+      })) as {sessionId?: string}
       return typeof result?.sessionId === 'string' && result.sessionId.length > 0
-    } catch {
+    } catch (error) {
+      // Slice 4.2: AUTH_REQUIRED from session/new must surface upward so
+      // the onboard service produces ONBOARD_AUTH_REQUIRED instead of
+      // silently classifying the driver as C-prime.
+      const authError = classifyAcpAuthError(error, this.handle)
+      if (authError !== undefined) throw authError
       return false
     }
   }
@@ -191,6 +276,23 @@ export class AcpDriver implements IAcpDriver {
     }) as ChildProcessWithoutNullStreams
     this.child = child
 
+    // Slice 4.4 — translate spawn ENOENT into a typed
+    // `AcpBinaryNotFoundError`. The raw `Error: spawn <cmd> ENOENT` leaked
+    // by node is cryptic at the CLI surface.
+    let spawnError: NodeJS.ErrnoException | undefined
+    const spawnErrorPromise = new Promise<never>((_, reject) => {
+      child.once('error', (err) => {
+        const errno = err as NodeJS.ErrnoException
+        if (errno.code === 'ENOENT') {
+          spawnError = errno
+          reject(new AcpBinaryNotFoundError(this.invocation.command))
+          return
+        }
+
+        reject(err)
+      })
+    })
+
     let closed = false
     const rpc = new AcpRpcClient({
       onClose(handler) {
@@ -218,10 +320,23 @@ export class AcpDriver implements IAcpDriver {
     this.rpc = rpc
 
     try {
-      const result = (await rpc.call('initialize', {
+      const handshakeTimeoutMs = resolveHandshakeTimeoutMs(process.env)
+      let timer: NodeJS.Timeout | undefined
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          reject(
+            new AcpHandshakeFailedError(
+              this.handle,
+              `initialize did not respond within ${handshakeTimeoutMs}ms`,
+            ),
+          )
+        }, handshakeTimeoutMs)
+      })
+      const initializeCall = rpc.call('initialize', {
         clientCapabilities: {},
         protocolVersion: 1,
-      })) as {
+      })
+      let result: {
         _meta?: Record<string, unknown>
         agentCapabilities?: {
           promptCapabilities?: Record<string, boolean>
@@ -229,6 +344,13 @@ export class AcpDriver implements IAcpDriver {
         }
         protocolVersion: number
       }
+      try {
+        result = (await Promise.race([initializeCall, spawnErrorPromise, timeoutPromise])) as typeof result
+      } finally {
+        if (timer !== undefined) clearTimeout(timer)
+      }
+
+      if (spawnError !== undefined) throw new AcpBinaryNotFoundError(this.invocation.command)
       this.protocolVersion = result.protocolVersion
       this.acpInitialize = {_meta: result._meta, agentCapabilities: result.agentCapabilities}
       const promptCaps = result.agentCapabilities?.promptCapabilities ?? {}
@@ -239,6 +361,11 @@ export class AcpDriver implements IAcpDriver {
     } catch (error) {
       this.status = 'errored'
       await this.stop()
+      // Already-typed errors propagate verbatim.
+      if (error instanceof AcpBinaryNotFoundError) throw error
+      if (error instanceof AcpHandshakeFailedError) throw error
+      const authError = classifyAcpAuthError(error, this.handle)
+      if (authError !== undefined) throw authError
       const reason = error instanceof Error ? error.message : String(error)
       throw new AcpHandshakeFailedError(this.handle, reason)
     }

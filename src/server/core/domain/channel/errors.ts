@@ -13,7 +13,10 @@
  */
 
 export const CHANNEL_ERROR_CODE = {
+  ACP_AUTH_REQUIRED: 'ACP_AUTH_REQUIRED',
+  ACP_BINARY_NOT_FOUND: 'ACP_BINARY_NOT_FOUND',
   ACP_HANDSHAKE_FAILED: 'ACP_HANDSHAKE_FAILED',
+  ACP_HANDSHAKE_TIMEOUT: 'ACP_HANDSHAKE_TIMEOUT',
   ACP_PERMISSION_FAILED: 'ACP_PERMISSION_FAILED',
   ACP_PROMPT_FAILED: 'ACP_PROMPT_FAILED',
   ACP_SESSION_FAILED: 'ACP_SESSION_FAILED',
@@ -210,6 +213,81 @@ export class ChannelTurnNotCancellableError extends ChannelError {
     )
     this.name = 'ChannelTurnNotCancellableError'
   }
+}
+
+/**
+ * Subset of the ACP `AuthMethod` shape that the channel layer cares about.
+ * Carried by AcpAuthRequiredError so the onboard service / CLI can render
+ * a useful remediation hint (e.g. "run `kimi login` and retry").
+ */
+export type ChannelAuthMethod = {
+  readonly description?: string
+  readonly fieldMeta?: {
+    readonly terminalAuth?: {
+      readonly args?: readonly string[]
+      readonly command: string
+      readonly env?: Readonly<Record<string, string>>
+    }
+  }
+  readonly id: string
+  readonly name?: string
+}
+
+/**
+ * Raised when an ACP agent refuses the startup handshake (`initialize` or
+ * `session/new`) because the user is not authenticated. Real-world example:
+ * `kimi acp` returns JSON-RPC error code -32000 with `data.authMethods`
+ * when the user has not run `kimi login` (see Slice 4.2). Defensive
+ * fallback codes -32602 and the symbolic 'AUTH_REQUIRED' string are also
+ * classified into this error.
+ */
+export class AcpAuthRequiredError extends ChannelError {
+  public readonly authMethods: readonly ChannelAuthMethod[]
+  public readonly handle: string
+
+  public constructor(handle: string, authMethods: readonly ChannelAuthMethod[]) {
+    super(
+      `ACP agent ${handle} refused the handshake: AUTH_REQUIRED`,
+      CHANNEL_ERROR_CODE.ACP_AUTH_REQUIRED,
+      {authMethods},
+    )
+    this.name = 'AcpAuthRequiredError'
+    this.authMethods = authMethods
+    this.handle = handle
+  }
+}
+
+/**
+ * Slice 4.4 — translated from `child_process.spawn` ENOENT so the CLI can
+ * render a useful "is it on your PATH?" message instead of leaking a raw
+ * node error string.
+ */
+export class AcpBinaryNotFoundError extends ChannelError {
+  public readonly command: string
+
+  public constructor(command: string) {
+    super(
+      `ACP binary "${command}" was not found — is it installed and on your PATH?`,
+      CHANNEL_ERROR_CODE.ACP_BINARY_NOT_FOUND,
+      {command},
+    )
+    this.name = 'AcpBinaryNotFoundError'
+    this.command = command
+  }
+}
+
+/**
+ * Slice 4.4 — pure helper so the handshake timeout is testable without
+ * spawning a child. Reads `BRV_ACP_HANDSHAKE_TIMEOUT_MS`; falls back to
+ * 15_000 ms on invalid / non-positive values.
+ */
+export const resolveHandshakeTimeoutMs = (env: Readonly<Record<string, string | undefined>>): number => {
+  const DEFAULT_MS = 15_000
+  const raw = env.BRV_ACP_HANDSHAKE_TIMEOUT_MS
+  if (raw === undefined || raw === '') return DEFAULT_MS
+  const parsed = Number.parseInt(raw, 10)
+  if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_MS
+  return parsed
 }
 
 export class AcpHandshakeFailedError extends ChannelError {

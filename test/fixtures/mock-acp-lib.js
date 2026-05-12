@@ -24,8 +24,23 @@ const sendResponse = (id, result) => {
   send({id, jsonrpc: '2.0', result})
 }
 
-const sendError = (id, code, message) => {
-  send({error: {code, message}, id, jsonrpc: '2.0'})
+// Fixtures throw either a plain Error or an Error decorated with
+// `acpErrorCode` (number) and optional `acpErrorData` to send a structured
+// JSON-RPC error response. Phase-4 AUTH_REQUIRED fixtures use this to
+// emit `{code: -32000, data: {authMethods: [...]}}`.
+const sendError = (id, code, message, data) => {
+  const err = {code, message}
+  if (data !== undefined) err.data = data
+  send({error: err, id, jsonrpc: '2.0'})
+}
+
+const sendErrorFromThrown = (id, error) => {
+  if (error && typeof error === 'object' && typeof error.acpErrorCode === 'number') {
+    sendError(id, error.acpErrorCode, error.message ?? String(error), error.acpErrorData)
+    return
+  }
+
+  sendError(id, -32_000, error instanceof Error ? error.message : String(error))
 }
 
 const sendNotification = (method, params) => {
@@ -88,7 +103,7 @@ export const start = (behaviour) => {
             : behaviour.initialize(msg.params)
         sendResponse(msg.id, result)
       } catch (error) {
-        sendError(msg.id, -32_000, error instanceof Error ? error.message : String(error))
+        sendErrorFromThrown(msg.id, error)
       }
 
       return
@@ -106,13 +121,13 @@ export const start = (behaviour) => {
         try {
           const result = behaviour.handleSessionNew(msg.params)
           if (result instanceof Error) {
-            sendError(msg.id, -32_000, result.message)
+            sendErrorFromThrown(msg.id, result)
           } else {
             sessionCounter += 1
             sendResponse(msg.id, result ?? {sessionId: `mock-session-${sessionCounter}`})
           }
         } catch (error) {
-          sendError(msg.id, -32_000, error instanceof Error ? error.message : String(error))
+          sendErrorFromThrown(msg.id, error)
         }
       }
 
@@ -128,7 +143,7 @@ export const start = (behaviour) => {
             sendResponse(msg.id, result ?? {stopReason: 'end_turn'})
           },
           (error) => {
-            sendError(msg.id, -32_000, error instanceof Error ? error.message : String(error))
+            sendErrorFromThrown(msg.id, error)
           },
         )
       return

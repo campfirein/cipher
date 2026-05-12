@@ -66,6 +66,7 @@ import {CancelCoordinator} from '../channel/drivers/cancel-coordinator.js'
 import {PermissionBroker} from '../channel/drivers/permission-broker.js'
 import {ChannelOnboardService} from '../channel/onboard-service.js'
 import {ChannelOrchestrator} from '../channel/orchestrator.js'
+import {FileProfileMetadataStore} from '../channel/profile-metadata-store.js'
 import {ChannelEventsWriter} from '../channel/storage/events-writer.js'
 import {ChannelSnapshotWriter} from '../channel/storage/snapshot-writer.js'
 import {ChannelTreeReader} from '../channel/storage/tree-reader.js'
@@ -764,6 +765,7 @@ async function main(): Promise<void> {
       },
     })
     const channelProfileStore = new FileDriverProfileStore({dataDir: getGlobalDataDir()})
+    const channelProfileMetadataStore = new FileProfileMetadataStore({dataDir: getGlobalDataDir()})
     const channelDriverFactory = (invocation: import('../channel/onboard-service.js').OnboardArgs['invocation'], handle: string) =>
       new AcpDriver({handle, invocation})
     const channelOrchestrator = new ChannelOrchestrator({
@@ -782,6 +784,7 @@ async function main(): Promise<void> {
     const channelOnboardService = new ChannelOnboardService({
       clock: () => new Date(),
       driverFactory: channelDriverFactory,
+      metadataStore: channelProfileMetadataStore,
       store: channelProfileStore,
     })
 
@@ -789,6 +792,7 @@ async function main(): Promise<void> {
       broker: channelBroker,
       clock: () => new Date(),
       pool: channelPool,
+      profileMetadataStore: channelProfileMetadataStore,
       profileStore: channelProfileStore,
       store: channelStore,
     })

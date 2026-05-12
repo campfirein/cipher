@@ -3,6 +3,7 @@ import type {IChannelStore} from '../../core/interfaces/channel/i-channel-store.
 import type {IAcpDriverPool} from '../../core/interfaces/channel/i-driver-pool.js'
 import type {IDriverProfileStore} from '../../core/interfaces/channel/i-driver-profile-store.js'
 import type {IPermissionBroker} from './drivers/permission-broker.js'
+import type {IProfileMetadataStore} from './profile-metadata-store.js'
 
 /**
  * Phase-3 doctor service (Slice 3.3).
@@ -26,6 +27,12 @@ export type ChannelDoctorServiceDeps = {
   readonly broker: IPermissionBroker
   readonly clock: () => Date
   readonly pool: IAcpDriverPool
+  /**
+   * Slice 4.2 — local-only metadata for probe outcomes (e.g. AUTH_REQUIRED).
+   * Optional so legacy callers without metadata stay green; when supplied,
+   * doctor emits `KIMI_AUTH_STALE` for profiles with a stale auth probe.
+   */
+  readonly profileMetadataStore?: IProfileMetadataStore
   readonly profileStore: IDriverProfileStore
   readonly store: IChannelStore
 }
@@ -183,15 +190,30 @@ export class ChannelDoctorService implements IChannelDoctorService {
       return
     }
 
-    if (profile.probedAt === undefined) return
-    const ageMs = args.now.getTime() - Date.parse(profile.probedAt)
-    if (ageMs > PROFILE_STALE_MS) {
-      args.diagnostics.push({
-        code: 'DOCTOR_PROFILE_STALE',
-        details: {ageDays: Math.round(ageMs / (24 * 60 * 60 * 1000)), name: args.name},
-        message: `Profile ${args.name} was last probed more than 7 days ago — consider rerunning 'brv channel onboard ${args.name}'`,
-        severity: 'warning',
-      })
+    if (profile.probedAt !== undefined) {
+      const ageMs = args.now.getTime() - Date.parse(profile.probedAt)
+      if (ageMs > PROFILE_STALE_MS) {
+        args.diagnostics.push({
+          code: 'DOCTOR_PROFILE_STALE',
+          details: {ageDays: Math.round(ageMs / (24 * 60 * 60 * 1000)), name: args.name},
+          message: `Profile ${args.name} was last probed more than 7 days ago — consider rerunning 'brv channel onboard ${args.name}'`,
+          severity: 'warning',
+        })
+      }
+    }
+
+    // Slice 4.2 — surface AUTH_REQUIRED from the local-only metadata store
+    // so users see an actionable hint without re-probing kimi.
+    if (this.deps.profileMetadataStore !== undefined) {
+      const record = await this.deps.profileMetadataStore.get(args.name)
+      if (record?.lastProbeError === 'AUTH_REQUIRED') {
+        args.diagnostics.push({
+          code: 'KIMI_AUTH_STALE',
+          details: {lastProbeAt: record.lastProbeAt, name: args.name},
+          message: `Profile ${args.name} last probe failed with AUTH_REQUIRED — re-authenticate the agent and rerun 'brv channel onboard ${args.name}'`,
+          severity: 'warning',
+        })
+      }
     }
   }
 }

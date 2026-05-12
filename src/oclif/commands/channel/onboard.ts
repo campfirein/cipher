@@ -61,6 +61,40 @@ public static flags = {
 
   private handleError(error: unknown, asJson: boolean): never {
     if (error instanceof ChannelClientError) {
+      // Slice 4.2: AUTH_REQUIRED gets a dedicated exit code (65, sysexits
+      // EX_NOPERM) and a remediation hint derived from the agent's
+      // advertised `terminal-auth` field meta if present.
+      //
+      // Use `process.exit(N)` rather than `this.exit(N)` because oclif's
+      // `--json` mode intercepts `this.exit()` to render the error envelope
+      // and coerces non-zero exit codes to 0 — defeating the whole point of
+      // an exit-65 contract. `process.exit` bypasses oclif's lifecycle.
+      if (error.code === 'ACP_AUTH_REQUIRED') {
+        if (asJson) {
+          this.log(JSON.stringify({code: error.code, details: error.details, error: error.message, success: false}))
+        } else {
+          this.logToStderr(`[AUTH_REQUIRED] ${error.message}`)
+          const remediation = formatAuthRemediation(error.details)
+          if (remediation !== undefined) this.logToStderr(`  → ${remediation}`)
+        }
+
+        // eslint-disable-next-line n/no-process-exit, unicorn/no-process-exit
+        process.exit(65)
+      }
+
+      // Slice 4.4: friendly message for binary-not-found.
+      if (error.code === 'ACP_BINARY_NOT_FOUND') {
+        if (asJson) {
+          this.log(JSON.stringify({code: error.code, error: error.message, success: false}))
+        } else {
+          this.logToStderr(`[ACP_BINARY_NOT_FOUND] ${error.message}`)
+          this.logToStderr('  → install the agent (e.g. `pipx install kimi-cli`) or fix your PATH and retry')
+        }
+
+        // eslint-disable-next-line n/no-process-exit, unicorn/no-process-exit
+        process.exit(1)
+      }
+
       if (asJson) {
         this.log(JSON.stringify({code: error.code, error: error.message, success: false}))
       } else {
@@ -72,4 +106,45 @@ public static flags = {
 
     throw error
   }
+}
+
+type TerminalAuth = {
+  args?: readonly string[]
+  command: string
+  env?: Readonly<Record<string, string>>
+}
+
+type AuthMethod = {
+  fieldMeta?: {terminalAuth?: TerminalAuth}
+  id?: string
+  name?: string
+}
+
+const formatAuthRemediation = (details: unknown): string | undefined => {
+  if (details === null || typeof details !== 'object') return undefined
+  const methods = (details as {authMethods?: unknown}).authMethods
+  if (!Array.isArray(methods) || methods.length === 0) return undefined
+
+  // Preferred: structured terminal-auth invocation. Kimi-style ACP servers
+  // typically DON'T include this nested shape — they flatten to `{id, name,
+  // description, type, args, env}` at the top level.
+  for (const m of methods as AuthMethod[]) {
+    const terminal = m.fieldMeta?.terminalAuth
+    if (terminal !== undefined && typeof terminal.command === 'string') {
+      const tokens = [terminal.command, ...(terminal.args ?? [])]
+      return `run \`${tokens.join(' ')}\` and rerun this onboard command`
+    }
+  }
+
+  // Fallback 1: an agent-provided `description` (kimi's "Run `kimi login`..."
+  // human-readable hint). This is the most useful actionable message for the
+  // user in practice.
+  for (const m of methods as {description?: unknown}[]) {
+    if (typeof m.description === 'string' && m.description.length > 0) {
+      return m.description
+    }
+  }
+
+  // Fallback 2: completely generic last-resort.
+  return "run the agent's login command and retry"
 }
