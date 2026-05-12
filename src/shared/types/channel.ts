@@ -299,9 +299,21 @@ export const TurnEventSchema = z.discriminatedUnion('kind', [
     ...TurnEventBaseShape,
     kind: z.literal('tool_call_update'),
     toolCallId: z.string(),
-    status: z.enum(['in_progress', 'completed', 'failed']).optional(),
+    // Slice 4.−1: loosened from the Phase-3 closed enum to any string the
+    // agent emits. Renderers fall back gracefully on unknown statuses.
+    status: z.string().optional(),
     output: z.unknown().optional(),
     error: z.string().optional(),
+  }),
+  z.object({
+    ...TurnEventBaseShape,
+    // Slice 4.−1: forward-compat catch-all variant. Hosts MAY project
+    // unrecognised ACP `session/update` notifications into this shape so
+    // future updates flow through without dropping. Clients tolerate any
+    // `subKind` and any `payload`.
+    kind: z.literal('agent_meta'),
+    subKind: z.string(),
+    payload: z.record(z.unknown()),
   }),
   z.object({
     ...TurnEventBaseShape,
