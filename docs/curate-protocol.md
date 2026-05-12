@@ -27,6 +27,14 @@ brv curate --session <sessionId> --response "<calling agent's output>" --format 
 
 Presence of `--session` always means tool-mode continuation. The env var is not consulted on continuation calls.
 
+### Overwrite intent — `--overwrite` on continuation
+
+```bash
+brv curate --session <sessionId> --response "<calling agent's output>" --overwrite --format json
+```
+
+Default behavior: the writer refuses to clobber an existing topic at the resolved path and returns a `path-exists` correction step carrying the prior file's content. Pass `--overwrite` only when the calling agent has consciously decided to replace prior content. The flag is consumed on the continuation it appears on; subsequent continuations in the same session must repeat it if they still want to overwrite.
+
 ### `--format text` fallback
 
 Both kickoff and continuation accept `--format text` for shell users. The output is a terse human digest. The primary consumer (the calling agent) uses `--format json`.
@@ -81,6 +89,7 @@ Every kickoff and continuation call returns the same JSON envelope under the sta
 |---|---|---|---|
 | `missing-content` | Kickoff | **terminal** | Kickoff invoked without a context argument; no session created |
 | `missing-response` | Continuation | **terminal** | `--session` invoked without `--response`; session unaffected |
+| `invalid-flag-combination` | Continuation | **terminal** | Emitted before any session lookup when a flag is used outside its supported call shape. Today the only producer is `--overwrite` passed without `--session` (legacy curate path does not honour `--overwrite`). |
 | `unknown-session` | Continuation | **terminal** | Session id doesn't exist, was already completed, or fails uuid validation |
 | `empty-response` | Continuation | **transient** (session kept live) | Continuation received an empty `--response`; caller retries with the same `sessionId` |
 | `retry-cap-exceeded` | Continuation | **terminal** | `MAX_ATTEMPTS = 4` (1 generate + 3 corrections) reached without valid HTML; session cleared. Accompanied by the validation errors that pushed the session over the cap. |
@@ -90,6 +99,7 @@ Every kickoff and continuation call returns the same JSON envelope under the sta
 | `unsafe-path` | Continuation | **transient** (correction) | `<bv-topic path>` contains `..` or `.` segments |
 | `unknown-element` | Continuation | **transient** (correction) | Response contains a `<bv-*>` tag outside the closed registry; `tag` field carries the offending name |
 | `attribute-validation` | Continuation | **transient** (correction) | An element's attributes failed its registered validator. `tag` carries the element, `attribute` the offending field. |
+| `path-exists` | Continuation | **transient** (correction) | A topic already exists at the resolved path and `--overwrite` was not passed. The envelope error carries `existingContent` (the prior file's bytes); the correction prompt inlines the same content inside an `<existing-topic path="…">…</existing-topic>` block so the calling agent can merge new content into existing structure. The guard does not clear by re-emitting different content — `--overwrite` is required to write at this path. Default workflow: merge `existingContent` with the new content and re-emit with `--overwrite`. Alternative: choose a different `<bv-topic path>` (no `--overwrite` needed). |
 
 **Terminal vs transient.** Terminal failures end the session — the caller cannot retry the same `sessionId` and must start a new kickoff. Transient failures keep the session alive on disk; the envelope echoes the `sessionId` back and the caller is expected to issue a corrected continuation against it.
 
