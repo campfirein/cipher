@@ -23,6 +23,7 @@ export const getPinnedTeam = (projectPath: string): Promise<BillingGetPinnedTeam
 
 export const getPinnedTeamQueryOptions = (projectPath: string) =>
   queryOptions({
+    enabled: projectPath !== '',
     queryFn: () => getPinnedTeam(projectPath),
     queryKey: [...PINNED_TEAM_QUERY_ROOT, projectPath],
   })

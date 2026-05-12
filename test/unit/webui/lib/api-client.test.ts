@@ -23,22 +23,26 @@ function makeStubSocket(
 }
 
 interface ControllableSocket extends Socket {
+  offCalls: Array<{event: string; handler: () => void}>
   triggerDisconnect: () => void
 }
 
 function makeControllableSocket(options: {connected?: boolean; emitAck?: boolean} = {}): ControllableSocket {
   const {connected = true, emitAck = false} = options
   let disconnectHandler: (() => void) | undefined
+  const offCalls: Array<{event: string; handler: () => void}> = []
   const socket = {
     connected,
     emit(_event: string, _data: unknown, callback: (response: unknown) => void) {
       if (emitAck) callback({data: 'ok', success: true})
       return socket
     },
-    off(_event: string, _handler: () => void) {
+    off(event: string, handler: () => void) {
+      offCalls.push({event, handler})
       disconnectHandler = undefined
       return socket
     },
+    offCalls,
     once(event: string, handler: () => void) {
       if (event === 'disconnect') disconnectHandler = handler
       return socket
@@ -106,5 +110,24 @@ describe('BrvApiClient.request', () => {
     const client = new BrvApiClient(socket)
     const result = await client.request<string>('vc:push')
     expect(result).to.equal('ok')
+  })
+
+  it('removes the disconnect listener after a successful ack', async () => {
+    const socket = makeControllableSocket({connected: true, emitAck: true})
+    const client = new BrvApiClient(socket)
+    await client.request<string>('vc:push')
+    expect(socket.offCalls.some((c) => c.event === 'disconnect')).to.equal(true)
+  })
+
+  it('removes the disconnect listener after a timeout', async () => {
+    const socket = makeControllableSocket({connected: true, emitAck: false})
+    const client = new BrvApiClient(socket)
+    try {
+      await client.request('vc:push', undefined, {timeout: 5})
+      expect.fail('request should have rejected')
+    } catch (error) {
+      expect((error as Error).message).to.match(/timed out/i)
+      expect(socket.offCalls.some((c) => c.event === 'disconnect')).to.equal(true)
+    }
   })
 })

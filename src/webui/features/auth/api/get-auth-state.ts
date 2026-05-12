@@ -20,6 +20,7 @@ export const AUTH_STATE_QUERY_ROOT = ['auth', 'state'] as const
 
 export const getAuthStateQueryOptions = (projectPath: string) =>
   queryOptions({
+    enabled: projectPath !== '',
     gcTime: 5 * 60 * 1000,
     queryFn: () => getAuthState(projectPath),
     queryKey: [...AUTH_STATE_QUERY_ROOT, projectPath],
