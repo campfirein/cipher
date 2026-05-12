@@ -34,5 +34,10 @@ type UseGetPinnedTeamOptions = {
 
 export const useGetPinnedTeam = ({queryConfig}: UseGetPinnedTeamOptions = {}) => {
   const projectPath = useTransportStore((state) => state.selectedProject)
-  return useQuery({...queryConfig, ...getPinnedTeamQueryOptions(projectPath)})
+  const baseOptions = getPinnedTeamQueryOptions(projectPath)
+  return useQuery({
+    ...baseOptions,
+    ...queryConfig,
+    enabled: baseOptions.enabled !== false && (queryConfig?.enabled ?? true),
+  })
 }

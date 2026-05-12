@@ -33,8 +33,10 @@ type UseGetAuthStateOptions = {
 
 export const useGetAuthState = ({queryConfig}: UseGetAuthStateOptions = {}) => {
   const projectPath = useTransportStore((state) => state.selectedProject)
+  const baseOptions = getAuthStateQueryOptions(projectPath)
   return useQuery({
-    ...getAuthStateQueryOptions(projectPath),
+    ...baseOptions,
     ...queryConfig,
+    enabled: baseOptions.enabled !== false && (queryConfig?.enabled ?? true),
   })
 }
