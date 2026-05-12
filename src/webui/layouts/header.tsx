@@ -8,7 +8,6 @@ import {useState} from 'react'
 import logo from '../assets/logo-byterover.svg'
 import {StatusDot, type Tone as StatusDotTone} from '../components/status-dot'
 import {AuthMenu} from '../features/auth/components/auth-menu'
-import {useAuthStore} from '../features/auth/stores/auth-store'
 import {useGetEnvironmentConfig} from '../features/config/api/get-environment-config'
 import {HelpMenu} from '../features/onboarding/components/help-menu'
 import {ProjectDropdown} from '../features/project/components/project-dropdown'
@@ -60,7 +59,6 @@ export function Header() {
   const [providerDialogOpen, setProviderDialogOpen] = useState(false)
   const {data: providersData} = useGetProviders()
   const {data: activeConfig} = useGetActiveProviderConfig()
-  const teamId = useAuthStore((s) => s.brvConfig?.teamId)
   const {data: pinnedData} = useGetPinnedTeam()
 
   const activeProvider = providersData?.providers.find((p) => p.isCurrent)
@@ -69,8 +67,8 @@ export function Header() {
 
   const {data: teamsData} = useListTeams()
 
-  const {billingSource, billingTone, paidOrg, showCreditPill: hasBillingData} = useBillingDisplay({
-    preferredOrgId: pinnedData?.teamId ?? teamId,
+  const {billingSource, billingTone, needsPickPrompt, paidOrg, showCreditPill: hasBillingData} = useBillingDisplay({
+    preferredOrgId: pinnedData?.teamId,
   })
   const showCreditPill = isByteRoverActive && hasBillingData
 
@@ -78,8 +76,9 @@ export function Header() {
   const teamSlug = teamsData?.teams?.find((t) => t.id === paidOrg?.organizationId)?.slug
   const topUpUrl = buildTopUpUrl({teamSlug, webAppUrl: envConfig?.webAppUrl})
 
+  const needsAttention = !activeProvider || (isByteRoverActive && needsPickPrompt)
   let triggerToneClass = ''
-  if (!activeProvider) triggerToneClass = TRIGGER_TONE_CLASS.warn
+  if (needsAttention) triggerToneClass = TRIGGER_TONE_CLASS.warn
   else if (isByteRoverActive) triggerToneClass = TRIGGER_TONE_CLASS[billingTone]
 
   return (
@@ -132,13 +131,17 @@ export function Header() {
               {activeProvider && (
                 <StatusDot
                   className="border-background absolute -right-0.5 -bottom-0.5 size-2 border-2"
-                  tone={isByteRoverActive ? STATUS_DOT_TONE[billingTone] : 'success'}
+                  tone={
+                    isByteRoverActive && needsPickPrompt
+                      ? 'amber'
+                      : (isByteRoverActive ? STATUS_DOT_TONE[billingTone] : 'success')
+                  }
                 />
               )}
             </span>
             {providerLabel}
             {showCreditPill && billingSource && <CreditPill remaining={billingSource.remaining} tone={billingTone} />}
-            {!activeProvider && <StatusDot className="ml-1" pulsing tone="amber" />}
+            {needsAttention && <StatusDot className="ml-1" pulsing tone="amber" />}
           </TooltipTrigger>
           {!activeProvider && <TooltipContent>Configure provider to power curate & query</TooltipContent>}
           {showCreditPill && billingTone === 'danger' && (
@@ -163,6 +166,9 @@ export function Header() {
             <TooltipContent>
               Running low on credits — {formatCredits(billingSource.remaining)} remaining.
             </TooltipContent>
+          )}
+          {isByteRoverActive && needsPickPrompt && billingTone !== 'danger' && billingTone !== 'warn' && (
+            <TooltipContent>Select a team to bill your usage to.</TooltipContent>
           )}
         </Tooltip>
         <ProviderFlowDialog onOpenChange={setProviderDialogOpen} open={providerDialogOpen} />

@@ -76,22 +76,18 @@ describe('buildStatusBilling', () => {
     expect(result).to.deep.equal({organizationId: 'org-stale', source: 'paid'})
   })
 
-  it('returns paid when no pin and the workspace team matches a paid usage', () => {
+  it('returns free when no pin and multiple paid usages exist (server cannot disambiguate)', () => {
     const result = buildStatusBilling({
       activeProvider: 'byterover',
+      freeUserLimit: freeLimit,
       isAuthenticated: true,
       paidUsages: [
         usage({organizationId: 'org-acme', organizationName: 'Acme Corp'}),
         usage({organizationId: 'org-other', organizationName: 'Other'}),
       ],
-      workspaceTeamId: 'org-acme',
     })
 
-    expect(result).to.deep.include({
-      organizationId: 'org-acme',
-      organizationName: 'Acme Corp',
-      source: 'paid',
-    })
+    expect(result?.source).to.equal('free')
   })
 
   it('returns paid when no pin/workspace and there is exactly one paid org', () => {
@@ -130,7 +126,7 @@ describe('buildStatusBilling', () => {
     expect(result).to.deep.equal({source: 'free'})
   })
 
-  it('returns the free source when multiple paid orgs exist but none resolve (chain step 4)', () => {
+  it('returns the free source when no pin and multiple paid orgs exist', () => {
     const result = buildStatusBilling({
       activeProvider: 'byterover',
       freeUserLimit: freeLimit,
@@ -139,7 +135,6 @@ describe('buildStatusBilling', () => {
         usage({organizationId: 'org-A', organizationName: 'A'}),
         usage({organizationId: 'org-B', organizationName: 'B'}),
       ],
-      workspaceTeamId: 'org-not-paid',
     })
 
     expect(result?.source).to.equal('free')

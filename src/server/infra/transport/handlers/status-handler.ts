@@ -150,10 +150,8 @@ export class StatusHandler {
       authStateStore: this.authStateStore,
       billingConfigStoreFactory: this.billingConfigStoreFactory,
       billingService: this.billingService,
-      projectConfigStore: this.projectConfigStore,
       projectPath: effectiveProjectPath,
       providerConfigStore: this.providerConfigStore,
-      workspaceTeamId: projectConfig?.teamId,
     })
 
     // Abstract generation queue status (written by agent process via abstract-queue.ts)

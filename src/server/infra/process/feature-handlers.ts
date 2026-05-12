@@ -156,7 +156,6 @@ export async function setupFeatureHandlers({
     authStateStore,
     billingConfigStoreFactory,
     billingService,
-    projectConfigStore,
     providerConfigStore,
     resolveProjectPath,
     transport,

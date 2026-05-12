@@ -3,8 +3,8 @@ import {useEffect} from 'react'
 
 import {ClientEvents} from '../../../../shared/transport/events'
 import {useTransportStore} from '../../../stores/transport-store'
-import {getAuthStateQueryOptions} from '../../auth/api/get-auth-state'
-import {getPinnedTeamQueryOptions} from '../../provider/api/get-pinned-team'
+import {AUTH_STATE_QUERY_ROOT} from '../../auth/api/get-auth-state'
+import {PINNED_TEAM_QUERY_ROOT} from '../../provider/api/get-pinned-team'
 import {listBillingUsageQueryOptions} from '../../provider/api/list-billing-usage'
 
 export function ProjectAssociationInitializer() {
@@ -23,8 +23,8 @@ export function ProjectAssociationInitializer() {
       .catch(() => {})
       .finally(() => {
         if (cancelled) return
-        queryClient.invalidateQueries({queryKey: getAuthStateQueryOptions().queryKey}).catch(() => {})
-        queryClient.invalidateQueries({queryKey: getPinnedTeamQueryOptions().queryKey}).catch(() => {})
+        queryClient.invalidateQueries({queryKey: AUTH_STATE_QUERY_ROOT}).catch(() => {})
+        queryClient.invalidateQueries({queryKey: PINNED_TEAM_QUERY_ROOT}).catch(() => {})
         queryClient.invalidateQueries({queryKey: listBillingUsageQueryOptions(true).queryKey}).catch(() => {})
       })
 

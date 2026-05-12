@@ -29,7 +29,6 @@ import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
 import type {
   BillingPinChangedPayload,
   BillingStateResponse,
-  PaidOrganizationsResponse,
   ProviderConfigResponse,
   TaskExecute,
 } from '../../core/domain/transport/schemas.js'
@@ -55,7 +54,6 @@ import {
   TransportStateEventNames,
   TransportTaskEventNames,
 } from '../../core/domain/transport/schemas.js'
-import {resolveBillingTeamId} from '../billing/resolve-billing-team.js'
 import {FileContextTreeArchiveService} from '../context-tree/file-context-tree-archive-service.js'
 import {RuntimeSignalStore} from '../context-tree/runtime-signal-store.js'
 import {DreamLockService} from '../dream/dream-lock-service.js'
@@ -164,9 +162,7 @@ async function activateExistingSession(sessionId: string, providerId: string): P
  */
 let cachedSessionKey = ''
 let cachedBrvConfig: BrvConfig | undefined
-let cachedTeamId = ''
 let cachedPinnedOrgId: string | undefined
-let cachedPaidOrgIds: readonly string[] = []
 let cachedSpaceId = ''
 let cachedActiveProvider = ''
 let cachedActiveModel = ''
@@ -232,20 +228,17 @@ async function start(): Promise<void> {
     sessionKey?: string
   }
 
-  const [configResult, authResult, providerResult, billingResult, paidOrgsResult] = await Promise.all([
+  const [configResult, authResult, providerResult, billingResult] = await Promise.all([
     transport.requestWithAck<ProjectConfigResponse>(TransportStateEventNames.GET_PROJECT_CONFIG, {projectPath}),
     transport.requestWithAck<AuthResponse>(TransportStateEventNames.GET_AUTH),
     transport.requestWithAck<ProviderConfigResponse>(TransportStateEventNames.GET_PROVIDER_CONFIG),
     transport.requestWithAck<BillingStateResponse>(TransportStateEventNames.GET_BILLING_CONFIG, {projectPath}),
-    transport.requestWithAck<PaidOrganizationsResponse>(TransportStateEventNames.GET_PAID_ORGANIZATIONS),
   ])
 
   cachedBrvConfig = configResult.brvConfig
-  cachedTeamId = configResult.teamId ?? ''
   cachedSpaceId = configResult.spaceId ?? ''
   cachedSessionKey = authResult.sessionKey ?? ''
   cachedPinnedOrgId = billingResult.pinnedTeamId
-  cachedPaidOrgIds = paidOrgsResult.organizationIds
 
   agentLog('Initial config loaded from state server')
 
@@ -255,7 +248,6 @@ async function start(): Promise<void> {
     (data) => {
       if (data.projectPath !== projectPath) return
       if (data.brvConfig) cachedBrvConfig = data.brvConfig
-      if (data.teamId !== undefined) cachedTeamId = data.teamId
       if (data.spaceId !== undefined) cachedSpaceId = data.spaceId
     },
   )
@@ -316,12 +308,7 @@ async function start(): Promise<void> {
     projectIdProvider: () => PROJECT,
     sessionKeyProvider: () => cachedSessionKey,
     spaceIdProvider: () => cachedSpaceId,
-    teamIdProvider: () =>
-      resolveBillingTeamId({
-        paidOrganizationIds: cachedPaidOrgIds,
-        pinnedTeamId: cachedPinnedOrgId,
-        workspaceTeamId: cachedTeamId || undefined,
-      }) ?? '',
+    teamIdProvider: () => cachedPinnedOrgId ?? '',
     transportClient: transport,
   })
 
@@ -508,12 +495,11 @@ async function executeTask(
       // Refresh config from state server to pick up changes from init/space-switch
       // (they write directly to disk, bypassing the agent's cached state)
       try {
-        const configResult = await transport.requestWithAck<{brvConfig?: BrvConfig; spaceId?: string; teamId?: string}>(
+        const configResult = await transport.requestWithAck<{brvConfig?: BrvConfig; spaceId?: string}>(
           TransportStateEventNames.GET_PROJECT_CONFIG,
           {projectPath},
         )
         if (configResult.brvConfig) cachedBrvConfig = configResult.brvConfig
-        if (configResult.teamId !== undefined) cachedTeamId = configResult.teamId
         if (configResult.spaceId !== undefined) cachedSpaceId = configResult.spaceId
       } catch {
         agentLog('Failed to refresh config before task execution')

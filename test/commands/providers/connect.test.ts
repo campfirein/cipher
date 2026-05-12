@@ -717,7 +717,7 @@ describe('Provider Connect Command', () => {
 
       const setCall = requestStub.getCalls().find((c) => c.args[0] === BillingEvents.SET_PINNED_TEAM)
       expect(setCall, 'expected SET_PINNED_TEAM call').to.exist
-      expect(setCall!.args[1]).to.deep.equal({teamId: 'org-acme'})
+      expect(setCall!.args[1]).to.deep.equal({projectPath: '/test/project', teamId: 'org-acme'})
       expect(loggedMessages.some((m) => m.includes('Connected to ByteRover'))).to.be.true
       expect(
         loggedMessages.some((m) => m.includes('ByteRover usage on this project will be billed to Acme Corp')),

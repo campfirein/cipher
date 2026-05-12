@@ -3,7 +3,6 @@ import type {IProviderConfigStore} from '../../core/interfaces/i-provider-config
 import type {IBillingService} from '../../core/interfaces/services/i-billing-service.js'
 import type {IAuthStateStore} from '../../core/interfaces/state/i-auth-state-store.js'
 import type {IBillingConfigStore} from '../../core/interfaces/storage/i-billing-config-store.js'
-import type {IProjectConfigStore} from '../../core/interfaces/storage/i-project-config-store.js'
 
 import {buildStatusBilling} from './build-status-billing.js'
 
@@ -13,10 +12,8 @@ export interface ResolveBillingDeps {
   authStateStore: IAuthStateStore
   billingConfigStoreFactory: (projectPath: string) => IBillingConfigStore
   billingService: IBillingService
-  projectConfigStore: IProjectConfigStore
   projectPath: string
   providerConfigStore: IProviderConfigStore
-  workspaceTeamId?: string
 }
 
 export async function resolveBillingForProject(deps: ResolveBillingDeps): Promise<StatusBillingDTO | undefined> {
@@ -33,20 +30,11 @@ export async function resolveBillingForProject(deps: ResolveBillingDeps): Promis
 
   const {sessionKey} = token
 
-  const readWorkspaceTeamId = async (): Promise<string | undefined> => {
-    if (deps.workspaceTeamId !== undefined) return deps.workspaceTeamId
-    return deps.projectConfigStore
-      .read(deps.projectPath)
-      .then((config) => config?.teamId)
-      .catch((): string | undefined => undefined)
-  }
-
-  const [pinnedTeamId, workspaceTeamId, usagesResult] = await Promise.all([
+  const [pinnedTeamId, usagesResult] = await Promise.all([
     deps
       .billingConfigStoreFactory(deps.projectPath)
       .getPinnedTeamId()
       .catch((): string | undefined => undefined),
-    readWorkspaceTeamId(),
     deps.billingService
       .getUsages(sessionKey)
       .then((usages) => ({ok: true as const, usages}))
@@ -67,6 +55,5 @@ export async function resolveBillingForProject(deps: ResolveBillingDeps): Promis
     isAuthenticated: true,
     paidUsages,
     pinnedTeamId,
-    workspaceTeamId,
   })
 }

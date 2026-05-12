@@ -4,7 +4,6 @@ import {createSandbox, type SinonSandbox} from 'sinon'
 import type {IProviderConfigStore} from '../../../../src/server/core/interfaces/i-provider-config-store.js'
 import type {IBillingService} from '../../../../src/server/core/interfaces/services/i-billing-service.js'
 import type {IBillingConfigStore} from '../../../../src/server/core/interfaces/storage/i-billing-config-store.js'
-import type {IProjectConfigStore} from '../../../../src/server/core/interfaces/storage/i-project-config-store.js'
 
 import {resolveBillingForProject} from '../../../../src/server/infra/billing/resolve-billing-source.js'
 import {createMockAuthStateStore} from '../../../helpers/mock-factories.js'
@@ -18,9 +17,6 @@ interface Stubs {
   getFreeUserLimitStub: ReturnType<SinonSandbox['stub']>
   getPinnedStub: ReturnType<SinonSandbox['stub']>
   getUsagesStub: ReturnType<SinonSandbox['stub']>
-  projectConfigStore: IProjectConfigStore
-  projectExistsStub: ReturnType<SinonSandbox['stub']>
-  projectReadStub: ReturnType<SinonSandbox['stub']>
   providerConfigStore: IProviderConfigStore
 }
 
@@ -29,8 +25,6 @@ function makeStubs(sandbox: SinonSandbox): Stubs {
   const getFreeUserLimitStub = sandbox.stub()
   const getPinnedStub = sandbox.stub().resolves()
   const getUsagesStub = sandbox.stub().resolves([])
-  const projectExistsStub = sandbox.stub().resolves(true)
-  const projectReadStub = sandbox.stub().resolves({})
 
   return {
     billingConfigStore: {
@@ -46,14 +40,6 @@ function makeStubs(sandbox: SinonSandbox): Stubs {
     getFreeUserLimitStub,
     getPinnedStub,
     getUsagesStub,
-    projectConfigStore: {
-      exists: projectExistsStub,
-      getModifiedTime: sandbox.stub().resolves(),
-      read: projectReadStub,
-      write: sandbox.stub().resolves(),
-    } as unknown as IProjectConfigStore,
-    projectExistsStub,
-    projectReadStub,
     providerConfigStore: {
       getActiveProvider: getActiveProviderStub,
     } as unknown as IProviderConfigStore,
@@ -78,7 +64,6 @@ describe('resolveBillingForProject', () => {
       authStateStore: createMockAuthStateStore(sandbox, {isAuthenticated: false}),
       billingConfigStoreFactory: () => stubs.billingConfigStore,
       billingService: stubs.billingService,
-      projectConfigStore: stubs.projectConfigStore,
       projectPath: PROJECT,
       providerConfigStore: stubs.providerConfigStore,
     })
@@ -95,7 +80,6 @@ describe('resolveBillingForProject', () => {
       authStateStore: createMockAuthStateStore(sandbox),
       billingConfigStoreFactory: () => stubs.billingConfigStore,
       billingService: stubs.billingService,
-      projectConfigStore: stubs.projectConfigStore,
       projectPath: PROJECT,
       providerConfigStore: stubs.providerConfigStore,
     })
@@ -128,7 +112,6 @@ describe('resolveBillingForProject', () => {
       authStateStore: createMockAuthStateStore(sandbox),
       billingConfigStoreFactory: () => stubs.billingConfigStore,
       billingService: stubs.billingService,
-      projectConfigStore: stubs.projectConfigStore,
       projectPath: PROJECT,
       providerConfigStore: stubs.providerConfigStore,
     })
@@ -156,59 +139,11 @@ describe('resolveBillingForProject', () => {
       authStateStore: createMockAuthStateStore(sandbox),
       billingConfigStoreFactory: () => stubs.billingConfigStore,
       billingService: stubs.billingService,
-      projectConfigStore: stubs.projectConfigStore,
       projectPath: PROJECT,
       providerConfigStore: stubs.providerConfigStore,
     })
 
     expect(result).to.deep.equal({remaining: 950, source: 'free', total: 1000})
-  })
-
-  it('reads workspace teamId from project config and uses it for the chain', async () => {
-    const stubs = makeStubs(sandbox)
-    stubs.projectReadStub.resolves({spaceId: 'space-1', teamId: 'org-acme'})
-    stubs.getUsagesStub.resolves([
-      {
-        addOnRemaining: 0,
-        isTrialing: false,
-        limit: 100_000,
-        limitExceeded: false,
-        organizationId: 'org-acme',
-        organizationName: 'Acme Corp',
-        organizationStatus: 'ACTIVE',
-        percentUsed: 0,
-        remaining: 100_000,
-        tier: 'TEAM',
-        totalLimit: 100_000,
-        used: 0,
-      },
-      {
-        addOnRemaining: 0,
-        isTrialing: false,
-        limit: 100_000,
-        limitExceeded: false,
-        organizationId: 'org-other',
-        organizationName: 'Other',
-        organizationStatus: 'ACTIVE',
-        percentUsed: 0,
-        remaining: 100_000,
-        tier: 'PRO',
-        totalLimit: 100_000,
-        used: 0,
-      },
-    ])
-
-    const result = await resolveBillingForProject({
-      authStateStore: createMockAuthStateStore(sandbox),
-      billingConfigStoreFactory: () => stubs.billingConfigStore,
-      billingService: stubs.billingService,
-      projectConfigStore: stubs.projectConfigStore,
-      projectPath: PROJECT,
-      providerConfigStore: stubs.providerConfigStore,
-    })
-
-    expect(result?.source).to.equal('paid')
-    expect(result && result.source === 'paid' ? result.organizationId : undefined).to.equal('org-acme')
   })
 
   it('returns undefined when billing service throws', async () => {
@@ -219,7 +154,6 @@ describe('resolveBillingForProject', () => {
       authStateStore: createMockAuthStateStore(sandbox),
       billingConfigStoreFactory: () => stubs.billingConfigStore,
       billingService: stubs.billingService,
-      projectConfigStore: stubs.projectConfigStore,
       projectPath: PROJECT,
       providerConfigStore: stubs.providerConfigStore,
     })

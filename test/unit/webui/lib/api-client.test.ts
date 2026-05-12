@@ -9,8 +9,15 @@ function makeStubSocket(
   ack: {code?: string; error?: string; success: boolean} | {data: unknown; success: true},
 ): Socket {
   return {
+    connected: true,
     emit(_event: string, _data: unknown, callback: (response: unknown) => void) {
       callback(ack)
+      return this
+    },
+    off() {
+      return this
+    },
+    once() {
       return this
     },
   } as unknown as Socket
