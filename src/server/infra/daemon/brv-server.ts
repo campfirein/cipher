@@ -696,6 +696,7 @@ async function main(): Promise<void> {
       providerKeychainStore,
       providerOAuthTokenStore,
       resolveProjectPath: (clientId) => clientManager.getClient(clientId)?.projectPath,
+      settingsStore,
       transport: transportServer,
       webuiPort: webuiServer?.getPort(),
     })
