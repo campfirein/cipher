@@ -148,8 +148,13 @@ class ChannelAgent:
             )
         finally:
             ctx._deactivate()
-            # Reset for next prompt on this session.
-            self._cancel_events[session_id] = asyncio.Event()
+            # Review fix #10: drop the cancel event once the handler has
+            # resolved. The Event only matters DURING a prompt; keeping a
+            # stale entry forever (or recreating one for a "next prompt"
+            # that may never come) is the leak. A subsequent `prompt` on
+            # the same `session_id` recreates the entry just-in-time via
+            # the `setdefault(...)` above.
+            self._cancel_events.pop(session_id, None)
 
         if isinstance(result, PromptResponse):
             return result

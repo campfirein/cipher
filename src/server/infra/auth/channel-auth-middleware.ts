@@ -1,6 +1,30 @@
+import {timingSafeEqual} from 'node:crypto'
+
 import type {RequestContext, RequestHandler} from '../../core/interfaces/transport/i-transport-server.js'
 
 import {ChannelUnauthorizedError} from '../../core/domain/channel/errors.js'
+
+/**
+ * Constant-time token comparison (review fix #5). Daemon-auth-token rides
+ * over a localhost-only socket, so the practical timing-attack surface is
+ * dwarfed by network jitter, but `===` is short-circuiting and worth
+ * replacing as defense-in-depth.
+ *
+ * Pads both candidates to the longer length so `timingSafeEqual` can run
+ * (it requires equal-length buffers); length mismatches always return false
+ * AFTER the constant-time compare.
+ */
+const constantTimeEqual = (a: string, b: string): boolean => {
+  const aBuf = Buffer.from(a, 'utf8')
+  const bBuf = Buffer.from(b, 'utf8')
+  const max = Math.max(aBuf.length, bBuf.length)
+  const aPadded = Buffer.alloc(max)
+  const bPadded = Buffer.alloc(max)
+  aBuf.copy(aPadded)
+  bBuf.copy(bPadded)
+  const equalLength = aBuf.length === bBuf.length
+  return timingSafeEqual(aPadded, bPadded) && equalLength
+}
 
 /**
  * Channel auth middleware (DESIGN §5.6 step 5; CHANNEL_PROTOCOL.md §2).
@@ -39,7 +63,7 @@ export const makeChannelAuthMiddleware = (
         throw new ChannelUnauthorizedError('missing daemon auth token')
       }
 
-      if (token !== provider()) {
+      if (!constantTimeEqual(token, provider())) {
         throw new ChannelUnauthorizedError('invalid daemon auth token')
       }
 

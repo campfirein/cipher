@@ -108,10 +108,25 @@ export type PermissionBrokerOptions = {
   readonly persistence?: IBrokerPersistence
 }
 
+/**
+ * Review fix #8: cap the `resolved` tombstone set so a long-running
+ * daemon doesn't accumulate every permission ID it has ever seen. The
+ * set exists purely to distinguish `ALREADY_RESOLVED` vs `NOT_FOUND` in
+ * the `resolve()` error path; once a permission falls out of the set,
+ * subsequent late `permission-decision` calls surface as `NOT_FOUND`
+ * instead — equally informative for the caller.
+ */
+const RESOLVED_TOMBSTONE_CAP = 10_000
+
 export class PermissionBroker implements IPermissionBroker {
   private readonly pending = new Map<string, PendingPermission>()
   private readonly persistence: IBrokerPersistence | undefined
-  private readonly resolved = new Set<string>()
+  /**
+   * Insertion-ordered Map used as an LRU. Values are unused; the keys
+   * are the permission IDs. When `size > RESOLVED_TOMBSTONE_CAP`, the
+   * oldest entry is evicted via `keys().next()`.
+   */
+  private readonly resolved = new Map<string, true>()
 
   public constructor(options: PermissionBrokerOptions = {}) {
     this.persistence = options.persistence
@@ -169,7 +184,7 @@ export class PermissionBroker implements IPermissionBroker {
     }
 
     this.pending.delete(args.permissionRequestId)
-    this.resolved.add(args.permissionRequestId)
+    this.addResolved(args.permissionRequestId)
     await pending.driver.respondToPermission(args.permissionRequestId, {outcome: args.outcome})
     // Best-effort tombstone for recovery; failure leaves the entry as
     // "live" in the file, which the recovery path treats as errored.
@@ -213,13 +228,22 @@ export class PermissionBroker implements IPermissionBroker {
     }
   }
 
+  private addResolved(permissionRequestId: string): void {
+    this.resolved.set(permissionRequestId, true)
+    while (this.resolved.size > RESOLVED_TOMBSTONE_CAP) {
+      const oldest = this.resolved.keys().next().value
+      if (oldest === undefined) break
+      this.resolved.delete(oldest)
+    }
+  }
+
   private async cancelPending(
     targets: Array<[string, PendingPermission]>,
   ): Promise<PermissionBrokerDrainResult[]> {
     const cancelled: PermissionBrokerDrainResult[] = []
     for (const [id, p] of targets) {
       this.pending.delete(id)
-      this.resolved.add(id)
+      this.addResolved(id)
       // eslint-disable-next-line no-await-in-loop
       await p.driver.respondToPermission(id, {outcome: {outcome: 'cancelled'}})
       if (this.persistence !== undefined) {

@@ -133,8 +133,13 @@ export class ChannelAgent {
           return await this.promptHandler(params, ctx)
         } finally {
           ctx._deactivate()
-          // Reset the abort controller for the next prompt on this session.
-          this.sessions.set(params.sessionId, {abortController: new AbortController()})
+          // Review fix #10: drop the session entry once the prompt handler
+          // has resolved. The AbortController only matters DURING a prompt;
+          // keeping a stale entry forever (or recreating a fresh one for
+          // a "next prompt that might never come") is the leak. A
+          // subsequent `prompt` on the same `sessionId` recreates the entry
+          // just-in-time via the `?? new AbortController()` above.
+          this.sessions.delete(params.sessionId)
         }
       },
     }

@@ -1,6 +1,7 @@
 import type {ChildProcessWithoutNullStreams} from 'node:child_process'
 
 import {spawn} from 'node:child_process'
+import {randomUUID} from 'node:crypto'
 
 import type {ChannelAuthMethod} from '../../../core/domain/channel/errors.js'
 import type {
@@ -298,7 +299,12 @@ export class AcpDriver implements IAcpDriver {
     rpc.onRequest('session/request_permission', (params) =>
       new Promise<unknown>((resolve, reject) => {
         const req = params as {options: unknown[]; sessionId: string; toolCall: unknown}
-        const id = `acp-perm-${this.pendingPermissions.size + 1}-${Date.now()}`
+        // Review fix #9: `pendingPermissions.size + 1` was not monotonic
+        // (a resolve before the next track reuses the slot), and
+        // `Date.now()` is millisecond-precision — two permissions fired in
+        // the same ms with the same map size collided. Use randomUUID()
+        // for unconditional uniqueness; prefix kept for human-readable logs.
+        const id = `acp-perm-${randomUUID()}`
         this.pendingPermissions.set(id, {reject, resolve})
         state.queue.push({
           kind: 'permission_request',

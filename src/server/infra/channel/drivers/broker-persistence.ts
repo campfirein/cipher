@@ -49,6 +49,15 @@ export interface IBrokerPersistence {
 const PERSISTENCE_PATH = ['state', 'pending-permissions.jsonl'] as const
 
 export class FileBrokerPersistence implements IBrokerPersistence {
+  /**
+   * Review fix #7: serialize appends against the JSONL log. Node's
+   * `fs.appendFile` does not guarantee atomic line-level interleaving
+   * between concurrent calls (POSIX PIPE_BUF helps for small records on
+   * local filesystems, but the contract isn't ours to rely on). A
+   * simple promise-chain Mutex ensures every track/resolve append
+   * completes before the next one starts.
+   */
+  private appendChain: Promise<void> = Promise.resolve()
   private readonly dataDir: string
 
   public constructor(options: FileBrokerPersistenceOptions) {
@@ -101,16 +110,29 @@ export class FileBrokerPersistence implements IBrokerPersistence {
     }
   }
 
-  private async appendLine(record: BrokerPersistedRecord): Promise<void> {
+  private appendLine(record: BrokerPersistedRecord): Promise<void> {
+    // Review fix #7: chain on the previous append so concurrent callers
+    // serialize. We capture `previous` BEFORE replacing the chain so each
+    // caller awaits the prior in-flight write but doesn't accidentally
+    // await its own.
+    const previous = this.appendChain
+    const next = previous.then(() => this.writeAppendLine(record))
+    // Swallow rejections from the chain itself — each caller still sees
+    // its own throw via the returned `next` promise.
+    this.appendChain = next.catch(() => {})
+    return next
+  }
+
+  private path(): string {
+    return join(this.dataDir, ...PERSISTENCE_PATH)
+  }
+
+  private async writeAppendLine(record: BrokerPersistedRecord): Promise<void> {
     const target = this.path()
     await fs.mkdir(dirname(target), {recursive: true})
     // The file is open for append; if it doesn't exist, Node creates it
     // with the supplied mode. JSON.stringify guarantees a single line.
     await fs.appendFile(target, `${JSON.stringify(record)}\n`, {encoding: 'utf8', mode: 0o600})
-  }
-
-  private path(): string {
-    return join(this.dataDir, ...PERSISTENCE_PATH)
   }
 }
 
