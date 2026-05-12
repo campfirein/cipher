@@ -27,6 +27,7 @@ type CurateFlags = {
   files?: string[]
   folder?: string[]
   format?: 'json' | 'text'
+  overwrite?: boolean
   response?: string
   session?: string
   timeout?: number
@@ -97,6 +98,15 @@ Bad examples:
       description: 'Output format (text or json)',
       options: ['text', 'json'],
     }),
+    overwrite: Flags.boolean({
+      // Tool-mode continuation only. When set, the orchestrator passes
+      // `confirmOverwrite: true` to the writer, bypassing the
+      // `path-exists` guard. The default (false) refuses to clobber an
+      // existing topic; the calling agent receives a `correct-html`
+      // step carrying the existing content for merging.
+      default: false,
+      description: 'Allow overwriting an existing topic on tool-mode continuation (pairs with --session)',
+    }),
     response: Flags.string({
       // Pairs with --session for tool-mode continuation. The opaque
       // text is interpreted by the orchestrator per the step it last
@@ -129,6 +139,7 @@ Bad examples:
       files: rawFlags.files,
       folder: rawFlags.folder,
       format: rawFlags.format === 'json' ? 'json' : rawFlags.format === 'text' ? 'text' : undefined,
+      overwrite: rawFlags.overwrite,
       response: rawFlags.response,
       session: rawFlags.session,
       timeout: rawFlags.timeout,
@@ -352,6 +363,7 @@ Bad examples:
     }
 
     const envelope = await continueSession({
+      confirmOverwrite: flags.overwrite ?? false,
       projectRoot: resolveProjectRoot(),
       response: flags.response,
       sessionId,

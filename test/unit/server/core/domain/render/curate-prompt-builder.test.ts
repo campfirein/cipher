@@ -231,6 +231,7 @@ describe('curate-prompt-builder', () => {
         {kind: 'unknown-bv-element' as const, message: 'm', tag: 'bv-foo'},
         {kind: 'unsafe-path' as const, message: 'm'},
         {field: 'severity', kind: 'attribute-validation' as const, message: 'm', tag: 'bv-rule' as const},
+        {existingContent: '<bv-topic path="x/y" title="t"/>', kind: 'path-exists' as const, message: 'm', topicPath: 'x/y'},
       ]
       const prompt = buildCorrectionPrompt({errors, previousHtml, userIntent})
 
@@ -241,6 +242,32 @@ describe('curate-prompt-builder', () => {
       expect(prompt).to.include('Remove `<bv-foo>`')           // unknown-bv-element
       expect(prompt).to.include('no `..` or `.` parts')        // unsafe-path
       expect(prompt).to.include('value of `severity`')         // attribute-validation
+      expect(prompt).to.include('merge your new content')      // path-exists
+    })
+
+    it('renders an <existing-topic> block when path-exists is present so the LLM can merge', () => {
+      const errors = [
+        {
+          existingContent: '<bv-topic path="security/auth" title="JWT auth">prior body</bv-topic>',
+          kind: 'path-exists' as const,
+          message: 'A topic already exists at "security/auth".',
+          topicPath: 'security/auth',
+        },
+      ]
+      const prompt = buildCorrectionPrompt({errors, previousHtml, userIntent})
+
+      expect(prompt).to.include('# Existing topic on disk')
+      expect(prompt).to.include('<existing-topic path="security/auth">')
+      expect(prompt).to.include('prior body')
+      expect(prompt).to.include('</existing-topic>')
+    })
+
+    it('omits the <existing-topic> block when no path-exists error is present', () => {
+      const errors = [{kind: 'missing-path-attribute' as const, message: 'm'}]
+      const prompt = buildCorrectionPrompt({errors, previousHtml, userIntent})
+
+      expect(prompt).to.not.include('# Existing topic on disk')
+      expect(prompt).to.not.include('<existing-topic')
     })
 
     it('falls back to a generic instruction when given zero errors', () => {

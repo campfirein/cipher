@@ -140,6 +140,10 @@ The session protocol is request → response → request, all via `brv curate` i
 4. **Branch on `status`:**
    - `done` → topic written. Report `data.filePath` (relative to `.brv/context-tree/`) to the user. Done.
    - `needs-llm-step` with `step: "correct-html"` → validation failed. Read `data.prompt` and `data.errors[]`, regenerate corrected HTML, continue with another `--session/--response` call.
+     - If `data.errors[]` includes `kind: "path-exists"`, a topic already exists at the path you chose. The error carries `existingContent` (also embedded inline in `data.prompt` as `<existing-topic path="…">…</existing-topic>`). The guard does NOT clear by re-emitting different content — to write at this path you MUST pass `--overwrite` on the next continuation. Three options:
+       1. **Default — merge + overwrite (preserves prior facts)**: combine `existingContent` with your new content and re-emit the merged HTML with `--overwrite`. Every prior fact stays in the topic.
+       2. **Different path (no overwrite needed)**: if the collision was accidental, pick a different `<bv-topic path>` and re-emit without `--overwrite`.
+       3. **Replace (data-destructive)**: re-emit with `--overwrite` carrying ONLY your new content. ONLY do this when the user has explicitly told you to replace prior content — it clobbers facts the user previously curated.
    - `failed` → surface `data.errors[].message` to the user. If `kind: "retry-cap-exceeded"`, your HTML still didn't validate after 3 corrections — ask the user to clarify intent and start a fresh kickoff.
 
 **Bounds:** at most 4 round-trips per session (1 generate + 3 corrections). Each `brv curate` invocation in tool mode is short-lived — no `--detach`, no `-f` files. Session state lives in `.brv/sessions/curate-<id>/` and is cleaned up on terminal `done` or `failed`.

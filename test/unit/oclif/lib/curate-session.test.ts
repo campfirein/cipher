@@ -34,6 +34,27 @@ import {BRV_DIR} from '../../../../src/server/constants.js'
 
 const UUID_RE = /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i
 
+/**
+ * Type-narrowing guard for optional envelope fields. Replaces
+ * `value!.field` (non-null assertion) with a clear runtime error when
+ * the field is missing, while also narrowing the TS type so the
+ * subsequent access is statically safe.
+ */
+function assertDefined<T>(value: T | undefined, label: string): asserts value is T {
+  if (value === undefined) throw new Error(`expected ${label} to be defined`)
+}
+
+/**
+ * Seed an existing topic at `security/auth.html` for overwrite-guard
+ * tests. Runs a full kickoff → valid-response cycle so the file lands
+ * via the production code path.
+ */
+async function seedExistingTopic(projectRoot: string): Promise<void> {
+  const kickoff = await kickoffSession({content: 'remember JWT', projectRoot})
+  const done = await continueSession({projectRoot, response: VALID_TOPIC_HTML, sessionId: kickoff.sessionId!})
+  expect(done.status).to.equal('done')
+}
+
 describe('curate-session placeholder', () => {
   let projectRoot: string
 
@@ -404,6 +425,138 @@ describe('curate-session placeholder', () => {
       expect(envelope.ok).to.equal(false)
       expect(envelope.status).to.equal('failed')
       expect(envelope.errors).to.be.an('array').with.length.greaterThan(0)
+    })
+  })
+
+  describe('continueSession — overwrite guard', () => {
+    // Background: a second tool-mode curate that targets a path already
+    // present in the context-tree must NOT silently overwrite. The
+    // writer surfaces `path-exists`; the orchestrator maps it onto a
+    // `correct-html` step carrying the existing content so the calling
+    // agent can merge. An explicit `confirmOverwrite: true` on the
+    // continuation bypasses the guard.
+
+    it('blocks a second valid response on the same path; emits correct-html with path-exists', async () => {
+      await seedExistingTopic(projectRoot)
+
+      const kickoff2 = await kickoffSession({content: 'remember JWT again', projectRoot})
+      const envelope = await continueSession({
+        projectRoot,
+        response: VALID_TOPIC_HTML,
+        sessionId: kickoff2.sessionId!,
+      })
+
+      expect(envelope.ok).to.equal(false)
+      expect(envelope.status).to.equal('needs-llm-step')
+      expect(envelope.step).to.equal('correct-html')
+      expect(envelope.sessionId).to.equal(kickoff2.sessionId)
+      assertDefined(envelope.errors, 'envelope.errors')
+      expect(envelope.errors.some((e) => e.kind === 'path-exists')).to.equal(true)
+    })
+
+    it('carries existingContent on the path-exists envelope error', async () => {
+      await seedExistingTopic(projectRoot)
+      const onDiskPath = join(projectRoot, BRV_DIR, 'context-tree', 'security', 'auth.html')
+      const original = await readFile(onDiskPath, 'utf8')
+
+      const kickoff2 = await kickoffSession({content: 'x', projectRoot})
+      const envelope = await continueSession({
+        projectRoot,
+        response: VALID_TOPIC_HTML,
+        sessionId: kickoff2.sessionId!,
+      })
+
+      assertDefined(envelope.errors, 'envelope.errors')
+      const pathExists = envelope.errors.find((e) => e.kind === 'path-exists')
+      assertDefined(pathExists, 'path-exists error')
+      expect(pathExists.existingContent).to.equal(original)
+    })
+
+    it('correction prompt embeds the existing topic for merge context', async () => {
+      await seedExistingTopic(projectRoot)
+
+      const kickoff2 = await kickoffSession({content: 'x', projectRoot})
+      const envelope = await continueSession({
+        projectRoot,
+        response: VALID_TOPIC_HTML,
+        sessionId: kickoff2.sessionId!,
+      })
+
+      // The previously written file's body content should be inlined into
+      // the correction prompt so the calling LLM can merge without parsing
+      // structured JSON.
+      assertDefined(envelope.prompt, 'envelope.prompt')
+      expect(envelope.prompt).to.include('<bv-reason>x</bv-reason>')
+    })
+
+    it('path-exists block counts toward retry cap (state.attempts increments)', async () => {
+      await seedExistingTopic(projectRoot)
+
+      const kickoff2 = await kickoffSession({content: 'x', projectRoot})
+      const sessionId = kickoff2.sessionId!
+      await continueSession({projectRoot, response: VALID_TOPIC_HTML, sessionId})
+
+      const statePath = join(
+        projectRoot,
+        BRV_DIR,
+        CURATE_SESSIONS_DIR,
+        `${CURATE_SESSION_PREFIX}${sessionId}`,
+        'state.json',
+      )
+      const state = JSON.parse(await readFile(statePath, 'utf8'))
+      expect(state.attempts).to.equal(1)
+      expect(state.step).to.equal('awaiting-correct')
+    })
+
+    it('confirmOverwrite=true on continuation bypasses the guard and writes through', async () => {
+      await seedExistingTopic(projectRoot)
+
+      const kickoff2 = await kickoffSession({content: 'overwrite', projectRoot})
+      const envelope = await continueSession({
+        confirmOverwrite: true,
+        projectRoot,
+        response: VALID_TOPIC_HTML,
+        sessionId: kickoff2.sessionId!,
+      })
+
+      expect(envelope.status).to.equal('done')
+      expect(envelope.filePath).to.equal('security/auth.html')
+
+      const stateDir = join(projectRoot, BRV_DIR, CURATE_SESSIONS_DIR, `${CURATE_SESSION_PREFIX}${kickoff2.sessionId!}`)
+      expect(existsSync(stateDir), 'session cleared on overwrite success').to.equal(false)
+    })
+
+    it('after a path-exists block, a follow-up confirmOverwrite continuation writes through', async () => {
+      // Real-world flow: agent sees path-exists, decides to clobber,
+      // re-emits with --overwrite on the SAME session.
+      await seedExistingTopic(projectRoot)
+
+      const kickoff2 = await kickoffSession({content: 'x', projectRoot})
+      const sessionId = kickoff2.sessionId!
+
+      const blocked = await continueSession({projectRoot, response: VALID_TOPIC_HTML, sessionId})
+      assertDefined(blocked.errors, 'blocked.errors')
+      expect(blocked.errors.some((e) => e.kind === 'path-exists')).to.equal(true)
+
+      const written = await continueSession({
+        confirmOverwrite: true,
+        projectRoot,
+        response: VALID_TOPIC_HTML,
+        sessionId,
+      })
+      expect(written.status).to.equal('done')
+    })
+
+    it('confirmOverwrite=true is a no-op on a path that does not yet exist', async () => {
+      // A fresh kickoff using --overwrite shouldn't block or break.
+      const kickoff = await kickoffSession({content: 'x', projectRoot})
+      const envelope = await continueSession({
+        confirmOverwrite: true,
+        projectRoot,
+        response: VALID_TOPIC_HTML,
+        sessionId: kickoff.sessionId!,
+      })
+      expect(envelope.status).to.equal('done')
     })
   })
 })

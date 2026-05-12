@@ -79,6 +79,13 @@ const SESSION_ID_RE = /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$
 /** Flat error shape carried in the envelope's `errors` array. */
 export type CurateSessionError = {
   attribute?: string
+  /**
+   * Present on `kind: 'path-exists'` only. Carries the prior file's
+   * full bytes so the calling agent can merge new content into the
+   * existing topic instead of silently clobbering it. Mirrors what is
+   * embedded inline into the correction prompt.
+   */
+  existingContent?: string
   kind: string
   message: string
   tag?: string
@@ -146,6 +153,14 @@ type KickoffOptions = {
 }
 
 type ContinueOptions = {
+  /**
+   * Opt-in to clobber an existing topic at the resolved path. Default
+   * `false`: the writer's overwrite guard surfaces `path-exists` as a
+   * correctable validation error. Set `true` only when the calling
+   * agent has consciously decided to replace prior content (today
+   * surfaced via the `--overwrite` flag on `brv curate --session …`).
+   */
+  confirmOverwrite?: boolean
   projectRoot: string
   response: string
   sessionId: string
@@ -186,7 +201,7 @@ export async function kickoffSession(options: KickoffOptions): Promise<CurateSes
  * with `failed` once the retry cap is exhausted.
  */
 export async function continueSession(options: ContinueOptions): Promise<CurateSessionEnvelope> {
-  const {projectRoot, response, sessionId} = options
+  const {confirmOverwrite = false, projectRoot, response, sessionId} = options
 
   // Reject non-uuid session ids before any path join — see SESSION_ID_RE
   // for the threat model. Same `kind` as "session not found" because
@@ -214,7 +229,7 @@ export async function continueSession(options: ContinueOptions): Promise<CurateS
   // and atomically write to `.brv/context-tree/<topic.path>.html`. On
   // validation failure no file lands on disk.
   const contextTreeRoot = join(projectRoot, BRV_DIR, CONTEXT_TREE_DIR)
-  const writeResult = await writeHtmlTopic({contextTreeRoot, rawHtml: response})
+  const writeResult = await writeHtmlTopic({confirmOverwrite, contextTreeRoot, rawHtml: response})
 
   state.attempts += 1
   state.lastResponse = response
@@ -286,6 +301,14 @@ function mapWriterError(err: HtmlWriteError): CurateSessionError {
   switch (err.kind) {
     case 'attribute-validation': {
       return {attribute: err.field, kind: 'attribute-validation', message: err.message, tag: err.tag}
+    }
+
+    case 'path-exists': {
+      // Surface the prior content in a structured field so JSON-driven
+      // consumers can merge without re-parsing the prompt; the same
+      // content is also inlined into the correction prompt for LLM-
+      // driven callers.
+      return {existingContent: err.existingContent, kind: 'path-exists', message: err.message}
     }
 
     case 'unknown-bv-element': {

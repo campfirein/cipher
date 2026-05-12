@@ -48,6 +48,7 @@ export type HtmlWriteFailure = {
 export type HtmlWriteResult = HtmlWriteFailure | HtmlWriteSuccess
 
 export type HtmlWriteError =
+  | {existingContent: string; kind: 'path-exists'; message: string; topicPath: string}
   | {field: string; kind: 'attribute-validation'; message: string; tag: ElementName}
   | {kind: 'missing-bv-topic'; message: string}
   | {kind: 'missing-path-attribute'; message: string}
@@ -56,6 +57,15 @@ export type HtmlWriteError =
   | {kind: 'unsafe-path'; message: string}
 
 export type HtmlWriteOptions = {
+  /**
+   * Opt-in to clobber an existing topic at the resolved path. Default
+   * `false`: the writer refuses to overwrite and returns a structured
+   * `path-exists` error carrying the existing file's content so the
+   * caller can merge. Set `true` only when the caller has consciously
+   * decided to replace prior content (e.g. via a `--overwrite` flag
+   * from the calling agent).
+   */
+  confirmOverwrite?: boolean
   /**
    * Project root directory. The topic file is written to
    * `<contextTreeRoot>/<topic.path>.html` relative to this root.
@@ -77,7 +87,7 @@ export type HtmlWriteOptions = {
  * agent is not allowed to choose its own timestamps.
  */
 export async function writeHtmlTopic(options: HtmlWriteOptions): Promise<HtmlWriteResult> {
-  const {contextTreeRoot, rawHtml} = options
+  const {confirmOverwrite = false, contextTreeRoot, rawHtml} = options
   const cleaned = stripCodeFenceWrapper(rawHtml)
 
   const validation = validateHtmlTopic(cleaned)
@@ -86,6 +96,29 @@ export async function writeHtmlTopic(options: HtmlWriteOptions): Promise<HtmlWri
   }
 
   const filePath = topicPathToFilePath(contextTreeRoot, validation.topicPath)
+
+  // Overwrite guard. The default policy is "refuse to clobber" — surface
+  // a structured `path-exists` error carrying the existing file's content
+  // so the caller (today: tool-mode orchestrator) can route the calling
+  // agent to merge instead of silently losing prior facts. An explicit
+  // `confirmOverwrite: true` from the caller is the only way through.
+  if (!confirmOverwrite && existsSync(filePath)) {
+    const existingContent = readExistingFileSafe(filePath) ?? ''
+    return {
+      errors: [
+        {
+          existingContent,
+          kind: 'path-exists',
+          message:
+            `A topic already exists at "${validation.topicPath}". Pass --overwrite to replace it, `
+            + 'or merge the new content into the existing topic and re-emit.',
+          topicPath: validation.topicPath,
+        },
+      ],
+      ok: false,
+    }
+  }
+
   const now = new Date().toISOString()
   const createdAt = readExistingTopicAttribute(filePath, 'createdat') ?? now
   const stamped = setBvTopicAttributes(cleaned, {createdat: createdAt, updatedat: now})
@@ -275,5 +308,21 @@ function readExistingTopicAttribute(filePath: string, attrName: string): null | 
     return attrMatch ? attrMatch[1] : null
   } catch {
     return null
+  }
+}
+
+/**
+ * Read a file's full contents, returning `undefined` on any I/O error.
+ * Used by the overwrite guard to surface the prior file content into a
+ * `path-exists` error envelope. Errors here are swallowed deliberately:
+ * the guard's purpose is to prevent silent clobber, and surfacing
+ * partial / unreadable content as an empty string is acceptable
+ * (the caller still sees the structural `path-exists` signal).
+ */
+function readExistingFileSafe(filePath: string): string | undefined {
+  try {
+    return readFileSync(filePath, 'utf8')
+  } catch {
+    return undefined
   }
 }

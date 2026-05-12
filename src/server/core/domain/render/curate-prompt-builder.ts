@@ -97,6 +97,24 @@ export function buildCorrectionPrompt(options: {
     ? 'No structured errors were reported. Re-emit the document carefully and double-check every required attribute.'
     : errors.map((err) => `- **${err.kind}** — ${err.message} ${kindToFixHint(err)}`.trim()).join('\n')
 
+  // When the writer's overwrite guard fired, inline the prior file's
+  // bytes so the calling LLM can merge new content into the existing
+  // structure without parsing JSON. Multiple `path-exists` errors in
+  // a single response would be unusual (one topic per response), but
+  // we render each separately so the prompt is unambiguous.
+  const pathExistsErrors = errors.filter((e): e is Extract<HtmlWriteError, {kind: 'path-exists'}> => e.kind === 'path-exists')
+  const existingTopicBlock = pathExistsErrors.length === 0
+    ? ''
+    : ['', '# Existing topic on disk', '',
+        'A topic already exists at the path you chose. Decide between merging into it (preferred — preserves prior facts) or asking the user to confirm replacement.',
+        '',
+        ...pathExistsErrors.flatMap((err) => [
+          `<existing-topic path="${err.topicPath}">`,
+          err.existingContent,
+          '</existing-topic>',
+        ]),
+      ].join('\n')
+
   return [
     'The HTML you produced failed validation. Fix the errors below and return the corrected document.',
     '',
@@ -107,6 +125,7 @@ export function buildCorrectionPrompt(options: {
     '# Errors to fix',
     '',
     fixInstructions,
+    existingTopicBlock,
     '',
     '# Original user intent',
     '',
@@ -210,6 +229,10 @@ function kindToFixHint(err: HtmlWriteError): string {
 
     case 'multiple-bv-topic': {
       return 'Merge the topics into one `<bv-topic>` — only one root element per response.'
+    }
+
+    case 'path-exists': {
+      return 'Either merge your new content into the existing topic above and re-emit, or rerun this continuation with `--overwrite` to replace it entirely.'
     }
 
     case 'unknown-bv-element': {

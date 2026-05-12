@@ -249,7 +249,11 @@ describe('html-writer', () => {
         }
       })
 
-      it('preserves createdat across re-writes; updatedat advances', async () => {
+      it('preserves createdat across confirmed re-writes; updatedat advances', async () => {
+        // Re-writes to a path that already has a topic require explicit
+        // `confirmOverwrite: true` after the path-exists guard landed.
+        // The timestamp semantics under that consent flag are unchanged:
+        // createdat is preserved from the prior file, updatedat advances.
         const first = await writeHtmlTopic({contextTreeRoot: tmpRoot, rawHtml: VALID_TOPIC})
         expect(first.ok).to.equal(true)
         if (!first.ok) return
@@ -266,7 +270,7 @@ describe('html-writer', () => {
           setTimeout(resolve, 5)
         })
 
-        const second = await writeHtmlTopic({contextTreeRoot: tmpRoot, rawHtml: VALID_TOPIC})
+        const second = await writeHtmlTopic({confirmOverwrite: true, contextTreeRoot: tmpRoot, rawHtml: VALID_TOPIC})
         expect(second.ok).to.equal(true)
         if (!second.ok) return
 
@@ -297,6 +301,106 @@ describe('html-writer', () => {
         expect(updatedAt).to.not.equal('1999-01-01T00:00:00.000Z')
         expect(createdAt! >= before, `createdat (${createdAt!}) should be >= before (${before})`).to.equal(true)
         expect(updatedAt! >= before, `updatedat (${updatedAt!}) should be >= before (${before})`).to.equal(true)
+      })
+    })
+
+    describe('overwrite guard', () => {
+      // Background: tool-mode curate can route the calling agent to author
+      // a topic whose `path` collides with an existing file. The writer's
+      // default policy is "refuse to clobber" — surface a structured
+      // `path-exists` error with the existing content so the calling
+      // agent can merge instead of silently losing prior facts. An
+      // explicit `confirmOverwrite: true` is the only way to clobber.
+      const ALT_TOPIC = `<bv-topic path="security/auth" title="JWT auth — replaced">
+  <bv-reason>Replacement reason after intentional overwrite.</bv-reason>
+</bv-topic>`
+
+      it('returns a path-exists error when writing to an existing topic without confirmOverwrite', async () => {
+        const first = await writeHtmlTopic({contextTreeRoot: tmpRoot, rawHtml: VALID_TOPIC})
+        expect(first.ok).to.equal(true)
+
+        const second = await writeHtmlTopic({contextTreeRoot: tmpRoot, rawHtml: VALID_TOPIC})
+        expect(second.ok).to.equal(false)
+        if (!second.ok) {
+          const pathExists = second.errors.find((e) => e.kind === 'path-exists')
+          expect(pathExists, 'expected path-exists error').to.not.equal(undefined)
+        }
+      })
+
+      it('carries the existing file content + topicPath on the path-exists error', async () => {
+        const first = await writeHtmlTopic({contextTreeRoot: tmpRoot, rawHtml: VALID_TOPIC})
+        expect(first.ok).to.equal(true)
+        if (!first.ok) return
+        const onDisk = readFileSync(first.filePath, 'utf8')
+
+        const second = await writeHtmlTopic({contextTreeRoot: tmpRoot, rawHtml: ALT_TOPIC})
+        expect(second.ok).to.equal(false)
+        if (!second.ok) {
+          const pathExists = second.errors.find((e) => e.kind === 'path-exists')
+          expect(pathExists, 'expected path-exists error').to.not.equal(undefined)
+          if (pathExists && pathExists.kind === 'path-exists') {
+            expect(pathExists.existingContent).to.equal(onDisk)
+            expect(pathExists.topicPath).to.equal('security/auth')
+          }
+        }
+      })
+
+      it('does not modify the existing file when path-exists blocks the write', async () => {
+        const first = await writeHtmlTopic({contextTreeRoot: tmpRoot, rawHtml: VALID_TOPIC})
+        expect(first.ok).to.equal(true)
+        if (!first.ok) return
+        const originalBytes = readFileSync(first.filePath, 'utf8')
+
+        // Distinct ISO millisecond — if the writer mistakenly went
+        // through, `updatedat` would shift.
+        await new Promise<void>((resolve) => {
+          setTimeout(resolve, 5)
+        })
+
+        const second = await writeHtmlTopic({contextTreeRoot: tmpRoot, rawHtml: ALT_TOPIC})
+        expect(second.ok).to.equal(false)
+
+        const afterBytes = readFileSync(first.filePath, 'utf8')
+        expect(afterBytes, 'existing file must be untouched on path-exists block').to.equal(originalBytes)
+      })
+
+      it('writes through when confirmOverwrite=true; preserves createdat, advances updatedat', async () => {
+        const first = await writeHtmlTopic({contextTreeRoot: tmpRoot, rawHtml: VALID_TOPIC})
+        expect(first.ok).to.equal(true)
+        if (!first.ok) return
+        const firstCreatedAt = extractAttribute(readFileSync(first.filePath, 'utf8'), 'createdat')
+        const firstUpdatedAt = extractAttribute(readFileSync(first.filePath, 'utf8'), 'updatedat')
+
+        await new Promise<void>((resolve) => {
+          setTimeout(resolve, 5)
+        })
+
+        const second = await writeHtmlTopic({confirmOverwrite: true, contextTreeRoot: tmpRoot, rawHtml: ALT_TOPIC})
+        expect(second.ok).to.equal(true)
+        if (!second.ok) return
+
+        const written = readFileSync(second.filePath, 'utf8')
+        expect(written).to.include('Replacement reason after intentional overwrite.')
+        expect(extractAttribute(written, 'createdat'), 'createdat preserved').to.equal(firstCreatedAt)
+        const newUpdatedAt = extractAttribute(written, 'updatedat')
+        expect(newUpdatedAt, 'updatedat advanced').to.not.equal(firstUpdatedAt)
+      })
+
+      it('first write to a new path with confirmOverwrite=true succeeds (no false positive)', async () => {
+        // confirmOverwrite is a no-op when nothing is on disk to clobber.
+        const result = await writeHtmlTopic({confirmOverwrite: true, contextTreeRoot: tmpRoot, rawHtml: VALID_TOPIC})
+        expect(result.ok).to.equal(true)
+      })
+
+      it('does not affect writes to a different path (collision is exact-path scoped)', async () => {
+        const first = await writeHtmlTopic({contextTreeRoot: tmpRoot, rawHtml: VALID_TOPIC})
+        expect(first.ok).to.equal(true)
+
+        const otherTopic = `<bv-topic path="security/oauth" title="OAuth">
+  <bv-reason>Different topic.</bv-reason>
+</bv-topic>`
+        const second = await writeHtmlTopic({contextTreeRoot: tmpRoot, rawHtml: otherTopic})
+        expect(second.ok).to.equal(true)
       })
     })
   })
