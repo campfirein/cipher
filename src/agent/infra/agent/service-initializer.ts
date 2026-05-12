@@ -101,6 +101,12 @@ export interface SessionLLMConfig {
   providerHeaders?: Record<string, string>
   siteName?: string
   temperature?: number
+  /**
+   * Optional wall-clock budget for the agentic loop, in milliseconds.
+   * Sourced from the agent-side settings snapshot (`llm.iterationBudgetMs`).
+   * Falls back to AgentLLMService's internal default when undefined.
+   */
+  timeout?: number
   verbose?: boolean
 }
 
@@ -434,6 +440,7 @@ export function createSessionServices(
         model: llmConfig.model ?? 'gemini-3-flash-preview',
         provider,
         temperature: llmConfig.temperature ?? 0.7,
+        timeout: llmConfig.timeout,
         verbose: llmConfig.verbose ?? false,
       },
       {

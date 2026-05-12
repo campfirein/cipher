@@ -36,6 +36,7 @@ import {MemoryDeduplicator} from '../memory/memory-deduplicator.js'
 import {createCurateService} from '../sandbox/curate-service.js'
 import {SessionCompressor} from '../session/session-compressor.js'
 import {SessionManager} from '../session/session-manager.js'
+import {getAgentSettingValue} from '../settings/agent-settings-snapshot.js'
 import {TransportEventBridge} from '../transport/transport-event-bridge.js'
 import {AgentError} from './agent-error.js'
 import {BaseAgent} from './base-agent.js'
@@ -621,6 +622,7 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
       providerHeaders: providerUpdate.providerHeaders,
       siteName: this.config.siteName,
       temperature: this.config.llm.temperature,
+      timeout: getAgentSettingValue('llm.iterationBudgetMs'),
       verbose: this.config.llm.verbose,
     }
 
@@ -747,6 +749,7 @@ export class CipherAgent extends BaseAgent implements ICipherAgent {
       providerHeaders: this.config.providerHeaders,
       siteName: this.config.siteName,
       temperature: this.config.llm.temperature,
+      timeout: getAgentSettingValue('llm.iterationBudgetMs'),
       verbose: this.config.llm.verbose,
     }
 

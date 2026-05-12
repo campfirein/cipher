@@ -78,6 +78,7 @@ export class SessionManager {
     providerHeaders?: Record<string, string>
     siteName?: string
     temperature?: number
+    timeout?: number
     verbose?: boolean
   }
   private readonly onSessionRemoved?: (sessionId: string, reason: SessionRemovalReason) => void
@@ -128,6 +129,7 @@ export class SessionManager {
       providerHeaders?: Record<string, string>
       siteName?: string
       temperature?: number
+      timeout?: number
       verbose?: boolean
     },
     options?: SessionManagerOptions,
