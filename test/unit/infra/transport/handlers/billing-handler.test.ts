@@ -266,6 +266,17 @@ describe('BillingHandler', () => {
 
       expect(result).to.deep.equal({error: 'disk read error'})
     })
+
+    it('returns an error envelope when projectPath is empty', async () => {
+      createHandler()
+
+      const handler = transport._handlers.get(BillingEvents.GET_PINNED_TEAM)
+      const result = await handler!({projectPath: ''}, 'client-1')
+
+      expect(storeFactoryStub.called).to.equal(false)
+      expect(getPinnedStub.called).to.equal(false)
+      expect(result).to.have.property('error').that.matches(/projectPath/i)
+    })
   })
 
   describe('billing:setPinnedTeam', () => {
@@ -340,6 +351,19 @@ describe('BillingHandler', () => {
       await handler!({projectPath: PROJECT_A, teamId: 'org-new'}, 'client-1')
 
       expect(transport.broadcast.called).to.equal(false)
+    })
+
+    it('returns an error envelope when projectPath is empty', async () => {
+      createHandler()
+
+      const handler = transport._handlers.get(BillingEvents.SET_PINNED_TEAM)
+      const result = await handler!({projectPath: '', teamId: 'org-new'}, 'client-1')
+
+      expect(storeFactoryStub.called).to.equal(false)
+      expect(setPinnedStub.called).to.equal(false)
+      expect(transport.broadcast.called).to.equal(false)
+      expect(result).to.have.property('error').that.matches(/projectPath/i)
+      expect(result).to.have.property('success', false)
     })
   })
 

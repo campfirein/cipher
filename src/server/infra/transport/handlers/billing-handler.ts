@@ -84,6 +84,7 @@ export class BillingHandler {
     this.transport.onRequest<BillingGetPinnedTeamRequest, BillingGetPinnedTeamResponse>(
       BillingEvents.GET_PINNED_TEAM,
       async (data) => {
+        if (!data.projectPath) return {error: 'projectPath is required'}
         try {
           const store = this.billingConfigStoreFactory(data.projectPath)
           const teamId = await store.getPinnedTeamId()
@@ -162,6 +163,7 @@ export class BillingHandler {
     this.transport.onRequest<BillingSetPinnedTeamRequest, BillingSetPinnedTeamResponse>(
       BillingEvents.SET_PINNED_TEAM,
       async (data) => {
+        if (!data.projectPath) return {error: 'projectPath is required', success: false}
         try {
           const {projectPath} = data
           const store = this.billingConfigStoreFactory(projectPath)

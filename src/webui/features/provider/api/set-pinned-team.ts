@@ -23,9 +23,9 @@ export const setPinnedTeam = (
 
 export const useSetPinnedTeam = () => {
   const queryClient = useQueryClient()
-  const projectPath = useTransportStore((s) => s.selectedProject)
   return useMutation({
-    mutationFn: (teamId: string | undefined) => setPinnedTeam(projectPath, teamId),
+    mutationFn: (teamId: string | undefined) =>
+      setPinnedTeam(useTransportStore.getState().selectedProject, teamId),
     async onSuccess() {
       await queryClient.invalidateQueries({queryKey: PINNED_TEAM_QUERY_ROOT})
     },
