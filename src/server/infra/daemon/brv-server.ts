@@ -58,6 +58,7 @@ import {readContextTreeRemoteUrl} from '../context-tree/read-context-tree-remote
 import {DreamStateService} from '../dream/dream-state-service.js'
 import {DreamTrigger} from '../dream/dream-trigger.js'
 import {createReviewApiRouter} from '../http/review-api-handler.js'
+import {AnalyticsHook} from '../process/analytics-hook.js'
 import {broadcastToProjectRoom} from '../process/broadcast-utils.js'
 import {CurateLogHandler} from '../process/curate-log-handler.js'
 import {setupFeatureHandlers} from '../process/feature-handlers.js'
@@ -392,6 +393,13 @@ async function main(): Promise<void> {
     // same instances this hook writes to.
     const taskHistoryHook = new TaskHistoryHook({getStore: getTaskHistoryStore})
 
+    // M12.2 analytics hook — emits curate_operation_applied / curate_run_completed
+    // / query_completed events into the daemon's IAnalyticsClient. The client
+    // is constructed later by setupFeatureHandlers (see below), so wire the
+    // hook now with a deferred analyticsClient setter; emit() silently no-ops
+    // until the client lands (no tasks run during daemon boot).
+    const analyticsHook = new AnalyticsHook()
+
     // Provider config/keychain stores — shared between feature handlers and state endpoint.
     // Hoisted ahead of `new TransportHandlers` so the resolveActiveProvider callback below
     // can close over them and call resolveProviderConfig synchronously at task-create time.
@@ -432,7 +440,7 @@ async function main(): Promise<void> {
       // idle-dream dispatch above so review semantics are identical regardless of
       // dispatch source (CLI task:create vs agent-idle trigger).
       isReviewDisabled: resolveReviewDisabled,
-      lifecycleHooks: [curateLogHandler, queryLogHandler, taskHistoryHook],
+      lifecycleHooks: [curateLogHandler, queryLogHandler, taskHistoryHook, analyticsHook],
       // Daemon-side gate for dream task:create — mirrors the idle-trigger pre-check
       // in this file so the CLI path (brv dream without --force) actually honors
       // gate 3 (queue). The agent-side check kept gate 3 hardcoded to skip,
@@ -474,12 +482,14 @@ async function main(): Promise<void> {
     // Agent sends task:queryResult BEFORE task:completed (Socket.IO preserves order),
     // so setQueryResult runs before onTaskCompleted merges the metadata.
     transportServer.onRequest<TaskQueryResultEvent, void>(TransportTaskEventNames.QUERY_RESULT, (data) => {
-      queryLogHandler.setQueryResult(data.taskId, {
+      const queryMetadata = {
         matchedDocs: data.matchedDocs,
         searchMetadata: data.searchMetadata,
         tier: data.tier,
         timing: data.timing,
-      })
+      }
+      queryLogHandler.setQueryResult(data.taskId, queryMetadata)
+      analyticsHook.setQueryResult(data.taskId, queryMetadata)
     })
 
     // 8. Create idle timeout policy + shutdown handler
@@ -669,6 +679,11 @@ async function main(): Promise<void> {
       transport: transportServer,
       webuiPort: webuiServer?.getPort(),
     })
+
+    // M12.2: bind the real analyticsClient into AnalyticsHook now that
+    // setupFeatureHandlers has constructed it. Hook emits silently no-op
+    // until this setter runs (no tasks should be active during daemon boot).
+    analyticsHook.setAnalyticsClient(analyticsClient)
 
     // Load auth token AFTER feature handlers are registered.
     // AuthHandler's onAuthChanged/onAuthExpired callbacks must be wired first

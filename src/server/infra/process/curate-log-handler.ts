@@ -25,7 +25,7 @@ type TaskState = {
   reviewDisabled: boolean
 }
 
-const CURATE_TASK_TYPES = ['curate', 'curate-folder'] as const
+export const CURATE_TASK_TYPES = ['curate', 'curate-folder'] as const
 
 // ── Summary computation ───────────────────────────────────────────────────────
 
