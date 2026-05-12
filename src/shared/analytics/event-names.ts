@@ -13,9 +13,12 @@
  */
 export const AnalyticsEventNames = {
   CLI_INVOCATION: 'cli_invocation',
+  CURATE_OPERATION_APPLIED: 'curate_operation_applied',
+  CURATE_RUN_COMPLETED: 'curate_run_completed',
   DAEMON_START: 'daemon_start',
   MCP_SESSION_START: 'mcp_session_start',
   MCP_TOOL_CALLED: 'mcp_tool_called',
+  QUERY_COMPLETED: 'query_completed',
   TASK_COMPLETED: 'task_completed',
   TASK_CREATED: 'task_created',
   TASK_FAILED: 'task_failed',

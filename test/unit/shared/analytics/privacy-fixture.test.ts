@@ -117,9 +117,12 @@ describe('analytics privacy fixture (smoke)', () => {
   it('should expose every shipped event name under ALL_EVENT_SCHEMAS', () => {
     expect(Object.keys(ALL_EVENT_SCHEMAS).sort()).to.deep.equal([
       'cli_invocation',
+      'curate_operation_applied',
+      'curate_run_completed',
       'daemon_start',
       'mcp_session_start',
       'mcp_tool_called',
+      'query_completed',
       'task_completed',
       'task_created',
       'task_failed',
