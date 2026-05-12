@@ -1,5 +1,8 @@
  
 import {expect} from 'chai'
+import {mkdtempSync, rmSync, writeFileSync} from 'node:fs'
+import {tmpdir} from 'node:os'
+import {join} from 'node:path'
 import sinon from 'sinon'
 
 import type {LlmToolResultEvent} from '../../../../../src/server/core/domain/transport/schemas.js'
@@ -10,6 +13,13 @@ import type {QueryResultMetadata} from '../../../../../src/server/infra/process/
 import {AnalyticsBatch} from '../../../../../src/server/core/domain/analytics/batch.js'
 import {AnalyticsHook} from '../../../../../src/server/infra/process/analytics-hook.js'
 import {AnalyticsEventNames} from '../../../../../src/shared/analytics/event-names.js'
+
+const writeMarkdown = (filePath: string, frontmatter: Record<string, unknown>, body = 'body'): void => {
+  const yaml = Object.entries(frontmatter)
+    .map(([k, v]) => `${k}: ${JSON.stringify(v)}`)
+    .join('\n')
+  writeFileSync(filePath, `---\n${yaml}\n---\n${body}\n`, 'utf8')
+}
 
 const FIXED_NOW = 1_700_000_000_000
 
@@ -406,7 +416,7 @@ describe('AnalyticsHook', () => {
       expect(trackStub.called).to.equal(true)
     })
 
-    it('emit is a no-op when setAnalyticsClient was never called', async () => {
+    it('emit is a no-op when setAnalyticsClient was never called (originally curate emit)', async () => {
       const bareHook = new AnalyticsHook()
       const task = buildCurateTask()
       await bareHook.onTaskCreate(task)
@@ -416,6 +426,190 @@ describe('AnalyticsHook', () => {
         buildToolResult([{filePath: '/a.md', needsReview: false, path: 'a', status: 'success', type: 'ADD'}]),
       )
       await bareHook.onTaskCompleted(task.taskId, '', task)
+    })
+  })
+
+  describe('M12.3 frontmatter harvest', () => {
+    let tmpDir: string
+
+    beforeEach(() => {
+      tmpDir = mkdtempSync(join(tmpdir(), 'analytics-hook-'))
+    })
+
+    afterEach(() => {
+      rmSync(tmpDir, {force: true, recursive: true})
+    })
+
+    describe('curate emit', () => {
+      it('attaches tags/keywords/related from post-op frontmatter on ADD ops', async () => {
+        const filePath = join(tmpDir, 'a.md')
+        writeMarkdown(filePath, {keywords: ['x', 'y'], related: ['z'], tags: ['t1', 't2']})
+
+        const task = buildCurateTask()
+        await hook.onTaskCreate(task)
+        hook.onToolResult(
+          task.taskId,
+          buildToolResult([{filePath, needsReview: false, path: 'a', status: 'success', type: 'ADD'}]),
+        )
+
+        const props = trackStub.firstCall.args[1] as Record<string, unknown>
+        expect(props.tags).to.deep.equal(['t1', 't2'])
+        expect(props.keywords).to.deep.equal(['x', 'y'])
+        expect(props.related).to.deep.equal(['z'])
+      })
+
+      it('omits tags/keywords/related on DELETE ops (file gone post-op)', async () => {
+        const filePath = join(tmpDir, 'gone.md')
+        const task = buildCurateTask()
+        await hook.onTaskCreate(task)
+        hook.onToolResult(
+          task.taskId,
+          buildToolResult([{filePath, needsReview: false, path: 'gone', status: 'success', type: 'DELETE'}]),
+        )
+
+        const props = trackStub.firstCall.args[1] as Record<string, unknown>
+        expect(props).to.not.have.property('tags')
+        expect(props).to.not.have.property('keywords')
+        expect(props).to.not.have.property('related')
+      })
+
+      it('omits tags/keywords/related when filePath cannot be read (ENOENT)', async () => {
+        const filePath = join(tmpDir, 'missing.md')
+        const task = buildCurateTask()
+        await hook.onTaskCreate(task)
+        hook.onToolResult(
+          task.taskId,
+          buildToolResult([{filePath, needsReview: false, path: 'm', status: 'success', type: 'UPDATE'}]),
+        )
+
+        const props = trackStub.firstCall.args[1] as Record<string, unknown>
+        expect(props).to.not.have.property('tags')
+      })
+
+      it('omits tags/keywords/related on malformed YAML (no throw)', async () => {
+        const filePath = join(tmpDir, 'bad.md')
+        writeFileSync(filePath, '---\nthis is: not [valid YAML\n---\nbody', 'utf8')
+
+        const task = buildCurateTask()
+        await hook.onTaskCreate(task)
+        hook.onToolResult(
+          task.taskId,
+          buildToolResult([{filePath, needsReview: false, path: 'b', status: 'success', type: 'UPDATE'}]),
+        )
+
+        const props = trackStub.firstCall.args[1] as Record<string, unknown>
+        expect(props).to.not.have.property('tags')
+      })
+
+      it('caps arrays at 50 entries and strings at 256 chars per entry', async () => {
+        const filePath = join(tmpDir, 'huge.md')
+        const overlong = 'x'.repeat(300)
+        const sixtyTags = Array.from({length: 60}, (_, i) => `tag-${i}`)
+        writeMarkdown(filePath, {tags: [overlong, ...sixtyTags]})
+
+        const task = buildCurateTask()
+        await hook.onTaskCreate(task)
+        hook.onToolResult(
+          task.taskId,
+          buildToolResult([{filePath, needsReview: false, path: 'h', status: 'success', type: 'UPDATE'}]),
+        )
+
+        const props = trackStub.firstCall.args[1] as Record<string, unknown>
+        const tags = props.tags as string[]
+        expect(tags).to.have.lengthOf(50)
+        expect(tags[0]).to.have.lengthOf(256)
+      })
+
+      it('skips file reads entirely when isEnabled() returns false', async () => {
+        const filePath = join(tmpDir, 'gated.md')
+        writeMarkdown(filePath, {tags: ['should-not-appear']})
+
+        const disabledBundle = buildAnalyticsClient()
+        const disabledHook = new AnalyticsHook({isEnabled: () => false})
+        disabledHook.setAnalyticsClient(disabledBundle.client)
+        const task = buildCurateTask({taskId: 'task-gated'})
+
+        await disabledHook.onTaskCreate(task)
+        disabledHook.onToolResult(
+          task.taskId,
+          buildToolResult([{filePath, needsReview: false, path: 'g', status: 'success', type: 'UPDATE'}]),
+        )
+
+        const props = disabledBundle.trackStub.firstCall.args[1] as Record<string, unknown>
+        expect(props).to.not.have.property('tags')
+      })
+    })
+
+    describe('query emit', () => {
+      it('attaches per-path frontmatter to read_paths_with_metadata entries', async () => {
+        const a = join(tmpDir, 'a.md')
+        const b = join(tmpDir, 'b.md')
+        writeMarkdown(a, {tags: ['ta']})
+        writeMarkdown(b, {keywords: ['kb']})
+
+        const task = buildQueryTask({
+          toolCalls: [
+            {args: {filePath: a}, sessionId: 's', status: 'completed', timestamp: 1, toolName: 'read_file'},
+            {args: {filePath: b}, sessionId: 's', status: 'completed', timestamp: 2, toolName: 'read_file'},
+          ],
+        } as Partial<TaskInfo>)
+
+        await hook.onTaskCreate(task)
+        await hook.onTaskCompleted(task.taskId, '', task)
+
+        const props = trackStub.firstCall.args[1] as Record<string, unknown>
+        const paths = props.read_paths_with_metadata as Array<Record<string, unknown>>
+        const byPath = Object.fromEntries(paths.map((p) => [p.absolute_path, p]))
+        expect(byPath[a].tags).to.deep.equal(['ta'])
+        expect(byPath[a]).to.not.have.property('keywords')
+        expect(byPath[b].keywords).to.deep.equal(['kb'])
+        expect(byPath[b]).to.not.have.property('tags')
+      })
+
+      it('mixed readable + ENOENT paths: each entry independently has/omits metadata', async () => {
+        const real = join(tmpDir, 'real.md')
+        const missing = join(tmpDir, 'missing.md')
+        writeMarkdown(real, {tags: ['ok']})
+
+        const task = buildQueryTask({
+          toolCalls: [
+            {args: {filePath: real}, sessionId: 's', status: 'completed', timestamp: 1, toolName: 'read_file'},
+            {args: {filePath: missing}, sessionId: 's', status: 'completed', timestamp: 2, toolName: 'read_file'},
+          ],
+        } as Partial<TaskInfo>)
+
+        await hook.onTaskCreate(task)
+        await hook.onTaskCompleted(task.taskId, '', task)
+
+        const props = trackStub.firstCall.args[1] as Record<string, unknown>
+        const paths = props.read_paths_with_metadata as Array<Record<string, unknown>>
+        const byPath = Object.fromEntries(paths.map((p) => [p.absolute_path, p]))
+        expect(byPath[real].tags).to.deep.equal(['ok'])
+        expect(byPath[missing]).to.not.have.property('tags')
+      })
+
+      it('skips per-path file reads when isEnabled() returns false', async () => {
+        const filePath = join(tmpDir, 'gated-query.md')
+        writeMarkdown(filePath, {tags: ['should-not-appear']})
+
+        const disabledBundle = buildAnalyticsClient()
+        const disabledHook = new AnalyticsHook({isEnabled: () => false})
+        disabledHook.setAnalyticsClient(disabledBundle.client)
+
+        const task = buildQueryTask({
+          taskId: 'task-q-gated',
+          toolCalls: [
+            {args: {filePath}, sessionId: 's', status: 'completed', timestamp: 1, toolName: 'read_file'},
+          ],
+        } as Partial<TaskInfo>)
+
+        await disabledHook.onTaskCreate(task)
+        await disabledHook.onTaskCompleted(task.taskId, '', task)
+
+        const props = disabledBundle.trackStub.firstCall.args[1] as Record<string, unknown>
+        const paths = props.read_paths_with_metadata as Array<Record<string, unknown>>
+        expect(paths[0]).to.not.have.property('tags')
+      })
     })
   })
 })

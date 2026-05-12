@@ -106,6 +106,12 @@ export interface FeatureHandlersOptions {
  */
 export interface SetupFeatureHandlersResult {
   readonly analyticsClient: IAnalyticsClient
+  /**
+   * Returns the daemon's cached analytics-enabled flag. M12.3 consumers
+   * (e.g. AnalyticsHook) use this to short-circuit disk I/O when analytics
+   * is off — complements `AnalyticsClient.track` no-op gate.
+   */
+  readonly isAnalyticsEnabled: () => boolean
 }
 
 /**
@@ -388,5 +394,8 @@ export async function setupFeatureHandlers({
 
   log('Feature handlers registered')
 
-  return {analyticsClient}
+  // M12.3: expose the cached-analytics check so daemon-side consumers
+  // (e.g. AnalyticsHook) can short-circuit disk I/O when analytics is off.
+  // Same callback shape used internally by AnalyticsClient at line 171.
+  return {analyticsClient, isAnalyticsEnabled: (): boolean => globalConfigHandler.getCachedAnalytics()}
 }
