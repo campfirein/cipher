@@ -806,7 +806,9 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
           channelId,
           deliveryId: delivery.deliveryId,
           driver,
+          memberHandle: delivery.memberHandle,
           permissionRequestId: payload.permissionRequestId,
+          projectRoot,
           turnId,
         })
       }

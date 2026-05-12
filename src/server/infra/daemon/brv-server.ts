@@ -55,11 +55,13 @@ import {getProjectDataDir} from '../../utils/path-utils.js'
 import {crashLog, processLog} from '../../utils/process-logger.js'
 import {DaemonTokenProvider} from '../auth/daemon-token-provider.js'
 import {allowlistFromEnv, makeOriginAllowlist} from '../auth/origin-allowlist.js'
+import {runChannelRecovery} from '../channel/channel-recovery.js'
 import {ChannelStore} from '../channel/channel-store.js'
 import {ChannelDoctorService} from '../channel/doctor-service.js'
 import {FileDriverProfileStore} from '../channel/driver-profile-store.js'
 import {AcpDriverPool} from '../channel/drivers/acp-driver-pool.js'
 import {AcpDriver} from '../channel/drivers/acp-driver.js'
+import {FileBrokerPersistence} from '../channel/drivers/broker-persistence.js'
 import {CancelCoordinator} from '../channel/drivers/cancel-coordinator.js'
 import {PermissionBroker} from '../channel/drivers/permission-broker.js'
 import {ChannelOnboardService} from '../channel/onboard-service.js'
@@ -728,16 +730,24 @@ async function main(): Promise<void> {
     // so it's on disk before any client could discover the daemon and try to
     // connect over socket.io.
     const channelWriteSerializer = new ChannelWriteSerializer()
+    // Hoist these so Phase-3 recovery (below) can seed the writer's
+    // lastSeqByTurn and walk events.jsonl via the tree reader.
+    const channelEventsWriter = new ChannelEventsWriter({serializer: channelWriteSerializer})
+    const channelTreeReader = new ChannelTreeReader()
     const channelStore = new ChannelStore({
-      eventsWriter: new ChannelEventsWriter({serializer: channelWriteSerializer}),
+      eventsWriter: channelEventsWriter,
       snapshotWriter: new ChannelSnapshotWriter(),
-      treeReader: new ChannelTreeReader(),
+      treeReader: channelTreeReader,
       writeSerializer: channelWriteSerializer,
     })
 
     const channelTransport = transportServer
     const channelPool = new AcpDriverPool()
-    const channelBroker = new PermissionBroker()
+    // Phase-3 (Slice 3.5c): persisted permission state. The broker
+    // appends `track`/`resolve` lines so daemon restart can re-emit
+    // `delivery_state_change → errored` for any orphaned permission.
+    const channelBrokerPersistence = new FileBrokerPersistence({dataDir: getGlobalDataDir()})
+    const channelBroker = new PermissionBroker({persistence: channelBrokerPersistence})
     const channelSeqAllocator = new TurnSequenceAllocator()
     const channelBroadcaster: IChannelBroadcaster = {
       broadcastToChannel(channelId, event, data) {
@@ -782,6 +792,28 @@ async function main(): Promise<void> {
       profileStore: channelProfileStore,
       store: channelStore,
     })
+
+    // Slice 3.5c: run recovery BEFORE any client can connect. Seeds the
+    // sequence allocator + events-writer from on-disk events.jsonl,
+    // emits `delivery_state_change → errored` for any permission that
+    // was in-flight when the previous daemon went down, and finalises
+    // turns whose deliveries are now all terminal. Best-effort: a
+    // failure here logs but does not block bootstrap.
+    if (channelsEnabled()) {
+      try {
+        await runChannelRecovery({
+          broadcaster: channelBroadcaster,
+          brokerPersistence: channelBrokerPersistence,
+          clock: () => new Date(),
+          eventsWriter: channelEventsWriter,
+          seqAllocator: channelSeqAllocator,
+          store: channelStore,
+          treeReader: channelTreeReader,
+        })
+      } catch (error) {
+        log(`channel-recovery error (continuing): ${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
 
     // Slice 3.5b: gate the FULL handler registration on
     // `BRV_CHANNELS_ENABLED`. When unset/off, register stubs that return

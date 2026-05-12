@@ -1,5 +1,6 @@
 import type {RequestPermissionOutcome} from '../../../../shared/types/channel.js'
 import type {IAcpDriver} from '../../../core/interfaces/channel/i-acp-driver.js'
+import type {IBrokerPersistence} from './broker-persistence.js'
 
 import {
   ChannelPermissionAlreadyResolvedError,
@@ -37,7 +38,15 @@ export type PermissionBrokerTrackArgs = {
   channelId: string
   deliveryId: string
   driver: IAcpDriver
+  /**
+   * Phase-3 broker persistence (Slice 3.5c). The orchestrator passes this
+   * alongside the track so daemon recovery can re-emit a
+   * `delivery_state_change → errored` for the right delivery on cold
+   * start.
+   */
+  memberHandle?: string
   permissionRequestId: string
+  projectRoot?: string
   turnId: string
 }
 
@@ -88,9 +97,25 @@ export interface IPermissionBroker {
   track(args: PermissionBrokerTrackArgs): void
 }
 
+export type PermissionBrokerOptions = {
+  /**
+   * Optional persistence layer. When supplied, every `track` is appended
+   * as a `{"type":"track", ...}` line and every resolve/drain appends a
+   * matching `{"type":"resolve", ...}` tombstone. On daemon restart,
+   * broker-recovery reads the file and re-emits orphaned permissions as
+   * `delivery_state_change → errored`.
+   */
+  readonly persistence?: IBrokerPersistence
+}
+
 export class PermissionBroker implements IPermissionBroker {
   private readonly pending = new Map<string, PendingPermission>()
+  private readonly persistence: IBrokerPersistence | undefined
   private readonly resolved = new Set<string>()
+
+  public constructor(options: PermissionBrokerOptions = {}) {
+    this.persistence = options.persistence
+  }
 
   async drainDelivery(args: PermissionBrokerDrainDeliveryArgs): Promise<PermissionBrokerDrainResult[]> {
     const targets: Array<[string, PendingPermission]> = []
@@ -146,6 +171,12 @@ export class PermissionBroker implements IPermissionBroker {
     this.pending.delete(args.permissionRequestId)
     this.resolved.add(args.permissionRequestId)
     await pending.driver.respondToPermission(args.permissionRequestId, {outcome: args.outcome})
+    // Best-effort tombstone for recovery; failure leaves the entry as
+    // "live" in the file, which the recovery path treats as errored.
+    if (this.persistence !== undefined) {
+      this.persistence.appendResolve({permissionRequestId: args.permissionRequestId}).catch(() => {})
+    }
+
     return {
       deliveryId: pending.deliveryId,
       isCancellation: args.outcome.outcome === 'cancelled',
@@ -159,6 +190,27 @@ export class PermissionBroker implements IPermissionBroker {
       driver: args.driver,
       turnId: args.turnId,
     })
+    // Phase-3 persistence: append a `track` line so daemon-restart
+    // recovery can re-emit `delivery_state_change → errored` for any
+    // permission that was in-flight when the daemon went down. The
+    // `memberHandle` + `projectRoot` are required for recovery to address
+    // the right delivery + locate its events.jsonl.
+    if (this.persistence !== undefined && args.memberHandle !== undefined && args.projectRoot !== undefined) {
+      this.persistence
+        .appendTrack({
+          channelId: args.channelId,
+          deliveryId: args.deliveryId,
+          memberHandle: args.memberHandle,
+          permissionRequestId: args.permissionRequestId,
+          projectRoot: args.projectRoot,
+          turnId: args.turnId,
+        })
+        .catch(() => {
+          // Persistence is best-effort; failures fall back to in-memory
+          // only (lost on restart). Phase-3.5c's broker-recovery is the
+          // production safety net.
+        })
+    }
   }
 
   private async cancelPending(
@@ -170,6 +222,10 @@ export class PermissionBroker implements IPermissionBroker {
       this.resolved.add(id)
       // eslint-disable-next-line no-await-in-loop
       await p.driver.respondToPermission(id, {outcome: {outcome: 'cancelled'}})
+      if (this.persistence !== undefined) {
+        this.persistence.appendResolve({permissionRequestId: id}).catch(() => {})
+      }
+
       cancelled.push({deliveryId: p.deliveryId, permissionRequestId: id})
     }
 
