@@ -99,6 +99,13 @@ export interface SessionLLMConfig {
   providerBaseUrl?: string
   /** Custom headers for the provider */
   providerHeaders?: Record<string, string>
+  /**
+   * Optional per-request abort timeout, in milliseconds. Sourced from
+   * the agent-side settings snapshot (`llm.requestTimeoutMs`). Flows to
+   * AiSdkContentGenerator via the provider registry; absent → no per-
+   * request abort.
+   */
+  requestTimeoutMs?: number
   siteName?: string
   temperature?: number
   /**
@@ -472,6 +479,7 @@ export function createSessionServices(
     httpReferer: llmConfig.httpReferer,
     maxTokens: llmConfig.maxTokens ?? 8192,
     model: llmConfig.model,
+    requestTimeoutMs: llmConfig.requestTimeoutMs,
     siteName: llmConfig.siteName,
     temperature: llmConfig.temperature ?? 0.7,
   })

@@ -132,6 +132,11 @@ export const SETTINGS_SCHEMA_VERSION = '1'
 // Default wall-clock budget for the agentic loop (`llm.iterationBudgetMs`).
 // Slow local-LLM users override via `brv settings set llm.iterationBudgetMs <ms>`.
 export const AGENT_LLM_ITERATION_BUDGET_MS = 600_000 // 10 minutes
+
+// Default per-request HTTP timeout for direct LLM provider calls
+// (`llm.requestTimeoutMs`). A hung Ollama/LM Studio connection aborts at this
+// boundary; the retry layer treats the abort as a transient error.
+export const AGENT_LLM_REQUEST_TIMEOUT_MS = 120_000 // 2 minutes
 // === Hierarchical DAG (summary, archive, manifest) ===
 export const SUMMARY_INDEX_FILE = '_index.md'
 export const ARCHIVE_DIR = '_archived'

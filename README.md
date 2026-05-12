@@ -221,9 +221,18 @@ Available keys:
 | `agentPool.maxSize` | 10 | Maximum concurrent active projects (one agent process per project) |
 | `agentPool.maxConcurrentTasksPerProject` | 5 | Parallel `brv curate` / `brv query` tasks within a single project |
 | `llm.iterationBudgetMs` | 600000 | Wall-clock budget for the agentic loop on one task, in milliseconds |
+| `llm.requestTimeoutMs` | 120000 | Wall-clock budget for one direct LLM HTTP request, in milliseconds |
 | `taskHistory.maxEntries` | 1000 | Number of task records `brv query-log view` retains per project |
 
 Raise `llm.iterationBudgetMs` when a single `brv curate` or `brv query` on a slow local LLM (Ollama on CPU, heavy quantization, cold model load) routinely hits the default 10-minute cap on legitimate work. Lower it on cloud providers when you want a stuck task to surface as an error faster instead of waiting out the full budget. The cap is enforced per task, not per request.
+
+`llm.requestTimeoutMs` bounds one HTTP request to the LLM. A frozen Ollama or LM Studio connection aborts at this boundary and the retry layer treats it as a transient error rather than wasting the full iteration budget. The setting must satisfy `llm.requestTimeoutMs <= llm.iterationBudgetMs`; the daemon rejects writes that violate the rule and falls back to defaults for both keys when the file violates it at startup. Suggested presets:
+
+| Profile | `llm.requestTimeoutMs` | `llm.iterationBudgetMs` |
+|---|---|---|
+| Cloud | 120000 (2 min) | 600000 (10 min) |
+| Local LLM, fast GPU | 300000 (5 min) | 1200000 (20 min) |
+| Local LLM, CPU / heavy quantization | 900000 (15 min) | 3600000 (60 min) |
 
 Settings persist in `settings.json` under the `brv` global data directory:
 

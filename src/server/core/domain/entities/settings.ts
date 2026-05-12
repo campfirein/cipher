@@ -1,5 +1,6 @@
 import {
   AGENT_LLM_ITERATION_BUDGET_MS,
+  AGENT_LLM_REQUEST_TIMEOUT_MS,
   AGENT_MAX_CONCURRENT_TASKS,
   AGENT_POOL_MAX_SIZE,
   TASK_HISTORY_DEFAULT_MAX_ENTRIES,
@@ -57,6 +58,16 @@ export const SETTINGS_REGISTRY: readonly SettingDescriptor[] = [
     key: 'llm.iterationBudgetMs',
     max: 7_200_000,
     min: 60_000,
+    restartRequired: true,
+    type: 'integer',
+  },
+  {
+    default: AGENT_LLM_REQUEST_TIMEOUT_MS,
+    description:
+      'Maximum wall-clock budget for one direct LLM HTTP request, in milliseconds. Must be <= llm.iterationBudgetMs. Raise for slow local LLMs (Ollama, LM Studio).',
+    key: 'llm.requestTimeoutMs',
+    max: 7_200_000,
+    min: 10_000,
     restartRequired: true,
     type: 'integer',
   },
