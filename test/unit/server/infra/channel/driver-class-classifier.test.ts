@@ -1,6 +1,6 @@
 import {expect} from 'chai'
 
-import {classifyDriver} from '../../../../../src/server/infra/channel/driver-class-classifier.js'
+import {advertisedCapabilities, classifyDriver} from '../../../../../src/server/infra/channel/driver-class-classifier.js'
 
 // Slice 3.2 — driver-class classifier.
 //
@@ -12,6 +12,7 @@ import {classifyDriver} from '../../../../../src/server/infra/channel/driver-cla
 //   Class C-prime — initialize OK BUT session/new errored, OR the agent
 //                  explicitly advertises `_meta.brv.driverClass === 'C-prime'`.
 
+describe('Driver-class classifier (Phase 3)', () => {
 describe('classifyDriver', () => {
   it('returns A when sessionNewSucceeded AND embeddedContext=true AND image=true', () => {
     expect(
@@ -68,16 +69,34 @@ describe('classifyDriver', () => {
     ).to.equal('C-prime')
   })
 
-  it('returns the advertised capability set as a string list', () => {
-    // The classifier exposes a helper for the onboard service to record the
-    // detected capability names on AgentDriverProfile.capabilities.
-    const caps = classifyDriver({
-      agentCapabilities: {
-        promptCapabilities: {embeddedContext: true, image: false},
-        toolCallSupport: true,
-      },
-      sessionNewSucceeded: true,
-    })
-    expect(['A', 'B', 'C-prime']).to.include(caps)
+  it('returns B when embeddedContext=true but NEITHER image NOR toolCallSupport is advertised', () => {
+    // Class-A requires `embeddedContext` PLUS at least one of {image,
+    // toolCallSupport}. A profile that advertises just embeddedContext
+    // tops out at Class B.
+    expect(
+      classifyDriver({
+        agentCapabilities: {promptCapabilities: {embeddedContext: true, image: false}},
+        sessionNewSucceeded: true,
+      }),
+    ).to.equal('B')
   })
+})
+
+describe('advertisedCapabilities', () => {
+  it('returns the detected capability names suitable for AgentDriverProfile.capabilities', () => {
+    expect(
+      advertisedCapabilities({
+        agentCapabilities: {
+          promptCapabilities: {embeddedContext: true, image: false},
+          toolCallSupport: true,
+        },
+        sessionNewSucceeded: true,
+      }),
+    ).to.deep.equal(['embeddedContext', 'toolCallSupport'])
+  })
+
+  it('returns [] when nothing is advertised', () => {
+    expect(advertisedCapabilities({sessionNewSucceeded: true})).to.deep.equal([])
+  })
+})
 })

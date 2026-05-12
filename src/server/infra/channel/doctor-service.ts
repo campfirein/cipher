@@ -60,7 +60,13 @@ export class ChannelDoctorService implements IChannelDoctorService {
     const now = this.deps.clock()
 
     if (args.channelId !== undefined) {
-      await this.diagnoseChannel({channelId: args.channelId, diagnostics, now, projectRoot: args.projectRoot})
+      await this.diagnoseChannel({
+        channelId: args.channelId,
+        diagnostics,
+        memberHandle: args.memberHandle,
+        now,
+        projectRoot: args.projectRoot,
+      })
     }
 
     if (args.profileName !== undefined) {
@@ -77,6 +83,7 @@ export class ChannelDoctorService implements IChannelDoctorService {
   private async diagnoseChannel(args: {
     channelId: string
     diagnostics: DoctorDiagnostic[]
+    memberHandle?: string
     now: Date
     projectRoot: string
   }): Promise<void> {
@@ -107,6 +114,10 @@ export class ChannelDoctorService implements IChannelDoctorService {
 
     for (const member of meta.members) {
       if (member.memberKind !== 'acp-agent') continue
+      // Phase-3 doctor: `--member <handle>` filters diagnostics to one
+      // member. The handle is matched verbatim (handles always carry the
+      // canonical `@` prefix per `HandleSchema`).
+      if (args.memberHandle !== undefined && member.handle !== args.memberHandle) continue
       if (member.status === 'errored') {
         args.diagnostics.push({
           code: 'DOCTOR_MEMBER_ERRORED',

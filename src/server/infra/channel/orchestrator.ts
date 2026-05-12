@@ -95,6 +95,15 @@ export type ChannelOrchestratorDeps = {
 }
 
 type ActiveTurn = {
+  /**
+   * Phase-3 cancel guard. Set to `true` synchronously at the start of
+   * `cancelTurn` so concurrent background tasks finishing mid-cancel skip
+   * `releaseNextQueued` — without this, a late-completing in-flight task
+   * could dispatch the next queued delivery AFTER the cancel coordinator
+   * has already iterated, leaving a `queued → dispatched` event without
+   * a matching `→ cancelled` follow-up.
+   */
+  cancelling: boolean
   channelId: string
   deliveries: TurnDelivery[]
   members: ChannelMember[]
@@ -185,6 +194,12 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
   async cancelTurn(args: CancelTurnArgs): Promise<CancelTurnResult> {
     const active = this.activeTurns.get(args.turnId)
     if (active === undefined) throw new ChannelTurnNotFoundError(args.channelId, args.turnId)
+
+    // CRITICAL: flip the guard synchronously BEFORE any await so a
+    // concurrent background-task completion (running between our awaits)
+    // cannot call releaseNextQueued and dispatch a new delivery while
+    // the cancel sequence is mid-flight.
+    active.cancelling = true
 
     const inFlight: CancelDeliveryRef[] = active.deliveries.map((d) => ({
       deliveryId: d.deliveryId,
@@ -364,6 +379,7 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
 
     // Track the in-flight turn so cancel/fan-out can introspect.
     const active: ActiveTurn = {
+      cancelling: false,
       channelId: args.channelId,
       deliveries,
       members,
@@ -861,6 +877,10 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
    * order from {@link parseMentions}) and dispatch it.
    */
   private async releaseNextQueued(active: ActiveTurn, normalisedPromptBlocks: ContentBlock[]): Promise<void> {
+    // Race guard: if cancelTurn has begun, do not dispatch new deliveries.
+    // The cancel coordinator's existing loop is responsible for emitting
+    // `queued → cancelled` events for every remaining queued delivery.
+    if (active.cancelling) return
     const next = active.deliveries.find((d) => d.state === 'queued')
     if (next === undefined) return
     const member = active.members.find((m) => m.handle === next.memberHandle)

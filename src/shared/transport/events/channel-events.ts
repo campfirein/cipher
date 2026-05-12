@@ -1,6 +1,7 @@
 import {z} from 'zod'
 
 import {
+  AgentDriverProfileInvocationSchema,
   AgentDriverProfileSchema,
   ChannelMemberSchema,
   ChannelSchema,
@@ -187,12 +188,10 @@ export type ChannelMemberUpdateBroadcast = z.infer<typeof ChannelMemberUpdateBro
 
 // channel:invite -------------------------------------------------------------
 
-const InvocationSchema = z.object({
-  args: z.array(z.string()),
-  command: z.string(),
-  cwd: z.string(),
-  env: z.record(z.string()).optional(),
-})
+// Reuse the canonical AgentDriverProfileInvocationSchema from shared/types so
+// Phase-2 invite and Phase-3 onboard stay in lockstep — if invocation
+// validation tightens (e.g. cwd absolute), the change applies everywhere.
+const InvocationSchema = AgentDriverProfileInvocationSchema
 
 /**
  * §8.2 verbatim shape plus two Phase-2 refinements:
@@ -358,7 +357,7 @@ export type ChannelRotateTokenResponse = z.infer<typeof ChannelRotateTokenRespon
 
 // channel:profile-list -------------------------------------------------------
 
-export const ChannelProfileListRequestSchema = z.object({})
+export const ChannelProfileListRequestSchema = z.object({}).strict()
 export type ChannelProfileListRequest = z.infer<typeof ChannelProfileListRequestSchema>
 
 export const ChannelProfileListResponseSchema = z.object({
