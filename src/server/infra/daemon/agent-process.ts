@@ -65,6 +65,7 @@ import {FileCurateLogStore} from '../storage/file-curate-log-store.js'
 import {FileReviewBackupStore} from '../storage/file-review-backup-store.js'
 import {AgentInstanceDiscovery} from '../transport/agent-instance-discovery.js'
 import {handleAgentCancelEvent} from './agent-cancel-listener.js'
+import {handleExecutorTerminalError} from './agent-executor-error.js'
 import {createAgentLogger} from './agent-logger.js'
 import {PostWorkRegistry} from './post-work-registry.js'
 import {resolveSessionId} from './session-resolver.js'
@@ -681,16 +682,7 @@ async function executeTask(
         postWorkRegistry.submit(projectPath, postWork)
       }
     } catch (error) {
-      // Emit task:error
-      const errorData = serializeTaskError(error)
-      agentLog(`task:error taskId=${taskId} error=${errorData.message}`)
-      try {
-        transport.request(TransportTaskEventNames.ERROR, {clientId, error: errorData, projectPath, taskId})
-      } catch (error_) {
-        agentLog(
-          `task:error send failed taskId=${taskId}: ${error_ instanceof Error ? error_.message : String(error_)}`,
-        )
-      }
+      handleExecutorTerminalError({clientId, error, log: agentLog, projectPath, taskId, transport})
     } finally {
       cleanupForwarding?.()
     }

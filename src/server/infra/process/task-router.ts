@@ -590,6 +590,20 @@ export class TaskRouter {
     })
   }
 
+  private cancelTaskLocally(task: TaskInfo, taskId: string): void {
+    this.transport.sendTo(task.clientId, TransportTaskEventNames.CANCELLED, {taskId})
+    broadcastToProjectRoom(
+      this.projectRegistry,
+      this.projectRouter,
+      task.projectPath,
+      TransportTaskEventNames.CANCELLED,
+      {taskId},
+      task.clientId,
+    )
+    this.tasks.delete(taskId)
+    this.notifyHooksCancelled(taskId, task).catch(() => {})
+  }
+
   /**
    * Drain the dirty set: for each taskId still active, fire `onTaskUpdate` on
    * each lifecycle hook. Tasks moved to `completedTasks` between markDirty
@@ -628,6 +642,17 @@ export class TaskRouter {
       return {error: 'Task not found', success: false}
     }
 
+    // Queue-first: a task that has not been dispatched to an agent still lives
+    // in the pool's per-project FIFO. Removing it there avoids forwarding a
+    // cancel to an agent that holds no controller for the task. The daemon
+    // emits the terminal event itself and runs lifecycle hooks so history
+    // reflects status: 'cancelled' on this path too.
+    if (this.agentPool?.cancelQueuedTask(taskId)) {
+      transportLog(`Cancelled queued task: ${taskId}`)
+      this.cancelTaskLocally(task, taskId)
+      return {success: true}
+    }
+
     // If Agent connected for this task's project, forward cancel request
     const agentId = this.getAgentForProject(task.projectPath)
     if (agentId) {
@@ -637,17 +662,7 @@ export class TaskRouter {
 
     // No Agent - cancel task locally and emit terminal event
     transportLog(`No Agent connected, cancelling task locally: ${taskId}`)
-    this.transport.sendTo(task.clientId, TransportTaskEventNames.CANCELLED, {taskId})
-    broadcastToProjectRoom(
-      this.projectRegistry,
-      this.projectRouter,
-      task.projectPath,
-      TransportTaskEventNames.CANCELLED,
-      {taskId},
-      task.clientId,
-    )
-    this.tasks.delete(taskId)
-    this.notifyHooksCancelled(taskId, task).catch(() => {})
+    this.cancelTaskLocally(task, taskId)
 
     return {success: true}
   }
@@ -676,6 +691,14 @@ export class TaskRouter {
       task?.clientId,
     )
     this.moveToCompleted(taskId)
+
+    // Notify pool so the project queue drains. Symmetric with task:completed
+    // and task:error — cancellation also vacates a pool slot, and without this
+    // call the next queued task for the project would wait until another task
+    // finishes naturally.
+    if (task?.projectPath) {
+      this.agentPool?.notifyTaskCompleted(task.projectPath)
+    }
 
     // Notify hooks (fire-and-forget)
     if (task) {
