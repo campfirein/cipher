@@ -106,8 +106,11 @@ async def _run_with(agent: ChannelAgent, client: _CollectingClient):
             output_stream=rig.agent_input,
         )
     )
-    connection = acp.ClientSideConnection(
-        lambda _agent: client,
+    # Use the non-deprecated factory. `connect_to_agent` returns the same
+    # ClientSideConnection underneath but is the public, non-deprecated
+    # path per upstream `acp` v0.8.
+    connection = acp.connect_to_agent(
+        client,
         rig.client_output,
         rig.client_input,
     )

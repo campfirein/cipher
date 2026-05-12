@@ -13,7 +13,7 @@
     "rootDir": "src",
     "resolveJsonModule": true,
     "isolatedModules": true,
-    "noUncheckedIndexedAccess": false
+    "noUncheckedIndexedAccess": true
   },
   "include": ["src/**/*"],
   "exclude": ["dist", "test", "examples", "node_modules"]

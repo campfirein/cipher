@@ -98,7 +98,9 @@ describe('ChannelAgent (Slice 5.1)', () => {
 
     // The notification MUST be delivered before the prompt promise resolves.
     expect(notifications).to.have.lengthOf(1)
-    const update = notifications[0].update
+    const first = notifications[0]
+    expect(first).to.not.equal(undefined)
+    const update = first!.update
     expect(update.sessionUpdate).to.equal('agent_message_chunk')
     const content = (update as {content: {text: string; type: string}}).content
     expect(content.type).to.equal('text')
