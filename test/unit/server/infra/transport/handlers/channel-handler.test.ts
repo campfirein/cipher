@@ -163,10 +163,14 @@ describe('ChannelHandler (Slice 1.4)', () => {
       ChannelEvents.MENTION,
       ChannelEvents.CANCEL,
       ChannelEvents.PERMISSION_DECISION,
-      // Phase 3 — onboard + doctor; profile-* + rotate-token + members land
-      // in later slices.
+      // Phase 3 — onboard / doctor / profile-* / rotate-token. Slice 3.5 will
+      // add `channel:members` (deferred until then).
       ChannelEvents.ONBOARD,
       ChannelEvents.DOCTOR,
+      ChannelEvents.PROFILE_LIST,
+      ChannelEvents.PROFILE_SHOW,
+      ChannelEvents.PROFILE_REMOVE,
+      ChannelEvents.ROTATE_TOKEN,
     ]
     for (const event of wireEvents) {
       expect(registeredHandlers.has(event), `missing handler for ${event}`).to.equal(true)
@@ -175,10 +179,8 @@ describe('ChannelHandler (Slice 1.4)', () => {
     expect(registeredHandlers.size).to.equal(wireEvents.length)
   })
 
-  it('does NOT register Phase-3 events that have not shipped yet (members, rotate-token, profile-*)', () => {
+  it('does NOT register the future channel:members surface (deferred to Phase 3.5+)', () => {
     expect(registeredHandlers.has(ChannelEvents.MEMBERS)).to.equal(false)
-    expect(registeredHandlers.has(ChannelEvents.ROTATE_TOKEN)).to.equal(false)
-    expect(registeredHandlers.has(ChannelEvents.PROFILE_LIST)).to.equal(false)
   })
 
   // ─── Auth ────────────────────────────────────────────────────────────────

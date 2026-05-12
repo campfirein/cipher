@@ -17,9 +17,11 @@ public static description = 'Invite an ACP agent into a channel and run initiali
 public static examples = [
     '<%= config.bin %> <%= command.id %> pi-test @mock -- node test/fixtures/mock-acp.js',
     '<%= config.bin %> <%= command.id %> pi-test @kimi -- kimi acp',
+    '<%= config.bin %> <%= command.id %> pi-test @mock --profile mock',
   ]
 public static flags = {
     json: Flags.boolean({default: false, description: 'Emit JSON instead of pretty output'}),
+    profile: Flags.string({description: 'Use a persisted driver profile name (Phase 3) instead of an inline invocation'}),
   }
 // Accept the trailing invocation tokens (after `--`).
   public static strict = false
@@ -34,20 +36,33 @@ public static flags = {
     // the inline invocation: command + args. Oclif strips the leading `--`
     // separator before us, so argv[0] is the first invocation token.
     const tail = argv.slice(2).filter((v): v is string => typeof v === 'string')
-    if (tail.length === 0) {
-      this.error('Inline invocation is required: `brv channel invite <ch> <@h> -- <command> [args...]`', {exit: 1})
-    }
 
-    const [command, ...commandArgs] = tail
-    const invocation = {args: commandArgs, command, cwd: process.cwd()}
+    let payload: ChannelInviteRequest
+    if (flags.profile === undefined) {
+      if (tail.length === 0) {
+        this.error(
+          'Invocation is required: `brv channel invite <ch> <@h> -- <command> [args...]` OR `--profile <name>`',
+          {exit: 1},
+        )
+      }
+
+      const [command, ...commandArgs] = tail
+      payload = {
+        channelId: args.channelId,
+        handle: args.handle,
+        invocation: {args: commandArgs, command, cwd: process.cwd()},
+      }
+    } else {
+      if (tail.length > 0) {
+        this.error('Use either --profile <name> OR inline `-- <command>`, not both.', {exit: 1})
+      }
+
+      payload = {channelId: args.channelId, handle: args.handle, profileName: flags.profile}
+    }
 
     try {
       const response = await withChannelClient(async (client) =>
-        client.request<ChannelInviteRequest, ChannelInviteResponse>(ChannelEvents.INVITE, {
-          channelId: args.channelId,
-          handle: args.handle,
-          invocation,
-        }),
+        client.request<ChannelInviteRequest, ChannelInviteResponse>(ChannelEvents.INVITE, payload),
       )
 
       if (flags.json) {

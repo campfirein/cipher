@@ -779,6 +779,8 @@ async function main(): Promise<void> {
       doctorService: channelDoctorService,
       onboardService: channelOnboardService,
       orchestrator: channelOrchestrator,
+      profileStore: channelProfileStore,
+      // rotateToken hook lands in Slice 3.5 alongside the DaemonTokenProvider.
     }).registerOn(channelTransport)
 
     // Best-effort: release every channel driver on SIGTERM/SIGINT so

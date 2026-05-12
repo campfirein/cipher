@@ -1,6 +1,7 @@
 import type {z} from 'zod'
 
 import type {IChannelOrchestrator} from '../../../core/interfaces/channel/i-channel-orchestrator.js'
+import type {IDriverProfileStore} from '../../../core/interfaces/channel/i-driver-profile-store.js'
 import type {
   ITransportServer,
   RequestContext,
@@ -24,10 +25,15 @@ import {
   ChannelOnboardRequestSchema,
   ChannelPermissionDecisionRequestSchema,
   ChannelPostRequestSchema,
+  ChannelProfileListRequestSchema,
+  ChannelProfileRemoveRequestSchema,
+  ChannelProfileShowRequestSchema,
+  ChannelRotateTokenRequestSchema,
   ChannelUninviteRequestSchema,
 } from '../../../../shared/transport/events/channel-events.js'
 import {
   ChannelInvalidRequestError,
+  ChannelProfileNotFoundError,
 } from '../../../core/domain/channel/errors.js'
 import {makeChannelAuthMiddleware} from '../../auth/channel-auth-middleware.js'
 
@@ -63,6 +69,14 @@ export type ChannelHandlerDeps = {
   /** Phase-3 onboard service. Optional so Phase-1/2 tests can omit it. */
   readonly onboardService?: IChannelOnboardService
   readonly orchestrator: IChannelOrchestrator
+  /** Phase-3 driver-profile registry. Optional so Phase-1/2 tests can omit it. */
+  readonly profileStore?: IDriverProfileStore
+  /**
+   * Phase-3 token-rotation callback. The handler fires this when
+   * `channel:rotate-token` runs successfully. Slice 3.5 wires this to
+   * disconnect every active client + emit a structured INFO log.
+   */
+  readonly rotateToken?: () => Promise<{disconnectedClients: number; tokenFingerprint: string}>
 }
 
 /**
@@ -100,12 +114,16 @@ export class ChannelHandler {
   private readonly doctorService: IChannelDoctorService | undefined
   private readonly onboardService: IChannelOnboardService | undefined
   private readonly orchestrator: IChannelOrchestrator
+  private readonly profileStore: IDriverProfileStore | undefined
+  private readonly rotateTokenFn: (() => Promise<{disconnectedClients: number; tokenFingerprint: string}>) | undefined
 
   public constructor(deps: ChannelHandlerDeps) {
     this.authToken = deps.authToken
     this.doctorService = deps.doctorService
     this.onboardService = deps.onboardService
     this.orchestrator = deps.orchestrator
+    this.profileStore = deps.profileStore
+    this.rotateTokenFn = deps.rotateToken
   }
 
   registerOn(transport: TransportRegistry): void {
@@ -319,6 +337,69 @@ export class ChannelHandler {
         projectRoot,
       })
       return result
+    })
+
+    // channel:profile-list — list every persisted driver profile.
+    register(ChannelEvents.PROFILE_LIST, async (data, _clientId, ctx) => {
+      projectRootFromCtx(ctx)
+      parseOrThrow(ChannelProfileListRequestSchema, data)
+      const store = this.profileStore
+      if (store === undefined) {
+        throw new ChannelInvalidRequestError(
+          'channel:profile-list requires the driver-profile registry (Phase 3)',
+          {phase: 3},
+        )
+      }
+
+      return {profiles: await store.list()}
+    })
+
+    // channel:profile-show — read one profile by name.
+    register(ChannelEvents.PROFILE_SHOW, async (data, _clientId, ctx) => {
+      projectRootFromCtx(ctx)
+      const req = parseOrThrow(ChannelProfileShowRequestSchema, data)
+      const store = this.profileStore
+      if (store === undefined) {
+        throw new ChannelInvalidRequestError(
+          'channel:profile-show requires the driver-profile registry (Phase 3)',
+          {phase: 3},
+        )
+      }
+
+      const profile = await store.get(req.name)
+      if (profile === undefined) throw new ChannelProfileNotFoundError(req.name)
+      return {profile}
+    })
+
+    // channel:profile-remove — idempotent removal.
+    register(ChannelEvents.PROFILE_REMOVE, async (data, _clientId, ctx) => {
+      projectRootFromCtx(ctx)
+      const req = parseOrThrow(ChannelProfileRemoveRequestSchema, data)
+      const store = this.profileStore
+      if (store === undefined) {
+        throw new ChannelInvalidRequestError(
+          'channel:profile-remove requires the driver-profile registry (Phase 3)',
+          {phase: 3},
+        )
+      }
+
+      return {removed: await store.remove(req.name)}
+    })
+
+    // channel:rotate-token — regenerate the daemon-auth-token. Returns a
+    // fingerprint and the count of disconnected clients; never the token.
+    register(ChannelEvents.ROTATE_TOKEN, async (data) => {
+      // Token rotation does NOT require cwd — it's a daemon-global op.
+      parseOrThrow(ChannelRotateTokenRequestSchema, data)
+      const rotate = this.rotateTokenFn
+      if (rotate === undefined) {
+        throw new ChannelInvalidRequestError(
+          'channel:rotate-token requires the auth-token-rotation hook (Slice 3.5)',
+          {phase: 3},
+        )
+      }
+
+      return rotate()
     })
   }
 }
