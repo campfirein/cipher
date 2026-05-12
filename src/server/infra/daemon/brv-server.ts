@@ -393,12 +393,16 @@ async function main(): Promise<void> {
     // same instances this hook writes to.
     const taskHistoryHook = new TaskHistoryHook({getStore: getTaskHistoryStore})
 
-    // M12.2 analytics hook — emits curate_operation_applied / curate_run_completed
-    // / query_completed events into the daemon's IAnalyticsClient. The client
-    // is constructed later by setupFeatureHandlers (see below), so wire the
-    // hook now with a deferred analyticsClient setter; emit() silently no-ops
-    // until the client lands (no tasks run during daemon boot).
-    const analyticsHook = new AnalyticsHook()
+    // M12.2/M12.3 analytics hook — emits curate_operation_applied /
+    // curate_run_completed / query_completed events into the daemon's
+    // IAnalyticsClient. The client + analytics-enabled flag are both
+    // constructed later by setupFeatureHandlers, so wire the hook now with
+    // deferred references; emit() silently no-ops until setAnalyticsClient
+    // lands, and isEnabled defaults to true (true is the safe default —
+    // no tasks run during the brief boot window between this line and the
+    // setupFeatureHandlers return below).
+    let analyticsEnabledCheck: () => boolean = () => true
+    const analyticsHook = new AnalyticsHook({isEnabled: () => analyticsEnabledCheck()})
 
     // Provider config/keychain stores — shared between feature handlers and state endpoint.
     // Hoisted ahead of `new TransportHandlers` so the resolveActiveProvider callback below
@@ -664,7 +668,7 @@ async function main(): Promise<void> {
     // Feature handlers (auth, init, status, push, pull, etc.) require async OIDC discovery.
     // Placed after daemon:getState so the debug endpoint is available immediately,
     // without waiting for OIDC discovery (~400ms).
-    const {analyticsClient} = await setupFeatureHandlers({
+    const {analyticsClient, isAnalyticsEnabled} = await setupFeatureHandlers({
       authStateStore,
       broadcastToProject(projectPath, event, data) {
         broadcastToProjectRoom(projectRegistry, projectRouter, projectPath, event, data)
@@ -680,10 +684,12 @@ async function main(): Promise<void> {
       webuiPort: webuiServer?.getPort(),
     })
 
-    // M12.2: bind the real analyticsClient into AnalyticsHook now that
-    // setupFeatureHandlers has constructed it. Hook emits silently no-op
-    // until this setter runs (no tasks should be active during daemon boot).
+    // M12.2/M12.3: bind the real analyticsClient + analytics-enabled check
+    // into AnalyticsHook now that setupFeatureHandlers has constructed them.
+    // Hook emits silently no-op until the setter runs; isEnabled gate
+    // short-circuits M12.3 frontmatter reads when analytics is off.
     analyticsHook.setAnalyticsClient(analyticsClient)
+    analyticsEnabledCheck = isAnalyticsEnabled
 
     // Load auth token AFTER feature handlers are registered.
     // AuthHandler's onAuthChanged/onAuthExpired callbacks must be wired first

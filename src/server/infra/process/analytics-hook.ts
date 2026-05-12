@@ -1,4 +1,6 @@
 /* eslint-disable camelcase */
+import {readFileSync} from 'node:fs'
+
 import type {LlmToolResultEvent} from '../../core/domain/transport/schemas.js'
 import type {TaskInfo} from '../../core/domain/transport/task-info.js'
 import type {IAnalyticsClient} from '../../core/interfaces/analytics/i-analytics-client.js'
@@ -6,6 +8,7 @@ import type {ITaskLifecycleHook} from '../../core/interfaces/process/i-task-life
 import type {QueryResultMetadata} from './query-log-handler.js'
 
 import {AnalyticsEventNames} from '../../../shared/analytics/event-names.js'
+import {parseFrontmatter} from '../../core/domain/knowledge/markdown-writer.js'
 import {extractCurateOperations} from '../../utils/curate-result-parser.js'
 import {processLog} from '../../utils/process-logger.js'
 import {CURATE_TASK_TYPES} from './curate-log-handler.js'
@@ -20,6 +23,31 @@ const EXPAND_KNOWLEDGE_TOOL = 'expand_knowledge'
 const SEARCH_KNOWLEDGE_TOOL = 'search_knowledge'
 
 const MAX_READ_PATHS = 10
+const MAX_FRONTMATTER_ARRAY_LENGTH = 50
+const MAX_FRONTMATTER_STRING_LENGTH = 256
+
+type FrontmatterFields = {
+  keywords?: string[]
+  related?: string[]
+  tags?: string[]
+}
+
+/**
+ * Clip a frontmatter array to schema caps: array length <= 50, per-entry
+ * string length <= 256. Returns `undefined` when the input is not an array
+ * or is empty (so the emit can OMIT the field instead of carrying `[]`).
+ */
+function capStringArray(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined
+  const strings: string[] = []
+  for (const entry of value) {
+    if (typeof entry !== 'string') continue
+    strings.push(entry.length > MAX_FRONTMATTER_STRING_LENGTH ? entry.slice(0, MAX_FRONTMATTER_STRING_LENGTH) : entry)
+    if (strings.length >= MAX_FRONTMATTER_ARRAY_LENGTH) break
+  }
+
+  return strings.length > 0 ? strings : undefined
+}
 
 type CurateTaskTypeLiteral = (typeof CURATE_TASK_TYPES)[number]
 
@@ -63,11 +91,26 @@ const isCurateLiteral = (value: string): value is CurateTaskTypeLiteral =>
  * `tags` / `keywords` / `related` arrays onto the curate-op and per-read-path
  * payloads via a daemon-side post-op file read.
  */
+type AnalyticsHookDeps = {
+  /**
+   * Returns the daemon's cached analytics-enabled flag. Used by M12.3 to
+   * short-circuit frontmatter file reads when analytics is disabled (avoids
+   * wasted disk I/O on top of the no-op `track()`). Defaults to `() => true`
+   * in tests; production wires `() => globalConfigHandler.getCachedAnalytics()`.
+   */
+  isEnabled?: () => boolean
+}
+
 export class AnalyticsHook implements ITaskLifecycleHook {
   /** Lazy-injected by the daemon after `setupFeatureHandlers` constructs the client. */
   private analyticsClient?: IAnalyticsClient
+  private readonly isEnabled: () => boolean
   /** In-memory state per active task. Cleared on cleanup(). */
   private readonly tasks = new Map<string, TaskAnalyticsState>()
+
+  constructor(deps: AnalyticsHookDeps = {}) {
+    this.isEnabled = deps.isEnabled ?? (() => true)
+  }
 
   cleanup(taskId: string): void {
     this.tasks.delete(taskId)
@@ -158,13 +201,21 @@ export class AnalyticsHook implements ITaskLifecycleHook {
       // a concrete file path would be the only realistic case).
       if (!op.filePath) continue
 
+      // M12.3: read post-op frontmatter for ADD / UPDATE / MERGE-target /
+      // UPSERT. DELETE skips the read (file is gone). Frontmatter fields
+      // stay absent when the read fails (ENOENT, EACCES, malformed YAML).
+      const frontmatter = op.type === 'DELETE' ? {} : this.readFrontmatterFields(op.filePath)
+
       this.emit(AnalyticsEventNames.CURATE_OPERATION_APPLIED, {
         absolute_path: op.filePath,
         ...(op.confidence ? {confidence: op.confidence} : {}),
         ...(op.impact ? {impact: op.impact} : {}),
+        ...(frontmatter.keywords ? {keywords: frontmatter.keywords} : {}),
         knowledge_path: op.path,
         needs_review: op.needsReview ?? false,
         operation_type: op.type,
+        ...(frontmatter.related ? {related: frontmatter.related} : {}),
+        ...(frontmatter.tags ? {tags: frontmatter.tags} : {}),
         task_id: taskId,
       })
     }
@@ -253,13 +304,26 @@ export class AnalyticsHook implements ITaskLifecycleHook {
     const tier = state.queryMeta?.tier
     const matchedDocCount = state.queryMeta?.searchMetadata?.resultCount ?? 0
 
+    // M12.3: harvest per-path frontmatter on the same sync read path used
+    // for curate emits. Entries whose file is unreadable / has no frontmatter
+    // carry `absolute_path` alone (the three array fields stay absent).
+    const readPathsWithMetadata = cappedPaths.map((p) => {
+      const fm = this.readFrontmatterFields(p)
+      return {
+        absolute_path: p,
+        ...(fm.keywords ? {keywords: fm.keywords} : {}),
+        ...(fm.related ? {related: fm.related} : {}),
+        ...(fm.tags ? {tags: fm.tags} : {}),
+      }
+    })
+
     return {
       cache_hit: tier === 0 || tier === 1,
       duration_ms: this.durationMs(task),
       matched_doc_count: matchedDocCount,
       outcome,
       read_doc_count: readPaths.size,
-      read_paths_with_metadata: cappedPaths.map((p) => ({absolute_path: p})),
+      read_paths_with_metadata: readPathsWithMetadata,
       read_tool_call_count: readToolCallCount,
       search_call_count: searchCallCount,
       task_id: taskId,
@@ -290,6 +354,37 @@ export class AnalyticsHook implements ITaskLifecycleHook {
       client.track(event, properties)
     } catch (error) {
       processLog(`AnalyticsHook: ${event} track failed: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
+
+  /**
+   * Read the YAML frontmatter from `filePath` and return only `tags` /
+   * `keywords` / `related` arrays (capped at 50 entries / 256 chars per
+   * entry). Returns an empty object on ANY failure: ENOENT, EACCES,
+   * permission errors, malformed YAML. Telemetry MUST NOT crash the hook.
+   *
+   * Synchronous I/O on local disk: a single read is sub-millisecond on
+   * SSD; curate runs emit at most one read per op, query at most ten
+   * reads at task completion. The blocking cost is negligible against
+   * the analytics value of the harvested metadata.
+   *
+   * Short-circuits when analytics is disabled to avoid wasted disk I/O.
+   */
+  private readFrontmatterFields(filePath: string): FrontmatterFields {
+    if (!this.isEnabled()) return {}
+    try {
+      const content = readFileSync(filePath, 'utf8')
+      const parsed = parseFrontmatter(content)
+      if (parsed === null) return {}
+      return {
+        keywords: capStringArray(parsed.frontmatter.keywords),
+        related: capStringArray(parsed.frontmatter.related),
+        tags: capStringArray(parsed.frontmatter.tags),
+      }
+    } catch {
+      // ENOENT, EACCES, permission, malformed YAML — all silently treated
+      // as "no frontmatter". No retry, no log noise.
+      return {}
     }
   }
 }
