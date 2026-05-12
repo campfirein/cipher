@@ -206,6 +206,26 @@ export class ChannelTestHarness {
     )
   }
 
+  /**
+   * Phase-3 restart-recovery support. Kills the current daemon (PID from
+   * `daemon.json`) and awaits its exit so the next `run()` spawns a fresh
+   * daemon — without wiping the data dir, so `events.jsonl`,
+   * `pending-permissions.jsonl`, etc. all survive into the new daemon.
+   *
+   * Use this in tests that exercise broker persistence or seq recovery.
+   */
+  async restart(): Promise<void> {
+    try {
+      const raw = await fs.readFile(join(this.dataDir, 'daemon.json'), 'utf8')
+      const parsed = JSON.parse(raw) as {pid?: unknown}
+      if (typeof parsed.pid === 'number') {
+        await killByPid(parsed.pid)
+      }
+    } catch {
+      // No daemon.json — nothing to kill; the next run() spawns fresh.
+    }
+  }
+
   async run(args: string, options?: ChannelTestHarnessRunOptions): Promise<ChannelTestHarnessRunResult> {
     const argv = splitArgs(args)
 
@@ -244,6 +264,34 @@ export class ChannelTestHarness {
         })
       })
     })
+  }
+
+  /**
+   * Phase-3 fixture-side settings seed. Reads the channel's `meta.json`
+   * (under `<projectDir>/.brv/context-tree/channel/<id>/`) and merges the
+   * supplied partial settings into `meta.settings`. The Phase-3 plan §1
+   * fan-out queueing test uses this to set `maxParallelAgents=1` because
+   * the wire has no `channel:update-settings` surface yet.
+   */
+  async seedSettings(
+    channelId: string,
+    partial: {defaultLookbackTurns?: number; maxParallelAgents?: number},
+  ): Promise<void> {
+    const metaPath = join(
+      this.projectDir,
+      '.brv',
+      'context-tree',
+      'channel',
+      channelId,
+      'meta.json',
+    )
+    const raw = await fs.readFile(metaPath, 'utf8')
+    const meta = JSON.parse(raw) as {settings?: Record<string, unknown>; updatedAt: string}
+    meta.settings = {...meta.settings, ...partial}
+    meta.updatedAt = new Date().toISOString()
+    const tmp = `${metaPath}.tmp.${process.pid}.${Date.now()}`
+    await fs.writeFile(tmp, JSON.stringify(meta, undefined, 2), 'utf8')
+    await fs.rename(tmp, metaPath)
   }
 
   async shutdown(): Promise<void> {

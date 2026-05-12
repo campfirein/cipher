@@ -95,8 +95,27 @@ export const start = (behaviour) => {
     }
 
     if (msg.method === 'session/new') {
-      sessionCounter += 1
-      sendResponse(msg.id, {sessionId: `mock-session-${sessionCounter}`})
+      // Phase-3 onboard probing reads `session/new` outcomes when classifying
+      // driver class (A vs B vs C-prime). Fixtures may supply a custom
+      // handler that returns either a result object OR an Error to surface
+      // ACP_SESSION_FAILED.
+      if (behaviour.handleSessionNew === undefined) {
+        sessionCounter += 1
+        sendResponse(msg.id, {sessionId: `mock-session-${sessionCounter}`})
+      } else {
+        try {
+          const result = behaviour.handleSessionNew(msg.params)
+          if (result instanceof Error) {
+            sendError(msg.id, -32_000, result.message)
+          } else {
+            sessionCounter += 1
+            sendResponse(msg.id, result ?? {sessionId: `mock-session-${sessionCounter}`})
+          }
+        } catch (error) {
+          sendError(msg.id, -32_000, error instanceof Error ? error.message : String(error))
+        }
+      }
+
       return
     }
 
