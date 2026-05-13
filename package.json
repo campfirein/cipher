@@ -215,7 +215,9 @@
     "typecheck": "tsc --noEmit && tsc --noEmit -p src/webui/tsconfig.json",
     "version": "git add README.md",
     "build:agent-sdk": "npm run build --workspace=@brv/agent-sdk",
-    "test:agent-sdk": "npm run test --workspace=@brv/agent-sdk"
+    "test:agent-sdk": "npm run test --workspace=@brv/agent-sdk",
+    "build:channel-client": "npm run build --workspace=@brv/channel-client",
+    "test:channel-client": "npm run test --workspace=@brv/channel-client"
   },
   "lint-staged": {
     "*.{ts,tsx}": [
@@ -241,6 +243,7 @@
     "zustand"
   ],
   "workspaces": [
-    "packages/agent-sdk"
+    "packages/agent-sdk",
+    "packages/channel-client"
   ]
 }
