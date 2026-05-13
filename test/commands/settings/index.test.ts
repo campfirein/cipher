@@ -100,14 +100,111 @@ describe('brv settings (index)', () => {
     expect(requestStub.calledOnceWith(SettingsEvents.LIST)).to.be.true
   })
 
-  it('prints a table row per registered setting with KEY/CURRENT/DEFAULT/RESTART columns', async () => {
+  it('renders the M7 grouped layout: scope header + section headers + no RESTART column', async () => {
     const requestStub = mockClient.requestWithAck as sinon.SinonStub
     requestStub.resolves({
       items: [
         {
+          category: 'concurrency',
           current: 25,
           default: 10,
-          description: 'Maximum number of concurrent active projects.',
+          description: 'Max concurrent active projects.',
+          key: 'agentPool.maxSize',
+          max: 100,
+          min: 1,
+          restartRequired: true,
+          type: 'integer',
+        },
+        {
+          category: 'llm',
+          current: 600_000,
+          default: 600_000,
+          description: 'Loop budget.',
+          key: 'llm.iterationBudgetMs',
+          max: 3_600_000,
+          min: 60_000,
+          restartRequired: true,
+          type: 'integer',
+          unit: 'ms',
+        },
+        {
+          category: 'task-history',
+          current: 1000,
+          default: 1000,
+          description: 'History size.',
+          key: 'taskHistory.maxEntries',
+          max: 10_000,
+          min: 10,
+          restartRequired: true,
+          type: 'integer',
+        },
+      ],
+    })
+
+    await createCommand().run()
+    const output = loggedMessages.join('\n')
+
+    // Scope header line + restart reminder.
+    expect(output).to.match(/scope:\s*global/)
+    expect(output).to.include('brv restart')
+
+    // Group section headers, uppercased from category enum.
+    expect(output).to.include('CONCURRENCY')
+    expect(output).to.include('LLM')
+    expect(output).to.include('TASK HISTORY')
+
+    // Rows in human form.
+    const llmRow = loggedMessages.find((m) => m.includes('llm.iterationBudgetMs'))
+    expect(llmRow, 'row for llm.iterationBudgetMs').to.exist
+    expect(llmRow).to.include('10m')
+    expect(llmRow).to.match(/default\s*10m/)
+
+    const historyRow = loggedMessages.find((m) => m.includes('taskHistory.maxEntries'))
+    expect(historyRow).to.include('1,000')
+
+    // Dead RESTART column is gone.
+    const headerLineWithRestart = loggedMessages.find((m) => /\bRESTART\?/.test(m))
+    expect(headerLineWithRestart).to.equal(undefined)
+    const yesNoRow = loggedMessages.find((m) => /\byes\b/.test(m) && m.includes('agentPool.maxSize'))
+    expect(yesNoRow).to.equal(undefined)
+
+    // Footer surfaces the set/reset entry points.
+    expect(output).to.match(/brv settings set/)
+    expect(output).to.match(/brv settings reset/)
+  })
+
+  it('groups items by category even when the daemon returns them in a different order', async () => {
+    const requestStub = mockClient.requestWithAck as sinon.SinonStub
+    requestStub.resolves({
+      items: [
+        {
+          category: 'task-history',
+          current: 1000,
+          default: 1000,
+          description: 'h',
+          key: 'taskHistory.maxEntries',
+          max: 10_000,
+          min: 10,
+          restartRequired: true,
+          type: 'integer',
+        },
+        {
+          category: 'llm',
+          current: 600_000,
+          default: 600_000,
+          description: 'b',
+          key: 'llm.iterationBudgetMs',
+          max: 3_600_000,
+          min: 60_000,
+          restartRequired: true,
+          type: 'integer',
+          unit: 'ms',
+        },
+        {
+          category: 'concurrency',
+          current: 10,
+          default: 10,
+          description: 'c',
           key: 'agentPool.maxSize',
           max: 100,
           min: 1,
@@ -118,17 +215,51 @@ describe('brv settings (index)', () => {
     })
 
     await createCommand().run()
+    const concurrencyIdx = loggedMessages.findIndex((m) => m.includes('CONCURRENCY'))
+    const llmIdx = loggedMessages.findIndex((m) => m.includes('LLM'))
+    const historyIdx = loggedMessages.findIndex((m) => m.includes('TASK HISTORY'))
+    expect(concurrencyIdx).to.be.lessThan(llmIdx)
+    expect(llmIdx).to.be.lessThan(historyIdx)
+  })
 
-    const headerLine = loggedMessages.find((m) => m.includes('KEY') && m.includes('CURRENT'))
-    expect(headerLine, 'header line').to.exist
-    expect(headerLine).to.include('DEFAULT')
-    expect(headerLine).to.include('RESTART')
+  it('adds the coupling hint inline on llm.requestTimeoutMs only', async () => {
+    const requestStub = mockClient.requestWithAck as sinon.SinonStub
+    requestStub.resolves({
+      items: [
+        {
+          category: 'llm',
+          current: 120_000,
+          default: 120_000,
+          description: 'b',
+          key: 'llm.requestTimeoutMs',
+          max: 3_600_000,
+          min: 10_000,
+          restartRequired: true,
+          type: 'integer',
+          unit: 'ms',
+        },
+        {
+          category: 'llm',
+          current: 600_000,
+          default: 600_000,
+          description: 'a',
+          key: 'llm.iterationBudgetMs',
+          max: 3_600_000,
+          min: 60_000,
+          restartRequired: true,
+          type: 'integer',
+          unit: 'ms',
+        },
+      ],
+    })
 
-    const rowLine = loggedMessages.find((m) => m.includes('agentPool.maxSize'))
-    expect(rowLine, 'row for agentPool.maxSize').to.exist
-    expect(rowLine).to.include('25')
-    expect(rowLine).to.include('10')
-    expect(rowLine).to.include('yes')
+    await createCommand().run()
+    const timeoutRow = loggedMessages.find((m) => m.includes('llm.requestTimeoutMs'))
+    expect(timeoutRow, 'timeout row').to.exist
+    expect(timeoutRow).to.include('max loop budget')
+
+    const budgetRow = loggedMessages.find((m) => m.includes('llm.iterationBudgetMs'))
+    expect(budgetRow).to.not.include('max loop budget')
   })
 
   it('emits a one-line help mentioning the restart-required behavior', () => {

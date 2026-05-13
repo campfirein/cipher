@@ -112,9 +112,10 @@ describe('brv settings get', () => {
     expect(requestStub.calledOnceWith(SettingsEvents.GET, {key: 'agentPool.maxSize'})).to.be.true
   })
 
-  it('prints "<current>  (default: <default>)" for a known key', async () => {
+  it('prints the M7 multi-line block for a count key (key / current / default / range / scope)', async () => {
     const requestStub = mockClient.requestWithAck as sinon.SinonStub
     requestStub.resolves({
+      category: 'concurrency',
       current: 25,
       default: 10,
       description: 'desc',
@@ -127,9 +128,38 @@ describe('brv settings get', () => {
     })
 
     await createCommand('agentPool.maxSize').run()
+    const output = loggedMessages.join('\n')
 
-    expect(loggedMessages.some((m) => m.includes('25') && m.includes('default') && m.includes('10'))).to.be.true
+    expect(output).to.include('agentPool.maxSize')
+    expect(output).to.match(/current:\s*25/)
+    expect(output).to.match(/default:\s*10/)
+    expect(output).to.match(/range:\s*1-100/)
+    expect(output).to.match(/scope:\s*global/)
     expect(process.exitCode ?? 0).to.equal(0)
+  })
+
+  it('renders current/default in human duration form for ms-unit keys', async () => {
+    const requestStub = mockClient.requestWithAck as sinon.SinonStub
+    requestStub.resolves({
+      category: 'llm',
+      current: 600_000,
+      default: 600_000,
+      description: 'b',
+      key: 'llm.iterationBudgetMs',
+      max: 3_600_000,
+      min: 60_000,
+      ok: true,
+      restartRequired: true,
+      type: 'integer',
+      unit: 'ms',
+    })
+
+    await createCommand('llm.iterationBudgetMs').run()
+    const output = loggedMessages.join('\n')
+
+    expect(output).to.match(/current:\s*10m\b/)
+    expect(output).to.match(/default:\s*10m\b/)
+    expect(output).to.match(/range:\s*1m-1h/)
   })
 
   it('prints the daemon error message and sets exit code 1 for an unknown_key error', async () => {

@@ -4,7 +4,9 @@ import {
   SettingsEvents,
   type SettingsGetRequest,
   type SettingsGetResponse,
+  type SettingsItemDTO,
 } from '../../../shared/transport/events/settings-events.js'
+import {formatCount, formatDuration} from '../../../shared/utils/format-duration.js'
 import {type DaemonClientOptions, formatConnectionError, withDaemonRetry} from '../../lib/daemon-client.js'
 import {writeJsonResponse} from '../../lib/json-response.js'
 
@@ -45,20 +47,11 @@ export default class SettingsGet extends Command {
         if (format === 'json') {
           writeJsonResponse({
             command: 'settings get',
-            data: {
-              current: response.current,
-              default: response.default,
-              description: response.description,
-              key: response.key,
-              max: response.max,
-              min: response.min,
-              restartRequired: response.restartRequired,
-              type: response.type,
-            },
+            data: this.toJsonPayload(response),
             success: true,
           })
         } else {
-          this.log(`${response.current}  (default: ${response.default})`)
+          this.printTextBlock(response)
         }
 
         return
@@ -79,4 +72,39 @@ export default class SettingsGet extends Command {
       }
     }
   }
+
+  private printTextBlock(item: SettingsItemDTO): void {
+    const current = renderValue(item, item.current)
+    const defaultStr = renderValue(item, item.default)
+    const min = renderValue(item, item.min)
+    const max = renderValue(item, item.max)
+
+    this.log(item.key)
+    this.log(`  current: ${current}`)
+    this.log(`  default: ${defaultStr}`)
+    this.log(`  range:   ${min}-${max}`)
+    this.log(`  scope:   ${item.scope ?? 'global'}`)
+  }
+
+  private toJsonPayload(item: SettingsItemDTO): Record<string, unknown> {
+    const payload: Record<string, unknown> = {
+      current: item.current,
+      default: item.default,
+      description: item.description,
+      key: item.key,
+      max: item.max,
+      min: item.min,
+      restartRequired: item.restartRequired,
+      type: item.type,
+    }
+    if (item.category !== undefined) payload.category = item.category
+    if (item.unit !== undefined) payload.unit = item.unit
+    if (item.scope !== undefined) payload.scope = item.scope
+    return payload
+  }
+}
+
+function renderValue(item: SettingsItemDTO, value: number): string {
+  if (item.unit === 'ms') return formatDuration(value)
+  return formatCount(value)
 }

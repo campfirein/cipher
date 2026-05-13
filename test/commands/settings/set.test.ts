@@ -16,6 +16,14 @@ class TestableSettingsSet extends SettingsSet {
     this.mockConnector = mockConnector
   }
 
+  protected override async fetchDescriptor(key: string) {
+    return super.fetchDescriptor(key, {
+      maxRetries: 1,
+      retryDelayMs: 0,
+      transportConnector: this.mockConnector,
+    })
+  }
+
   protected override async writeSetting(key: string, value: unknown) {
     return super.writeSetting(key, value, {
       maxRetries: 1,
@@ -23,6 +31,38 @@ class TestableSettingsSet extends SettingsSet {
       transportConnector: this.mockConnector,
     })
   }
+}
+
+type DescriptorOverrides = Partial<{
+  category: 'concurrency' | 'llm' | 'task-history'
+  default: number
+  description: string
+  max: number
+  min: number
+  unit: 'count' | 'ms'
+}>
+
+function makeGetResponse(key: string, current: number, overrides: DescriptorOverrides = {}): unknown {
+  const defaults: Record<string, DescriptorOverrides> = {
+    'agentPool.maxSize': {category: 'concurrency', default: 10, max: 100, min: 1},
+    'llm.iterationBudgetMs': {category: 'llm', default: 600_000, max: 3_600_000, min: 60_000, unit: 'ms'},
+    'taskHistory.maxEntries': {category: 'task-history', default: 1000, max: 10_000, min: 10},
+  }
+  const merged = {...defaults[key], ...overrides}
+  const payload: Record<string, unknown> = {
+    current,
+    default: merged.default ?? current,
+    description: merged.description ?? 'desc',
+    key,
+    max: merged.max ?? 100,
+    min: merged.min ?? 1,
+    ok: true,
+    restartRequired: true,
+    type: 'integer',
+  }
+  if (merged.category !== undefined) payload.category = merged.category
+  if (merged.unit !== undefined) payload.unit = merged.unit
+  return payload
 }
 
 describe('brv settings set', () => {
@@ -93,57 +133,125 @@ describe('brv settings set', () => {
     return JSON.parse(stdoutOutput.join('').trim())
   }
 
-  it('parses an integer-like argument and dispatches SET with a number value', async () => {
+  function dispatchByEvent(handler: (event: string, payload?: unknown) => unknown): void {
     const requestStub = mockClient.requestWithAck as sinon.SinonStub
-    requestStub.resolves({ok: true, restartRequired: true})
+    requestStub.callsFake(handler as never)
+  }
 
-    await createCommand('agentPool.maxSize', '25').run()
-
-    expect(requestStub.calledOnce).to.be.true
-    const {args} = requestStub.firstCall
-    expect(args[0]).to.equal(SettingsEvents.SET)
-    expect(args[1]).to.deep.equal({key: 'agentPool.maxSize', value: 25})
-  })
-
-  it('sends a non-numeric argument as a string for the daemon to reject', async () => {
-    const requestStub = mockClient.requestWithAck as sinon.SinonStub
-    requestStub.resolves({
-      error: {code: 'invalid_value', key: 'agentPool.maxSize', message: 'expected integer'},
-      ok: false,
+  it('count keys: parses integer arg, fetches GET for descriptor, then dispatches SET (number)', async () => {
+    dispatchByEvent((event, payload) => {
+      if (event === SettingsEvents.GET) return makeGetResponse('agentPool.maxSize', 10)
+      if (event === SettingsEvents.SET) return {ok: true, restartRequired: true}
+      throw new Error(`unexpected event ${event}: ${JSON.stringify(payload)}`)
     })
 
-    await createCommand('agentPool.maxSize', 'abc').run()
-
-    const {args} = requestStub.firstCall
-    expect(args[1]).to.deep.equal({key: 'agentPool.maxSize', value: 'abc'})
-  })
-
-  it('prints "Setting saved. Run `brv restart` to apply." on success', async () => {
-    const requestStub = mockClient.requestWithAck as sinon.SinonStub
-    requestStub.resolves({ok: true, restartRequired: true})
-
     await createCommand('agentPool.maxSize', '25').run()
 
-    expect(loggedMessages.some((m) => m.includes('Setting saved') && m.includes('brv restart'))).to.be.true
+    const requestStub = mockClient.requestWithAck as sinon.SinonStub
+    const setCall = requestStub.getCalls().find((c) => c.args[0] === SettingsEvents.SET)
+    expect(setCall, 'SET dispatch').to.exist
+    expect(setCall?.args[1]).to.deep.equal({key: 'agentPool.maxSize', value: 25})
     expect(process.exitCode ?? 0).to.equal(0)
   })
 
-  it('prints the daemon error and sets exit code 1 on invalid_value', async () => {
-    const requestStub = mockClient.requestWithAck as sinon.SinonStub
-    requestStub.resolves({
-      error: {code: 'invalid_value', key: 'agentPool.maxSize', message: 'value 0 is outside allowed range', value: 0},
-      ok: false,
+  it('ms keys: parses "30m" via parseDuration and dispatches SET with the integer ms value', async () => {
+    dispatchByEvent((event) => {
+      if (event === SettingsEvents.GET) return makeGetResponse('llm.iterationBudgetMs', 600_000)
+      if (event === SettingsEvents.SET) return {ok: true, restartRequired: true}
+      throw new Error('unexpected event')
     })
 
-    await createCommand('agentPool.maxSize', '0').run()
+    await createCommand('llm.iterationBudgetMs', '30m').run()
+
+    const requestStub = mockClient.requestWithAck as sinon.SinonStub
+    const setCall = requestStub.getCalls().find((c) => c.args[0] === SettingsEvents.SET)
+    expect(setCall?.args[1]).to.deep.equal({key: 'llm.iterationBudgetMs', value: 1_800_000})
+    expect(process.exitCode ?? 0).to.equal(0)
+  })
+
+  it('ms keys: bare integer input is still accepted as raw ms (back-compat)', async () => {
+    dispatchByEvent((event) => {
+      if (event === SettingsEvents.GET) return makeGetResponse('llm.iterationBudgetMs', 600_000)
+      if (event === SettingsEvents.SET) return {ok: true, restartRequired: true}
+      throw new Error('unexpected event')
+    })
+
+    await createCommand('llm.iterationBudgetMs', '1800000').run()
+
+    const requestStub = mockClient.requestWithAck as sinon.SinonStub
+    const setCall = requestStub.getCalls().find((c) => c.args[0] === SettingsEvents.SET)
+    expect(setCall?.args[1]).to.deep.equal({key: 'llm.iterationBudgetMs', value: 1_800_000})
+  })
+
+  it('count keys: a duration-shaped argument is rejected locally with a unit-mismatch message', async () => {
+    dispatchByEvent((event) => {
+      if (event === SettingsEvents.GET) return makeGetResponse('agentPool.maxSize', 10)
+      throw new Error('SET should not be dispatched on cross-unit input')
+    })
+
+    await createCommand('agentPool.maxSize', '30m').run()
+
+    const requestStub = mockClient.requestWithAck as sinon.SinonStub
+    const setCall = requestStub.getCalls().find((c) => c.args[0] === SettingsEvents.SET)
+    expect(setCall).to.equal(undefined)
+    const stderr = loggedMessages.join('\n')
+    expect(stderr).to.match(/expects an integer count/)
+    expect(process.exitCode).to.equal(1)
+  })
+
+  it('ms keys: an unknown-unit argument is rejected locally with the parser hint', async () => {
+    dispatchByEvent((event) => {
+      if (event === SettingsEvents.GET) return makeGetResponse('llm.iterationBudgetMs', 600_000)
+      throw new Error('SET should not be dispatched on parse error')
+    })
+
+    await createCommand('llm.iterationBudgetMs', '10x').run()
+
+    const stderr = loggedMessages.join('\n')
+    expect(stderr).to.match(/try 30m, 1h, 1h 30m, or a raw ms integer/)
+    expect(process.exitCode).to.equal(1)
+  })
+
+  it('echoes the value in human form on success for ms keys', async () => {
+    dispatchByEvent((event) => {
+      if (event === SettingsEvents.GET) return makeGetResponse('llm.iterationBudgetMs', 600_000)
+      if (event === SettingsEvents.SET) return {ok: true, restartRequired: true}
+      throw new Error('unexpected event')
+    })
+
+    await createCommand('llm.iterationBudgetMs', '30m').run()
+
+    const output = loggedMessages.join('\n')
+    expect(output).to.include('Setting saved: llm.iterationBudgetMs = 30m')
+    expect(output).to.include('brv restart')
+    expect(process.exitCode ?? 0).to.equal(0)
+  })
+
+  it('prints the daemon error and sets exit code 1 on validator rejection (post-parse)', async () => {
+    dispatchByEvent((event) => {
+      if (event === SettingsEvents.GET) return makeGetResponse('agentPool.maxSize', 10)
+      if (event === SettingsEvents.SET) {
+        return {
+          error: {code: 'invalid_value', key: 'agentPool.maxSize', message: 'value 150 is outside allowed range [1, 100]', value: 150},
+          ok: false,
+        }
+      }
+
+      throw new Error('unexpected event')
+    })
+
+    await createCommand('agentPool.maxSize', '150').run()
 
     expect(loggedMessages.some((m) => m.includes('outside allowed range'))).to.be.true
     expect(process.exitCode).to.equal(1)
   })
 
   it('outputs JSON success payload', async () => {
-    const requestStub = mockClient.requestWithAck as sinon.SinonStub
-    requestStub.resolves({ok: true, restartRequired: true})
+    dispatchByEvent((event) => {
+      if (event === SettingsEvents.GET) return makeGetResponse('agentPool.maxSize', 10)
+      if (event === SettingsEvents.SET) return {ok: true, restartRequired: true}
+      throw new Error('unexpected event')
+    })
 
     await createJsonCommand('agentPool.maxSize', '25').run()
 
@@ -154,10 +262,16 @@ describe('brv settings set', () => {
   })
 
   it('outputs JSON error payload and sets exit code 1 on validation failure', async () => {
-    const requestStub = mockClient.requestWithAck as sinon.SinonStub
-    requestStub.resolves({
-      error: {code: 'invalid_value', key: 'agentPool.maxSize', message: 'too high', value: 999},
-      ok: false,
+    dispatchByEvent((event) => {
+      if (event === SettingsEvents.GET) return makeGetResponse('agentPool.maxSize', 10)
+      if (event === SettingsEvents.SET) {
+        return {
+          error: {code: 'invalid_value', key: 'agentPool.maxSize', message: 'too high', value: 999},
+          ok: false,
+        }
+      }
+
+      throw new Error('unexpected event')
     })
 
     await createJsonCommand('agentPool.maxSize', '999').run()
