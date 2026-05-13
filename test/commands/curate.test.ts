@@ -528,16 +528,18 @@ describe('Curate Command', () => {
       expect(loggedMessages.some((m) => m.startsWith('✓ Context queued for processing.'))).to.be.true
     })
 
-    it('should warn when --timeout is used with --detach', async () => {
+    it('warns once that --timeout is deprecated when the user passes a non-default value', async () => {
       await createCommand('test context', '--detach', '--timeout', '600').run()
 
-      expect(loggedMessages).to.include('Note: --timeout has no effect with --detach')
+      const deprecationWarnings = loggedMessages.filter((m) => m.includes('--timeout is deprecated'))
+      expect(deprecationWarnings).to.have.lengthOf(1)
+      expect(deprecationWarnings[0]).to.include('llm.iterationBudgetMs')
     })
 
-    it('should not warn about --timeout with --detach when using default', async () => {
+    it('does not warn about deprecation when --timeout is omitted', async () => {
       await createCommand('test context', '--detach').run()
 
-      expect(loggedMessages).to.not.include('Note: --timeout has no effect with --detach')
+      expect(loggedMessages.some((m) => m.includes('--timeout is deprecated'))).to.be.false
     })
 
     it('should accept --timeout flag in JSON mode', async () => {

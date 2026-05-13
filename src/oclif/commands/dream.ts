@@ -32,6 +32,7 @@ import {
 } from '../lib/daemon-client.js'
 import {writeJsonResponse} from '../lib/json-response.js'
 import {DEFAULT_TIMEOUT_SECONDS, MAX_TIMEOUT_SECONDS, MIN_TIMEOUT_SECONDS, waitForTaskCompletion} from '../lib/task-client.js'
+import {TIMEOUT_DEPRECATION_HELP, warnIfTimeoutFlagUsed} from '../lib/timeout-deprecation.js'
 
 /** Build the dep bundle for `undoLastDream` on the CLI-direct path; exported for wiring tests. */
 export async function buildUndoDeps(
@@ -99,7 +100,7 @@ export default class Dream extends Command {
     }),
     timeout: Flags.integer({
       default: DEFAULT_TIMEOUT_SECONDS,
-      description: 'Maximum seconds to wait for task completion',
+      description: TIMEOUT_DEPRECATION_HELP,
       max: MAX_TIMEOUT_SECONDS,
       min: MIN_TIMEOUT_SECONDS,
     }),
@@ -116,6 +117,12 @@ export default class Dream extends Command {
   public async run(): Promise<void> {
     const {flags: rawFlags} = await this.parse(Dream)
     const format = rawFlags.format === 'json' ? 'json' : 'text'
+
+    warnIfTimeoutFlagUsed({
+      defaultValue: DEFAULT_TIMEOUT_SECONDS,
+      log: (message) => this.log(message),
+      userValue: rawFlags.timeout,
+    })
 
     if (rawFlags.undo) {
       await this.runUndo(format)
@@ -148,7 +155,6 @@ export default class Dream extends Command {
             force: rawFlags.force,
             format,
             projectRoot,
-            timeout: rawFlags.timeout ?? DEFAULT_TIMEOUT_SECONDS,
             worktreeRoot,
           })
         },
@@ -221,10 +227,9 @@ export default class Dream extends Command {
     force: boolean
     format: 'json' | 'text'
     projectRoot?: string
-    timeout: number
     worktreeRoot?: string
   }): Promise<void> {
-    const {client, detach, force, format, projectRoot, timeout, worktreeRoot} = props
+    const {client, detach, force, format, projectRoot, worktreeRoot} = props
     const taskId = randomUUID()
     const taskPayload = {
       content: force ? 'Memory consolidation (force)' : 'Memory consolidation',
@@ -236,10 +241,6 @@ export default class Dream extends Command {
     }
 
     if (detach) {
-      if (timeout !== DEFAULT_TIMEOUT_SECONDS && format !== 'json') {
-        this.log('Note: --timeout has no effect with --detach')
-      }
-
       const ack = await client.requestWithAck<TaskAck>(TaskEvents.CREATE, taskPayload)
       const {logId} = ack
 
@@ -285,7 +286,7 @@ export default class Dream extends Command {
             }
           },
           taskId,
-          timeoutMs: timeout * 1000,
+          timeoutMs: DEFAULT_TIMEOUT_SECONDS * 1000,
         },
         (msg) => this.log(msg),
       )
