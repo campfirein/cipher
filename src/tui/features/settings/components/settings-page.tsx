@@ -2,9 +2,13 @@
  * SettingsPage — interactive /settings view for the TUI.
  *
  * Browse mode: arrow keys move the cursor, Enter edits, R resets, Esc exits.
- * Edit mode: type a new integer, Enter saves through the transport, Esc
- * cancels. Validation errors from the daemon surface inline on the row.
- * After any successful save, a restart banner appears at the top.
+ * Edit mode: the focused row transforms in place to `<current> -> [<buffer>]`,
+ * the bottom hint line swaps to edit-mode help, and `Enter` saves through
+ * the transport. Validation errors render as a single line directly under
+ * the editing row and persist until `Enter` is re-pressed with valid input.
+ *
+ * Rendered in plain text — no theme colours on row content. The ASCII `>`
+ * cursor is the only selection signal.
  */
 
 import {Box, Text, useInput} from 'ink'
@@ -13,9 +17,15 @@ import React, {useCallback, useMemo, useState} from 'react'
 
 import type {CustomDialogCallbacks} from '../../../types/commands.js'
 
-import {useTheme} from '../../../hooks/index.js'
 import {useGetSettings, useResetSetting, useSetSetting} from '../api/settings-api.js'
-import {buildSettingsRows, type SettingsRow, validateSettingInput} from '../utils/format-settings.js'
+import {
+  bottomHintFor,
+  buildSettingsRows,
+  groupRowsByCategory,
+  parseRowInput,
+  preFillBufferFor,
+  type SettingsRow,
+} from '../utils/format-settings.js'
 
 type Mode = 'browse' | 'edit' | 'saving'
 
@@ -23,9 +33,6 @@ export function SettingsPage({onCancel, onComplete}: CustomDialogCallbacks): Rea
   const {data, error, isLoading} = useGetSettings()
   const setMutation = useSetSetting()
   const resetMutation = useResetSetting()
-  const {
-    theme: {colors},
-  } = useTheme()
 
   const [cursor, setCursor] = useState(0)
   const [mode, setMode] = useState<Mode>('browse')
@@ -34,27 +41,28 @@ export function SettingsPage({onCancel, onComplete}: CustomDialogCallbacks): Rea
   const [dirtyKeys, setDirtyKeys] = useState<ReadonlySet<string>>(new Set())
 
   const rows = useMemo<SettingsRow[]>(() => (data ? buildSettingsRows(data.items) : []), [data])
+  const groups = useMemo(() => groupRowsByCategory(rows), [rows])
+  const focusedRow = rows[cursor]
+  const hintMode: 'browse' | 'edit' | 'edit-error' | 'saving' =
+    mode === 'edit' && rowError !== undefined ? 'edit-error' : mode
 
-  const enterEdit = useCallback(
-    (row: SettingsRow) => {
-      setEditBuffer(String(row.current))
-      setRowError(undefined)
-      setMode('edit')
-    },
-    [],
-  )
+  const enterEdit = useCallback((row: SettingsRow) => {
+    setEditBuffer(preFillBufferFor(row))
+    setRowError(undefined)
+    setMode('edit')
+  }, [])
 
   const commitEdit = useCallback(
     async (row: SettingsRow, raw: string) => {
-      const localError = validateSettingInput(raw, {max: row.max, min: row.min})
-      if (localError !== undefined) {
-        setRowError(localError)
+      const parsed = parseRowInput(row, raw)
+      if (parsed.kind === 'error') {
+        setRowError(parsed.message)
         return
       }
 
       setMode('saving')
       setRowError(undefined)
-      const response = await setMutation.mutateAsync({key: row.key, value: Number(raw.trim())})
+      const response = await setMutation.mutateAsync({key: row.key, value: parsed.value})
       if (response.ok) {
         setDirtyKeys((previous) => {
           const next = new Set(previous)
@@ -174,71 +182,76 @@ export function SettingsPage({onCancel, onComplete}: CustomDialogCallbacks): Rea
     )
   }
 
-  const keyWidth = Math.max('KEY'.length, ...rows.map((r) => r.label.length))
-  const currentWidth = Math.max('CURRENT'.length, ...rows.map((r) => r.displayCurrent.length))
-  const defaultWidth = Math.max('DEFAULT'.length, ...rows.map((r) => r.displayDefault.length))
+  const keyWidth = Math.max(40, ...rows.map((r) => r.label.length))
+  const currentWidth = Math.max(7, ...rows.map((r) => r.displayCurrent.length))
+  const defaultWidth = Math.max(8, ...rows.map((r) => r.displayDefault.length))
+  const rangeWidth = Math.max(8, ...rows.map((r) => r.displayRange.length))
 
   return (
     <Box flexDirection="column">
       {dirtyKeys.size > 0 && (
         <Box marginBottom={1}>
-          <Text color={colors.warning}>
-            Settings changed. Run `brv restart` to apply.
-          </Text>
+          <Text>Settings changed. Run `brv restart` to apply.</Text>
         </Box>
       )}
 
-      <Box>
-        <Text color={colors.dimText}>
-          {'  ' + pad('KEY', keyWidth)}  {pad('CURRENT', currentWidth)}  {pad('DEFAULT', defaultWidth)}  RESTART?
-        </Text>
+      <Box marginBottom={1}>
+        <Text>SETTINGS</Text>
+        <Text>{'    '}</Text>
+        <Text>scope: global - `brv restart` to apply</Text>
       </Box>
 
-      {rows.map((row, index) => {
-        const isSelected = index === cursor
-        const marker = isSelected ? '> ' : '  '
-        const lineColor = isSelected ? colors.primary : row.modified ? colors.text : colors.dimText
-        return (
-          <Box flexDirection="column" key={row.key}>
-            <Box>
-              <Text color={lineColor}>
-                {marker}
-                {pad(row.label, keyWidth)}  {pad(row.displayCurrent, currentWidth)}  {pad(row.displayDefault, defaultWidth)}  yes
-              </Text>
-            </Box>
-            {isSelected && mode === 'edit' && (
-              <Box marginLeft={2}>
-                <Text color={colors.secondary}>{'> '}</Text>
-                <Text color={colors.text}>{editBuffer}</Text>
-                <Text color={colors.dimText}>
-                  {'  '}
-                  (min {row.min}, max {row.max}; Enter to save, Esc to cancel)
+      {groups.map((group) => (
+        <Box flexDirection="column" key={group.category} marginBottom={1}>
+          <Text>{group.header}</Text>
+          {group.rows.map((row) => {
+            const isSelected = rows[cursor]?.key === row.key
+            const marker = isSelected ? '> ' : '  '
+            const isEditingThis = isSelected && mode === 'edit'
+            const isSavingThis = isSelected && mode === 'saving'
+            const currentDisplay = renderCurrentCell(row, {
+              editBuffer,
+              isEditingThis,
+              isSavingThis,
+              width: currentWidth,
+            })
+            return (
+              <Box flexDirection="column" key={row.key}>
+                <Text>
+                  {marker}
+                  {pad(row.label, keyWidth)}  {currentDisplay}  {pad(`(default ${row.displayDefault})`, defaultWidth + 10)}  {pad(row.displayRange, rangeWidth)}
                 </Text>
+                {isSelected && rowError !== undefined && (
+                  <Box marginLeft={2}>
+                    <Text>{rowError}</Text>
+                  </Box>
+                )}
               </Box>
-            )}
-            {isSelected && rowError && (
-              <Box marginLeft={2}>
-                <Text color={colors.errorText}>{rowError}</Text>
-              </Box>
-            )}
-            {isSelected && mode === 'saving' && (
-              <Box marginLeft={2}>
-                <Text color={colors.dimText}>
-                  <Spinner type="dots" /> Saving...
-                </Text>
-              </Box>
-            )}
-          </Box>
-        )
-      })}
+            )
+          })}
+        </Box>
+      ))}
 
       <Box marginTop={1}>
-        <Text color={colors.dimText}>
-          Up/Down to move, Enter to edit, R to reset to default, Esc to exit
-        </Text>
+        <Text>{bottomHintFor(hintMode, focusedRow?.key)}</Text>
       </Box>
     </Box>
   )
+}
+
+function renderCurrentCell(
+  row: SettingsRow,
+  state: {readonly editBuffer: string; readonly isEditingThis: boolean; readonly isSavingThis: boolean; readonly width: number},
+): string {
+  if (state.isEditingThis) {
+    return `${row.displayCurrent} -> [${state.editBuffer}_]`
+  }
+
+  if (state.isSavingThis) {
+    return `${row.displayCurrent} -> [${state.editBuffer}] saving...`
+  }
+
+  return pad(row.displayCurrent, state.width)
 }
 
 function pad(value: string, width: number): string {
