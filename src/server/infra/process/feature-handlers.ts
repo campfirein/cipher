@@ -238,7 +238,7 @@ export async function setupFeatureHandlers({
   new ReviewHandler({
     curateLogStoreFactory: (projectPath) => new FileCurateLogStore({ baseDir: getProjectDataDir(projectPath) }),
     onResolved({ projectPath, taskId }) {
-      broadcastToProject(projectPath, ReviewEvents.NOTIFY, { pendingCount: 0, reviewUrl: '', taskId })
+      broadcastToProject(projectPath, ReviewEvents.NOTIFY, { pendingCount: 0, taskId })
     },
     projectConfigStore,
     resolveProjectPath,

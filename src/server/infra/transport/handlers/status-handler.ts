@@ -12,6 +12,7 @@ import type {ITransportServer} from '../../../core/interfaces/transport/i-transp
 import {StatusEvents, type StatusGetRequest, type StatusGetResponse} from '../../../../shared/transport/events/status-events.js'
 import {BRV_DIR, CONTEXT_TREE_DIR} from '../../../constants.js'
 import {listSourceStatuses} from '../../../core/domain/source/source-operations.js'
+import {buildReviewUrl} from '../../../utils/build-review-url.js'
 import {BrokenWorktreePointerError, MalformedWorktreePointerError, resolveProject} from '../../project/resolve-project.js'
 import {type ProjectPathResolver, resolveRequiredProjectPath} from './handler-types.js'
 
@@ -197,10 +198,8 @@ export class StatusHandler {
 
       if (pendingFiles.size > 0) {
         result.pendingReviewCount = pendingFiles.size
-        const reviewPort = this.webuiPort ?? this.transport.getPort()
-        if (reviewPort) {
-          const encoded = Buffer.from(projectPath).toString('base64url')
-          result.reviewUrl = `http://127.0.0.1:${reviewPort}/review?project=${encoded}`
+        if (this.webuiPort) {
+          result.reviewUrl = buildReviewUrl(this.webuiPort, projectPath)
         }
       }
     } catch {

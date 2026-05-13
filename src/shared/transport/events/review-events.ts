@@ -21,7 +21,8 @@ export interface ReviewSetDisabledResponse {
 
 export interface ReviewNotifyEvent {
   pendingCount: number
-  reviewUrl: string
+  /** URL to the local Changes tab (only set when WebUI is running). */
+  reviewUrl?: string
   taskId: string
 }
 

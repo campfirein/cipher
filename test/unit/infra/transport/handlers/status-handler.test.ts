@@ -18,6 +18,7 @@ import type {CurateLogEntry} from '../../../../../src/server/core/domain/entitie
 import type {StatusDTO} from '../../../../../src/shared/transport/types/dto.js'
 
 import {StatusHandler} from '../../../../../src/server/infra/transport/handlers/status-handler.js'
+import {encodeBase64Url} from '../../../../../src/server/utils/base64url.js'
 import {StatusEvents} from '../../../../../src/shared/transport/events/status-events.js'
 import {createMockTransportServer, type MockTransportServer} from '../../../../helpers/mock-factories.js'
 
@@ -118,9 +119,9 @@ describe('StatusHandler', () => {
     rmSync(testDir, {force: true, recursive: true})
   })
 
-  function createHandler(projectPath?: string): StatusHandler {
-    if (projectPath) {
-      resolveProjectPath = stub().returns(projectPath)
+  function createHandler(opts: {projectPath?: string; webuiPort?: number} = {}): StatusHandler {
+    if (opts.projectPath) {
+      resolveProjectPath = stub().returns(opts.projectPath)
     }
 
     const handler = new StatusHandler({
@@ -131,6 +132,7 @@ describe('StatusHandler', () => {
       resolveProjectPath,
       tokenStore: deps.tokenStore,
       transport,
+      webuiPort: opts.webuiPort,
     })
     handler.setup()
     return handler
@@ -365,8 +367,7 @@ describe('StatusHandler', () => {
     })
 
     it('should include reviewUrl when pending reviews exist', async () => {
-      transport.getPort.returns(54_321)
-      createHandler()
+      createHandler({webuiPort: 54_321})
 
       deps.curateLogStore.list.resolves([
         makeCompletedEntry([
@@ -383,7 +384,9 @@ describe('StatusHandler', () => {
 
       const result = await callGetHandler()
       expect(result.status.reviewUrl).to.be.a('string')
-      expect(result.status.reviewUrl).to.include('http://127.0.0.1:54321/review?project=')
+      expect(result.status.reviewUrl).to.equal(
+        `http://localhost:54321/changes?project=${encodeBase64Url('/project/current')}`,
+      )
     })
 
     it('should NOT include pendingReviewCount when no pending ops exist', async () => {
@@ -448,8 +451,7 @@ describe('StatusHandler', () => {
     })
 
     it('should detect pending ops even when needsReview is undefined', async () => {
-      transport.getPort.returns(54_321)
-      createHandler()
+      createHandler({webuiPort: 54_321})
 
       deps.curateLogStore.list.resolves([
         makeCompletedEntry([
@@ -482,7 +484,7 @@ describe('StatusHandler', () => {
 
   describe('currentDirectory', () => {
     it('should equal projectPath when no cwd is provided', async () => {
-      createHandler('/test/project')
+      createHandler({projectPath: '/test/project'})
 
       const {status} = await callGetHandler()
 
@@ -497,7 +499,7 @@ describe('StatusHandler', () => {
       writeFileSync(join(projectRoot, '.brv', 'config.json'), JSON.stringify({version: '0.0.1'}))
       mkdirSync(subDir, {recursive: true})
 
-      createHandler(projectRoot)
+      createHandler({projectPath: projectRoot})
 
       const {status} = await callGetHandler({cwd: subDir})
 
@@ -510,7 +512,7 @@ describe('StatusHandler', () => {
       const noProjectDir = join(testDir, 'no-project')
       mkdirSync(noProjectDir, {recursive: true})
 
-      createHandler('/fallback/project')
+      createHandler({projectPath: '/fallback/project'})
 
       const {status} = await callGetHandler({cwd: noProjectDir})
 
@@ -530,7 +532,7 @@ describe('StatusHandler', () => {
       mkdirSync(join(cwdProject, '.brv'), {recursive: true})
       writeFileSync(join(cwdProject, '.brv', 'config.json'), JSON.stringify({version: '0.0.1'}))
 
-      createHandler(cwdProject)
+      createHandler({projectPath: cwdProject})
 
       const {status} = await callGetHandler({cwd: cwdProject, projectRootFlag: explicitRoot})
 
@@ -544,7 +546,7 @@ describe('StatusHandler', () => {
       mkdirSync(join(explicitRoot, '.brv'), {recursive: true})
       writeFileSync(join(explicitRoot, '.brv', 'config.json'), JSON.stringify({version: '0.0.1'}))
 
-      createHandler('/some/other/project')
+      createHandler({projectPath: '/some/other/project'})
 
       const {status} = await callGetHandler({projectRootFlag: explicitRoot})
 
