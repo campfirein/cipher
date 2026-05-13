@@ -193,9 +193,13 @@ function installSigintCancel(deps: {client: ITransportClient; taskId: string}): 
     // the signal handler and crash the process with an uncaught exception.
     try {
       deps.client.request(TaskEvents.CANCEL, {taskId: deps.taskId})
-    } catch {
+    } catch (error) {
       // Transport unavailable — the wait loop will time out or see a
-      // disconnect event and surface that path instead.
+      // disconnect event and surface that path instead. Log the swallowed
+      // throw to stderr so a genuine bug (bad payload, transport regression)
+      // leaves a breadcrumb instead of failing silently.
+      const message = error instanceof Error ? error.message : String(error)
+      process.stderr.write(`[brv] cancel request failed locally: ${message}\n`)
     }
   }
 

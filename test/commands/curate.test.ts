@@ -756,7 +756,8 @@ describe('Curate Command', () => {
 
       const json = parseLastJsonLine()
       expect(json.command).to.equal('curate')
-      expect(json.success).to.equal(true)
+      // success: false tracks the non-zero exit code; cancellation semantics live in data.status.
+      expect(json.success).to.equal(false)
       expect(json.data).to.deep.include({event: 'cancelled', status: 'cancelled'})
     })
   })

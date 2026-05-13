@@ -851,6 +851,21 @@ describe('TaskRouter', () => {
       expect(result).to.deep.equal({error: 'Task not found', success: false})
     })
 
+    it('returns success on a retry after the task was already cancelled (idempotent)', () => {
+      // First cancel succeeds and moves the task into completedTasks via
+      // handleTaskCancelled. A retry (e.g. due to a dropped response in
+      // withDaemonRetry) sees the task gone from this.tasks but still
+      // present in completedTasks with status: 'cancelled' — the daemon
+      // returns success so the retry isn't reported as a misleading failure.
+      const cancelledHandler = transportHelper.requestHandlers.get(TransportTaskEventNames.CANCELLED)
+      cancelledHandler!({taskId}, 'agent-1')
+
+      const cancelHandler = transportHelper.requestHandlers.get(TransportTaskEventNames.CANCEL)
+      const result = cancelHandler!({taskId}, 'client-1')
+
+      expect(result).to.deep.equal({success: true})
+    })
+
     describe('queued task cancellation (T1.3)', () => {
       it('cancels a queued task directly via agentPool, broadcasts cancelled, never forwards to agent', () => {
         agentPool.cancelQueuedTask.returns(true)
