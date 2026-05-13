@@ -632,21 +632,43 @@ export class TaskRouter {
     }
   }
 
-  private handleTaskCancel(data: TaskCancelRequest, _clientId: string): TaskCancelResponse {
+  private async handleTaskCancel(data: TaskCancelRequest, clientId: string): Promise<TaskCancelResponse> {
     const {taskId} = data
 
     transportLog(`Task cancel requested: ${taskId}`)
 
     const task = this.tasks.get(taskId)
     if (!task) {
-      // Idempotency: if the task already reached status: 'cancelled' on a
-      // prior cancel, return success so a retry (e.g. withDaemonRetry on a
-      // dropped response) isn't reported as a misleading "Task not found"
-      // failure. Any other terminal state (completed / error) — or a truly
-      // unknown taskId — still returns the structured error.
+      // Idempotency — fast path: if the task already reached status:
+      // 'cancelled' on a prior cancel, the in-memory completedTasks entry
+      // (within TASK_CLEANUP_GRACE_PERIOD_MS) lets us short-circuit without
+      // a disk read.
       const prior = this.completedTasks.get(taskId)
       if (prior?.task.status === 'cancelled') {
         return {success: true}
+      }
+
+      // Idempotency — durable path: completedTasks is a cache and ages out
+      // after the cleanup grace period. The persistent task history store,
+      // populated by TaskHistoryHook.onTaskCancelled, is the long-lived
+      // source of truth. Consulting it lets late retries (and retries
+      // across daemon restarts) still report success rather than a
+      // misleading "Task not found".
+      if (this.getTaskHistoryStore !== undefined) {
+        const projectPath = this.resolveClientProjectPath?.(clientId)
+        if (projectPath !== undefined) {
+          try {
+            const store = this.getTaskHistoryStore(projectPath)
+            const entry = await store.getById(taskId)
+            if (entry?.status === 'cancelled') {
+              return {success: true}
+            }
+          } catch (error) {
+            transportLog(
+              `handleTaskCancel: history-store lookup failed for ${taskId}: ${error instanceof Error ? error.message : String(error)}`,
+            )
+          }
+        }
       }
 
       return {error: 'Task not found', success: false}
