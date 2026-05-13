@@ -384,7 +384,6 @@ Bad examples:
             }
           },
           taskId,
-          timeoutMs: DEFAULT_TIMEOUT_SECONDS * 1000,
         },
         (msg) => this.log(msg),
       )

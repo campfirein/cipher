@@ -286,7 +286,6 @@ export default class Dream extends Command {
             }
           },
           taskId,
-          timeoutMs: DEFAULT_TIMEOUT_SECONDS * 1000,
         },
         (msg) => this.log(msg),
       )
