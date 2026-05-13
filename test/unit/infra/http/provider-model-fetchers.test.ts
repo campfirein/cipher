@@ -301,6 +301,25 @@ describe('OpenAIModelFetcher', () => {
       expect(models[0].contextLength).to.equal(128_000)
     })
 
+    it('skips entries with neither id nor name', async () => {
+      stub(axios, 'get').resolves({
+        data: {
+          data: [
+            {id: 'a-model'},
+            {description: 'orphan with no id or name'},
+            {id: '', name: ''},
+            {id: 'b-model'},
+          ],
+        },
+        status: 200,
+      })
+      const fetcher = new OpenAICompatibleModelFetcher('https://example.test/v1', 'OpenAI Compatible')
+
+      const models = await fetcher.fetchModels('sk-test')
+
+      expect(models.map((m) => m.id)).to.deep.equal(['a-model', 'b-model'])
+    })
+
     it('passes through unique ids unchanged', async () => {
       stub(axios, 'get').resolves({
         data: {

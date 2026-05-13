@@ -429,6 +429,7 @@ export class OpenAICompatibleModelFetcher implements IProviderModelFetcher {
     const uniqueModels = new Map<string, ProviderModelInfo>()
     for (const model of modelList) {
       const id = String(model.id ?? model.name ?? '')
+      if (!id) continue
       if (uniqueModels.has(id)) continue
       uniqueModels.set(id, {
         contextLength: typeof model.context_length === 'number' ? model.context_length : 128_000,
