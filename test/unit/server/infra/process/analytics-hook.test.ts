@@ -360,6 +360,18 @@ describe('AnalyticsHook', () => {
       expect(props.matched_doc_count).to.equal(0)
     })
 
+    it('omits read_paths_with_metadata when the command had no read paths (matches optional schema)', async () => {
+      const task = buildQueryTask() // empty toolCalls
+      await hook.onTaskCreate(task)
+      await hook.onTaskCompleted(task.taskId, '', task)
+
+      const props = trackStub.firstCall.args[1] as Record<string, unknown>
+      expect(props).to.not.have.property('read_paths_with_metadata')
+      // Sanity: counts are zero, not omitted.
+      expect(props.read_doc_count).to.equal(0)
+      expect(props.read_tool_call_count).to.equal(0)
+    })
+
     it('emits outcome=error on onTaskError for query', async () => {
       const task = buildQueryTask()
       await hook.onTaskCreate(task)

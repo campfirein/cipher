@@ -126,9 +126,15 @@ export class AnalyticsHook implements ITaskLifecycleHook {
 
     if (state.flavor === 'curate') {
       const outcome = state.counters.failed > 0 ? 'partial' : 'completed'
-      this.emit(AnalyticsEventNames.CURATE_RUN_COMPLETED, this.buildCurateRunPayload(taskId, task, state, outcome))
+      this.emit(
+        AnalyticsEventNames.CURATE_RUN_COMPLETED,
+        this.buildCurateRunPayload({outcome, state, task, taskId}),
+      )
     } else {
-      this.emit(AnalyticsEventNames.QUERY_COMPLETED, this.buildQueryCompletedPayload(taskId, task, state, 'completed'))
+      this.emit(
+        AnalyticsEventNames.QUERY_COMPLETED,
+        this.buildQueryCompletedPayload({outcome: 'completed', state, task, taskId}),
+      )
     }
   }
 
@@ -241,12 +247,17 @@ export class AnalyticsHook implements ITaskLifecycleHook {
     state.queryMeta = metadata
   }
 
-  private buildCurateRunPayload(
-    taskId: string,
-    task: TaskInfo,
-    state: CurateTaskAnalyticsState,
-    outcome: 'cancelled' | 'completed' | 'error' | 'partial',
-  ): Record<string, unknown> {
+  private buildCurateRunPayload({
+    outcome,
+    state,
+    task,
+    taskId,
+  }: {
+    outcome: 'cancelled' | 'completed' | 'error' | 'partial'
+    state: CurateTaskAnalyticsState
+    task: TaskInfo
+    taskId: string
+  }): Record<string, unknown> {
     return {
       duration_ms: this.durationMs(task),
       operations_added: state.counters.added,
@@ -261,42 +272,50 @@ export class AnalyticsHook implements ITaskLifecycleHook {
     }
   }
 
-  private buildQueryCompletedPayload(
-    taskId: string,
-    task: TaskInfo,
-    state: QueryTaskAnalyticsState,
-    outcome: 'cancelled' | 'completed' | 'error',
-  ): Record<string, unknown> {
+  private buildQueryCompletedPayload({
+    outcome,
+    state,
+    task,
+    taskId,
+  }: {
+    outcome: 'cancelled' | 'completed' | 'error'
+    state: QueryTaskAnalyticsState
+    task: TaskInfo
+    taskId: string
+  }): Record<string, unknown> {
     const readPaths = new Set<string>()
     let readToolCallCount = 0
     let searchCallCount = 0
 
     for (const call of task.toolCalls ?? []) {
+      // `call.args` is a required `Record<string, unknown>` on ToolCallEvent;
+      // index access returns `unknown` (possibly undefined when the key is
+      // absent), so the runtime `typeof === 'string'` check below is what
+      // actually narrows. No optional chain on `args` itself.
       switch (call.toolName) {
-      case EXPAND_KNOWLEDGE_TOOL: {
-        readToolCallCount++
-        const stubPath = call.args?.stubPath
-        const overviewPath = call.args?.overviewPath
-        if (typeof stubPath === 'string' && stubPath.length > 0) readPaths.add(stubPath)
-        if (typeof overviewPath === 'string' && overviewPath.length > 0) readPaths.add(overviewPath)
-      
-      break;
-      }
+        case EXPAND_KNOWLEDGE_TOOL: {
+          readToolCallCount++
+          const {overviewPath, stubPath} = call.args
+          if (typeof stubPath === 'string' && stubPath.length > 0) readPaths.add(stubPath)
+          if (typeof overviewPath === 'string' && overviewPath.length > 0) readPaths.add(overviewPath)
 
-      case READ_FILE_TOOL: {
-        readToolCallCount++
-        const filePath = call.args?.filePath
-        if (typeof filePath === 'string' && filePath.length > 0) readPaths.add(filePath)
-      
-      break;
-      }
+          break
+        }
 
-      case SEARCH_KNOWLEDGE_TOOL: {
-        searchCallCount++
-      
-      break;
-      }
-      // No default
+        case READ_FILE_TOOL: {
+          readToolCallCount++
+          const {filePath} = call.args
+          if (typeof filePath === 'string' && filePath.length > 0) readPaths.add(filePath)
+
+          break
+        }
+
+        case SEARCH_KNOWLEDGE_TOOL: {
+          searchCallCount++
+
+          break
+        }
+        // No default
       }
     }
 
@@ -323,7 +342,10 @@ export class AnalyticsHook implements ITaskLifecycleHook {
       matched_doc_count: matchedDocCount,
       outcome,
       read_doc_count: readPaths.size,
-      read_paths_with_metadata: readPathsWithMetadata,
+      // M12.1 schema marks read_paths_with_metadata as optional outer array.
+      // Mirror that: omit the field when the command had no read paths
+      // (instead of emitting an empty array). Same idiom as `tier` above.
+      ...(readPathsWithMetadata.length > 0 ? {read_paths_with_metadata: readPathsWithMetadata} : {}),
       read_tool_call_count: readToolCallCount,
       search_call_count: searchCallCount,
       task_id: taskId,
@@ -337,9 +359,15 @@ export class AnalyticsHook implements ITaskLifecycleHook {
     if (!state) return
 
     if (state.flavor === 'curate') {
-      this.emit(AnalyticsEventNames.CURATE_RUN_COMPLETED, this.buildCurateRunPayload(taskId, task, state, outcome))
+      this.emit(
+        AnalyticsEventNames.CURATE_RUN_COMPLETED,
+        this.buildCurateRunPayload({outcome, state, task, taskId}),
+      )
     } else {
-      this.emit(AnalyticsEventNames.QUERY_COMPLETED, this.buildQueryCompletedPayload(taskId, task, state, outcome))
+      this.emit(
+        AnalyticsEventNames.QUERY_COMPLETED,
+        this.buildQueryCompletedPayload({outcome, state, task, taskId}),
+      )
     }
   }
 
