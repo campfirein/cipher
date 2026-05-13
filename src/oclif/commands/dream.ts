@@ -22,7 +22,7 @@ import {FileCurateLogStore} from '../../server/infra/storage/file-curate-log-sto
 import {FileReviewBackupStore} from '../../server/infra/storage/file-review-backup-store.js'
 import {getProjectDataDir} from '../../server/utils/path-utils.js'
 import {TaskEvents} from '../../shared/transport/events/index.js'
-import {runCancelTask} from '../lib/cancel-task.js'
+import {runCancelBranchWithRetry} from '../lib/cancel-task.js'
 import {
   type DaemonClientOptions,
   formatConnectionError,
@@ -133,6 +133,7 @@ export default class Dream extends Command {
     }
 
     let providerContext: ProviderErrorContext | undefined
+    let wasCancelled = false
 
     try {
       await withDaemonRetry(
@@ -152,7 +153,7 @@ export default class Dream extends Command {
             throw new Error(providerMissingMessage(active.activeProvider, active.authMethod))
           }
 
-          await this.submitTask({
+          const result = await this.submitTask({
             client,
             detach: rawFlags.detach,
             force: rawFlags.force,
@@ -161,6 +162,7 @@ export default class Dream extends Command {
             timeout: rawFlags.timeout ?? DEFAULT_TIMEOUT_SECONDS,
             worktreeRoot,
           })
+          if (result.wasCancelled) wasCancelled = true
         },
         {
           ...this.getDaemonClientOptions(),
@@ -173,7 +175,13 @@ export default class Dream extends Command {
       )
     } catch (error) {
       this.reportError(error, format, providerContext)
+      return
     }
+
+    // Throw the SIGINT-conventional exit AFTER the daemon-retry try/catch so
+    // the ExitError isn't swallowed by reportError. Routine completions and
+    // errors fall through here naturally.
+    if (wasCancelled) this.exit(130)
   }
 
   private reportError(error: unknown, format: 'json' | 'text', providerContext?: ProviderErrorContext): void {
@@ -192,26 +200,14 @@ export default class Dream extends Command {
   }
 
   private async runCancelBranch(taskId: string, format: 'json' | 'text'): Promise<void> {
-    let success = false
-    try {
-      await withDaemonRetry(
-        async (client) => {
-          success = await runCancelTask({
-            client,
-            command: 'dream',
-            format,
-            log: (msg) => this.log(msg),
-            taskId,
-          })
-        },
-        this.getDaemonClientOptions(),
-      )
-    } catch (error) {
-      this.reportError(error, format)
-      this.exit(1)
-      return
-    }
-
+    const success = await runCancelBranchWithRetry({
+      command: 'dream',
+      daemonClientOptions: this.getDaemonClientOptions(),
+      format,
+      log: (msg) => this.log(msg),
+      onTransportError: (error) => this.reportError(error, format),
+      taskId,
+    })
     if (!success) this.exit(1)
   }
 
@@ -257,7 +253,7 @@ export default class Dream extends Command {
     projectRoot?: string
     timeout: number
     worktreeRoot?: string
-  }): Promise<void> {
+  }): Promise<{wasCancelled: boolean}> {
     const {client, detach, force, format, projectRoot, timeout, worktreeRoot} = props
     const taskId = randomUUID()
     const taskPayload = {
@@ -288,11 +284,24 @@ export default class Dream extends Command {
         this.log(`✓ Dream queued for processing.${logSuffix}`)
       }
     } else {
+      let wasCancelled = false
       const completionPromise = waitForTaskCompletion(
         {
           client,
           command: 'dream',
           format,
+          onCancelled: ({taskId: tid}) => {
+            wasCancelled = true
+            if (format === 'json') {
+              writeJsonResponse({
+                command: 'dream',
+                data: {event: 'cancelled', message: 'Dream cancelled', status: 'cancelled', taskId: tid},
+                success: true,
+              })
+            } else {
+              this.log(`✗ Dream cancelled (Task: ${tid})`)
+            }
+          },
           onCompleted: ({logId, result, taskId: tid}) => {
             const skipped = result?.startsWith('Dream skipped:')
             if (format === 'json') {
@@ -325,6 +334,9 @@ export default class Dream extends Command {
       )
       await client.requestWithAck<TaskAck>(TaskEvents.CREATE, taskPayload)
       await completionPromise
+      return {wasCancelled}
     }
+
+    return {wasCancelled: false}
   }
 }

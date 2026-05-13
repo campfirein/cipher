@@ -5,7 +5,7 @@ import {randomUUID} from 'node:crypto'
 
 import {type ProviderConfigResponse, TransportStateEventNames} from '../../server/core/domain/transport/schemas.js'
 import {TaskEvents} from '../../shared/transport/events/index.js'
-import {runCancelTask} from '../lib/cancel-task.js'
+import {runCancelBranchWithRetry} from '../lib/cancel-task.js'
 import {
   type DaemonClientOptions,
   formatConnectionError,
@@ -16,12 +16,6 @@ import {
 } from '../lib/daemon-client.js'
 import {writeJsonResponse} from '../lib/json-response.js'
 import {DEFAULT_TIMEOUT_SECONDS, MAX_TIMEOUT_SECONDS, MIN_TIMEOUT_SECONDS, waitForTaskCompletion} from '../lib/task-client.js'
-
-/** Parsed flags type */
-type QueryFlags = {
-  format?: 'json' | 'text'
-  timeout?: number
-}
 
 export default class Query extends Command {
   public static args = {
@@ -69,9 +63,8 @@ Bad:
   }
 
   public async run(): Promise<void> {
-    const {args, flags: rawFlags} = await this.parse(Query)
-    const flags = rawFlags as QueryFlags & {cancel?: string}
-    const format = (flags.format ?? 'text') as 'json' | 'text'
+    const {args, flags} = await this.parse(Query)
+    const format: 'json' | 'text' = flags.format === 'json' ? 'json' : 'text'
 
     if (flags.cancel) {
       if (args.query !== undefined && args.query.trim() !== '') {
@@ -87,6 +80,7 @@ Bad:
     if (!this.validateInput(args.query ?? '', format)) return
 
     let providerContext: ProviderErrorContext | undefined
+    let wasCancelled = false
 
     try {
       await withDaemonRetry(
@@ -106,7 +100,7 @@ Bad:
             throw new Error(providerMissingMessage(active.activeProvider, active.authMethod))
           }
 
-          await this.submitTask({
+          const result = await this.submitTask({
             client,
             format,
             projectRoot,
@@ -114,6 +108,7 @@ Bad:
             timeoutMs: (flags.timeout ?? DEFAULT_TIMEOUT_SECONDS) * 1000,
             worktreeRoot,
           })
+          if (result.wasCancelled) wasCancelled = true
         },
         {
           ...this.getDaemonClientOptions(),
@@ -126,7 +121,13 @@ Bad:
       )
     } catch (error) {
       this.reportError(error, format, providerContext)
+      return
     }
+
+    // Throw the SIGINT-conventional exit AFTER the daemon-retry try/catch so
+    // the ExitError isn't swallowed by reportError. Routine completions and
+    // errors fall through here naturally.
+    if (wasCancelled) this.exit(130)
   }
 
   private reportCombinationError(format: 'json' | 'text'): void {
@@ -158,26 +159,14 @@ Bad:
   }
 
   private async runCancelBranch(taskId: string, format: 'json' | 'text'): Promise<void> {
-    let success = false
-    try {
-      await withDaemonRetry(
-        async (client) => {
-          success = await runCancelTask({
-            client,
-            command: 'query',
-            format,
-            log: (msg) => this.log(msg),
-            taskId,
-          })
-        },
-        this.getDaemonClientOptions(),
-      )
-    } catch (error) {
-      this.reportError(error, format)
-      this.exit(1)
-      return
-    }
-
+    const success = await runCancelBranchWithRetry({
+      command: 'query',
+      daemonClientOptions: this.getDaemonClientOptions(),
+      format,
+      log: (msg) => this.log(msg),
+      onTransportError: (error) => this.reportError(error, format),
+      taskId,
+    })
     if (!success) this.exit(1)
   }
 
@@ -188,7 +177,7 @@ Bad:
     query: string
     timeoutMs?: number
     worktreeRoot?: string
-  }): Promise<void> {
+  }): Promise<{wasCancelled: boolean}> {
     const {client, format, projectRoot, query, timeoutMs, worktreeRoot} = props
     const taskId = randomUUID()
     const taskPayload = {
@@ -201,12 +190,25 @@ Bad:
     }
 
     let finalResult: string | undefined
+    let wasCancelled = false
 
     const completionPromise = waitForTaskCompletion(
       {
         client,
         command: 'query',
         format,
+        onCancelled: ({taskId: tid}) => {
+          wasCancelled = true
+          if (format === 'json') {
+            writeJsonResponse({
+              command: 'query',
+              data: {event: 'cancelled', message: 'Query cancelled', status: 'cancelled', taskId: tid},
+              success: true,
+            })
+          } else {
+            this.log(`✗ Query cancelled (Task: ${tid})`)
+          }
+        },
         onCompleted: ({durationMs, matchedDocs, result, taskId: tid, tier, topScore}) => {
           const previousResult = finalResult
 
@@ -278,6 +280,7 @@ Bad:
     )
     await client.requestWithAck<TaskAck>(TaskEvents.CREATE, taskPayload)
     await completionPromise
+    return {wasCancelled}
   }
 
   private validateInput(query: string, format: 'json' | 'text'): boolean {

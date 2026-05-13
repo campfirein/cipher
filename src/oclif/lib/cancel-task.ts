@@ -13,6 +13,7 @@ import type {ITransportClient} from '@campfirein/brv-transport-client'
 import type {TaskCancelRequest, TaskCancelResponse} from '../../shared/transport/events/task-events.js'
 
 import {TaskEvents} from '../../shared/transport/events/task-events.js'
+import {type DaemonClientOptions, withDaemonRetry} from './daemon-client.js'
 import {writeJsonResponse} from './json-response.js'
 
 export type RunCancelTaskOptions = {
@@ -59,4 +60,41 @@ export async function runCancelTask(options: RunCancelTaskOptions): Promise<bool
   }
 
   return response.success
+}
+
+export type RunCancelBranchOptions = {
+  /** Name of the invoking CLI command — stamped on the JSON envelope. */
+  command: string
+  /** Forwarded to withDaemonRetry. Lets each command override retry/connector for tests. */
+  daemonClientOptions: DaemonClientOptions
+  /** Output format. */
+  format: 'json' | 'text'
+  /** Text-mode log sink (typically `(msg) => this.log(msg)` in oclif). */
+  log: (msg: string) => void
+  /** Called when `withDaemonRetry` rethrows. Caller decides what to print and whether to exit. */
+  onTransportError: (error: unknown) => void
+  /** Task to cancel. */
+  taskId: string
+}
+
+/**
+ * Reusable cancel-branch wiring for oclif commands' `--cancel <id>` flag.
+ * Runs `runCancelTask` inside `withDaemonRetry`, surfaces transport errors
+ * via the supplied callback, and returns the helper's success flag so the
+ * caller can decide on exit code. Single point of evolution if the cancel
+ * pipeline ever grows extra retry/finalization concerns.
+ */
+export async function runCancelBranchWithRetry(options: RunCancelBranchOptions): Promise<boolean> {
+  const {command, daemonClientOptions, format, log, onTransportError, taskId} = options
+  let success = false
+  try {
+    await withDaemonRetry(async (client) => {
+      success = await runCancelTask({client, command, format, log, taskId})
+    }, daemonClientOptions)
+  } catch (error) {
+    onTransportError(error)
+    return false
+  }
+
+  return success
 }

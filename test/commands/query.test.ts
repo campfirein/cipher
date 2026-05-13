@@ -739,4 +739,54 @@ describe('Query Command', () => {
       expect(loggedMissing || exitError !== undefined).to.equal(true)
     })
   })
+
+  // ==================== Remote cancel during foreground wait (N-2) ====================
+
+  describe('remote cancel during foreground wait', () => {
+    // eslint-disable-next-line unicorn/consistent-function-scoping -- captures mockClient from outer beforeEach
+    function simulateRemoteCancel(): void {
+      const eventHandlers = new Map<string, (data: unknown) => void>()
+      ;(mockClient.on as sinon.SinonStub).callsFake((event: string, handler: (data: unknown) => void) => {
+        eventHandlers.set(event, handler)
+        return () => {}
+      })
+      ;(mockClient.requestWithAck as sinon.SinonStub).callsFake(async (event: string, data: unknown) => {
+        if (event === 'state:getProviderConfig') return {activeProvider: 'anthropic'}
+        const {taskId} = data as {taskId: string}
+        setImmediate(() => {
+          eventHandlers.get('task:cancelled')?.({taskId})
+        })
+        return {taskId}
+      })
+    }
+
+    it('prints the cancelled line and exits non-zero (text)', async () => {
+      simulateRemoteCancel()
+
+      let exitError: unknown
+      try {
+        await createCommand('test query').run()
+      } catch (error) {
+        exitError = error
+      }
+
+      expect(loggedMessages.some((m) => m.includes('Query cancelled'))).to.be.true
+      expect(exitError).to.not.equal(undefined)
+    })
+
+    it('emits a cancelled JSON envelope and exits non-zero (json)', async () => {
+      simulateRemoteCancel()
+
+      try {
+        await createJsonCommand('test query').run()
+      } catch {
+        // ExitError on this.exit(130)
+      }
+
+      const lines = parseJsonOutput()
+      const cancelled = lines.find((line) => line.data.status === 'cancelled')
+      expect(cancelled).to.not.equal(undefined)
+      expect(cancelled!.command).to.equal('query')
+    })
+  })
 })
