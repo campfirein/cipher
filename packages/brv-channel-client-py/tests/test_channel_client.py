@@ -209,6 +209,30 @@ class TestSubscribeTurn:
         assert collected[2]["kind"] == "turn_state_change"
         assert collected[2]["to"] == "completed"
 
+    async def test_ends_iterator_on_socket_disconnect(self, daemon: Any) -> None:
+        channel_id = "pi-test"
+        turn_id = "01HX-disconnect"
+        client = await ChannelClient.connect(data_dir=daemon.data_dir)
+
+        async def collect() -> list[dict[str, Any]]:
+            out: list[dict[str, Any]] = []
+            async for event in client.subscribe_turn(channel_id, turn_id):
+                out.append(event)
+            return out
+
+        collect_task = asyncio.create_task(collect())
+        try:
+            await asyncio.sleep(0.1)
+            # Yank every connected socket from the daemon side —
+            # simulates a daemon crash or network blip mid-turn. The
+            # generator must wake from its queue.get() and exit.
+            await daemon.sio.disconnect(next(iter(daemon.sio.manager.rooms["/"][None])))
+            collected = await asyncio.wait_for(collect_task, timeout=2.0)
+        finally:
+            await client.close()
+
+        assert collected == []
+
     async def test_does_not_yield_events_for_other_turns(self, daemon: Any) -> None:
         channel_id = "pi-test"
         wanted_turn = "01HX-wanted"

@@ -312,6 +312,17 @@ export class ChannelClient {
       wakeup()
     })
 
+    // Wake the parked iterator if the socket dies mid-turn (daemon
+    // crash, network blip, or an external `close()`). Without this,
+    // `subscribeTurn` would hang forever on the next `await` because
+    // no broadcast can arrive on a dead socket.
+    const onDisconnect = (): void => {
+      done = true
+      wakeup()
+    }
+
+    this.socket.on('disconnect', onDisconnect)
+
     try {
       while (queue.length > 0 || !done) {
         if (queue.length > 0) {
@@ -326,8 +337,13 @@ export class ChannelClient {
         })
       }
     } finally {
+      this.socket.off('disconnect', onDisconnect)
       detach()
-      await this.unsubscribe(channelId).catch(() => undefined)
+      // Only unsubscribe if the socket is still alive — otherwise the
+      // ack callback would never fire and we'd hang the cleanup path.
+      if (this.connected) {
+        await this.unsubscribe(channelId).catch(() => undefined)
+      }
     }
   }
 

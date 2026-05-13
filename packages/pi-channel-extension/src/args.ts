@@ -38,13 +38,26 @@ const tokenize = (input: string): string[] => {
   const out: string[] = []
   let buf = ''
   let inQuote = false
-  for (const ch of input) {
+  for (let index = 0; index < input.length; index += 1) {
+    const ch = input[index]
+    // Backslash escape inside a double-quoted token: \" → literal "
+    // and \\ → literal \. Keep it minimal — full shell escape rules
+    // aren't the point here.
+    if (inQuote && ch === '\\' && index + 1 < input.length) {
+      const next = input[index + 1]
+      if (next === '"' || next === '\\') {
+        buf += next
+        index += 1
+        continue
+      }
+    }
+
     if (ch === '"') {
       inQuote = !inQuote
       continue
     }
 
-    if (!inQuote && /\s/.test(ch)) {
+    if (!inQuote && ch !== undefined && /\s/.test(ch)) {
       if (buf !== '') {
         out.push(buf)
         buf = ''
@@ -53,7 +66,7 @@ const tokenize = (input: string): string[] => {
       continue
     }
 
-    buf += ch
+    if (ch !== undefined) buf += ch
   }
 
   if (buf !== '') out.push(buf)

@@ -22,6 +22,11 @@ from .errors import CHANNEL_CLIENT_ERROR_CODE, ChannelClientError
 
 TurnEvent = dict[str, Any]
 
+# Sentinel pushed into every listener queue when the underlying socket
+# disconnects, so parked iterators wake up and exit cleanly rather than
+# hanging on `queue.get()` forever.
+_DISCONNECTED = object()
+
 
 def _resolve_default_request_timeout(override: float | None) -> float:
     if override is not None and override > 0:
@@ -208,6 +213,8 @@ class ChannelClient:
         try:
             while True:
                 payload = await queue.get()
+                if payload is _DISCONNECTED:
+                    return
                 if not isinstance(payload, dict):
                     continue
                 if payload.get("channelId") != channel_id:
@@ -215,8 +222,9 @@ class ChannelClient:
                 yield payload
         finally:
             self._unregister_listener("channel:turn-event", queue)
-            with contextlib.suppress(Exception):
-                await self.unsubscribe(channel_id)
+            if self.connected:
+                with contextlib.suppress(Exception):
+                    await self.unsubscribe(channel_id)
 
     async def subscribe_turn(
         self,
@@ -234,6 +242,8 @@ class ChannelClient:
         try:
             while True:
                 payload = await queue.get()
+                if payload is _DISCONNECTED:
+                    return
                 if not isinstance(payload, dict):
                     continue
                 if payload.get("channelId") != channel_id:
@@ -251,8 +261,11 @@ class ChannelClient:
                     return
         finally:
             self._unregister_listener("channel:turn-event", queue)
-            with contextlib.suppress(Exception):
-                await self.unsubscribe(channel_id)
+            # Only unsubscribe while the socket is alive — a dead socket
+            # can't ack the leave call and we'd hang the cleanup path.
+            if self.connected:
+                with contextlib.suppress(Exception):
+                    await self.unsubscribe(channel_id)
 
     # ------------------------------------------------------------------ internals
 
@@ -278,6 +291,15 @@ class ChannelClient:
         @self._sio.on("channel:state-change")
         async def _on_state_change(data: Any) -> None:  # noqa: ANN001
             await _route("channel:state-change", data)
+
+        @self._sio.on("disconnect")
+        async def _on_disconnect() -> None:
+            # Wake every parked listener so async generators exit
+            # promptly instead of blocking on a queue that will never
+            # receive another item.
+            for queues in list(self._listeners.values()):
+                for queue in queues:
+                    queue.put_nowait(_DISCONNECTED)
 
     def _register_listener(self, event_name: str) -> asyncio.Queue[Any]:
         queue: asyncio.Queue[Any] = asyncio.Queue()

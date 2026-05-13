@@ -201,6 +201,41 @@ describe('ChannelClient (Slice 7.−1a)', () => {
       }
     })
 
+    it('ends the iterator if the underlying socket disconnects mid-turn', async () => {
+      const channelId = 'pi-test'
+      const turnId = '01HX-disconnect'
+      const client = await ChannelClient.connect({dataDir: daemon.dataDir})
+      try {
+        const collectPromise = (async () => {
+          const out: TurnEvent[] = []
+          for await (const event of client.subscribeTurn(channelId, turnId)) {
+            out.push(event)
+          }
+
+          return out
+        })()
+        // Wait for the listener to register, then yank the socket.
+        await new Promise((r) => {
+          setTimeout(r, 100)
+        })
+        // Disconnect the only client socket from the daemon side, simulating
+        // a daemon crash or network blip mid-turn. subscribeTurn must wake
+        // and return; without the disconnect listener it would hang.
+        daemon.latestSocket()?.disconnect(true)
+
+        const collected = await Promise.race([
+          collectPromise,
+          new Promise<'timeout'>((resolve) => {
+            setTimeout(() => resolve('timeout'), 2000)
+          }),
+        ])
+        expect(collected).to.not.equal('timeout')
+        expect(collected).to.have.lengthOf(0)
+      } finally {
+        await client.close()
+      }
+    })
+
     it('does NOT yield events for other turns on the same channel', async () => {
       const channelId = 'pi-test'
       const wantedTurnId = '01HX-wanted'
