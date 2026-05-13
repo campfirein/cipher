@@ -1,6 +1,6 @@
 import type {SettingDescriptor} from '../../core/domain/entities/settings.js'
 
-import {findSettingDescriptor} from '../../core/domain/entities/settings.js'
+import {findSettingDescriptor, SETTINGS_KEYS} from '../../core/domain/entities/settings.js'
 
 export class UnknownSettingKeyError extends Error {
   public readonly key: string
@@ -34,8 +34,8 @@ export type CouplingViolation = {
   readonly reason: string
 }
 
-const COUPLING_REQUEST_TIMEOUT = 'llm.requestTimeoutMs'
-const COUPLING_ITERATION_BUDGET = 'llm.iterationBudgetMs'
+const COUPLING_REQUEST_TIMEOUT = SETTINGS_KEYS.LLM_REQUEST_TIMEOUT_MS
+const COUPLING_ITERATION_BUDGET = SETTINGS_KEYS.LLM_ITERATION_BUDGET_MS
 
 /**
  * Single source of truth for settings validation. Used by the store to gate

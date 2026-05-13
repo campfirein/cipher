@@ -235,6 +235,33 @@ describe('FileSettingsStore', () => {
       expect(file.values['taskHistory.maxEntries']).to.equal(5000)
     })
 
+    it('preserves OTHER invalid entries when resetting one key (does not wipe the whole file)', async () => {
+      // Reset must not collateral-damage entries the user did not ask to touch.
+      // The startup loader handles invalid entries via warnings; reset is scoped.
+      await writeFile(
+        join(tempDir, SETTINGS_FILENAME),
+        JSON.stringify({
+          values: {
+            'agentPool.maxConcurrentTasksPerProject': 8,
+            'agentPool.maxSize': 25,
+            'taskHistory.maxEntries': 'garbage-not-a-number',
+          },
+          version: '1',
+        }),
+        'utf8',
+      )
+
+      await store.reset('agentPool.maxSize')
+
+      const content = await readFile(join(tempDir, SETTINGS_FILENAME), 'utf8')
+      const parsed: unknown = JSON.parse(content)
+      const file = asSettingsFile(parsed)
+      expect(file.values['agentPool.maxSize']).to.be.undefined
+      expect(file.values['agentPool.maxConcurrentTasksPerProject']).to.equal(8)
+      // The pre-existing invalid entry must NOT have been silently dropped.
+      expect(file.values['taskHistory.maxEntries']).to.equal('garbage-not-a-number')
+    })
+
     it('unlinks the file when resetting the only invalid entry', async () => {
       await writeFile(
         join(tempDir, SETTINGS_FILENAME),

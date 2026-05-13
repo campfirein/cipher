@@ -12,7 +12,14 @@ import {getGlobalDataDir} from '../../utils/global-data-path.js'
 import {InvalidSettingValueError, SettingsValidator} from './settings-validator.js'
 
 type SettingsFile = {
-  readonly values: Record<string, number>
+  /**
+   * Persisted values keyed by setting name. Typed as `unknown` because
+   * the file may legitimately retain pre-existing invalid entries that
+   * `reset` is forbidden from collateral-damaging (the daemon startup
+   * loader handles those via warnings). `set` writes only validated
+   * numeric values; partition() filters at read time.
+   */
+  readonly values: Record<string, unknown>
   readonly version: string
 }
 
@@ -85,14 +92,19 @@ export class FileSettingsStore implements ISettingsStore {
     if (!(key in raw)) return
 
     delete raw[key]
-    const {valid} = this.validator.partition(raw)
-    if (Object.keys(valid).length === 0) {
+
+    // Preserve every OTHER on-disk entry — including any pre-existing
+    // invalid values that the user did not ask to touch. The daemon
+    // startup loader logs invalid entries as warnings; `reset` is
+    // scoped to the one key the caller named so a single reset never
+    // collateral-damages the rest of the file.
+    if (Object.keys(raw).length === 0) {
       const path = this.filePath()
       if (existsSync(path)) await unlink(path)
       return
     }
 
-    await this.writeFile({values: valid, version: SETTINGS_SCHEMA_VERSION})
+    await this.writeFile({values: raw, version: SETTINGS_SCHEMA_VERSION})
   }
 
   public async set(key: string, value: unknown): Promise<void> {

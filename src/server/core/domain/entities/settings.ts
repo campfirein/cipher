@@ -32,11 +32,25 @@ export type SettingItem = {
   readonly restartRequired: true
 }
 
+/**
+ * Single source of truth for setting key names. Importers must reference
+ * these constants instead of inline string literals so a rename of one
+ * key is a typecheck error at every call site (validator, bootstrap,
+ * agent snapshot read, CLI tests).
+ */
+export const SETTINGS_KEYS = {
+  AGENT_POOL_MAX_CONCURRENT_TASKS: 'agentPool.maxConcurrentTasksPerProject',
+  AGENT_POOL_MAX_SIZE: 'agentPool.maxSize',
+  LLM_ITERATION_BUDGET_MS: 'llm.iterationBudgetMs',
+  LLM_REQUEST_TIMEOUT_MS: 'llm.requestTimeoutMs',
+  TASK_HISTORY_MAX_ENTRIES: 'taskHistory.maxEntries',
+} as const
+
 export const SETTINGS_REGISTRY: readonly SettingDescriptor[] = [
   {
     default: AGENT_POOL_MAX_SIZE,
     description: 'Maximum number of concurrent active projects (one agent process per project).',
-    key: 'agentPool.maxSize',
+    key: SETTINGS_KEYS.AGENT_POOL_MAX_SIZE,
     max: 100,
     min: 1,
     restartRequired: true,
@@ -45,7 +59,7 @@ export const SETTINGS_REGISTRY: readonly SettingDescriptor[] = [
   {
     default: AGENT_MAX_CONCURRENT_TASKS,
     description: 'Maximum number of parallel curate/query tasks within a single project.',
-    key: 'agentPool.maxConcurrentTasksPerProject',
+    key: SETTINGS_KEYS.AGENT_POOL_MAX_CONCURRENT_TASKS,
     max: 50,
     min: 1,
     restartRequired: true,
@@ -55,7 +69,7 @@ export const SETTINGS_REGISTRY: readonly SettingDescriptor[] = [
     default: AGENT_LLM_ITERATION_BUDGET_MS,
     description:
       'Maximum wall-clock budget for the agentic loop on one task, in milliseconds. Raise for slow local LLMs (Ollama on CPU); lower for faster failure detection on cloud providers.',
-    key: 'llm.iterationBudgetMs',
+    key: SETTINGS_KEYS.LLM_ITERATION_BUDGET_MS,
     max: 7_200_000,
     min: 60_000,
     restartRequired: true,
@@ -65,7 +79,7 @@ export const SETTINGS_REGISTRY: readonly SettingDescriptor[] = [
     default: AGENT_LLM_REQUEST_TIMEOUT_MS,
     description:
       'Maximum wall-clock budget for one direct LLM HTTP request, in milliseconds. Must be <= llm.iterationBudgetMs. Raise for slow local LLMs (Ollama, LM Studio).',
-    key: 'llm.requestTimeoutMs',
+    key: SETTINGS_KEYS.LLM_REQUEST_TIMEOUT_MS,
     max: 7_200_000,
     min: 10_000,
     restartRequired: true,
@@ -74,7 +88,7 @@ export const SETTINGS_REGISTRY: readonly SettingDescriptor[] = [
   {
     default: TASK_HISTORY_DEFAULT_MAX_ENTRIES,
     description: 'Maximum number of task records `brv query-log view` retains per project.',
-    key: 'taskHistory.maxEntries',
+    key: SETTINGS_KEYS.TASK_HISTORY_MAX_ENTRIES,
     max: 100_000,
     min: 10,
     restartRequired: true,
