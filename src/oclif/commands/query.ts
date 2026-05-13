@@ -5,6 +5,7 @@ import {randomUUID} from 'node:crypto'
 
 import {type ProviderConfigResponse, TransportStateEventNames} from '../../server/core/domain/transport/schemas.js'
 import {TaskEvents} from '../../shared/transport/events/index.js'
+import {resolveProjectRoot} from '../lib/curate-session.js'
 import {
   type DaemonClientOptions,
   formatConnectionError,
@@ -14,13 +15,29 @@ import {
   withDaemonRetry,
 } from '../lib/daemon-client.js'
 import {writeJsonResponse} from '../lib/json-response.js'
+import {type QueryToolModeEnvelope, runRetrievalPlaceholder} from '../lib/query-retrieval.js'
 import {DEFAULT_TIMEOUT_SECONDS, MAX_TIMEOUT_SECONDS, MIN_TIMEOUT_SECONDS, waitForTaskCompletion} from '../lib/task-client.js'
 
 /** Parsed flags type */
 type QueryFlags = {
   format?: 'json' | 'text'
+  limit?: number
   timeout?: number
 }
+
+/**
+ * Env-var opt-in for tool-mode query. Mirrors curate's
+ * `BRV_CURATE_TOOL_MODE`. Tool mode short-circuits today's
+ * Tier-0/1/2/3/4 path and returns matches + a synthesis prompt for
+ * the calling agent to compose an answer from. M3 (future) replaces
+ * the env var with a BrvConfig field.
+ */
+const TOOL_MODE_ENV_VAR = 'BRV_QUERY_TOOL_MODE'
+
+/** Default match cap. Locked to 10 (matches `brv search`). */
+const DEFAULT_QUERY_LIMIT = 10
+const MIN_QUERY_LIMIT = 1
+const MAX_QUERY_LIMIT = 50
 
 export default class Query extends Command {
   public static args = {
@@ -51,6 +68,15 @@ Bad:
       description: 'Output format (text or json)',
       options: ['text', 'json'],
     }),
+    limit: Flags.integer({
+      default: DEFAULT_QUERY_LIMIT,
+      // Tool-mode only — bounds the matches[] array returned in the
+      // envelope. Legacy `brv query` (Tier 3 LLM synthesis) ignores
+      // this flag.
+      description: `Maximum matches under tool mode (${MIN_QUERY_LIMIT}-${MAX_QUERY_LIMIT})`,
+      max: MAX_QUERY_LIMIT,
+      min: MIN_QUERY_LIMIT,
+    }),
     timeout: Flags.integer({
       default: DEFAULT_TIMEOUT_SECONDS,
       description: 'Maximum seconds to wait for task completion',
@@ -68,6 +94,19 @@ Bad:
     const {args, flags: rawFlags} = await this.parse(Query)
     const flags = rawFlags as QueryFlags
     const format = (flags.format ?? 'text') as 'json' | 'text'
+
+    // Tool-mode dispatch happens BEFORE any provider check or daemon
+    // connection. Tool mode never invokes byterover's LLM — providers
+    // can be absent and the call still works. Mirrors the curate
+    // tool-mode dispatch order.
+    if (process.env[TOOL_MODE_ENV_VAR] === '1') {
+      await this.handleToolModeQuery({
+        format,
+        limit: flags.limit ?? DEFAULT_QUERY_LIMIT,
+        query: args.query,
+      })
+      return
+    }
 
     if (!this.validateInput(args.query, format)) return
 
@@ -112,6 +151,76 @@ Bad:
     } catch (error) {
       this.reportError(error, format, providerContext)
     }
+  }
+
+  /**
+   * Wire-envelope emitter for tool-mode query. JSON mode wraps the
+   * envelope in the standard CLI envelope ({command, data, success,
+   * timestamp}). Text mode prints a terse human-readable digest —
+   * the primary consumer is the calling agent in `--format json` mode.
+   */
+  private emitToolModeEnvelope(envelope: QueryToolModeEnvelope, format: 'json' | 'text'): void {
+    if (format === 'json') {
+      writeJsonResponse({command: 'query', data: envelope, success: envelope.ok})
+      return
+    }
+
+    if (envelope.status === 'failed') {
+      this.log('✗ Query failed')
+      for (const err of envelope.errors ?? []) {
+        this.log(`  ${err.kind}: ${err.message}`)
+      }
+
+      return
+    }
+
+    const matches = envelope.matches ?? []
+    if (matches.length === 0) {
+      this.log('No matches.')
+      return
+    }
+
+    this.log(`${matches.length} match${matches.length === 1 ? '' : 'es'}:`)
+    for (const m of matches) {
+      this.log(`  ${m.path}  score=${m.score.toFixed(3)}`)
+    }
+  }
+
+  /**
+   * Tool-mode query dispatch. Runs the in-CLI retrieval (placeholder
+   * in T1 — T2 swaps in real `SearchKnowledgeService` calls), writes
+   * the envelope to stdout. No daemon connection, no provider check.
+   */
+  private async handleToolModeQuery(props: {
+    format: 'json' | 'text'
+    limit: number
+    query: string
+  }): Promise<void> {
+    const {format, limit, query} = props
+
+    if (query.trim().length === 0) {
+      this.emitToolModeEnvelope(
+        {
+          errors: [
+            {
+              kind: 'missing-query',
+              message: 'Tool-mode query requires a question argument.',
+            },
+          ],
+          ok: false,
+          status: 'failed',
+        },
+        format,
+      )
+      return
+    }
+
+    const envelope = await runRetrievalPlaceholder({
+      limit,
+      projectRoot: resolveProjectRoot(),
+      query,
+    })
+    this.emitToolModeEnvelope(envelope, format)
   }
 
   private reportError(error: unknown, format: 'json' | 'text', providerContext?: ProviderErrorContext): void {
