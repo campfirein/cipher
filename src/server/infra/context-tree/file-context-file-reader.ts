@@ -51,15 +51,20 @@ export class FileContextFileReader implements IContextFileReader {
 
     try {
       const content = await readFile(fullPath, 'utf8')
-      const fallbackTitle = extractTitle(content, relativePath)
 
       // Extension-based dispatch: HTML topics go through the bv-* extractor,
       // markdown goes through the existing parser. Same return shape from
-      // either path.
+      // either path. Fallback-title strategy diverges per format:
+      //   - MD: `extractTitle` reads the first `# H1` line (markdown idiom).
+      //   - HTML: use the relative path directly — running the H1 regex on
+      //     HTML body content could pick up a stray `# ` inside, e.g., a
+      //     `<bv-examples>` markdown snippet and surface it as the file's
+      //     title.
       if (isHtmlTopic(relativePath)) {
-        return parseHtmlContextContent(content, fallbackTitle, relativePath)
+        return parseHtmlContextContent(content, relativePath, relativePath)
       }
 
+      const fallbackTitle = extractTitle(content, relativePath)
       const parsedContent = MarkdownWriter.parseContent(content, fallbackTitle)
       // Frontmatter title takes precedence, then H1 heading, then path fallback
       const title = parsedContent.name || fallbackTitle

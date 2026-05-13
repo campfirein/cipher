@@ -411,6 +411,106 @@ describe('FileContextFileReader', () => {
         expect(result!.keywords).to.deep.equal([])
       })
 
+      // AC (review #1): id-only <bv-rule> renders without a double space.
+      it('renders <bv-rule> with id but no severity correctly (no double space)', async () => {
+        const html = `<bv-topic path="x/y" title="t">
+  <bv-rule id="r-foo">id only.</bv-rule>
+</bv-topic>`
+        await mkdir(join(contextTreeDir, 'x'), {recursive: true})
+        await writeFile(join(contextTreeDir, 'x/y.html'), html)
+
+        const result = await reader.read('x/y.html')
+
+        // Exactly one space after the dash; no double space.
+        expect(result!.narrative?.rules).to.equal('- (r-foo): id only.')
+        expect(result!.narrative?.rules).to.not.match(/^- {2}/)
+      })
+
+      // AC (review #1): severity-only <bv-rule> formats cleanly.
+      it('renders <bv-rule> with severity but no id correctly', async () => {
+        const html = `<bv-topic path="x/y" title="t">
+  <bv-rule severity="info">severity only.</bv-rule>
+</bv-topic>`
+        await mkdir(join(contextTreeDir, 'x'), {recursive: true})
+        await writeFile(join(contextTreeDir, 'x/y.html'), html)
+
+        const result = await reader.read('x/y.html')
+
+        expect(result!.narrative?.rules).to.equal('- [info]: severity only.')
+      })
+
+      // AC (review #1): <bv-rule> with neither severity nor id — no prefix.
+      it('renders <bv-rule> with no attributes as a plain bullet (no prefix)', async () => {
+        const html = `<bv-topic path="x/y" title="t">
+  <bv-rule>bare rule text.</bv-rule>
+</bv-topic>`
+        await mkdir(join(contextTreeDir, 'x'), {recursive: true})
+        await writeFile(join(contextTreeDir, 'x/y.html'), html)
+
+        const result = await reader.read('x/y.html')
+
+        expect(result!.narrative?.rules).to.equal('- bare rule text.')
+      })
+
+      // AC (review): <bv-diagram> without `type` defaults to 'other'.
+      it('defaults <bv-diagram type> to "other" when the attribute is absent', async () => {
+        const html = `<bv-topic path="x/y" title="t">
+  <bv-diagram>no type attr</bv-diagram>
+</bv-topic>`
+        await mkdir(join(contextTreeDir, 'x'), {recursive: true})
+        await writeFile(join(contextTreeDir, 'x/y.html'), html)
+
+        const result = await reader.read('x/y.html')
+
+        expect(result!.narrative?.diagrams).to.deep.equal([
+          {content: 'no type attr', type: 'other'},
+        ])
+      })
+
+      // AC (review #3): bv-* elements outside <bv-topic> must NOT be pulled in.
+      it('ignores bv-* elements outside the <bv-topic> root (scope guard)', async () => {
+        const html = `<bv-task>stray task outside</bv-task>
+<bv-topic path="x/y" title="t">
+  <bv-task>real task inside</bv-task>
+</bv-topic>
+<bv-rule>stray rule outside</bv-rule>`
+        await mkdir(join(contextTreeDir, 'x'), {recursive: true})
+        await writeFile(join(contextTreeDir, 'x/y.html'), html)
+
+        const result = await reader.read('x/y.html')
+
+        expect(result!.rawConcept?.task).to.equal('real task inside')
+        expect(result!.narrative?.rules).to.equal(undefined)
+      })
+
+      // AC (review #5): HTML branch ignores `# H1` lines inside the body.
+      // A markdown-styled heading inside <bv-examples> must NOT leak into
+      // the title (was a fallback path before this fix).
+      it('does not use a stray "# heading" inside HTML body as fallback title', async () => {
+        const html = `<bv-topic path="security/auth" title="Real title">
+  <bv-examples># Looks like a markdown heading inside an example</bv-examples>
+</bv-topic>`
+        await mkdir(join(contextTreeDir, 'security'), {recursive: true})
+        await writeFile(join(contextTreeDir, 'security/leak.html'), html)
+
+        const result = await reader.read('security/leak.html')
+
+        expect(result!.title).to.equal('Real title')
+      })
+
+      // AC (review #5 — companion): missing-title HTML uses relative path, NOT a body H1.
+      it('uses relativePath as fallback title when <bv-topic title> is absent (not body H1)', async () => {
+        const html = `<bv-topic path="x/y">
+  <bv-examples># H1 in body</bv-examples>
+</bv-topic>`
+        await mkdir(join(contextTreeDir, 'x'), {recursive: true})
+        await writeFile(join(contextTreeDir, 'x/no-title.html'), html)
+
+        const result = await reader.read('x/no-title.html')
+
+        expect(result!.title).to.equal('x/no-title.html')
+      })
+
       // AC: HTML routing is extension-based — doesn't interfere with the MD path.
       it('does not affect .md topics — markdown path still runs', async () => {
         const mdContent = '---\ntitle: MD topic\ntags: [legacy]\nkeywords: [old]\n---\n\n# MD topic'

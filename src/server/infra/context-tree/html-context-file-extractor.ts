@@ -40,17 +40,23 @@ export function parseHtmlContextContent(
   relativePath: string,
 ): ContextFileContent {
   const document = parseHtml(content)
-  const elements = walkElements(document)
+  const topic = walkElements(document).find((e) => e.tagName === 'bv-topic')
 
-  const topic = elements.find((e) => e.tagName === 'bv-topic')
+  // Scope all subsequent element extraction to the `<bv-topic>` subtree.
+  // Stray sibling bv-* elements outside the topic (malformed input, or
+  // a future format with multiple roots) are intentionally ignored —
+  // matches the "fields are sourced from <bv-topic> children" contract.
+  // If no topic root was found, fall through with an empty scope so the
+  // result has all-empty fields rather than crashing.
+  const scope: readonly ElementNode[] = topic ? walkElements(topic) : []
   const attrs = topic?.attributes ?? {}
 
   const title = attrs.title?.trim() ? attrs.title.trim() : fallbackTitle
   const tags = parseCsvAttribute(attrs.tags)
   const keywords = parseCsvAttribute(attrs.keywords)
 
-  const rawConcept = extractRawConcept(elements)
-  const narrative = extractNarrative(elements)
+  const rawConcept = extractRawConcept(scope)
+  const narrative = extractNarrative(scope)
 
   return {
     content,
@@ -164,7 +170,8 @@ function extractNarrative(elements: readonly ElementNode[]): Narrative | undefin
   // matching the markdown-writer's `### Rules` render format. The MD shape
   // for narrative.rules is freeform string; we serialise structured HTML
   // rules deterministically so the cogit push / webui consumers see the
-  // same shape they used to.
+  // same shape they used to. Prefix is built from parts so spacing is
+  // correct in every combination (severity-only, id-only, both, neither).
   const ruleNodes = elements.filter((e) => e.tagName === 'bv-rule')
   if (ruleNodes.length > 0) {
     const lines: string[] = []
@@ -173,9 +180,11 @@ function extractNarrative(elements: readonly ElementNode[]): Narrative | undefin
       if (!text) continue
       const severity = node.attributes.severity?.trim()
       const id = node.attributes.id?.trim()
-      const severityPart = severity ? `[${severity}]` : ''
-      const idPart = id ? ` (${id})` : ''
-      lines.push(`- ${severityPart}${idPart}${severity || id ? ': ' : ''}${text}`.replace(/^- : /, '- '))
+      const prefixParts: string[] = []
+      if (severity) prefixParts.push(`[${severity}]`)
+      if (id) prefixParts.push(`(${id})`)
+      const prefix = prefixParts.length > 0 ? `${prefixParts.join(' ')}: ` : ''
+      lines.push(`- ${prefix}${text}`)
     }
 
     if (lines.length > 0) narrative.rules = lines.join('\n')
@@ -206,24 +215,16 @@ function extractNarrative(elements: readonly ElementNode[]): Narrative | undefin
 
 /**
  * Extract `<li>` items from a container element (e.g. `<bv-changes>` or
- * `<bv-files>` with a nested `<ul>` or `<ol>`). Falls back to splitting
- * the element's inner text by newlines if no `<li>` children are present
- * — mirrors the MD writer's tolerance for either shape.
+ * `<bv-files>` with a nested `<ul>` or `<ol>`). Returns an empty array
+ * when no `<li>` children are present — the schema documents `<li>`
+ * children as the expected shape, and `getInnerText` collapses
+ * whitespace (so a newline-based fallback wouldn't be reachable in
+ * practice). Matches the markdown writer's strictness: MD-side bullets
+ * that don't start with `- ` are also dropped.
  */
 function extractListItems(container: ElementNode): string[] {
-  const lis = walkElements(container).filter((e) => e.tagName === 'li')
-  if (lis.length > 0) {
-    return lis
-      .map((li) => getInnerText(li).trim())
-      .filter((s) => s.length > 0)
-  }
-
-  // Fallback: split inner text by newlines (handles authors that wrote
-  // plain text instead of <li>).
-  const text = getInnerText(container).trim()
-  if (!text) return []
-  return text
-    .split('\n')
-    .map((s) => s.replace(/^\s*[-*]\s+/, '').trim())
+  return walkElements(container)
+    .filter((e) => e.tagName === 'li')
+    .map((li) => getInnerText(li).trim())
     .filter((s) => s.length > 0)
 }
