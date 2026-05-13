@@ -10,8 +10,14 @@ export const SettingsEvents = {
  * `SettingDescriptor` + `SettingItem` types but lives in `shared/` so
  * surfaces (CLI / TUI / WebUI) can consume it without crossing the
  * server import boundary.
+ *
+ * M7 T2 added three optional fields. `category` and `unit` flow through
+ * from the descriptor; `scope` is reserved for the future project-store
+ * ticket and is always omitted in v1. All three are additive only —
+ * existing JSON consumers that ignore them continue to parse correctly.
  */
 export interface SettingsItemDTO {
+  category?: 'concurrency' | 'llm' | 'task-history'
   current: number
   default: number
   description: string
@@ -19,7 +25,9 @@ export interface SettingsItemDTO {
   max: number
   min: number
   restartRequired: true
+  scope?: 'global' | 'project'
   type: 'integer'
+  unit?: 'count' | 'ms'
 }
 
 export interface SettingsErrorDTO {

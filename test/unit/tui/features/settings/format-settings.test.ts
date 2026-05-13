@@ -26,7 +26,7 @@ describe('format-settings', () => {
     it('preserves registry order from the daemon and pre-formats display columns', () => {
       const rows = buildSettingsRows([
         makeItem({current: 25, key: 'agentPool.maxSize'}),
-        makeItem({current: 1000, default: 1000, key: 'taskHistory.maxEntries', max: 100_000, min: 10}),
+        makeItem({current: 1000, default: 1000, key: 'taskHistory.maxEntries', max: 10_000, min: 10}),
       ])
 
       expect(rows.map((r) => r.key)).to.deep.equal(['agentPool.maxSize', 'taskHistory.maxEntries'])

@@ -99,6 +99,42 @@ describe('SettingsHandler', () => {
       expect(maxSizeItem?.description).to.be.a('string').and.to.have.length.greaterThan(0)
       expect(maxSizeItem?.restartRequired).to.equal(true)
     })
+
+    it('propagates category from descriptor onto every item (M7 T2)', async () => {
+      store.listResult = [
+        {current: 10, default: 10, key: 'agentPool.maxSize', restartRequired: true},
+      ]
+      const result = await invokeList()
+      const byKey = new Map(result.items.map((i) => [i.key, i]))
+      expect(byKey.get('agentPool.maxSize')?.category).to.equal('concurrency')
+      expect(byKey.get('agentPool.maxConcurrentTasksPerProject')?.category).to.equal('concurrency')
+      expect(byKey.get('llm.iterationBudgetMs')?.category).to.equal('llm')
+      expect(byKey.get('llm.requestTimeoutMs')?.category).to.equal('llm')
+      expect(byKey.get('taskHistory.maxEntries')?.category).to.equal('task-history')
+    })
+
+    it('propagates unit=ms on llm.*Ms keys and omits unit on count keys (M7 T2)', async () => {
+      store.listResult = [
+        {current: 10, default: 10, key: 'agentPool.maxSize', restartRequired: true},
+      ]
+      const result = await invokeList()
+      const byKey = new Map(result.items.map((i) => [i.key, i]))
+      expect(byKey.get('llm.iterationBudgetMs')?.unit).to.equal('ms')
+      expect(byKey.get('llm.requestTimeoutMs')?.unit).to.equal('ms')
+      // Count keys: unit is either omitted entirely or set to 'count' explicitly.
+      const maxSizeUnit = byKey.get('agentPool.maxSize')?.unit
+      expect(maxSizeUnit === undefined || maxSizeUnit === 'count').to.equal(true)
+      const historyUnit = byKey.get('taskHistory.maxEntries')?.unit
+      expect(historyUnit === undefined || historyUnit === 'count').to.equal(true)
+    })
+
+    it('omits scope from every item in v1 (reserved for future project-store ticket)', async () => {
+      store.listResult = []
+      const result = await invokeList()
+      for (const item of result.items) {
+        expect(item.scope).to.equal(undefined)
+      }
+    })
   })
 
   describe('GET', () => {
@@ -113,6 +149,19 @@ describe('SettingsHandler', () => {
         expect(result.key).to.equal('agentPool.maxSize')
         expect(result.restartRequired).to.equal(true)
         expect(result.type).to.equal('integer')
+      }
+    })
+
+    it('propagates category and unit onto the returned item (M7 T2)', async () => {
+      store.listResult = [
+        {current: 600_000, default: 600_000, key: 'llm.iterationBudgetMs', restartRequired: true},
+      ]
+      const result = await invokeGet({key: 'llm.iterationBudgetMs'})
+      expect(result.ok).to.be.true
+      if (result.ok) {
+        expect(result.category).to.equal('llm')
+        expect(result.unit).to.equal('ms')
+        expect(result.scope).to.equal(undefined)
       }
     })
 

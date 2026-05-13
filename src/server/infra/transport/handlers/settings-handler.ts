@@ -10,7 +10,7 @@ import type {
   SettingsSetRequest,
   SettingsSetResponse,
 } from '../../../../shared/transport/events/settings-events.js'
-import type {SettingItem} from '../../../core/domain/entities/settings.js'
+import type {SettingDescriptor, SettingItem} from '../../../core/domain/entities/settings.js'
 import type {ISettingsStore} from '../../../core/interfaces/storage/i-settings-store.js'
 import type {ITransportServer} from '../../../core/interfaces/transport/i-transport-server.js'
 
@@ -47,16 +47,7 @@ export class SettingsHandler {
         return {
           items: SETTINGS_REGISTRY.map((descriptor) => {
             const stored = byKey.get(descriptor.key)
-            return {
-              current: stored?.current ?? descriptor.default,
-              default: descriptor.default,
-              description: descriptor.description,
-              key: descriptor.key,
-              max: descriptor.max,
-              min: descriptor.min,
-              restartRequired: true,
-              type: descriptor.type,
-            }
+            return descriptorToDTO(descriptor, stored?.current ?? descriptor.default)
           }),
         }
       },
@@ -106,8 +97,12 @@ function toItemDTO(item: SettingItem): SettingsItemDTO {
     throw new Error(`Setting '${item.key}' resolved to no descriptor — registry/store drift`)
   }
 
-  return {
-    current: item.current,
+  return descriptorToDTO(descriptor, item.current)
+}
+
+function descriptorToDTO(descriptor: SettingDescriptor, current: number): SettingsItemDTO {
+  const dto: SettingsItemDTO = {
+    current,
     default: descriptor.default,
     description: descriptor.description,
     key: descriptor.key,
@@ -116,6 +111,9 @@ function toItemDTO(item: SettingItem): SettingsItemDTO {
     restartRequired: true,
     type: descriptor.type,
   }
+  if (descriptor.category !== undefined) dto.category = descriptor.category
+  if (descriptor.unit !== undefined) dto.unit = descriptor.unit
+  return dto
 }
 
 function errorToDTO(error: unknown, key: string, value?: unknown): SettingsErrorDTO {
