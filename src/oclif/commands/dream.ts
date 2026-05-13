@@ -21,7 +21,9 @@ import {resolveProject} from '../../server/infra/project/resolve-project.js'
 import {FileCurateLogStore} from '../../server/infra/storage/file-curate-log-store.js'
 import {FileReviewBackupStore} from '../../server/infra/storage/file-review-backup-store.js'
 import {getProjectDataDir} from '../../server/utils/path-utils.js'
+/* eslint-disable camelcase */
 import {TaskEvents} from '../../shared/transport/events/index.js'
+import {buildCliMetadata} from '../lib/build-cli-metadata.js'
 import {
   type DaemonClientOptions,
   formatConnectionError,
@@ -122,6 +124,7 @@ export default class Dream extends Command {
       return
     }
 
+    const cliMetadata = buildCliMetadata(this.id ?? 'dream', rawFlags)
     let providerContext: ProviderErrorContext | undefined
 
     try {
@@ -144,6 +147,7 @@ export default class Dream extends Command {
 
           await this.submitTask({
             client,
+            cliMetadata,
             detach: rawFlags.detach,
             force: rawFlags.force,
             format,
@@ -217,6 +221,7 @@ export default class Dream extends Command {
 
   private async submitTask(props: {
     client: ITransportClient
+    cliMetadata: ReturnType<typeof buildCliMetadata>
     detach: boolean
     force: boolean
     format: 'json' | 'text'
@@ -224,9 +229,10 @@ export default class Dream extends Command {
     timeout: number
     worktreeRoot?: string
   }): Promise<void> {
-    const {client, detach, force, format, projectRoot, timeout, worktreeRoot} = props
+    const {client, cliMetadata, detach, force, format, projectRoot, timeout, worktreeRoot} = props
     const taskId = randomUUID()
     const taskPayload = {
+      cli_metadata: cliMetadata,
       content: force ? 'Memory consolidation (force)' : 'Memory consolidation',
       ...(force ? {force: true} : {}),
       ...(projectRoot ? {projectPath: projectRoot} : {}),
