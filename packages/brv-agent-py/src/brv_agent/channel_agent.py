@@ -5,6 +5,7 @@ agent protocol. See Channel Protocol §15 for the wire spec this targets.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import uuid
 from typing import Any, Awaitable, Callable, Optional
 
@@ -176,7 +177,12 @@ class ChannelAgent:
             from acp import CancelNotification
             notification = CancelNotification(sessionId=session_id)
             maybe_awaitable = self._cancel_handler(notification)
-            if asyncio.iscoroutine(maybe_awaitable):
+            # Review fix #18: `asyncio.iscoroutine` returns False for Task,
+            # Future, and other awaitables. If a user's `on_cancel` returns
+            # a Task (e.g. `asyncio.create_task(do_work())`), `iscoroutine`
+            # silently drops it. `inspect.isawaitable` catches the broader
+            # protocol used by `await`.
+            if inspect.isawaitable(maybe_awaitable):
                 await maybe_awaitable
 
     # The upstream acp Protocol requires `authenticate` to satisfy the

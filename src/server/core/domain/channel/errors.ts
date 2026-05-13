@@ -20,6 +20,14 @@ export const CHANNEL_ERROR_CODE = {
   ACP_PERMISSION_FAILED: 'ACP_PERMISSION_FAILED',
   ACP_PROMPT_FAILED: 'ACP_PROMPT_FAILED',
   ACP_SESSION_FAILED: 'ACP_SESSION_FAILED',
+  // Review fix #14: spec-conformant code constants — CHANNEL_PROTOCOL.md §11
+  // lists these as canonical wire codes. They were previously only
+  // referenced as literal strings (`'AGENT_DRIVER_PROFILE_NOT_FOUND'`) or
+  // not at all. Adding them here registers them with the canonical map
+  // so callers can reference them by symbolic constant.
+  ACP_VERSION_INCOMPATIBLE: 'ACP_VERSION_INCOMPATIBLE',
+  AGENT_DRIVER_PROFILE_INVALID: 'AGENT_DRIVER_PROFILE_INVALID',
+  AGENT_DRIVER_PROFILE_NOT_FOUND: 'AGENT_DRIVER_PROFILE_NOT_FOUND',
   ALREADY_EXISTS: 'CHANNEL_ALREADY_EXISTS',
   ARCHIVED: 'CHANNEL_ARCHIVED',
   DELIVERY_NOT_FOUND: 'CHANNEL_DELIVERY_NOT_FOUND',
@@ -27,7 +35,10 @@ export const CHANNEL_ERROR_CODE = {
   DISABLED: 'CHANNEL_DISABLED',
   INVALID_CURSOR: 'CHANNEL_INVALID_CURSOR',
   INVALID_REQUEST: 'CHANNEL_INVALID_REQUEST',
+  // Review fix #14: §11 codes for member liveness signals.
+  MEMBER_INACTIVE: 'CHANNEL_MEMBER_INACTIVE',
   MEMBER_NOT_FOUND: 'CHANNEL_MEMBER_NOT_FOUND',
+  MEMBER_NOT_RESPONDING: 'CHANNEL_MEMBER_NOT_RESPONDING',
   MENTION_EMPTY: 'CHANNEL_MENTION_EMPTY',
   MENTION_RESERVED: 'CHANNEL_MENTION_RESERVED',
   NOT_FOUND: 'CHANNEL_NOT_FOUND',
@@ -390,7 +401,7 @@ export class AgentDriverProfileNotFoundError extends ChannelError {
   public readonly profileName: string
 
   public constructor(profileName: string) {
-    super(`Agent driver profile not found: ${profileName}`, 'AGENT_DRIVER_PROFILE_NOT_FOUND')
+    super(`Agent driver profile not found: ${profileName}`, CHANNEL_ERROR_CODE.AGENT_DRIVER_PROFILE_NOT_FOUND)
     this.name = 'AgentDriverProfileNotFoundError'
     this.profileName = profileName
   }
