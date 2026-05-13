@@ -1,3 +1,4 @@
+/* eslint-disable camelcase */
 import type {ITransportClient, TaskAck} from '@campfirein/brv-transport-client'
 
 import {Args, Command, Flags} from '@oclif/core'
@@ -5,6 +6,7 @@ import {randomUUID} from 'node:crypto'
 
 import {type ProviderConfigResponse, TransportStateEventNames} from '../../server/core/domain/transport/schemas.js'
 import {TaskEvents} from '../../shared/transport/events/index.js'
+import {buildCliMetadata} from '../lib/build-cli-metadata.js'
 import {
   type DaemonClientOptions,
   formatConnectionError,
@@ -71,6 +73,10 @@ Bad:
 
     if (!this.validateInput(args.query, format)) return
 
+    // Build once per run so a single `client_sent_at` identifies one CLI
+    // invocation even on retries that may make multiple task:create calls.
+    const cliMetadata = buildCliMetadata(this.id ?? 'query', rawFlags)
+
     let providerContext: ProviderErrorContext | undefined
 
     try {
@@ -93,6 +99,7 @@ Bad:
 
           await this.submitTask({
             client,
+            cliMetadata,
             format,
             projectRoot,
             query: args.query,
@@ -131,15 +138,17 @@ Bad:
 
   private async submitTask(props: {
     client: ITransportClient
+    cliMetadata: ReturnType<typeof buildCliMetadata>
     format: 'json' | 'text'
     projectRoot?: string
     query: string
     timeoutMs?: number
     worktreeRoot?: string
   }): Promise<void> {
-    const {client, format, projectRoot, query, timeoutMs, worktreeRoot} = props
+    const {client, cliMetadata, format, projectRoot, query, timeoutMs, worktreeRoot} = props
     const taskId = randomUUID()
     const taskPayload = {
+      cli_metadata: cliMetadata,
       clientCwd: process.cwd(),
       content: query,
       ...(projectRoot ? {projectPath: projectRoot} : {}),

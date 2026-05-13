@@ -1,12 +1,13 @@
 /* eslint-disable camelcase */
 import {readFileSync} from 'node:fs'
 
-import type {LlmToolResultEvent} from '../../core/domain/transport/schemas.js'
+import type {LlmToolResultEvent, TaskCreateRequest} from '../../core/domain/transport/schemas.js'
 import type {TaskInfo} from '../../core/domain/transport/task-info.js'
 import type {IAnalyticsClient} from '../../core/interfaces/analytics/i-analytics-client.js'
 import type {ITaskLifecycleHook} from '../../core/interfaces/process/i-task-lifecycle-hook.js'
 import type {QueryResultMetadata} from './query-log-handler.js'
 
+import {CliMetadataSchema} from '../../../shared/analytics/cli-metadata-schema.js'
 import {AnalyticsEventNames} from '../../../shared/analytics/event-names.js'
 import {parseFrontmatter} from '../../core/domain/knowledge/markdown-writer.js'
 import {extractCurateOperations} from '../../utils/curate-result-parser.js'
@@ -151,6 +152,20 @@ export class AnalyticsHook implements ITaskLifecycleHook {
     if (QUERY_TASK_TYPES.has(task.type)) {
       this.tasks.set(task.taskId, {flavor: 'query'})
     }
+  }
+
+  /**
+   * M13.1: emit `cli_invocation` once per inbound `task:create` request when
+   * the caller attached a structurally-valid `cli_metadata` block. Daemon-
+   * internal task creates (idle dispatch, agent fork) leave the block off and
+   * silently no-op here.
+   */
+  async onTaskCreateRequest(request: TaskCreateRequest, _clientId: string): Promise<void> {
+    const cliMeta = request.cli_metadata
+    if (!cliMeta) return
+    const parsed = CliMetadataSchema.safeParse(cliMeta)
+    if (!parsed.success) return
+    this.emit(AnalyticsEventNames.CLI_INVOCATION, parsed.data)
   }
 
   async onTaskError(taskId: string, _errorMessage: string, task: TaskInfo): Promise<void> {
