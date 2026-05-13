@@ -5,6 +5,7 @@ import {
   AGENT_POOL_MAX_SIZE,
   TASK_HISTORY_DEFAULT_MAX_ENTRIES,
 } from '../../constants.js'
+import {SETTINGS_KEYS} from '../../core/domain/entities/settings.js'
 
 /**
  * Daemon-side resolved view of every settings key the bootstrap path
@@ -44,8 +45,8 @@ export async function bootstrapSettings(options: BootstrapSettingsOptions): Prom
   }
 
   return {
-    agentMaxConcurrentTasks: snapshot.values['agentPool.maxConcurrentTasksPerProject'] ?? AGENT_MAX_CONCURRENT_TASKS,
-    agentPoolMaxSize: snapshot.values['agentPool.maxSize'] ?? AGENT_POOL_MAX_SIZE,
-    taskHistoryMaxEntries: snapshot.values['taskHistory.maxEntries'] ?? TASK_HISTORY_DEFAULT_MAX_ENTRIES,
+    agentMaxConcurrentTasks: snapshot.values[SETTINGS_KEYS.AGENT_POOL_MAX_CONCURRENT_TASKS] ?? AGENT_MAX_CONCURRENT_TASKS,
+    agentPoolMaxSize: snapshot.values[SETTINGS_KEYS.AGENT_POOL_MAX_SIZE] ?? AGENT_POOL_MAX_SIZE,
+    taskHistoryMaxEntries: snapshot.values[SETTINGS_KEYS.TASK_HISTORY_MAX_ENTRIES] ?? TASK_HISTORY_DEFAULT_MAX_ENTRIES,
   }
 }

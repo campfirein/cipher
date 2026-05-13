@@ -150,6 +150,16 @@ export function SettingsPage({onCancel, onComplete}: CustomDialogCallbacks): Rea
     {isActive: mode === 'edit'},
   )
 
+  // Esc must always exit, including while a save is in flight. The
+  // in-flight mutation will resolve in the background; the page just
+  // closes so the user is never trapped waiting on a hung daemon.
+  useInput(
+    (_input, key) => {
+      if (key.escape) onCancel()
+    },
+    {isActive: mode === 'saving'},
+  )
+
   React.useEffect(() => {
     if (error) {
       onComplete(`Failed to load settings: ${error.message}`)

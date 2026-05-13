@@ -230,7 +230,7 @@ export function waitForTaskCompletion(options: WaitForTaskOptions, log: (msg: st
 
       // Tool call started (same as TUI addToolCall)
       client.on<LlmToolCall>(LlmEvents.TOOL_CALL, (data) => {
-        if (!data.taskId) return
+        if (data.taskId !== taskId) return
         markActive()
         toolCalls.push({
           args: data.args,
@@ -250,7 +250,7 @@ export function waitForTaskCompletion(options: WaitForTaskOptions, log: (msg: st
 
       // Tool call completed (same as TUI updateToolCallResult)
       client.on<LlmToolResult>(LlmEvents.TOOL_RESULT, (data) => {
-        if (!data.taskId) return
+        if (data.taskId !== taskId) return
         markActive()
 
         let index = -1
@@ -298,7 +298,7 @@ export function waitForTaskCompletion(options: WaitForTaskOptions, log: (msg: st
 
       // Thinking started (same as TUI addReasoningContent)
       client.on<{taskId: string}>(LlmEvents.THINKING, (data) => {
-        if (!data.taskId) return
+        if (data.taskId !== taskId) return
         markActive()
 
         if (isText) {
@@ -313,14 +313,15 @@ export function waitForTaskCompletion(options: WaitForTaskOptions, log: (msg: st
       }),
 
       // Streaming chunk (same as TUI appendStreamingContent) — silent for CLI
-      client.on<LlmChunk>(LlmEvents.CHUNK, () => {
+      client.on<LlmChunk>(LlmEvents.CHUNK, (data) => {
         // Collected by TUI for streaming display; CLI doesn't render partial chunks
+        if (data.taskId !== taskId) return
         markActive()
       }),
 
       // LLM response (final answer — used by query command)
       client.on<LlmResponse>(LlmEvents.RESPONSE, (data) => {
-        if (!data.taskId) return
+        if (data.taskId !== taskId) return
         markActive()
         if (onResponse) onResponse(data.content, data.taskId)
       }),

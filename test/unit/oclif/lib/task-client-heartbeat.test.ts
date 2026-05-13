@@ -152,6 +152,39 @@ describe('waitForTaskCompletion — heartbeat watcher', () => {
     await promise
   })
 
+  it('ignores LLM events for a different taskId (does not falsely refresh the stale clock)', async () => {
+    const {client, emit} = makeClient()
+    let rejection: Error | undefined
+
+    const promise = waitForTaskCompletion(
+      {
+        client,
+        command: 'curate',
+        format: 'text',
+        onCompleted() {},
+        onError() {},
+        taskId: 't1',
+      },
+      () => {},
+    ).catch((error) => {
+      rejection = error instanceof Error ? error : new Error(String(error))
+    })
+
+    // Steady stream of LLM events for a DIFFERENT task — every 5s for 40s.
+    // If the watcher were not filtering by taskId, this would keep our
+    // stale clock fresh forever; with the fix, we still surface as stuck.
+    for (let i = 0; i < 8; i++) {
+      // eslint-disable-next-line no-await-in-loop
+      await clock.tickAsync(5000)
+      emit(LlmEvents.TOOL_CALL, {args: {}, callId: `c${i}`, taskId: 'other-task', toolName: 'bash'})
+    }
+
+    await clock.tickAsync(0)
+    await promise
+
+    expect(rejection?.message).to.include('Daemon is unresponsive on this task')
+  })
+
   it('uses AGENT_DISCONNECTED (retryable) on socket disconnect, NOT the stale-task error', async () => {
     const {client, triggerState} = makeClient()
     let rejection: Error | undefined
