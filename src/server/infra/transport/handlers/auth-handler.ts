@@ -13,6 +13,7 @@ import type {ProjectPathResolver} from './handler-types.js'
 
 import {
   AuthEvents,
+  type AuthGetStateRequest,
   type AuthGetStateResponse,
   type AuthLoginWithApiKeyRequest,
   type AuthLoginWithApiKeyResponse,
@@ -214,7 +215,7 @@ export class AuthHandler {
   }
 
   private setupGetState(): void {
-    this.transport.onRequest<void, AuthGetStateResponse>(AuthEvents.GET_STATE, async (_data, clientId) => {
+    this.transport.onRequest<AuthGetStateRequest, AuthGetStateResponse>(AuthEvents.GET_STATE, async (data) => {
       try {
         const token = await this.tokenStore.load()
 
@@ -222,7 +223,7 @@ export class AuthHandler {
           return {isAuthorized: false}
         }
 
-        const projectPath = this.resolveProjectPath(clientId)
+        const {projectPath} = data
         const [user, brvConfig] = await Promise.all([
           this.userService.getCurrentUser(token.sessionKey),
           projectPath ? this.projectConfigStore.read(projectPath) : Promise.resolve(),

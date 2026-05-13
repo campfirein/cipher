@@ -3,11 +3,11 @@ import {Button} from '@campfirein/byterover-packages/components/button'
 import {DialogDescription, DialogHeader, DialogTitle} from '@campfirein/byterover-packages/components/dialog'
 import {Skeleton} from '@campfirein/byterover-packages/components/skeleton'
 import {cn} from '@campfirein/byterover-packages/lib/utils'
-import {Check, ChevronLeft, Info, LoaderCircle} from 'lucide-react'
-import {ReactNode, useMemo, useState} from 'react'
+import {Check, ChevronLeft, LoaderCircle} from 'lucide-react'
+import {ReactNode, useEffect, useMemo, useState} from 'react'
 import {toast} from 'sonner'
 
-import type {BillingTier, BillingUsageDTO, TeamDTO} from '../../../../../shared/transport/types/dto'
+import type {BillingTier, TeamDTO} from '../../../../../shared/transport/types/dto'
 
 import {formatError} from '../../../../lib/error-messages'
 import {initials} from '../../../../utils/initials'
@@ -16,8 +16,9 @@ import {useGetPinnedTeam} from '../../api/get-pinned-team'
 import {useListBillingUsage} from '../../api/list-billing-usage'
 import {useListTeams} from '../../api/list-teams'
 import {useSetPinnedTeam} from '../../api/set-pinned-team'
+import {computeTeamPreselection} from '../../utils/compute-team-preselection'
 import {getBillingTone} from '../../utils/get-billing-tone'
-import {hasPaidTeam} from '../../utils/has-paid-team'
+import {getPaidOrganizationIds, hasPaidTeam} from '../../utils/has-paid-team'
 import {CreditsPill} from '../credits-pill'
 
 interface TeamSelectStepProps {
@@ -143,18 +144,29 @@ export function TeamSelectStep({onBack, onComplete}: TeamSelectStepProps) {
   const usageByTeam = useMemo(() => usageData?.usage ?? {}, [usageData?.usage])
 
   const pinnedOrganizationId = pinnedData?.teamId
-  const [selection, setSelection] = useState<string | undefined>(pinnedOrganizationId)
+  const paidOrganizationIds = useMemo(() => getPaidOrganizationIds(usageByTeam), [usageByTeam])
+
+  const preselection = useMemo(
+    () =>
+      computeTeamPreselection({
+        paidOrganizationIds,
+        pinnedTeamId: pinnedOrganizationId,
+        teams,
+        workspaceTeamId,
+      }),
+    [paidOrganizationIds, pinnedOrganizationId, teams, workspaceTeamId],
+  )
+
+  const [selection, setSelection] = useState<string | undefined>(preselection)
+  useEffect(() => {
+    setSelection(preselection)
+  }, [preselection])
 
   const isPersisting = setPinned.isPending
   const isLoading = teamsLoading || pinnedLoading
   const dirty = selection !== pinnedOrganizationId
-  const canConfirm = dirty && selection !== undefined && !isPersisting
-
-  const workspaceFallback = useMemo<BillingUsageDTO | undefined>(() => {
-    if (isLoading) return
-    const workspaceUsage = workspaceTeamId ? usageByTeam[workspaceTeamId] : undefined
-    return workspaceUsage && workspaceUsage.tier !== 'FREE' ? workspaceUsage : undefined
-  }, [isLoading, workspaceTeamId, usageByTeam])
+  const selectionInList = selection !== undefined && teams.some((t) => t.id === selection)
+  const canConfirm = dirty && selectionInList && !isPersisting
 
   const showFreeTierView = !isLoading && !teamsError && !hasPaidTeam(usageByTeam)
 
@@ -202,21 +214,6 @@ export function TeamSelectStep({onBack, onComplete}: TeamSelectStepProps) {
           ByteRover credits are charged to a team. Pick which team this project should bill.
         </DialogDescription>
       </DialogHeader>
-
-      <div className="border-border bg-muted/30 flex items-start gap-2 rounded-md border px-3 py-2">
-        <Info className="text-muted-foreground mt-0.5 size-3.5 shrink-0" />
-        <p className="text-muted-foreground text-xs leading-snug">
-          {workspaceFallback ? (
-            <>
-              ByteRover usage falls back to{' '}
-              <span className="text-foreground font-medium">{workspaceFallback.organizationName}</span> (matched from
-              this workspace).
-            </>
-          ) : (
-            <>ByteRover usage falls back to your free monthly credits.</>
-          )}
-        </p>
-      </div>
 
       {teamsError ? (
         <p className="text-destructive text-sm">{formatError(teamsError, 'Failed to load teams.')}</p>

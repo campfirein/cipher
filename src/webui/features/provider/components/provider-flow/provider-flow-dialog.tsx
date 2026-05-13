@@ -7,6 +7,7 @@ import {toast} from 'sonner'
 import type {ModelDTO, ProviderDTO} from '../../../../../shared/transport/events'
 
 import {formatError} from '../../../../lib/error-messages'
+import {useTransportStore} from '../../../../stores/transport-store'
 import {useAuthStore} from '../../../auth/stores/auth-store'
 import {useSetActiveModel} from '../../../model/api/set-active-model'
 import {TourStepBadge} from '../../../onboarding/components/tour-step-badge'
@@ -84,6 +85,7 @@ export function ProviderFlowDialog({onOpenChange, onProviderActivated, open, tou
   const oauthPopupRef = useRef<ReturnType<typeof globalThis.open>>(null)
 
   const isAuthorized = useAuthStore((s) => s.isAuthorized)
+  const projectPath = useTransportStore((s) => s.selectedProject)
   const queryClient = useQueryClient()
   const {data} = useGetProviders()
   const connectMutation = useConnectProvider()
@@ -149,7 +151,7 @@ export function ProviderFlowDialog({onOpenChange, onProviderActivated, open, tou
         toast.success(`Connected to ${provider.name}`)
         onProviderActivated?.()
 
-        const pinned = await getPinnedTeam()
+        const pinned = await getPinnedTeam(projectPath)
         const pinnedTeamId = pinned.teamId
 
         if (pinnedTeamId) {

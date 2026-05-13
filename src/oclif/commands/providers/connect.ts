@@ -653,8 +653,10 @@ export default class ProviderConnect extends Command {
   }
 
   protected async setBillingPin(teamId: string | undefined, options?: DaemonClientOptions): Promise<void> {
-    await withDaemonRetry(async (client) => {
-      const request: BillingSetPinnedTeamRequest = teamId === undefined ? {} : {teamId}
+    await withDaemonRetry(async (client, projectRoot) => {
+      if (!projectRoot) throw new Error('Failed to resolve project path for billing pin.')
+      const request: BillingSetPinnedTeamRequest =
+        teamId === undefined ? {projectPath: projectRoot} : {projectPath: projectRoot, teamId}
       const response = await client.requestWithAck<BillingSetPinnedTeamResponse>(
         BillingEvents.SET_PINNED_TEAM,
         request,

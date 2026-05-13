@@ -4,7 +4,6 @@ import {createSandbox, type SinonSandbox} from 'sinon'
 import type {IProviderConfigStore} from '../../../../../src/server/core/interfaces/i-provider-config-store.js'
 import type {IBillingService} from '../../../../../src/server/core/interfaces/services/i-billing-service.js'
 import type {IBillingConfigStore} from '../../../../../src/server/core/interfaces/storage/i-billing-config-store.js'
-import type {IProjectConfigStore} from '../../../../../src/server/core/interfaces/storage/i-project-config-store.js'
 import type {BillingFreeUserLimitDTO, BillingUsageDTO} from '../../../../../src/shared/transport/types/dto.js'
 
 import {TransportDaemonEventNames} from '../../../../../src/server/core/domain/transport/schemas.js'
@@ -73,12 +72,6 @@ describe('BillingHandler', () => {
   })
 
   function createHandler(options?: {isAuthenticated?: boolean}): BillingHandler {
-    const projectConfigStore = {
-      exists: sandbox.stub().resolves(false),
-      getModifiedTime: sandbox.stub().resolves(),
-      read: sandbox.stub().resolves({}),
-      write: sandbox.stub().resolves(),
-    } as unknown as IProjectConfigStore
     const providerConfigStore = {
       getActiveProvider: sandbox.stub().resolves(''),
     } as unknown as IProviderConfigStore
@@ -87,7 +80,6 @@ describe('BillingHandler', () => {
       authStateStore: createMockAuthStateStore(sandbox, options),
       billingConfigStoreFactory: storeFactoryStub as unknown as (projectPath: string) => IBillingConfigStore,
       billingService,
-      projectConfigStore,
       providerConfigStore,
       resolveProjectPath: resolveProjectPathStub as unknown as (clientId: string) => string | undefined,
       transport,
@@ -244,14 +236,13 @@ describe('BillingHandler', () => {
       expect(transport._handlers.has(BillingEvents.GET_PINNED_TEAM)).to.equal(true)
     })
 
-    it('resolves the project from the client and returns the persisted team id', async () => {
+    it('uses the projectPath from the request and returns the persisted team id', async () => {
       getPinnedStub.resolves('org-pinned')
       createHandler()
 
       const handler = transport._handlers.get(BillingEvents.GET_PINNED_TEAM)
-      const result = await handler!(undefined, 'client-1')
+      const result = await handler!({projectPath: PROJECT_A}, 'client-1')
 
-      expect(resolveProjectPathStub.calledOnceWith('client-1')).to.equal(true)
       expect(storeFactoryStub.calledOnceWith(PROJECT_A)).to.equal(true)
       expect(result).to.deep.equal({teamId: 'org-pinned'})
     })
@@ -261,21 +252,9 @@ describe('BillingHandler', () => {
       createHandler()
 
       const handler = transport._handlers.get(BillingEvents.GET_PINNED_TEAM)
-      const result = await handler!(undefined, 'client-1')
+      const result = await handler!({projectPath: PROJECT_A}, 'client-1')
 
       expect(result).to.deep.equal({})
-    })
-
-    it('returns an error envelope when the client has no project association', async () => {
-      resolveProjectPathStub.returns()
-      createHandler()
-
-      const handler = transport._handlers.get(BillingEvents.GET_PINNED_TEAM)
-      const result = await handler!(undefined, 'client-1')
-
-      expect(getPinnedStub.called).to.equal(false)
-      expect(result).to.have.property('error').that.matches(/project/i)
-      expect(result).to.not.have.property('teamId')
     })
 
     it('returns an error envelope when the store throws', async () => {
@@ -283,9 +262,20 @@ describe('BillingHandler', () => {
       createHandler()
 
       const handler = transport._handlers.get(BillingEvents.GET_PINNED_TEAM)
-      const result = await handler!(undefined, 'client-1')
+      const result = await handler!({projectPath: PROJECT_A}, 'client-1')
 
       expect(result).to.deep.equal({error: 'disk read error'})
+    })
+
+    it('returns an error envelope when projectPath is empty', async () => {
+      createHandler()
+
+      const handler = transport._handlers.get(BillingEvents.GET_PINNED_TEAM)
+      const result = await handler!({projectPath: ''}, 'client-1')
+
+      expect(storeFactoryStub.called).to.equal(false)
+      expect(getPinnedStub.called).to.equal(false)
+      expect(result).to.have.property('error').that.matches(/projectPath/i)
     })
   })
 
@@ -295,13 +285,12 @@ describe('BillingHandler', () => {
       expect(transport._handlers.has(BillingEvents.SET_PINNED_TEAM)).to.equal(true)
     })
 
-    it('writes the new pin to the resolved project store and returns success', async () => {
+    it('writes the new pin to the requested project store and returns success', async () => {
       createHandler()
 
       const handler = transport._handlers.get(BillingEvents.SET_PINNED_TEAM)
-      const result = await handler!({teamId: 'org-new'}, 'client-1')
+      const result = await handler!({projectPath: PROJECT_A, teamId: 'org-new'}, 'client-1')
 
-      expect(resolveProjectPathStub.calledOnceWith('client-1')).to.equal(true)
       expect(storeFactoryStub.calledOnceWith(PROJECT_A)).to.equal(true)
       expect(setPinnedStub.calledOnceWith('org-new')).to.equal(true)
       expect(result).to.deep.equal({success: true})
@@ -311,7 +300,7 @@ describe('BillingHandler', () => {
       createHandler()
 
       const handler = transport._handlers.get(BillingEvents.SET_PINNED_TEAM)
-      const result = await handler!({}, 'client-1')
+      const result = await handler!({projectPath: PROJECT_A}, 'client-1')
 
       expect(setPinnedStub.calledOnceWith()).to.equal(true)
       expect(result).to.deep.equal({success: true})
@@ -322,7 +311,7 @@ describe('BillingHandler', () => {
       createHandler()
 
       const handler = transport._handlers.get(BillingEvents.SET_PINNED_TEAM)
-      const result = await handler!({teamId: 'org-new'}, 'client-1')
+      const result = await handler!({projectPath: PROJECT_A, teamId: 'org-new'}, 'client-1')
 
       expect(result).to.deep.equal({error: 'disk full', success: false})
     })
@@ -331,7 +320,7 @@ describe('BillingHandler', () => {
       createHandler()
 
       const handler = transport._handlers.get(BillingEvents.SET_PINNED_TEAM)
-      await handler!({teamId: 'org-new'}, 'client-1')
+      await handler!({projectPath: PROJECT_A, teamId: 'org-new'}, 'client-1')
 
       expect(
         transport.broadcast.calledOnceWith(TransportDaemonEventNames.BILLING_PIN_CHANGED, {
@@ -345,7 +334,7 @@ describe('BillingHandler', () => {
       createHandler()
 
       const handler = transport._handlers.get(BillingEvents.SET_PINNED_TEAM)
-      await handler!({}, 'client-1')
+      await handler!({projectPath: PROJECT_A}, 'client-1')
 
       expect(
         transport.broadcast.calledOnceWith(TransportDaemonEventNames.BILLING_PIN_CHANGED, {
@@ -359,9 +348,22 @@ describe('BillingHandler', () => {
       createHandler()
 
       const handler = transport._handlers.get(BillingEvents.SET_PINNED_TEAM)
-      await handler!({organizationId: 'org-new'}, 'client-1')
+      await handler!({projectPath: PROJECT_A, teamId: 'org-new'}, 'client-1')
 
       expect(transport.broadcast.called).to.equal(false)
+    })
+
+    it('returns an error envelope when projectPath is empty', async () => {
+      createHandler()
+
+      const handler = transport._handlers.get(BillingEvents.SET_PINNED_TEAM)
+      const result = await handler!({projectPath: '', teamId: 'org-new'}, 'client-1')
+
+      expect(storeFactoryStub.called).to.equal(false)
+      expect(setPinnedStub.called).to.equal(false)
+      expect(transport.broadcast.called).to.equal(false)
+      expect(result).to.have.property('error').that.matches(/projectPath/i)
+      expect(result).to.have.property('success', false)
     })
   })
 

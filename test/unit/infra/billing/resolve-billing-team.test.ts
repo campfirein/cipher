@@ -2,24 +2,19 @@ import {expect} from 'chai'
 
 import {resolveBillingTeamId} from '../../../../src/server/infra/billing/resolve-billing-team.js'
 
+/**
+ * `resolveBillingTeamId` predicts which team the BILLING SERVER will charge for the
+ * next request given the daemon-side state. It does NOT apply workspace fallback —
+ * workspace handling is a client-side pre-selection concern only. The daemon sends
+ * the pin (or nothing); the server applies its own rules.
+ */
 describe('resolveBillingTeamId', () => {
-  describe('step 1 — explicit pin wins', () => {
-    it('returns the pinned organization id when set', () => {
+  describe('pinned team', () => {
+    it('returns the pinned team when set', () => {
       expect(
         resolveBillingTeamId({
           paidOrganizationIds: ['org-A', 'org-B'],
           pinnedTeamId: 'org-pin',
-          workspaceTeamId: 'org-A',
-        }),
-      ).to.equal('org-pin')
-    })
-
-    it('returns the pin even when the workspace also matches a paid org', () => {
-      expect(
-        resolveBillingTeamId({
-          paidOrganizationIds: ['org-A'],
-          pinnedTeamId: 'org-pin',
-          workspaceTeamId: 'org-A',
         }),
       ).to.equal('org-pin')
     })
@@ -29,73 +24,28 @@ describe('resolveBillingTeamId', () => {
         resolveBillingTeamId({
           paidOrganizationIds: ['org-A'],
           pinnedTeamId: 'org-stale',
-          workspaceTeamId: undefined,
         }),
       ).to.equal('org-stale')
     })
   })
 
-  describe('step 2 — workspace match', () => {
-    it('returns the workspace team when it appears in paid orgs', () => {
-      expect(
-        resolveBillingTeamId({
-          paidOrganizationIds: ['org-A', 'org-B'],
-          pinnedTeamId: undefined,
-          workspaceTeamId: 'org-A',
-        }),
-      ).to.equal('org-A')
-    })
-
-    it('does NOT return the workspace team when it is not a paid org', () => {
-      expect(
-        resolveBillingTeamId({
-          paidOrganizationIds: ['org-A'],
-          pinnedTeamId: undefined,
-          workspaceTeamId: 'org-Z',
-        }),
-      ).to.not.equal('org-Z')
-    })
-
-    it('treats an empty-string workspace team as missing (regression guard)', () => {
-      expect(
-        resolveBillingTeamId({
-          paidOrganizationIds: ['org-A'],
-          pinnedTeamId: undefined,
-          workspaceTeamId: undefined,
-        }),
-      ).to.equal('org-A')
-    })
-  })
-
-  describe('step 3 — single paid team auto-pick', () => {
-    it('returns the single paid org when no pin and no workspace match', () => {
+  describe('server auto-pick: single paid team', () => {
+    it('returns the single paid org when no pin is set', () => {
       expect(
         resolveBillingTeamId({
           paidOrganizationIds: ['org-only'],
           pinnedTeamId: undefined,
-          workspaceTeamId: 'org-not-a-paid-team',
-        }),
-      ).to.equal('org-only')
-    })
-
-    it('returns the single paid org when there is no workspace at all', () => {
-      expect(
-        resolveBillingTeamId({
-          paidOrganizationIds: ['org-only'],
-          pinnedTeamId: undefined,
-          workspaceTeamId: undefined,
         }),
       ).to.equal('org-only')
     })
   })
 
-  describe('step 4 — free pool fallback', () => {
-    it('returns undefined when there are multiple paid orgs and no pin/workspace match', () => {
+  describe('free fallback', () => {
+    it('returns undefined when no pin and multiple paid orgs (server charges free credits)', () => {
       expect(
         resolveBillingTeamId({
           paidOrganizationIds: ['org-A', 'org-B'],
           pinnedTeamId: undefined,
-          workspaceTeamId: 'org-not-a-paid-team',
         }),
       ).to.equal(undefined)
     })
@@ -105,17 +55,6 @@ describe('resolveBillingTeamId', () => {
         resolveBillingTeamId({
           paidOrganizationIds: [],
           pinnedTeamId: undefined,
-          workspaceTeamId: 'org-anything',
-        }),
-      ).to.equal(undefined)
-    })
-
-    it('returns undefined when nothing is set at all', () => {
-      expect(
-        resolveBillingTeamId({
-          paidOrganizationIds: [],
-          pinnedTeamId: undefined,
-          workspaceTeamId: undefined,
         }),
       ).to.equal(undefined)
     })

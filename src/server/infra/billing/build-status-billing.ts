@@ -14,7 +14,6 @@ export interface BuildStatusBillingInput {
   isAuthenticated: boolean
   paidUsages: readonly BillingUsageDTO[]
   pinnedTeamId?: string
-  workspaceTeamId?: string
 }
 
 export function buildStatusBilling(input: BuildStatusBillingInput): StatusBillingDTO | undefined {
@@ -28,7 +27,6 @@ export function buildStatusBilling(input: BuildStatusBillingInput): StatusBillin
   const resolved = resolveBillingTeamId({
     paidOrganizationIds: paidIds,
     pinnedTeamId: input.pinnedTeamId,
-    workspaceTeamId: input.workspaceTeamId,
   })
 
   if (resolved === undefined) return freeSource(input.freeUserLimit)

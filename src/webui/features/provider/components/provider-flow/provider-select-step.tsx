@@ -8,7 +8,6 @@ import {useMemo, useState} from 'react'
 
 import type {ProviderDTO} from '../../../../../shared/transport/types/dto'
 
-import {useAuthStore} from '../../../auth/stores/auth-store'
 import {useGetEnvironmentConfig} from '../../../config/api/get-environment-config'
 import {useGetPinnedTeam} from '../../api/get-pinned-team'
 import {useListTeams} from '../../api/list-teams'
@@ -62,17 +61,14 @@ function ExhaustedAlert({remaining, topUpUrl}: {remaining: number; topUpUrl?: st
 
 export function ProviderSelectStep({onSelect, providers}: ProviderSelectStepProps) {
   const [search, setSearch] = useState('')
-  const teamId = useAuthStore((s) => s.brvConfig?.teamId)
   const {data: pinnedData} = useGetPinnedTeam()
 
   const byteRoverActive = useMemo(
     () => providers.find((p) => p.id === BYTEROVER_PROVIDER_ID && p.isCurrent),
     [providers],
   )
-  // Reads from the same warm bulk-billing cache the header subscribes to —
-  // no extra round trip on dialog open.
   const {billingSource: usage, billingTone, paidOrg} = useBillingDisplay({
-    preferredOrgId: pinnedData?.teamId ?? teamId,
+    preferredOrgId: pinnedData?.teamId,
   })
   const isExhausted = byteRoverActive !== undefined && billingTone === 'danger' && usage !== undefined
 

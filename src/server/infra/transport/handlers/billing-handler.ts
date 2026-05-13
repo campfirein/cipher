@@ -4,13 +4,13 @@ import type {IProviderConfigStore} from '../../../core/interfaces/i-provider-con
 import type {IBillingService} from '../../../core/interfaces/services/i-billing-service.js'
 import type {IAuthStateStore} from '../../../core/interfaces/state/i-auth-state-store.js'
 import type {IBillingConfigStore} from '../../../core/interfaces/storage/i-billing-config-store.js'
-import type {IProjectConfigStore} from '../../../core/interfaces/storage/i-project-config-store.js'
 import type {ITransportServer} from '../../../core/interfaces/transport/i-transport-server.js'
 import type {ProjectPathResolver} from './handler-types.js'
 
 import {
   BillingEvents,
   type BillingGetFreeUserLimitResponse,
+  type BillingGetPinnedTeamRequest,
   type BillingGetPinnedTeamResponse,
   type BillingGetUsageRequest,
   type BillingGetUsageResponse,
@@ -28,7 +28,6 @@ export interface BillingHandlerDeps {
   authStateStore: IAuthStateStore
   billingConfigStoreFactory: (projectPath: string) => IBillingConfigStore
   billingService: IBillingService
-  projectConfigStore: IProjectConfigStore
   providerConfigStore: IProviderConfigStore
   resolveProjectPath: ProjectPathResolver
   transport: ITransportServer
@@ -40,7 +39,6 @@ export class BillingHandler {
   private readonly authStateStore: IAuthStateStore
   private readonly billingConfigStoreFactory: (projectPath: string) => IBillingConfigStore
   private readonly billingService: IBillingService
-  private readonly projectConfigStore: IProjectConfigStore
   private readonly providerConfigStore: IProviderConfigStore
   private readonly resolveProjectPath: ProjectPathResolver
   private readonly transport: ITransportServer
@@ -49,7 +47,6 @@ export class BillingHandler {
     this.authStateStore = deps.authStateStore
     this.billingConfigStoreFactory = deps.billingConfigStoreFactory
     this.billingService = deps.billingService
-    this.projectConfigStore = deps.projectConfigStore
     this.providerConfigStore = deps.providerConfigStore
     this.resolveProjectPath = deps.resolveProjectPath
     this.transport = deps.transport
@@ -84,12 +81,12 @@ export class BillingHandler {
   }
 
   private setupGetPinnedTeam(): void {
-    this.transport.onRequest<undefined, BillingGetPinnedTeamResponse>(
+    this.transport.onRequest<BillingGetPinnedTeamRequest, BillingGetPinnedTeamResponse>(
       BillingEvents.GET_PINNED_TEAM,
-      async (_, clientId) => {
+      async (data) => {
+        if (!data.projectPath) return {error: 'projectPath is required'}
         try {
-          const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
-          const store = this.billingConfigStoreFactory(projectPath)
+          const store = this.billingConfigStoreFactory(data.projectPath)
           const teamId = await store.getPinnedTeamId()
           return teamId === undefined ? {} : {teamId}
         } catch (error) {
@@ -152,7 +149,6 @@ export class BillingHandler {
           authStateStore: this.authStateStore,
           billingConfigStoreFactory: this.billingConfigStoreFactory,
           billingService: this.billingService,
-          projectConfigStore: this.projectConfigStore,
           projectPath,
           providerConfigStore: this.providerConfigStore,
         })
@@ -166,9 +162,10 @@ export class BillingHandler {
   private setupSetPinnedTeam(): void {
     this.transport.onRequest<BillingSetPinnedTeamRequest, BillingSetPinnedTeamResponse>(
       BillingEvents.SET_PINNED_TEAM,
-      async (data, clientId) => {
+      async (data) => {
+        if (!data.projectPath) return {error: 'projectPath is required', success: false}
         try {
-          const projectPath = resolveRequiredProjectPath(this.resolveProjectPath, clientId)
+          const {projectPath} = data
           const store = this.billingConfigStoreFactory(projectPath)
           await store.setPinnedTeamId(data.teamId)
           const payload: BillingPinChangedPayload =

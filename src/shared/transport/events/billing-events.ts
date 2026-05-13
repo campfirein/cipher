@@ -36,6 +36,10 @@ export interface BillingGetFreeUserLimitResponse {
   limit?: BillingFreeUserLimitDTO
 }
 
+export interface BillingGetPinnedTeamRequest {
+  projectPath: string
+}
+
 export interface BillingGetPinnedTeamResponse {
   error?: string
   /** When undefined, no pin is set and the consumer should fall back to its workspace default. */
@@ -43,6 +47,7 @@ export interface BillingGetPinnedTeamResponse {
 }
 
 export interface BillingSetPinnedTeamRequest {
+  projectPath: string
   /** Pass `undefined` (or omit) to clear the pin. */
   teamId?: string
 }
