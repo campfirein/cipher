@@ -11,13 +11,6 @@ import {writeJsonResponse} from '../lib/json-response.js'
 import {type QueryToolModeEnvelope, runRetrieval} from '../lib/query-retrieval.js'
 import {DEFAULT_TIMEOUT_SECONDS, MAX_TIMEOUT_SECONDS, MIN_TIMEOUT_SECONDS} from '../lib/task-client.js'
 
-/** Parsed flags type */
-type QueryFlags = {
-  format?: 'json' | 'text'
-  limit?: number
-  timeout?: number
-}
-
 /** Default match cap. Locked to 10 (matches `brv search`). */
 const DEFAULT_QUERY_LIMIT = 10
 const MIN_QUERY_LIMIT = 1
@@ -77,8 +70,8 @@ Bad:
     // on this command. (The env-var `BRV_QUERY_TOOL_MODE` scaffolding
     // from M2 is removed in M3 — presence/absence is a no-op now.)
     const {args, flags: rawFlags} = await this.parse(Query)
-    const flags = rawFlags as QueryFlags
-    const format = (flags.format ?? 'text') as 'json' | 'text'
+    const format: 'json' | 'text' = rawFlags.format === 'json' ? 'json' : 'text'
+    const limit = rawFlags.limit ?? DEFAULT_QUERY_LIMIT
 
     if (args.query.trim().length === 0) {
       if (format === 'json') {
@@ -97,11 +90,7 @@ Bad:
 
     try {
       await withDaemonRetry(async (client) => {
-        const envelope = await runRetrieval({
-          client,
-          limit: flags.limit ?? DEFAULT_QUERY_LIMIT,
-          query: args.query,
-        })
+        const envelope = await runRetrieval({client, limit, query: args.query})
         this.emitEnvelope(envelope, format, args.query)
       }, this.getDaemonClientOptions())
     } catch (error) {
