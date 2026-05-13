@@ -38,6 +38,7 @@ import {FileKeyStorage} from '../../../agent/infra/storage/file-key-storage.js'
 import {runWithReviewDisabled} from '../../../agent/infra/tools/implementations/curate-tool-task-context.js'
 import {createSearchKnowledgeService} from '../../../agent/infra/tools/implementations/search-knowledge-service.js'
 import {AuthEvents} from '../../../shared/transport/events/auth-events.js'
+import {decodeQueryToolModeContent} from '../../../shared/transport/query-tool-mode-content.js'
 import {decodeSearchContent} from '../../../shared/transport/search-content.js'
 import {getCurrentConfig} from '../../config/environment.js'
 import {BRV_DIR, DEFAULT_LLM_MODEL, PROJECT} from '../../constants.js'
@@ -725,6 +726,23 @@ async function executeTask(
           } catch {
             agentLog(`task:queryResult send failed taskId=${taskId}`)
           }
+
+          break
+        }
+
+        case 'query-tool-mode': {
+          // Tool-mode query: no LLM dispatch, no provider gate, no
+          // usage aggregator. Daemon runs Tier 0/1 cache + Tier-2-style
+          // retrieval (without the canRespondDirectly threshold) and
+          // returns the wire envelope. Wire contract: bundled SKILL.md
+          // (section 1, "Tool mode — run query without an LLM provider").
+          const toolModeOptions = decodeQueryToolModeContent(content)
+          const toolModeResult = await queryExecutor.executeToolMode({
+            limit: toolModeOptions.limit,
+            query: toolModeOptions.query,
+            worktreeRoot,
+          })
+          result = JSON.stringify(toolModeResult)
 
           break
         }
