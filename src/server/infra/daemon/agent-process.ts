@@ -38,6 +38,7 @@ import {FileKeyStorage} from '../../../agent/infra/storage/file-key-storage.js'
 import {runWithReviewDisabled} from '../../../agent/infra/tools/implementations/curate-tool-task-context.js'
 import {createSearchKnowledgeService} from '../../../agent/infra/tools/implementations/search-knowledge-service.js'
 import {AuthEvents} from '../../../shared/transport/events/auth-events.js'
+import {decodeQueryToolModeContent} from '../../../shared/transport/query-tool-mode-content.js'
 import {decodeSearchContent} from '../../../shared/transport/search-content.js'
 import {getCurrentConfig} from '../../config/environment.js'
 import {BRV_DIR, DEFAULT_LLM_MODEL, PROJECT} from '../../constants.js'
@@ -481,9 +482,10 @@ async function executeTask(
   const {clientCwd, clientId, content, files, folderPath, force, reviewDisabled, taskId, trigger, type, worktreeRoot} = task
   if (!transport || !agent) return
 
-  // Search tasks are pure BM25 retrieval — no LLM, no provider needed.
-  // Skip provider validation so search works even without a configured provider.
-  if (type !== 'search') {
+  // Search + tool-mode query are pure BM25 retrieval — no LLM, no
+  // provider needed. Skip provider validation so they work even
+  // without a configured provider (the headline promise of tool mode).
+  if (type !== 'search' && type !== 'query-tool-mode') {
     const freshProviderConfig = await transport.requestWithAck<ProviderConfigResponse>(
       TransportStateEventNames.GET_PROVIDER_CONFIG,
     )
@@ -725,6 +727,23 @@ async function executeTask(
           } catch {
             agentLog(`task:queryResult send failed taskId=${taskId}`)
           }
+
+          break
+        }
+
+        case 'query-tool-mode': {
+          // Tool-mode query: no LLM dispatch, no provider gate, no
+          // usage aggregator. Daemon runs Tier 0/1 cache + Tier-2-style
+          // retrieval (without the canRespondDirectly threshold) and
+          // returns the wire envelope. Wire contract: bundled SKILL.md
+          // (section 1, "Tool mode — run query without an LLM provider").
+          const toolModeOptions = decodeQueryToolModeContent(content)
+          const toolModeResult = await queryExecutor.executeToolMode({
+            limit: toolModeOptions.limit,
+            query: toolModeOptions.query,
+            worktreeRoot,
+          })
+          result = JSON.stringify(toolModeResult)
 
           break
         }
