@@ -336,7 +336,8 @@ describe('Dream Command', () => {
 
       const json = parseJsonOutput()
       expect(json.command).to.equal('dream')
-      expect(json.success).to.equal(true)
+      // success: false tracks the non-zero exit code; cancellation semantics live in data.status.
+      expect(json.success).to.equal(false)
       expect(json.data).to.deep.include({event: 'cancelled', status: 'cancelled'})
     })
   })

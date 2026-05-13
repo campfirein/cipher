@@ -367,10 +367,12 @@ Bad examples:
           onCancelled: ({taskId: tid}) => {
             wasCancelled = true
             if (format === 'json') {
+              // success: false because the JSON top-level field tracks the exit
+              // code (130 on cancel). Cancellation semantics live in data.status.
               writeJsonResponse({
                 command: 'curate',
                 data: {event: 'cancelled', message: 'Curate cancelled', status: 'cancelled', taskId: tid},
-                success: true,
+                success: false,
               })
             } else {
               this.log(`✗ Curate cancelled (Task: ${tid})`)

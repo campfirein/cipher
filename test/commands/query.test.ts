@@ -787,6 +787,8 @@ describe('Query Command', () => {
       const cancelled = lines.find((line) => line.data.status === 'cancelled')
       expect(cancelled).to.not.equal(undefined)
       expect(cancelled!.command).to.equal('query')
+      // success: false tracks the non-zero exit code; cancellation semantics live in data.status.
+      expect(cancelled!.success).to.equal(false)
     })
   })
 })

@@ -293,10 +293,12 @@ export default class Dream extends Command {
           onCancelled: ({taskId: tid}) => {
             wasCancelled = true
             if (format === 'json') {
+              // success: false because the JSON top-level field tracks the exit
+              // code (130 on cancel). Cancellation semantics live in data.status.
               writeJsonResponse({
                 command: 'dream',
                 data: {event: 'cancelled', message: 'Dream cancelled', status: 'cancelled', taskId: tid},
-                success: true,
+                success: false,
               })
             } else {
               this.log(`✗ Dream cancelled (Task: ${tid})`)
