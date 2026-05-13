@@ -9,7 +9,7 @@ import {BRV_DIR, CONTEXT_TREE_DIR} from '../../../server/constants.js'
 import {ProviderConfigResponse, TransportStateEventNames} from '../../../server/core/domain/transport/index.js'
 import {extractCurateOperations} from '../../../server/utils/curate-result-parser.js'
 import {TaskEvents} from '../../../shared/transport/events/index.js'
-import {runCancelTask} from '../../lib/cancel-task.js'
+import {runCancelBranchWithRetry} from '../../lib/cancel-task.js'
 import {
   type DaemonClientOptions,
   formatConnectionError,
@@ -297,26 +297,14 @@ Bad examples:
   }
 
   private async runCancelBranch(taskId: string, format: 'json' | 'text'): Promise<void> {
-    let success = false
-    try {
-      await withDaemonRetry(
-        async (client) => {
-          success = await runCancelTask({
-            client,
-            command: 'curate',
-            format,
-            log: (msg) => this.log(msg),
-            taskId,
-          })
-        },
-        this.getDaemonClientOptions(),
-      )
-    } catch (error) {
-      this.reportError(error, format)
-      this.exit(1)
-      return
-    }
-
+    const success = await runCancelBranchWithRetry({
+      command: 'curate',
+      daemonClientOptions: this.getDaemonClientOptions(),
+      format,
+      log: (msg) => this.log(msg),
+      onTransportError: (error) => this.reportError(error, format),
+      taskId,
+    })
     if (!success) this.exit(1)
   }
 

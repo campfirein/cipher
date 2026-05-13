@@ -188,8 +188,15 @@ function installSigintCancel(deps: {client: ITransportClient; taskId: string}): 
     // Fire-and-forget; we await the daemon's task:cancelled broadcast in the
     // wait loop. The daemon may also respond with success/false on a stale id;
     // we ignore that here because the wait loop times out or sees a terminal
-    // event either way.
-    deps.client.request(TaskEvents.CANCEL, {taskId: deps.taskId})
+    // event either way. Wrapped in try/catch so a synchronously-throwing
+    // transport (already-disconnected socket, etc.) doesn't propagate out of
+    // the signal handler and crash the process with an uncaught exception.
+    try {
+      deps.client.request(TaskEvents.CANCEL, {taskId: deps.taskId})
+    } catch {
+      // Transport unavailable — the wait loop will time out or see a
+      // disconnect event and surface that path instead.
+    }
   }
 
   process.on('SIGINT', onSigint)
