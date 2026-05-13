@@ -582,7 +582,8 @@ describe('Query Command', () => {
       expect(loggedMessages.some((m) => m.includes('done'))).to.be.true
       const deprecationWarnings = loggedMessages.filter((m) => m.includes('--timeout is deprecated'))
       expect(deprecationWarnings).to.have.lengthOf(1)
-      expect(deprecationWarnings[0]).to.include('llm.iterationBudgetMs')
+      expect(deprecationWarnings[0]).to.include('has no effect')
+      expect(deprecationWarnings[0]).to.not.include('llm.iterationBudgetMs')
     })
 
     it('should accept --timeout flag in JSON mode', async () => {

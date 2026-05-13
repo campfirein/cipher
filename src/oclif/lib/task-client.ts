@@ -371,6 +371,24 @@ export function waitForTaskCompletion(options: WaitForTaskOptions, log: (msg: st
         }
       }),
 
+      // Task cancelled — terminal state, mirrors the daemon-side stop list
+      // in M6 T1. Dispose without rejecting so a user-cancelled task closes
+      // cleanly and no phantom "Daemon is unresponsive" fires afterward.
+      client.on<{taskId: string}>(TaskEvents.CANCELLED, (payload) => {
+        if (payload.taskId !== taskId || completed) return
+        completed = true
+        cleanup()
+        if (!isText) {
+          writeJsonResponse({
+            command,
+            data: {event: 'cancelled', status: 'cancelled', taskId},
+            success: true,
+          })
+        }
+
+        resolve()
+      }),
+
       // Connection state monitoring
       client.onStateChange((state) => {
         if (completed) return

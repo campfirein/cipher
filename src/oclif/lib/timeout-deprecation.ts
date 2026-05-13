@@ -14,11 +14,12 @@ export const TIMEOUT_DEPRECATION_HELP = '(deprecated, no effect, kept for compat
 
 /**
  * One-line stderr-friendly notice printed once per invocation when the
- * user explicitly passed `--timeout`. References `llm.iterationBudgetMs`
- * so users have a concrete migration target.
+ * user explicitly passed `--timeout`. Wording deliberately omits any
+ * specific setting key so M6 ships independently of M1/M2/M3 and
+ * survives setting renames (per M6 T2 AC).
  */
 export const TIMEOUT_DEPRECATION_MESSAGE =
-  '--timeout is deprecated and has no effect; configure llm.iterationBudgetMs instead.'
+  '--timeout is deprecated and has no effect.'
 
 /**
  * Calls `log(TIMEOUT_DEPRECATION_MESSAGE)` exactly once iff the user

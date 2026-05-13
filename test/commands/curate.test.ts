@@ -533,7 +533,8 @@ describe('Curate Command', () => {
 
       const deprecationWarnings = loggedMessages.filter((m) => m.includes('--timeout is deprecated'))
       expect(deprecationWarnings).to.have.lengthOf(1)
-      expect(deprecationWarnings[0]).to.include('llm.iterationBudgetMs')
+      expect(deprecationWarnings[0]).to.include('has no effect')
+      expect(deprecationWarnings[0]).to.not.include('llm.iterationBudgetMs')
     })
 
     it('does not warn about deprecation when --timeout is omitted', async () => {

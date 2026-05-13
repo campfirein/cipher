@@ -7,10 +7,13 @@ import {
 } from '../../../../src/oclif/lib/timeout-deprecation.js'
 
 describe('timeout-deprecation helpers', () => {
-  it('exposes a one-line deprecation message pointing at llm.iterationBudgetMs', () => {
+  it('exposes a one-line deprecation message without naming any specific setting key', () => {
     expect(TIMEOUT_DEPRECATION_MESSAGE).to.match(/--timeout/)
     expect(TIMEOUT_DEPRECATION_MESSAGE).to.match(/deprecat/i)
-    expect(TIMEOUT_DEPRECATION_MESSAGE).to.include('llm.iterationBudgetMs')
+    expect(TIMEOUT_DEPRECATION_MESSAGE).to.match(/no effect/i)
+    // Per M6 T2: wording deliberately omits any specific setting key so M6
+    // ships independently of M1/M2/M3 and survives setting renames.
+    expect(TIMEOUT_DEPRECATION_MESSAGE).to.not.include('llm.iterationBudgetMs')
     expect(TIMEOUT_DEPRECATION_MESSAGE.split('\n')).to.have.lengthOf(1)
   })
 

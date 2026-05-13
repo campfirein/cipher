@@ -210,4 +210,36 @@ describe('waitForTaskCompletion — heartbeat watcher', () => {
     expect(rejection).to.have.property('code', 'ERR_AGENT_DISCONNECTED')
   })
 
+  it('disposes cleanly on TaskEvents.CANCELLED — no phantom unresponsive after cancellation', async () => {
+    const {client, emit} = makeClient()
+    let rejected = false
+    let rejection: Error | undefined
+
+    const promise = waitForTaskCompletion(
+      {
+        client,
+        command: 'curate',
+        format: 'text',
+        onCompleted() {},
+        onError() {},
+        taskId: 't1',
+      },
+      () => {},
+    ).then(
+      () => {},
+      (error) => {
+        rejected = true
+        rejection = error instanceof Error ? error : new Error(String(error))
+      },
+    )
+
+    await clock.tickAsync(5000)
+    emit(TaskEvents.CANCELLED, {taskId: 't1'})
+
+    await clock.tickAsync(60_000)
+    await promise
+
+    expect(rejected).to.equal(false, `should not reject; got: ${rejection?.message}`)
+  })
+
 })
