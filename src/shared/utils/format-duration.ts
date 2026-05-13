@@ -111,7 +111,7 @@ export function parseDuration(input: string): DurationParseError | number {
         const unit = unknownUnitMatch[1]
         if (!(unit in UNIT_MS)) {
           return {
-            hint: 'accepted units are "s", "m", "h", "ms" (case-insensitive); examples: "30m", "1h 30m", "45s", "30000ms".',
+            hint: 'invalid duration: try 30m, 1h, 1h 30m, or a raw ms integer.',
             input,
             kind: 'unknown-unit',
           }
