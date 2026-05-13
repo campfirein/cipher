@@ -7,11 +7,28 @@ import {
 } from '../../../constants.js'
 
 /**
+ * High-level concern the setting controls. Drives group headers in CLI
+ * and TUI render output (uppercased). Web docs / WebUI consume this
+ * field to render the same groupings independently of key naming.
+ */
+export type SettingCategory = 'concurrency' | 'llm' | 'task-history'
+
+/**
+ * Value-kind for dispatch between the duration formatter / parser
+ * (`'ms'`) and the plain integer parser (`'count'`). Both surfaces and
+ * the CLI `settings set` command route on this field; without it,
+ * dispatch would require parsing the key suffix (`*Ms`), which breaks
+ * the day a key doesn't follow that convention.
+ */
+export type SettingUnit = 'count' | 'ms'
+
+/**
  * Descriptor for a single user-configurable setting.
  * Defaults reference the existing constants module so a constant change
  * automatically updates the setting's default.
  */
 export type SettingDescriptor = {
+  readonly category?: SettingCategory
   readonly default: number
   readonly description: string
   readonly key: string
@@ -19,6 +36,7 @@ export type SettingDescriptor = {
   readonly min: number
   readonly restartRequired: true
   readonly type: 'integer'
+  readonly unit?: SettingUnit
 }
 
 /**
@@ -48,8 +66,9 @@ export const SETTINGS_KEYS = {
 
 export const SETTINGS_REGISTRY: readonly SettingDescriptor[] = [
   {
+    category: 'concurrency',
     default: AGENT_POOL_MAX_SIZE,
-    description: 'Maximum number of concurrent active projects (one agent process per project).',
+    description: 'Max concurrent active projects (one agent process per project).',
     key: SETTINGS_KEYS.AGENT_POOL_MAX_SIZE,
     max: 100,
     min: 1,
@@ -57,8 +76,9 @@ export const SETTINGS_REGISTRY: readonly SettingDescriptor[] = [
     type: 'integer',
   },
   {
+    category: 'concurrency',
     default: AGENT_MAX_CONCURRENT_TASKS,
-    description: 'Maximum number of parallel curate/query tasks within a single project.',
+    description: 'Max parallel curate/query tasks within a single project.',
     key: SETTINGS_KEYS.AGENT_POOL_MAX_CONCURRENT_TASKS,
     max: 50,
     min: 1,
@@ -66,30 +86,33 @@ export const SETTINGS_REGISTRY: readonly SettingDescriptor[] = [
     type: 'integer',
   },
   {
+    category: 'llm',
     default: AGENT_LLM_ITERATION_BUDGET_MS,
-    description:
-      'Maximum wall-clock budget for the agentic loop on one task, in milliseconds. Raise for slow local LLMs (Ollama on CPU); lower for faster failure detection on cloud providers.',
+    description: 'Max wall-clock budget for one agentic loop, in milliseconds.',
     key: SETTINGS_KEYS.LLM_ITERATION_BUDGET_MS,
-    max: 7_200_000,
+    max: 3_600_000,
     min: 60_000,
     restartRequired: true,
     type: 'integer',
+    unit: 'ms',
   },
   {
+    category: 'llm',
     default: AGENT_LLM_REQUEST_TIMEOUT_MS,
-    description:
-      'Maximum wall-clock budget for one direct LLM HTTP request, in milliseconds. Must be <= llm.iterationBudgetMs. Raise for slow local LLMs (Ollama, LM Studio).',
+    description: 'Max wall-clock per LLM HTTP request, ms. Must be <= llm.iterationBudgetMs.',
     key: SETTINGS_KEYS.LLM_REQUEST_TIMEOUT_MS,
-    max: 7_200_000,
+    max: 3_600_000,
     min: 10_000,
     restartRequired: true,
     type: 'integer',
+    unit: 'ms',
   },
   {
+    category: 'task-history',
     default: TASK_HISTORY_DEFAULT_MAX_ENTRIES,
-    description: 'Maximum number of task records `brv query-log view` retains per project.',
+    description: 'Max task records `brv query-log view` retains per project.',
     key: SETTINGS_KEYS.TASK_HISTORY_MAX_ENTRIES,
-    max: 100_000,
+    max: 10_000,
     min: 10,
     restartRequired: true,
     type: 'integer',

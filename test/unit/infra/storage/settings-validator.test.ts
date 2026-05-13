@@ -93,18 +93,19 @@ describe('SettingsValidator', () => {
       expect(validator.validate('taskHistory.maxEntries', 5000)).to.equal(5000)
     })
 
-    it('accepts llm.iterationBudgetMs within the documented 60_000 to 7_200_000 ms range', () => {
+    it('accepts llm.iterationBudgetMs within the documented 60_000 to 3_600_000 ms range', () => {
       expect(validator.validate('llm.iterationBudgetMs', 60_000)).to.equal(60_000)
       expect(validator.validate('llm.iterationBudgetMs', 1_800_000)).to.equal(1_800_000)
-      expect(validator.validate('llm.iterationBudgetMs', 7_200_000)).to.equal(7_200_000)
+      expect(validator.validate('llm.iterationBudgetMs', 3_600_000)).to.equal(3_600_000)
     })
 
     it('rejects llm.iterationBudgetMs below the 60_000 ms minimum', () => {
       expect(() => validator.validate('llm.iterationBudgetMs', 30_000)).to.throw(InvalidSettingValueError)
     })
 
-    it('rejects llm.iterationBudgetMs above the 7_200_000 ms maximum', () => {
-      expect(() => validator.validate('llm.iterationBudgetMs', 7_200_001)).to.throw(InvalidSettingValueError)
+    it('rejects llm.iterationBudgetMs above the 3_600_000 ms maximum (M7 T2 tightening)', () => {
+      expect(() => validator.validate('llm.iterationBudgetMs', 3_600_001)).to.throw(InvalidSettingValueError)
+      expect(() => validator.validate('llm.iterationBudgetMs', 5_400_000)).to.throw(InvalidSettingValueError)
     })
 
     it('names the key and the expected range on llm.iterationBudgetMs validation failure', () => {
@@ -116,23 +117,35 @@ describe('SettingsValidator', () => {
         if (error instanceof InvalidSettingValueError) {
           expect(error.key).to.equal('llm.iterationBudgetMs')
           expect(error.message).to.include('60000')
-          expect(error.message).to.include('7200000')
+          expect(error.message).to.include('3600000')
         }
       }
     })
 
-    it('accepts llm.requestTimeoutMs within the documented 10_000 to 7_200_000 ms range', () => {
+    it('accepts llm.requestTimeoutMs within the documented 10_000 to 3_600_000 ms range', () => {
       expect(validator.validate('llm.requestTimeoutMs', 10_000)).to.equal(10_000)
       expect(validator.validate('llm.requestTimeoutMs', 120_000)).to.equal(120_000)
-      expect(validator.validate('llm.requestTimeoutMs', 7_200_000)).to.equal(7_200_000)
+      expect(validator.validate('llm.requestTimeoutMs', 3_600_000)).to.equal(3_600_000)
     })
 
     it('rejects llm.requestTimeoutMs below the 10_000 ms minimum', () => {
       expect(() => validator.validate('llm.requestTimeoutMs', 5000)).to.throw(InvalidSettingValueError)
     })
 
-    it('rejects llm.requestTimeoutMs above the 7_200_000 ms maximum', () => {
-      expect(() => validator.validate('llm.requestTimeoutMs', 7_200_001)).to.throw(InvalidSettingValueError)
+    it('rejects llm.requestTimeoutMs above the 3_600_000 ms maximum (M7 T2 tightening)', () => {
+      expect(() => validator.validate('llm.requestTimeoutMs', 3_600_001)).to.throw(InvalidSettingValueError)
+      expect(() => validator.validate('llm.requestTimeoutMs', 5_400_000)).to.throw(InvalidSettingValueError)
+    })
+
+    it('rejects taskHistory.maxEntries above the 10_000 maximum (M7 T2 tightening)', () => {
+      expect(() => validator.validate('taskHistory.maxEntries', 10_001)).to.throw(InvalidSettingValueError)
+      expect(() => validator.validate('taskHistory.maxEntries', 50_000)).to.throw(InvalidSettingValueError)
+    })
+
+    it('accepts taskHistory.maxEntries up to the new 10_000 maximum', () => {
+      expect(validator.validate('taskHistory.maxEntries', 10)).to.equal(10)
+      expect(validator.validate('taskHistory.maxEntries', 1000)).to.equal(1000)
+      expect(validator.validate('taskHistory.maxEntries', 10_000)).to.equal(10_000)
     })
   })
 
