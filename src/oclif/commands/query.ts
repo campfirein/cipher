@@ -5,6 +5,7 @@ import {randomUUID} from 'node:crypto'
 
 import {type ProviderConfigResponse, TransportStateEventNames} from '../../server/core/domain/transport/schemas.js'
 import {TaskEvents} from '../../shared/transport/events/index.js'
+import {runCancelTask} from '../lib/cancel-task.js'
 import {
   type DaemonClientOptions,
   formatConnectionError,
@@ -25,8 +26,8 @@ type QueryFlags = {
 export default class Query extends Command {
   public static args = {
     query: Args.string({
-      description: 'Natural language question about your codebase or project knowledge',
-      required: true,
+      description: 'Natural language question about your codebase or project knowledge (omit when using --cancel)',
+      required: false,
     }),
   }
   public static description = `Query and retrieve information from the context tree
@@ -46,6 +47,9 @@ Bad:
     '<%= config.bin %> <%= command.id %> "How does auth work?" --format json',
   ]
   public static flags = {
+    cancel: Flags.string({
+      description: 'Cancel a running task by id. Short-circuits the query flow — no new task is created.',
+    }),
     format: Flags.string({
       default: 'text',
       description: 'Output format (text or json)',
@@ -66,10 +70,21 @@ Bad:
 
   public async run(): Promise<void> {
     const {args, flags: rawFlags} = await this.parse(Query)
-    const flags = rawFlags as QueryFlags
+    const flags = rawFlags as QueryFlags & {cancel?: string}
     const format = (flags.format ?? 'text') as 'json' | 'text'
 
-    if (!this.validateInput(args.query, format)) return
+    if (flags.cancel) {
+      if (args.query !== undefined && args.query.trim() !== '') {
+        this.reportCombinationError(format)
+        this.exit(1)
+        return
+      }
+
+      await this.runCancelBranch(flags.cancel, format)
+      return
+    }
+
+    if (!this.validateInput(args.query ?? '', format)) return
 
     let providerContext: ProviderErrorContext | undefined
 
@@ -95,7 +110,7 @@ Bad:
             client,
             format,
             projectRoot,
-            query: args.query,
+            query: args.query ?? '',
             timeoutMs: (flags.timeout ?? DEFAULT_TIMEOUT_SECONDS) * 1000,
             worktreeRoot,
           })
@@ -114,6 +129,19 @@ Bad:
     }
   }
 
+  private reportCombinationError(format: 'json' | 'text'): void {
+    const message = 'Provide either a query string or --cancel <id>, not both.'
+    if (format === 'json') {
+      writeJsonResponse({
+        command: 'query',
+        data: {message, status: 'error'},
+        success: false,
+      })
+    } else {
+      this.log(message)
+    }
+  }
+
   private reportError(error: unknown, format: 'json' | 'text', providerContext?: ProviderErrorContext): void {
     const errorMessage = error instanceof Error ? error.message : 'Query failed'
 
@@ -127,6 +155,30 @@ Bad:
       // eslint-disable-next-line n/no-process-exit, unicorn/no-process-exit
       process.exit(1)
     }
+  }
+
+  private async runCancelBranch(taskId: string, format: 'json' | 'text'): Promise<void> {
+    let success = false
+    try {
+      await withDaemonRetry(
+        async (client) => {
+          success = await runCancelTask({
+            client,
+            command: 'query',
+            format,
+            log: (msg) => this.log(msg),
+            taskId,
+          })
+        },
+        this.getDaemonClientOptions(),
+      )
+    } catch (error) {
+      this.reportError(error, format)
+      this.exit(1)
+      return
+    }
+
+    if (!success) this.exit(1)
   }
 
   private async submitTask(props: {
