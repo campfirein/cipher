@@ -3,7 +3,7 @@ import {mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync, mkdirSync}
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
-import {DEFAULT_TARGET_PATHS, HOST_TO_PATH, install, resolveTargets} from '../bin/install-lib.js'
+import {DEFAULT_TARGET_PATHS, HOST_TO_PATH, install, resolveBrvBin, resolveTargets} from '../bin/install-lib.js'
 
 // Slice 8.2 — install CLI for the brv-channel skill. Writes SKILL.md
 // to the canonical agent-skill discovery paths so all five hosts
@@ -135,6 +135,96 @@ describe('channel-skill install (Slice 8.2)', () => {
 
       expect(caught).to.be.instanceOf(Error)
       expect((caught as Error).message).to.match(/SKILL\.md/i)
+    })
+  })
+
+  describe('resolveBrvBin', () => {
+    it('returns the explicit override when supplied', () => {
+      expect(resolveBrvBin({brvBin: '/explicit/brv'})).to.equal('/explicit/brv')
+    })
+
+    it('falls back to BRV_BIN env var when no override', () => {
+      const original = process.env.BRV_BIN
+      process.env.BRV_BIN = '/env/brv'
+      try {
+        expect(resolveBrvBin()).to.equal('/env/brv')
+      } finally {
+        if (original === undefined) delete process.env.BRV_BIN
+        else process.env.BRV_BIN = original
+      }
+    })
+
+    it('walks PATH when env+override are absent', () => {
+      const fakeDir = join(workDir, 'fake-bin')
+      mkdirSync(fakeDir, {recursive: true})
+      const brvPath = join(fakeDir, 'brv')
+      writeFileSync(brvPath, '#!/bin/sh\nexit 0\n', {encoding: 'utf8', mode: 0o755})
+
+      const original = process.env.BRV_BIN
+      delete process.env.BRV_BIN
+      try {
+        const resolved = resolveBrvBin({pathEnv: fakeDir})
+        expect(resolved).to.equal(brvPath)
+      } finally {
+        if (original !== undefined) process.env.BRV_BIN = original
+      }
+    })
+
+    it('falls back to literal "brv" when nothing resolves', () => {
+      const original = process.env.BRV_BIN
+      delete process.env.BRV_BIN
+      try {
+        expect(resolveBrvBin({pathEnv: '/nonexistent-dir-for-test'})).to.equal('brv')
+      } finally {
+        if (original !== undefined) process.env.BRV_BIN = original
+      }
+    })
+  })
+
+  describe('install ({{BRV_BIN}} substitution)', () => {
+    beforeEach(() => {
+      writeFileSync(
+        skillSource,
+        'Run `{{BRV_BIN}} channel list` to see channels.\nThen `{{BRV_BIN}} channel mention …`.\n',
+        'utf8',
+      )
+    })
+
+    it('replaces every {{BRV_BIN}} occurrence with the resolved path', async () => {
+      const target = targetPath('claude')
+      const result = await install({brvBin: '/abs/brv', skillSource, targets: [target]})
+      expect(result.brvBin).to.equal('/abs/brv')
+      const body = readFileSync(target, 'utf8')
+      expect(body).to.contain('Run `/abs/brv channel list`')
+      expect(body).to.contain('`/abs/brv channel mention …`')
+      expect(body).to.not.contain('{{BRV_BIN}}')
+    })
+
+    it('returns the resolved brv path in the result for caller logging', async () => {
+      const result = await install({brvBin: '/some/brv', skillSource, targets: [targetPath('claude')]})
+      expect(result.brvBin).to.equal('/some/brv')
+    })
+
+    it('idempotency still works after substitution', async () => {
+      const target = targetPath('claude')
+      await install({brvBin: '/abs/brv', skillSource, targets: [target]})
+      const second = await install({brvBin: '/abs/brv', skillSource, targets: [target]})
+      expect(second.skipped).to.deep.equal([target])
+      expect(second.written).to.deep.equal([])
+    })
+
+    it('different brvBin counts as different content (triggers --force prompt)', async () => {
+      const target = targetPath('claude')
+      await install({brvBin: '/abs/brv-one', skillSource, targets: [target]})
+      let caught: unknown
+      try {
+        await install({brvBin: '/abs/brv-two', skillSource, targets: [target]})
+      } catch (error) {
+        caught = error
+      }
+
+      expect(caught).to.be.instanceOf(Error)
+      expect((caught as Error).message).to.match(/--force/i)
     })
   })
 })

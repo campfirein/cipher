@@ -12,9 +12,15 @@ export declare function resolveTargets(opts: {
   customPath?: string
 }): string[]
 
+export declare function resolveBrvBin(opts?: {
+  brvBin?: string
+  pathEnv?: string
+}): string
+
 export type InstallResult = {
   written: string[]
   skipped: string[]
+  brvBin: string
 }
 
 export declare function install(opts: {
@@ -22,4 +28,5 @@ export declare function install(opts: {
   targets: string[]
   dryRun?: boolean
   force?: boolean
+  brvBin?: string
 }): Promise<InstallResult>

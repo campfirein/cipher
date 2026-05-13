@@ -2,8 +2,8 @@
 // Separated from bin/install.js so unit tests can import the functions
 // without spawning a subprocess.
 
-import {existsSync, mkdirSync, readFileSync, writeFileSync} from 'node:fs'
-import {dirname, join} from 'node:path'
+import {accessSync, constants, existsSync, mkdirSync, readFileSync, writeFileSync} from 'node:fs'
+import {delimiter, dirname, join} from 'node:path'
 
 /**
  * Canonical per-host skill discovery paths, relative to $HOME.
@@ -68,23 +68,67 @@ export const resolveTargets = ({customPath, homeDir, target}) => {
 }
 
 /**
+ * Resolve the brv binary path that gets baked into the installed
+ * SKILL.md. Priority:
+ *   1. Explicit `brvBin` option (test override or `--brv-bin` flag).
+ *   2. `BRV_BIN` env var.
+ *   3. First `brv` executable found on `PATH`.
+ *   4. Fallback: literal string `brv` — the host's shell will resolve it
+ *      at call time, which works iff brv is on PATH at run time.
+ *
+ * The returned value is interpolated into `{{BRV_BIN}}` placeholders in
+ * the SKILL.md body so the LLM sees a verbatim command path that works
+ * on the user's machine.
+ *
+ * @param {object} [opts]
+ * @param {string} [opts.brvBin]    Explicit override.
+ * @param {string} [opts.pathEnv]   `PATH` value (default `process.env.PATH`).
+ * @returns {string}
+ */
+export const resolveBrvBin = (opts = {}) => {
+  if (typeof opts.brvBin === 'string' && opts.brvBin !== '') return opts.brvBin
+  const envBin = process.env.BRV_BIN
+  if (typeof envBin === 'string' && envBin !== '') return envBin
+  const pathEnv = opts.pathEnv ?? process.env.PATH ?? ''
+  for (const dir of pathEnv.split(delimiter)) {
+    if (dir === '') continue
+    const candidate = join(dir, 'brv')
+    try {
+      accessSync(candidate, constants.X_OK)
+      return candidate
+    } catch {
+      // Not executable here — keep walking PATH.
+    }
+  }
+
+  return 'brv'
+}
+
+/**
  * Install the skill body to each of `targets`. Idempotent: if a target
- * already contains identical content, it's reported in `.skipped`. If
- * a target exists with different content, throws unless `force: true`.
+ * already contains identical content (after BRV_BIN substitution),
+ * it's reported in `.skipped`. If a target exists with different
+ * content, throws unless `force: true`.
+ *
+ * The source SKILL.md may contain `{{BRV_BIN}}` placeholders; they are
+ * replaced with the resolved brv binary path before writing.
  *
  * @param {object} opts
- * @param {string} opts.skillSource  Absolute path to the source SKILL.md.
+ * @param {string} opts.skillSource  Absolute path to the source SKILL.md template.
  * @param {string[]} opts.targets    Absolute destination paths.
  * @param {boolean} [opts.dryRun]    If true, no disk writes.
  * @param {boolean} [opts.force]     If true, overwrite differing content.
- * @returns {Promise<{written: string[], skipped: string[]}>}
+ * @param {string} [opts.brvBin]     Override the resolved brv binary path.
+ * @returns {Promise<{written: string[], skipped: string[], brvBin: string}>}
  */
-export const install = async ({dryRun, force, skillSource, targets}) => {
+export const install = async ({brvBin, dryRun, force, skillSource, targets}) => {
   if (!existsSync(skillSource)) {
     throw new Error(`SKILL.md source not found at ${skillSource}`)
   }
 
-  const body = readFileSync(skillSource, 'utf8')
+  const resolvedBrvBin = resolveBrvBin({brvBin})
+  const template = readFileSync(skillSource, 'utf8')
+  const body = template.replaceAll('{{BRV_BIN}}', resolvedBrvBin)
   const written = []
   const skipped = []
 
@@ -111,5 +155,5 @@ export const install = async ({dryRun, force, skillSource, targets}) => {
     written.push(target)
   }
 
-  return {skipped, written}
+  return {brvBin: resolvedBrvBin, skipped, written}
 }

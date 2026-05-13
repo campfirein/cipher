@@ -31,6 +31,12 @@ const parseArgs = (argv) => {
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i]
     switch (arg) {
+      case '--brv-bin': {
+        args.brvBin = argv[i + 1]
+        i += 1
+        break
+      }
+
       case '--dry-run': {
         args.dryRun = true
         break
@@ -82,11 +88,15 @@ const parseArgs = (argv) => {
 
 const HELP = `Usage: brv-channel-skill install [options]
 
-Copies the brv-channel SKILL.md into each host's agent-skill discovery dir.
+Copies the brv-channel SKILL.md into each host's agent-skill discovery dir,
+with the brv binary path baked into the body so the LLM sees a verbatim
+command path that works on this machine.
 
 Options:
   --target <host>   claude | codex | kimi | opencode | pi | all   default 'all'
   --path <abs>      override target with an explicit absolute path
+  --brv-bin <path>  override the brv binary path baked into the skill
+                    (default: BRV_BIN env > 'brv' on PATH > literal 'brv')
   --force           overwrite an existing SKILL.md that differs
   --dry-run         print planned writes without touching disk
   --help            show this help
@@ -119,12 +129,14 @@ const main = async () => {
   })
 
   const result = await install({
+    brvBin: args.brvBin,
     dryRun: args.dryRun,
     force: args.force,
     skillSource: SKILL_SOURCE,
     targets,
   })
 
+  process.stdout.write(`brv binary baked into SKILL.md: ${result.brvBin}\n`)
   const label = args.dryRun === true ? '(dry-run) would write' : '✓ installed'
   for (const path of result.written) process.stdout.write(`${label} ${path}\n`)
   for (const path of result.skipped) process.stdout.write(`= unchanged ${path}\n`)
