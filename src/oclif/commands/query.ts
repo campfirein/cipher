@@ -200,10 +200,14 @@ Bad:
     const {format, limit, query} = props
 
     if (query.trim().length === 0) {
+      // Use the same `{error, status: 'error'}` shape as `reportError`
+      // emits — calling agents parsing `--format json` get one
+      // consistent failure surface regardless of where the rejection
+      // came from.
       if (format === 'json') {
         writeJsonResponse({
           command: 'query',
-          data: {message: 'Tool-mode query requires a question argument.', status: 'error'},
+          data: {error: 'Tool-mode query requires a question argument.', status: 'error'},
           success: false,
         })
       } else {

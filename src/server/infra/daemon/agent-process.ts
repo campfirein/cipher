@@ -482,9 +482,10 @@ async function executeTask(
   const {clientCwd, clientId, content, files, folderPath, force, reviewDisabled, taskId, trigger, type, worktreeRoot} = task
   if (!transport || !agent) return
 
-  // Search tasks are pure BM25 retrieval — no LLM, no provider needed.
-  // Skip provider validation so search works even without a configured provider.
-  if (type !== 'search') {
+  // Search + tool-mode query are pure BM25 retrieval — no LLM, no
+  // provider needed. Skip provider validation so they work even
+  // without a configured provider (the headline promise of tool mode).
+  if (type !== 'search' && type !== 'query-tool-mode') {
     const freshProviderConfig = await transport.requestWithAck<ProviderConfigResponse>(
       TransportStateEventNames.GET_PROVIDER_CONFIG,
     )

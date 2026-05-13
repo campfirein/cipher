@@ -179,21 +179,24 @@ export class QueryExecutor implements IQueryExecutor {
     // Always retrieve at MAX_LIMIT so the cache entry serves smaller
     // subsequent requests without re-fetching. Slicing happens after
     // the cache write.
-    let searchResult: SearchKnowledgeResult
-    try {
-      searchResult = await this.searchService.search(query, {
-        limit: QueryExecutor.TOOL_MODE_MAX_LIMIT,
-        scope: workspaceScope,
-      })
-    } catch {
-      return this.buildEmptyToolModeEnvelope(startTime)
-    }
+    //
+    // searchService.search() throws on transport-level failures (index
+    // unavailable, malformed payload, etc.). DON'T swallow into an
+    // empty envelope — that would conflate "broken retrieval" with
+    // "genuinely no matches" and let the calling agent synthesise
+    // around an outage. Let the throw propagate; the daemon catches
+    // it and emits task:error, which the CLI maps to outer
+    // `success: false`.
+    let searchResult: SearchKnowledgeResult = await this.searchService.search(query, {
+      limit: QueryExecutor.TOOL_MODE_MAX_LIMIT,
+      scope: workspaceScope,
+    })
 
     if (searchResult.totalFound < 3) {
       searchResult = await this.supplementEntitySearches(query, searchResult, workspaceScope)
     }
 
-    const allMatches = await this.buildToolModeMatches(searchResult)
+    const {matchedDocs: allMatches, skippedSharedCount} = await this.buildToolModeMatches(searchResult)
     const topScore = allMatches[0]?.score ?? 0
     const status: QueryToolModeResult['status'] = allMatches.length === 0 ? 'no-matches' : 'ok'
     const totalFound = searchResult.totalFound ?? allMatches.length
@@ -205,7 +208,7 @@ export class QueryExecutor implements IQueryExecutor {
     if (this.toolModeCache && fingerprint && status === 'ok') {
       const fullEnvelope: QueryToolModeResult = {
         matchedDocs: allMatches,
-        metadata: {cacheHit: null, durationMs: 0, tier: TIER_DIRECT_SEARCH, topScore, totalFound},
+        metadata: {cacheHit: null, durationMs: 0, skippedSharedCount, tier: TIER_DIRECT_SEARCH, topScore, totalFound},
         status,
       }
       this.toolModeCache.set(query, JSON.stringify(fullEnvelope), fingerprint)
@@ -216,6 +219,7 @@ export class QueryExecutor implements IQueryExecutor {
       metadata: {
         cacheHit: null,
         durationMs: Date.now() - startTime,
+        skippedSharedCount,
         tier: TIER_DIRECT_SEARCH,
         topScore,
         totalFound,
@@ -462,9 +466,10 @@ export class QueryExecutor implements IQueryExecutor {
   }
 
   /**
-   * Empty-envelope helper for executeToolMode early-returns (no search
-   * service wired, search threw). Keeps the wire contract uniform —
-   * never leak an error stack into tool-mode callers.
+   * Empty-envelope helper for executeToolMode early-return (no
+   * search service wired). Search-throw failures now propagate to
+   * the daemon and surface via outer `success: false` instead, so
+   * this only runs on the "tool mode not fully provisioned" path.
    */
   private buildEmptyToolModeEnvelope(startTime: number): QueryToolModeResult {
     return {
@@ -472,6 +477,7 @@ export class QueryExecutor implements IQueryExecutor {
       metadata: {
         cacheHit: null,
         durationMs: Date.now() - startTime,
+        skippedSharedCount: 0,
         tier: TIER_DIRECT_SEARCH,
         topScore: 0,
         totalFound: 0,
@@ -592,11 +598,20 @@ ${responseFormat}`
    * outside `<projectRoot>/.brv/` and isn't covered by the
    * path-safety checks). Files that vanished or are unreadable are
    * dropped silently — a stale BM25 index shouldn't fail the query.
+   *
+   * Returns the skipped-shared count alongside matches so callers can
+   * surface it in `metadata.skippedSharedCount` — calling agents need
+   * a way to detect when their tool-mode recall is incomplete vs
+   * genuinely empty.
    */
-  private async buildToolModeMatches(searchResult: SearchKnowledgeResult): Promise<QueryToolModeMatchedDoc[]> {
-    if (!this.fileSystem) return []
+  private async buildToolModeMatches(
+    searchResult: SearchKnowledgeResult,
+  ): Promise<{matchedDocs: QueryToolModeMatchedDoc[]; skippedSharedCount: number}> {
+    if (!this.fileSystem) return {matchedDocs: [], skippedSharedCount: 0}
 
-    const localResults = (searchResult.results ?? []).filter((r) => !r.origin || r.origin === 'local')
+    const allResults = searchResult.results ?? []
+    const localResults = allResults.filter((r) => !r.origin || r.origin === 'local')
+    const skippedSharedCount = allResults.length - localResults.length
     const enriched = await Promise.all(
       localResults.map(async (result) => {
         const ctBase = result.originContextTreeRoot ?? join(BRV_DIR, CONTEXT_TREE_DIR)
@@ -629,7 +644,10 @@ ${responseFormat}`
       }),
     )
 
-    return enriched.filter((m): m is QueryToolModeMatchedDoc => m !== undefined)
+    return {
+      matchedDocs: enriched.filter((m): m is QueryToolModeMatchedDoc => m !== undefined),
+      skippedSharedCount,
+    }
   }
 
   /**

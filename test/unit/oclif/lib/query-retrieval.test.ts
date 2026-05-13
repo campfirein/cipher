@@ -49,6 +49,7 @@ describe('query-retrieval', () => {
         metadata: {
           cacheHit: null,
           durationMs: 142,
+          skippedSharedCount: 0,
           tier: 2,
           topScore: 0.847,
           totalFound: 2,
@@ -69,6 +70,7 @@ describe('query-retrieval', () => {
         metadata: {
           cacheHit: null,
           durationMs: 38,
+          skippedSharedCount: 0,
           tier: 2,
           topScore: 0,
           totalFound: 0,
@@ -91,6 +93,7 @@ describe('query-retrieval', () => {
         metadata: {
           cacheHit: 'exact',
           durationMs: 3,
+          skippedSharedCount: 0,
           tier: 0,
           topScore: 0,
           totalFound: 0,

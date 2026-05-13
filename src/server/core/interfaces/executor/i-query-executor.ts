@@ -132,6 +132,14 @@ export type QueryToolModeMetadata = {
    */
   cacheHit?: 'exact' | 'fuzzy' | null
   durationMs: number
+  /**
+   * Number of matches the BM25 search returned that were dropped
+   * because they originated from a shared source (origin !== 'local').
+   * v1 of tool mode is local-only; this surfaces when a calling agent's
+   * recall is incomplete so it can fall back to `brv search` for
+   * cross-project context.
+   */
+  skippedSharedCount: number
   /** 0 = exact cache, 1 = fuzzy cache, 2 = direct search (no LLM). */
   tier: number
   topScore: number
