@@ -34,6 +34,43 @@ Knowledge is stored in `.brv/context-tree/` as human-readable Markdown files.
 brv query "How is authentication implemented?"
 ```
 
+**Tool mode — run query without an LLM provider**
+
+When `BRV_QUERY_TOOL_MODE=1` is set, query runs as a single-shot retrieval that YOU (the calling agent) synthesise from in your own context. ByteRover never invokes its own LLM in this mode — it returns ranked topics with rendered markdown, and you author the answer. Use this when no provider is configured, or when you want full control over the synthesis.
+
+The flow is single-shot — no session, no continuation:
+
+1. **Invoke** with the user's question:
+   ```bash
+   BRV_QUERY_TOOL_MODE=1 brv query "<question>" --format json
+   ```
+   Sample envelope (`data` field of the JSON response):
+   ```json
+   {
+     "status": "ok",
+     "matchedDocs": [
+       {
+         "path": "security/auth.html",
+         "title": "JWT authentication",
+         "score": 0.91,
+         "format": "html",
+         "rendered_md": "# JWT authentication\n\n**Rule [must]:** ..."
+       }
+     ],
+     "metadata": {"totalFound": 3, "topScore": 0.91, "tier": 2, "durationMs": 142, "cacheHit": null}
+   }
+   ```
+
+2. **Branch on `data.status`:**
+   - `ok` → synthesise from `matchedDocs[].rendered_md`. Cite the `path` of each topic you draw from. Do not invent facts not in the topics. If the matches don't cover the question, say so.
+   - `no-matches` → tell the user the knowledge base has no info on this topic. The outer envelope's `success: true` still holds — zero matches is data, not an error.
+
+**Flags:** `--limit N` (1-50, default 10) caps `matchedDocs[]`. `--format text` produces a human-readable digest, useful for shell users.
+
+**Relationship to other commands:** `brv search` returns excerpts only (useful when you just need paths); `brv read <path>` returns ONE topic's full content (useful when you already know which file). Tool-mode `brv query` returns ranked topics WITH full rendered content — use it for multi-match synthesis.
+
+**When NOT to use tool mode:** the legacy `brv query "..."` flow (without the env var) returns a byterover-synthesised answer and requires a configured provider. Use the legacy flow when the user explicitly wants byterover's LLM to compose the answer; use tool mode when you want zero-provider, agent-driven synthesis.
+
 ### 2. Search Context Tree
 **Overview:** Retrieve a ranked list of matching files from `.brv/context-tree/` via pure BM25 lookup. Unlike `brv query`, this does NOT call an LLM — no synthesis, no token cost, no provider setup needed. Returns structured results with paths, scores, and excerpts.
 
