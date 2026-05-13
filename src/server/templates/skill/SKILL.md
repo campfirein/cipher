@@ -57,7 +57,7 @@ The flow is single-shot — no session, no continuation:
          "rendered_md": "# JWT authentication\n\n**Rule [must]:** ..."
        }
      ],
-     "metadata": {"totalFound": 3, "topScore": 0.91, "tier": 2, "durationMs": 142, "cacheHit": null}
+     "metadata": {"totalFound": 3, "topScore": 0.91, "tier": 2, "durationMs": 142, "cacheHit": null, "skippedSharedCount": 0}
    }
    ```
 
@@ -66,6 +66,8 @@ The flow is single-shot — no session, no continuation:
    - `no-matches` → tell the user the knowledge base has no info on this topic. The outer envelope's `success: true` still holds — zero matches is data, not an error.
 
 **Flags:** `--limit N` (1-50, default 10) caps `matchedDocs[]`. `--format text` produces a human-readable digest, useful for shell users.
+
+**Shared sources:** tool mode v1 is local-only. Matches from `brv source add`'d projects are skipped and counted in `metadata.skippedSharedCount`. If that count is non-zero and the calling agent needs cross-project recall, fall back to `brv search` or the legacy `brv query` flow.
 
 **Relationship to other commands:** `brv search` returns excerpts only (useful when you just need paths); `brv read <path>` returns ONE topic's full content (useful when you already know which file). Tool-mode `brv query` returns ranked topics WITH full rendered content — use it for multi-match synthesis.
 
