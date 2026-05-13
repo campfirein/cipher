@@ -34,6 +34,8 @@ export function ProjectGuard() {
     : undefined
 
   useEffect(() => {
+    if (!projects) return
+
     if (candidate && candidate !== selectedProject) {
       setSelectedProject(candidate)
     }
@@ -43,7 +45,7 @@ export function ProjectGuard() {
       next.delete('project')
       setSearchParams(next, {replace: true})
     }
-  }, [candidate, selectedProject, urlParam, setSearchParams, setSelectedProject])
+  }, [candidate, projects, selectedProject, urlParam, setSearchParams, setSelectedProject])
 
   if (urlParam) return null
 
