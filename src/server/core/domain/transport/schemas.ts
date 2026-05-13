@@ -739,9 +739,11 @@ export const TaskCreateResponseSchema = z.object({
 /**
  * Request to cancel a task
  */
-export const TaskCancelRequestSchema = z.object({
-  taskId: z.string(),
-})
+export const TaskCancelRequestSchema = z
+  .object({
+    taskId: z.string(),
+  })
+  .merge(CliRequestBaseSchema)
 
 /**
  * Response after task cancellation
@@ -786,6 +788,7 @@ export const TaskListRequestSchema = z
     /** Optional task-type filter — e.g. ['curate'], ['query']. */
     type: z.array(z.string()).optional(),
   })
+  .merge(CliRequestBaseSchema)
   .strict() satisfies z.ZodType<TaskListRequest>
 
 export const TaskListItemStatusSchema = z.enum(['cancelled', 'completed', 'created', 'error', 'started'])
@@ -867,9 +870,11 @@ export const TaskListResponseSchema = z
  * task:get — fetch full Level 2 detail for a single persisted task.
  * Returns null when the task is unknown or its data file is corrupt.
  */
-export const TaskGetRequestSchema = z.object({
-  taskId: z.string(),
-})
+export const TaskGetRequestSchema = z
+  .object({
+    taskId: z.string(),
+  })
+  .merge(CliRequestBaseSchema)
 
 export const TaskGetResponseSchema = z.object({
   task: TaskHistoryEntrySchema.nullable(),
@@ -879,9 +884,11 @@ export const TaskGetResponseSchema = z.object({
  * task:delete — remove a single task from the per-project history store.
  * Idempotent: deleting a non-existent task returns success: true.
  */
-export const TaskDeleteRequestSchema = z.object({
-  taskId: z.string(),
-})
+export const TaskDeleteRequestSchema = z
+  .object({
+    taskId: z.string(),
+  })
+  .merge(CliRequestBaseSchema)
 
 export const TaskDeleteResponseSchema = z.object({
   error: z.string().optional(),
@@ -899,9 +906,11 @@ export const TaskDeleteResponseSchema = z.object({
 /**
  * task:deleteBulk — delete many tasks at once. `deletedCount` reports actual removals.
  */
-export const TaskDeleteBulkRequestSchema = z.object({
-  taskIds: z.array(z.string()),
-})
+export const TaskDeleteBulkRequestSchema = z
+  .object({
+    taskIds: z.array(z.string()),
+  })
+  .merge(CliRequestBaseSchema)
 
 export const TaskDeleteBulkResponseSchema = z.object({
   deletedCount: z.number(),
@@ -912,9 +921,11 @@ export const TaskDeleteBulkResponseSchema = z.object({
  * task:clearCompleted — remove all terminal-state tasks (completed/error/cancelled)
  * from the project's history. Active tasks (created/started) are preserved.
  */
-export const TaskClearCompletedRequestSchema = z.object({
-  projectPath: z.string().optional(),
-})
+export const TaskClearCompletedRequestSchema = z
+  .object({
+    projectPath: z.string().optional(),
+  })
+  .merge(CliRequestBaseSchema)
 
 export const TaskClearCompletedResponseSchema = z.object({
   deletedCount: z.number(),
@@ -955,7 +966,7 @@ export const SessionStatsSchema = z.object({
 /**
  * Request for session:info (empty - get current session)
  */
-export const SessionInfoRequestSchema = z.object({})
+export const SessionInfoRequestSchema = z.object({}).merge(CliRequestBaseSchema)
 
 /**
  * Response for session:info
@@ -968,7 +979,7 @@ export const SessionInfoResponseSchema = z.object({
 /**
  * Request for session:list (empty - list all)
  */
-export const SessionListRequestSchema = z.object({})
+export const SessionListRequestSchema = z.object({}).merge(CliRequestBaseSchema)
 
 /**
  * Response for session:list
@@ -980,9 +991,11 @@ export const SessionListResponseSchema = z.object({
 /**
  * Request for session:create
  */
-export const SessionCreateRequestSchema = z.object({
-  name: z.string().optional(),
-})
+export const SessionCreateRequestSchema = z
+  .object({
+    name: z.string().optional(),
+  })
+  .merge(CliRequestBaseSchema)
 
 /**
  * Response for session:create
@@ -994,9 +1007,11 @@ export const SessionCreateResponseSchema = z.object({
 /**
  * Request for session:switch
  */
-export const SessionSwitchRequestSchema = z.object({
-  sessionId: z.string(),
-})
+export const SessionSwitchRequestSchema = z
+  .object({
+    sessionId: z.string(),
+  })
+  .merge(CliRequestBaseSchema)
 
 /**
  * Response for session:switch
@@ -1020,10 +1035,12 @@ export const SessionSwitchedBroadcastSchema = z.object({
  * Request to restart/reinitialize the Agent.
  * Used when config changes (e.g., after /init) require Agent to reload.
  */
-export const AgentRestartRequestSchema = z.object({
-  /** Optional reason for restart (for logging) */
-  reason: z.string().optional(),
-})
+export const AgentRestartRequestSchema = z
+  .object({
+    /** Optional reason for restart (for logging) */
+    reason: z.string().optional(),
+  })
+  .merge(CliRequestBaseSchema)
 
 /**
  * Response after agent restart request.
@@ -1039,10 +1056,12 @@ export const AgentRestartResponseSchema = z.object({
  * Request to create a new session (end current, start fresh).
  * Used by /new command to start a fresh conversation.
  */
-export const AgentNewSessionRequestSchema = z.object({
-  /** Optional reason for new session (for logging) */
-  reason: z.string().optional(),
-})
+export const AgentNewSessionRequestSchema = z
+  .object({
+    /** Optional reason for new session (for logging) */
+    reason: z.string().optional(),
+  })
+  .merge(CliRequestBaseSchema)
 
 /**
  * Response after new session is created.

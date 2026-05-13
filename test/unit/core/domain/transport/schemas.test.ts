@@ -1,7 +1,16 @@
 /* eslint-disable camelcase */
+import type {z} from 'zod'
+
 import {expect} from 'chai'
 
 import {
+  AgentNewSessionRequestSchema,
+  AgentRestartRequestSchema,
+  SessionCreateRequestSchema,
+  SessionInfoRequestSchema,
+  SessionListRequestSchema,
+  SessionSwitchRequestSchema,
+  TaskCancelRequestSchema,
   TaskClearCompletedRequestSchema,
   TaskCreatedSchema,
   TaskCreateRequestSchema,
@@ -324,5 +333,60 @@ describe('task transport schemas', () => {
         expect(result.data.taskId).to.equal('a')
       }
     })
+  })
+
+  // ============================================================================
+  // M13.2 — parametric cli_metadata round-trip across every Group A schema
+  // ============================================================================
+
+  describe('cli_metadata round-trip across Group A request schemas (M13.2)', () => {
+    const validCliMeta = {
+      client_sent_at: 1_700_000_000_000,
+      command_id: 'test',
+      flag_names: [],
+      is_ci: false,
+      is_tty: true,
+      package_manager: 'npm' as const,
+      runtime: 'node' as const,
+    }
+
+    type SchemaSpec = {
+      base: Record<string, unknown>
+      name: string
+      schema: z.ZodTypeAny
+    }
+
+    const schemaSpecs: readonly SchemaSpec[] = [
+      {base: {taskId: 'tid-1'}, name: 'TaskCancelRequestSchema', schema: TaskCancelRequestSchema},
+      {base: {}, name: 'TaskListRequestSchema', schema: TaskListRequestSchema},
+      {base: {taskId: 'tid-1'}, name: 'TaskGetRequestSchema', schema: TaskGetRequestSchema},
+      {base: {taskId: 'tid-1'}, name: 'TaskDeleteRequestSchema', schema: TaskDeleteRequestSchema},
+      {base: {taskIds: ['tid-1']}, name: 'TaskDeleteBulkRequestSchema', schema: TaskDeleteBulkRequestSchema},
+      {base: {}, name: 'TaskClearCompletedRequestSchema', schema: TaskClearCompletedRequestSchema},
+      {base: {}, name: 'SessionInfoRequestSchema', schema: SessionInfoRequestSchema},
+      {base: {}, name: 'SessionListRequestSchema', schema: SessionListRequestSchema},
+      {base: {}, name: 'SessionCreateRequestSchema', schema: SessionCreateRequestSchema},
+      {base: {sessionId: 'sid-1'}, name: 'SessionSwitchRequestSchema', schema: SessionSwitchRequestSchema},
+      {base: {}, name: 'AgentRestartRequestSchema', schema: AgentRestartRequestSchema},
+      {base: {}, name: 'AgentNewSessionRequestSchema', schema: AgentNewSessionRequestSchema},
+    ]
+
+    for (const spec of schemaSpecs) {
+      describe(spec.name, () => {
+        it('accepts payload without cli_metadata (back-compat)', () => {
+          expect(spec.schema.safeParse(spec.base).success).to.equal(true)
+        })
+
+        it('accepts payload with valid cli_metadata block', () => {
+          const result = spec.schema.safeParse({...spec.base, cli_metadata: validCliMeta})
+          expect(result.success).to.equal(true)
+        })
+
+        it('rejects payload with structurally invalid cli_metadata (strict bubbles up)', () => {
+          const malformed = {...validCliMeta, runtime: 'deno'}
+          expect(spec.schema.safeParse({...spec.base, cli_metadata: malformed}).success).to.equal(false)
+        })
+      })
+    }
   })
 })

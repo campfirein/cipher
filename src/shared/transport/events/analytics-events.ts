@@ -1,5 +1,6 @@
 import {z} from 'zod'
 
+import {CliRequestBaseSchema} from '../../analytics/cli-metadata-schema.js'
 import {StoredAnalyticsRecordSchema} from '../../analytics/stored-record.js'
 
 export const AnalyticsEvents = {
@@ -30,12 +31,14 @@ export type AnalyticsTrackPayload = z.infer<typeof AnalyticsTrackPayloadSchema>
  * Bounds (`limit 1..200`, `offset >= 0`) protect the daemon from accidental
  * mass reads and align with the M9.2 store's read-mostly use case.
  */
-export const AnalyticsListRequestSchema = z.object({
-  eventName: z.string().optional(),
-  limit: z.number().int().min(1).max(200),
-  offset: z.number().int().min(0),
-  status: z.enum(['pending', 'sent', 'failed']).optional(),
-})
+export const AnalyticsListRequestSchema = z
+  .object({
+    eventName: z.string().optional(),
+    limit: z.number().int().min(1).max(200),
+    offset: z.number().int().min(0),
+    status: z.enum(['pending', 'sent', 'failed']).optional(),
+  })
+  .merge(CliRequestBaseSchema)
 
 export type AnalyticsListRequest = z.infer<typeof AnalyticsListRequestSchema>
 
