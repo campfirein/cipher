@@ -639,6 +639,16 @@ export class TaskRouter {
 
     const task = this.tasks.get(taskId)
     if (!task) {
+      // Idempotency: if the task already reached status: 'cancelled' on a
+      // prior cancel, return success so a retry (e.g. withDaemonRetry on a
+      // dropped response) isn't reported as a misleading "Task not found"
+      // failure. Any other terminal state (completed / error) — or a truly
+      // unknown taskId — still returns the structured error.
+      const prior = this.completedTasks.get(taskId)
+      if (prior?.task.status === 'cancelled') {
+        return {success: true}
+      }
+
       return {error: 'Task not found', success: false}
     }
 
