@@ -22,6 +22,7 @@ import {FileCurateLogStore} from '../../server/infra/storage/file-curate-log-sto
 import {FileReviewBackupStore} from '../../server/infra/storage/file-review-backup-store.js'
 import {getProjectDataDir} from '../../server/utils/path-utils.js'
 import {TaskEvents} from '../../shared/transport/events/index.js'
+import {runCancelTask} from '../lib/cancel-task.js'
 import {
   type DaemonClientOptions,
   formatConnectionError,
@@ -83,6 +84,10 @@ export default class Dream extends Command {
     '<%= config.bin %> <%= command.id %> --format json',
   ]
   public static flags = {
+    cancel: Flags.string({
+      description: 'Cancel a running dream task by id. Hard stop — does not revert any partial writes (use --undo for that). Short-circuits the dream flow.',
+      exclusive: ['force', 'undo', 'detach'],
+    }),
     detach: Flags.boolean({
       default: false,
       description: 'Queue task and exit without waiting for completion',
@@ -116,6 +121,11 @@ export default class Dream extends Command {
   public async run(): Promise<void> {
     const {flags: rawFlags} = await this.parse(Dream)
     const format = rawFlags.format === 'json' ? 'json' : 'text'
+
+    if (rawFlags.cancel) {
+      await this.runCancelBranch(rawFlags.cancel, format)
+      return
+    }
 
     if (rawFlags.undo) {
       await this.runUndo(format)
@@ -179,6 +189,30 @@ export default class Dream extends Command {
       // eslint-disable-next-line n/no-process-exit, unicorn/no-process-exit
       process.exit(1)
     }
+  }
+
+  private async runCancelBranch(taskId: string, format: 'json' | 'text'): Promise<void> {
+    let success = false
+    try {
+      await withDaemonRetry(
+        async (client) => {
+          success = await runCancelTask({
+            client,
+            command: 'dream',
+            format,
+            log: (msg) => this.log(msg),
+            taskId,
+          })
+        },
+        this.getDaemonClientOptions(),
+      )
+    } catch (error) {
+      this.reportError(error, format)
+      this.exit(1)
+      return
+    }
+
+    if (!success) this.exit(1)
   }
 
   private async runUndo(format: 'json' | 'text'): Promise<void> {
