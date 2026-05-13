@@ -580,6 +580,9 @@ describe('Query Command', () => {
       await createCommand('test query', '--timeout', '600').run()
 
       expect(loggedMessages.some((m) => m.includes('done'))).to.be.true
+      const deprecationWarnings = loggedMessages.filter((m) => m.includes('--timeout is deprecated'))
+      expect(deprecationWarnings).to.have.lengthOf(1)
+      expect(deprecationWarnings[0]).to.include('llm.iterationBudgetMs')
     })
 
     it('should accept --timeout flag in JSON mode', async () => {
