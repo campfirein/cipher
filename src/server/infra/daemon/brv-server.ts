@@ -33,11 +33,13 @@ import {fileURLToPath} from 'node:url'
 import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
 
 import {ReviewEvents} from '../../../shared/transport/events/review-events.js'
+import {TaskEvents, type TaskHeartbeatEvent} from '../../../shared/transport/events/task-events.js'
 import {
   AGENT_IDLE_CHECK_INTERVAL_MS,
   AGENT_IDLE_TIMEOUT_MS,
   BRV_DIR,
   HEARTBEAT_FILE,
+  TASK_HEARTBEAT_INTERVAL_MS,
   WEBUI_DEFAULT_PORT,
 } from '../../constants.js'
 import {
@@ -59,6 +61,7 @@ import {broadcastToProjectRoom} from '../process/broadcast-utils.js'
 import {CurateLogHandler} from '../process/curate-log-handler.js'
 import {setupFeatureHandlers} from '../process/feature-handlers.js'
 import {QueryLogHandler} from '../process/query-log-handler.js'
+import {TaskHeartbeatManager} from '../process/task-heartbeat-manager.js'
 import {TaskHistoryHook} from '../process/task-history-hook.js'
 import {
   configureTaskHistoryStoreCache,
@@ -447,6 +450,26 @@ async function main(): Promise<void> {
       resolveProviderConfig({authStateStore, providerConfigStore, providerKeychainStore, tokenRefreshManager}),
     )
 
+    // Per-task liveness ticker (M6 T1). Fires `TaskEvents.HEARTBEAT` to the
+    // CLI during quiet periods so clients can distinguish "task still
+    // progressing" from "daemon is stuck". Reset by every other task-scoped
+    // emission inside the task router; cleared on the three terminal events.
+    const taskHeartbeatManager = new TaskHeartbeatManager({
+      emit(taskId, clientId, projectPath) {
+        const payload: TaskHeartbeatEvent = {lastActivityAt: Date.now(), taskId}
+        transportServer!.sendTo(clientId, TaskEvents.HEARTBEAT, payload)
+        broadcastToProjectRoom(
+          projectRegistry,
+          projectRouter,
+          projectPath,
+          TaskEvents.HEARTBEAT,
+          payload,
+          clientId,
+        )
+      },
+      intervalMs: TASK_HEARTBEAT_INTERVAL_MS,
+    })
+
     const transportHandlers = new TransportHandlers({
       agentPool,
       clientManager,
@@ -496,6 +519,7 @@ async function main(): Promise<void> {
           ...(config.activeProvider ? {provider: config.activeProvider} : {}),
         }
       },
+      taskHeartbeatManager,
       transport: transportServer,
     })
     transportHandlers.setup()
