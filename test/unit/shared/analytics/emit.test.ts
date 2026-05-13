@@ -29,6 +29,7 @@ function makeStubClient(overrides: Partial<ITransportClient> = {}): ITransportCl
 }
 
 const fullCliInvocation: CliInvocationProps = {
+  client_sent_at: 1_700_000_000_000,
   command_id: 'status',
   flag_names: [],
   is_ci: false,

@@ -1,4 +1,4 @@
-import type {LlmToolResultEvent} from '../../domain/transport/schemas.js'
+import type {LlmToolResultEvent, TaskCreateRequest} from '../../domain/transport/schemas.js'
 import type {TaskInfo} from '../../domain/transport/task-info.js'
 
 /**
@@ -25,6 +25,16 @@ export interface ITaskLifecycleHook {
   onTaskCompleted?(taskId: string, result: string, task: TaskInfo): Promise<void>
   /** Called when a new task is created. Return {logId} to associate a log entry with the task. */
   onTaskCreate?(task: TaskInfo): Promise<void | {logId?: string}>
+  /**
+   * Called once per inbound `task:create` request, after the duplicate-taskId
+   * check and before validation. Receives the raw transport payload (so
+   * fields like `cli_metadata` not present on `TaskInfo` remain visible) plus
+   * the originating clientId. Implementations must never throw.
+   *
+   * M13.1 emits `cli_invocation` from this hook so coverage spans every CLI
+   * command that routes through `task:create`, regardless of task validity.
+   */
+  onTaskCreateRequest?(request: TaskCreateRequest, clientId: string): Promise<void>
   /** Called when a task fails with an error. */
   onTaskError?(taskId: string, errorMessage: string, task: TaskInfo): Promise<void>
   /**

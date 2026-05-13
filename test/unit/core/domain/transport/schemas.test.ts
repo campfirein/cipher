@@ -1,8 +1,10 @@
+/* eslint-disable camelcase */
 import {expect} from 'chai'
 
 import {
   TaskClearCompletedRequestSchema,
   TaskCreatedSchema,
+  TaskCreateRequestSchema,
   TaskDeleteBulkRequestSchema,
   TaskDeletedEventSchema,
   TaskDeleteRequestSchema,
@@ -55,6 +57,43 @@ describe('task transport schemas', () => {
         expect(result.data.provider).to.equal(undefined)
         expect(result.data.model).to.equal(undefined)
       }
+    })
+  })
+
+  describe('TaskCreateRequestSchema with cli_metadata (M13.1)', () => {
+    const baseRequest = {
+      content: 'analyze this',
+      taskId: '11111111-2222-4333-8444-555555555555',
+      type: 'query' as const,
+    }
+    const validCliMeta = {
+      client_sent_at: 1_700_000_000_000,
+      command_id: 'query',
+      flag_names: ['format'],
+      is_ci: false,
+      is_tty: true,
+      package_manager: 'npm' as const,
+      runtime: 'node' as const,
+    }
+
+    it('accepts a TaskCreateRequest without cli_metadata (back-compat)', () => {
+      expect(TaskCreateRequestSchema.safeParse(baseRequest).success).to.equal(true)
+    })
+
+    it('accepts a TaskCreateRequest with a valid cli_metadata block', () => {
+      const result = TaskCreateRequestSchema.safeParse({...baseRequest, cli_metadata: validCliMeta})
+      expect(result.success).to.equal(true)
+      if (result.success) expect(result.data.cli_metadata).to.deep.equal(validCliMeta)
+    })
+
+    it('rejects a TaskCreateRequest when cli_metadata is structurally invalid', () => {
+      const malformed = {...validCliMeta, runtime: 'deno'}
+      expect(TaskCreateRequestSchema.safeParse({...baseRequest, cli_metadata: malformed}).success).to.equal(false)
+    })
+
+    it('rejects a TaskCreateRequest when cli_metadata carries unknown fields (strict bubbles)', () => {
+      const sneaky = {...validCliMeta, sneaky_value: 'leak'}
+      expect(TaskCreateRequestSchema.safeParse({...baseRequest, cli_metadata: sneaky}).success).to.equal(false)
     })
   })
 

@@ -4,6 +4,7 @@ import {expect} from 'chai'
 import {CliInvocationSchema} from '../../../../../src/shared/analytics/events/cli-invocation.js'
 
 const baseValid = {
+  client_sent_at: 1_700_000_000_000,
   command_id: 'vc:add',
   flag_names: ['--detach'],
   is_ci: false,

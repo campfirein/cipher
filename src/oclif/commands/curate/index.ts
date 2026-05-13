@@ -1,3 +1,4 @@
+/* eslint-disable camelcase */
 import type {ITransportClient, TaskAck} from '@campfirein/brv-transport-client'
 
 import {Args, Command, Flags} from '@oclif/core'
@@ -9,6 +10,7 @@ import {BRV_DIR, CONTEXT_TREE_DIR} from '../../../server/constants.js'
 import {ProviderConfigResponse, TransportStateEventNames} from '../../../server/core/domain/transport/index.js'
 import {extractCurateOperations} from '../../../server/utils/curate-result-parser.js'
 import {TaskEvents} from '../../../shared/transport/events/index.js'
+import {buildCliMetadata} from '../../lib/build-cli-metadata.js'
 import {
   type DaemonClientOptions,
   formatConnectionError,
@@ -119,6 +121,10 @@ Bad examples:
         : ''
     const taskType = flags.folder?.length ? 'curate-folder' : 'curate'
 
+    // Build once per run so a single `client_sent_at` identifies one CLI
+    // invocation even on retries that may make multiple task:create calls.
+    const cliMetadata = buildCliMetadata(this.id ?? 'curate', rawFlags)
+
     let providerContext: ProviderErrorContext | undefined
 
     try {
@@ -139,7 +145,7 @@ Bad examples:
             throw new Error(providerMissingMessage(active.activeProvider, active.authMethod))
           }
 
-          await this.submitTask({client, content: resolvedContent, flags, format, projectRoot, taskType, worktreeRoot})
+          await this.submitTask({client, cliMetadata, content: resolvedContent, flags, format, projectRoot, taskType, worktreeRoot})
         },
         {
           ...this.getDaemonClientOptions(),
@@ -288,6 +294,7 @@ Bad examples:
 
   private async submitTask(props: {
     client: ITransportClient
+    cliMetadata: ReturnType<typeof buildCliMetadata>
     content: string
     flags: CurateFlags
     format: 'json' | 'text'
@@ -295,10 +302,11 @@ Bad examples:
     taskType: string
     worktreeRoot?: string
   }): Promise<void> {
-    const {client, content, flags, format, projectRoot, taskType, worktreeRoot} = props
+    const {client, cliMetadata, content, flags, format, projectRoot, taskType, worktreeRoot} = props
     const hasFolders = Boolean(flags.folder?.length)
     const taskId = randomUUID()
     const taskPayload = {
+      cli_metadata: cliMetadata,
       clientCwd: process.cwd(),
       content,
       ...(flags.files?.length ? {files: flags.files} : {}),
