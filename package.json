@@ -219,7 +219,9 @@
     "build:channel-client": "npm run build --workspace=@brv/channel-client",
     "test:channel-client": "npm run test --workspace=@brv/channel-client",
     "build:pi-channel-extension": "npm run build --workspace=@brv/pi-channel-extension",
-    "test:pi-channel-extension": "npm run test --workspace=@brv/pi-channel-extension"
+    "test:pi-channel-extension": "npm run test --workspace=@brv/pi-channel-extension",
+    "build:channel-mcp": "npm run build --workspace=@brv/channel-mcp",
+    "test:channel-mcp": "npm run test --workspace=@brv/channel-mcp"
   },
   "lint-staged": {
     "*.{ts,tsx}": [
@@ -247,6 +249,7 @@
   "workspaces": [
     "packages/agent-sdk",
     "packages/channel-client",
+    "packages/channel-mcp",
     "packages/pi-channel-extension"
   ]
 }

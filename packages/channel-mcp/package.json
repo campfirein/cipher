@@ -1,0 +1,47 @@
+{
+  "name": "@brv/channel-mcp",
+  "version": "0.1.0",
+  "description": "MCP server exposing brv channel-protocol tools (channel.list, channel.mention, channel.show, channel.doctor) over stdio. Built on @brv/channel-client. Drop the bundled dist/server.js into any MCP-capable host (Claude Code, Codex, kimi-cli, opencode, Pi) to give it agent-driven access to brv channels.",
+  "license": "MIT",
+  "type": "module",
+  "main": "dist/server.js",
+  "module": "dist/server.js",
+  "types": "dist/server.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/server.js",
+      "types": "./dist/server.d.ts"
+    }
+  },
+  "bin": {
+    "brv-channel-mcp": "dist/server.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "test": "mocha --import tsx --no-warnings 'test/**/*.test.ts'"
+  },
+  "dependencies": {
+    "@brv/channel-client": "0.1.0",
+    "@modelcontextprotocol/sdk": "^1.26.0",
+    "zod": "^3.23.0"
+  },
+  "peerDependencies": {
+    "socket.io-client": "^4.7.0"
+  },
+  "devDependencies": {
+    "@types/chai": "^5.2.3",
+    "@types/mocha": "^10.0.10",
+    "@types/node": "^22.0.0",
+    "chai": "^5.3.3",
+    "mocha": "^10.8.2",
+    "socket.io-client": "^4.8.3",
+    "tsx": "^4.21.0"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}
