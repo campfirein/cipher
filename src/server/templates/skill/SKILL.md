@@ -18,7 +18,7 @@ Knowledge is stored in `.brv/context-tree/` as human-readable Markdown files.
 ## Commands
 
 ### 1. Query Knowledge
-**Overview:** Retrieve relevant context from your project's knowledge base. Uses a configured LLM provider to synthesize answers from `.brv/context-tree/` content.
+**Overview:** Retrieve relevant context from your project's knowledge base. Single-shot — `brv query` returns ranked topics with rendered markdown for YOU (the calling agent) to synthesise an answer from. ByteRover never invokes its own LLM on this command; no provider is required.
 
 **Use this skill when:**
 - The user wants you to recall something
@@ -31,47 +31,36 @@ Knowledge is stored in `.brv/context-tree/` as human-readable Markdown files.
 - The query is about general knowledge, not stored memory
 
 ```bash
-brv query "How is authentication implemented?"
+brv query "How is authentication implemented?" --format json
 ```
 
-**Tool mode — run query without an LLM provider**
+**JSON envelope** (`data` field of the response):
 
-When `BRV_QUERY_TOOL_MODE=1` is set, query runs as a single-shot retrieval that YOU (the calling agent) synthesise from in your own context. ByteRover never invokes its own LLM in this mode — it returns ranked topics with rendered markdown, and you author the answer. Use this when no provider is configured, or when you want full control over the synthesis.
+```json
+{
+  "status": "ok",
+  "matchedDocs": [
+    {
+      "path": "security/auth.html",
+      "title": "JWT authentication",
+      "score": 0.91,
+      "format": "html",
+      "rendered_md": "# JWT authentication\n\n**Rule [must]:** ..."
+    }
+  ],
+  "metadata": {"totalFound": 3, "topScore": 0.91, "tier": 2, "durationMs": 142, "cacheHit": null, "skippedSharedCount": 0}
+}
+```
 
-The flow is single-shot — no session, no continuation:
-
-1. **Invoke** with the user's question:
-   ```bash
-   BRV_QUERY_TOOL_MODE=1 brv query "<question>" --format json
-   ```
-   Sample envelope (`data` field of the JSON response):
-   ```json
-   {
-     "status": "ok",
-     "matchedDocs": [
-       {
-         "path": "security/auth.html",
-         "title": "JWT authentication",
-         "score": 0.91,
-         "format": "html",
-         "rendered_md": "# JWT authentication\n\n**Rule [must]:** ..."
-       }
-     ],
-     "metadata": {"totalFound": 3, "topScore": 0.91, "tier": 2, "durationMs": 142, "cacheHit": null, "skippedSharedCount": 0}
-   }
-   ```
-
-2. **Branch on `data.status`:**
-   - `ok` → synthesise from `matchedDocs[].rendered_md`. Cite the `path` of each topic you draw from. Do not invent facts not in the topics. If the matches don't cover the question, say so.
-   - `no-matches` → tell the user the knowledge base has no info on this topic. The outer envelope's `success: true` still holds — zero matches is data, not an error.
+**Branch on `data.status`:**
+- `ok` → synthesise from `matchedDocs[].rendered_md`. Cite the `path` of each topic you draw from. Do not invent facts not in the topics. If the matches don't cover the question, say so.
+- `no-matches` → tell the user the knowledge base has no info on this topic. The outer envelope's `success: true` still holds — zero matches is data, not an error.
 
 **Flags:** `--limit N` (1-50, default 10) caps `matchedDocs[]`. `--format text` produces a human-readable digest, useful for shell users.
 
-**Shared sources:** tool mode v1 is local-only. Matches from `brv source add`'d projects are skipped and counted in `metadata.skippedSharedCount`. If that count is non-zero and the calling agent needs cross-project recall, fall back to `brv search` or the legacy `brv query` flow.
+**Shared sources:** v1 is local-only. Matches from `brv source add`'d projects are skipped and counted in `metadata.skippedSharedCount`. If that count is non-zero and you need cross-project recall, fall back to `brv search`.
 
-**Relationship to other commands:** `brv search` returns excerpts only (useful when you just need paths); `brv read <path>` returns ONE topic's full content (useful when you already know which file). Tool-mode `brv query` returns ranked topics WITH full rendered content — use it for multi-match synthesis.
-
-**When NOT to use tool mode:** the legacy `brv query "..."` flow (without the env var) returns a byterover-synthesised answer and requires a configured provider. Use the legacy flow when the user explicitly wants byterover's LLM to compose the answer; use tool mode when you want zero-provider, agent-driven synthesis.
+**Relationship to other commands:** `brv search` returns excerpts only (useful when you just need paths); `brv read <path>` returns ONE topic's full content (useful when you already know which file). `brv query` returns ranked topics WITH full rendered content — use it for multi-match synthesis.
 
 ### 2. Search Context Tree
 **Overview:** Retrieve a ranked list of matching files from `.brv/context-tree/` via pure BM25 lookup. Unlike `brv query`, this does NOT call an LLM — no synthesis, no token cost, no provider setup needed. Returns structured results with paths, scores, and excerpts.
@@ -148,15 +137,15 @@ brv curate view <logId> --format json
 
 Only proceed when `status: completed`. If `processing`, wait or tell the user. If `error`/`cancelled`, report and consider re-curate. `--detach` errors are silent — verification before trust is mandatory.
 
-**Tool mode — run curate without an LLM provider**
+**Session protocol**
 
-When `BRV_CURATE_TOOL_MODE=1` is set, curate runs as a multi-step session that YOU (the calling agent) drive end-to-end. ByteRover never invokes its own LLM in this mode — it validates the HTML you author and writes the topic file. Use this when no provider is configured, or when you want full control over the curated content.
+Curate runs as a multi-step session that YOU (the calling agent) drive end-to-end. ByteRover never invokes its own LLM — it validates the HTML you author and writes the topic file. No provider configuration is required.
 
 The session protocol is request → response → request, all via `brv curate` invocations:
 
 1. **Kickoff** with the user's request. ByteRover replies with a prompt telling you what HTML to author:
    ```bash
-   BRV_CURATE_TOOL_MODE=1 brv curate "<user request>" --format json
+   brv curate "<user request>" --format json
    ```
    Sample envelope (`data` field of the JSON response):
    ```json
@@ -185,9 +174,7 @@ The session protocol is request → response → request, all via `brv curate` i
        3. **Replace (data-destructive)**: re-emit with `--overwrite` carrying ONLY your new content. ONLY do this when the user has explicitly told you to replace prior content — it clobbers facts the user previously curated.
    - `failed` → surface `data.errors[].message` to the user. If `kind: "retry-cap-exceeded"`, your HTML still didn't validate after 3 corrections — ask the user to clarify intent and start a fresh kickoff.
 
-**Bounds:** at most 4 round-trips per session (1 generate + 3 corrections). Each `brv curate` invocation in tool mode is short-lived — no `--detach`, no `-f` files. Session state lives in `.brv/sessions/curate-<id>/` and is cleaned up on terminal `done` or `failed`.
-
-**When NOT to use tool mode:** the legacy `brv curate "..."` flow (without the env var) handles structured curation including `--files`, `--folder`, pending review, and ADD/UPDATE/MERGE/DELETE semantics. Tool mode today is INSERT-only and accepts neither files nor folders. Use the legacy flow for richer curate workflows; use tool mode when you want zero-provider, agent-driven authoring.
+**Bounds:** at most 4 round-trips per session (1 generate + 3 corrections). Each `brv curate` invocation is short-lived — `--detach`, `-f` files, and `--folder` flags are parsed but not supported by the current session protocol (v1 is INSERT-only). Session state lives in `.brv/sessions/curate-<id>/` and is cleaned up on terminal `done` or `failed`.
 
 ### 4. Review Pending Changes
 **Overview:** After a curate operation, some changes may require human review before being applied. Use `brv review` to list, approve, or reject pending operations.
