@@ -710,4 +710,54 @@ describe('Curate Command', () => {
       expect(eventNames).to.deep.equal(['task:cancel'])
     })
   })
+
+  // ==================== Remote cancel during foreground wait (N-2) ====================
+
+  describe('remote cancel during foreground wait', () => {
+    // eslint-disable-next-line unicorn/consistent-function-scoping -- captures mockClient from outer beforeEach
+    function simulateRemoteCancel(): void {
+      const eventHandlers = new Map<string, (data: unknown) => void>()
+      ;(mockClient.on as sinon.SinonStub).callsFake((event: string, handler: (data: unknown) => void) => {
+        eventHandlers.set(event, handler)
+        return () => {}
+      })
+      ;(mockClient.requestWithAck as sinon.SinonStub).callsFake(async (event: string, data: unknown) => {
+        if (event === 'state:getProviderConfig') return {activeProvider: 'anthropic'}
+        const {taskId} = data as {taskId: string}
+        setImmediate(() => {
+          eventHandlers.get('task:cancelled')?.({taskId})
+        })
+        return {logId: 'log-1'}
+      })
+    }
+
+    it('prints the cancelled line and exits non-zero (text)', async () => {
+      simulateRemoteCancel()
+
+      let exitError: unknown
+      try {
+        await createCommand('test context').run()
+      } catch (error) {
+        exitError = error
+      }
+
+      expect(loggedMessages.some((m) => m.includes('Curate cancelled'))).to.be.true
+      expect(exitError).to.not.equal(undefined)
+    })
+
+    it('emits a cancelled JSON envelope and exits non-zero (json)', async () => {
+      simulateRemoteCancel()
+
+      try {
+        await createJsonCommand('test context').run()
+      } catch {
+        // ExitError on this.exit(130)
+      }
+
+      const json = parseLastJsonLine()
+      expect(json.command).to.equal('curate')
+      expect(json.success).to.equal(true)
+      expect(json.data).to.deep.include({event: 'cancelled', status: 'cancelled'})
+    })
+  })
 })

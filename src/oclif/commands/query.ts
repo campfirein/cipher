@@ -80,6 +80,7 @@ Bad:
     if (!this.validateInput(args.query ?? '', format)) return
 
     let providerContext: ProviderErrorContext | undefined
+    let wasCancelled = false
 
     try {
       await withDaemonRetry(
@@ -99,7 +100,7 @@ Bad:
             throw new Error(providerMissingMessage(active.activeProvider, active.authMethod))
           }
 
-          await this.submitTask({
+          const result = await this.submitTask({
             client,
             format,
             projectRoot,
@@ -107,6 +108,7 @@ Bad:
             timeoutMs: (flags.timeout ?? DEFAULT_TIMEOUT_SECONDS) * 1000,
             worktreeRoot,
           })
+          if (result.wasCancelled) wasCancelled = true
         },
         {
           ...this.getDaemonClientOptions(),
@@ -119,7 +121,13 @@ Bad:
       )
     } catch (error) {
       this.reportError(error, format, providerContext)
+      return
     }
+
+    // Throw the SIGINT-conventional exit AFTER the daemon-retry try/catch so
+    // the ExitError isn't swallowed by reportError. Routine completions and
+    // errors fall through here naturally.
+    if (wasCancelled) this.exit(130)
   }
 
   private reportCombinationError(format: 'json' | 'text'): void {
@@ -169,7 +177,7 @@ Bad:
     query: string
     timeoutMs?: number
     worktreeRoot?: string
-  }): Promise<void> {
+  }): Promise<{wasCancelled: boolean}> {
     const {client, format, projectRoot, query, timeoutMs, worktreeRoot} = props
     const taskId = randomUUID()
     const taskPayload = {
@@ -182,12 +190,25 @@ Bad:
     }
 
     let finalResult: string | undefined
+    let wasCancelled = false
 
     const completionPromise = waitForTaskCompletion(
       {
         client,
         command: 'query',
         format,
+        onCancelled: ({taskId: tid}) => {
+          wasCancelled = true
+          if (format === 'json') {
+            writeJsonResponse({
+              command: 'query',
+              data: {event: 'cancelled', message: 'Query cancelled', status: 'cancelled', taskId: tid},
+              success: true,
+            })
+          } else {
+            this.log(`✗ Query cancelled (Task: ${tid})`)
+          }
+        },
         onCompleted: ({durationMs, matchedDocs, result, taskId: tid, tier, topScore}) => {
           const previousResult = finalResult
 
@@ -259,6 +280,7 @@ Bad:
     )
     await client.requestWithAck<TaskAck>(TaskEvents.CREATE, taskPayload)
     await completionPromise
+    return {wasCancelled}
   }
 
   private validateInput(query: string, format: 'json' | 'text'): boolean {
