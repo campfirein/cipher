@@ -1,0 +1,124 @@
+/* Editorial prose styles for bv-* content blocks.
+ * Applied via the `bv-prose` class on the rendered content wrapper. */
+
+.bv-prose p {
+  margin: 0.5rem 0;
+}
+.bv-prose p:first-child {
+  margin-top: 0;
+}
+.bv-prose p:last-child {
+  margin-bottom: 0;
+}
+
+.bv-prose strong {
+  color: var(--foreground);
+  font-weight: 500;
+}
+
+.bv-prose code {
+  background: var(--muted);
+  color: var(--foreground);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+}
+
+.bv-prose pre {
+  background: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 12px 14px;
+  margin: 0.75rem 0;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  overflow-x: auto;
+}
+.bv-prose pre code {
+  background: transparent;
+  padding: 0;
+}
+
+.bv-prose h1,
+.bv-prose h2,
+.bv-prose h3,
+.bv-prose h4 {
+  color: var(--foreground);
+  font-weight: 500;
+  margin: 1rem 0 0.5rem;
+  line-height: 1.35;
+}
+.bv-prose h1 {
+  font-size: 1rem;
+}
+.bv-prose h2 {
+  font-size: 0.9375rem;
+}
+.bv-prose h3 {
+  font-size: 0.875rem;
+}
+.bv-prose h4 {
+  font-size: 0.8125rem;
+}
+
+.bv-prose ul,
+.bv-prose ol {
+  list-style: none;
+  padding-left: 0;
+  margin: 0.625rem 0;
+}
+.bv-prose li {
+  position: relative;
+  padding-left: 22px;
+  margin: 0.375rem 0;
+}
+.bv-prose ul > li::before {
+  content: '';
+  position: absolute;
+  left: 6px;
+  top: 0.55em;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  border: 1.5px solid var(--primary);
+}
+.bv-prose ol {
+  counter-reset: bv-list;
+}
+.bv-prose ol > li {
+  counter-increment: bv-list;
+}
+.bv-prose ol > li::before {
+  content: counter(bv-list, decimal-leading-zero);
+  position: absolute;
+  left: 0;
+  top: 0.05em;
+  color: var(--primary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+.bv-prose ul ul,
+.bv-prose ol ol,
+.bv-prose ul ol,
+.bv-prose ol ul {
+  margin: 0.25rem 0 0.25rem 0.5rem;
+}
+
+.bv-prose blockquote {
+  border-left: 2px solid var(--primary);
+  padding-left: 1rem;
+  margin: 0.75rem 0;
+  color: var(--muted-foreground);
+  font-style: italic;
+}
+
+.bv-prose a {
+  color: var(--primary);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.bv-prose a:hover {
+  color: var(--foreground);
+}

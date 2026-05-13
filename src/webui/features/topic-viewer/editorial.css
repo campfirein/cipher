@@ -1,0 +1,711 @@
+/* Editorial topic theme — warm cream paper + sage accents.
+ * Scoped under .bv-editorial so the rest of the WebUI keeps its dark palette. */
+
+/* Mode toggle (Preview / Code) — floats at the top-right of the viewer. */
+.bv-topic-viewer {
+  position: relative;
+}
+.bv-mode-toggle {
+  position: absolute;
+  top: 16px;
+  right: 16px;
+  z-index: 1;
+  display: inline-flex;
+  padding: 3px;
+  border: 1px solid var(--border);
+  background: var(--card);
+  border-radius: 999px;
+  font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  box-shadow: 0 2px 8px -2px rgb(0 0 0 / 0.15);
+}
+.bv-mode-toggle__button {
+  border: 0;
+  background: transparent;
+  color: var(--muted-foreground);
+  padding: 4px 12px;
+  border-radius: 999px;
+  cursor: pointer;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  transition:
+    background-color 120ms,
+    color 120ms;
+}
+.bv-mode-toggle__button:hover {
+  color: var(--foreground);
+}
+.bv-mode-toggle__button[aria-pressed='true'] {
+  background: var(--foreground);
+  color: var(--background);
+}
+
+/* Code-source view (read-only HTML pretty-printed). */
+.bv-code-source {
+  background: #faf5e8;
+  border: 1.5px solid #e5dece;
+  border-radius: 12px;
+  margin-top: 24px;
+  overflow-x: auto;
+  color-scheme: light;
+}
+.bv-code-source pre,
+.bv-code-source code {
+  background: transparent !important;
+  font-family: 'JetBrains Mono', ui-monospace, monospace !important;
+  font-size: 12.5px !important;
+}
+
+.bv-editorial {
+  /* Warm paper palette */
+  --paper: #faf5e8;
+  --page: #fffcf3;
+  --vellum: #f1ead7;
+  --ink: #2c2a24;
+  --ink-soft: #5c5749;
+  --ink-mute: #8c8773;
+  --sage: #67a271;
+  --sage-d: #3f7a4c;
+  --forest: #2d4b36;
+  --terra: #c26a4c;
+  --ochre: #c29144;
+  --plum: #8c5d8f;
+  --hair: #e5dece;
+  --hair-d: #d6ccb4;
+
+  /* Force light mode locally — the topic viewer is always cream, regardless
+   * of the surrounding dashboard's dark theme. */
+  color-scheme: light;
+
+  /* Full project-token override. Every descendant component that resolves a
+   * shadcn token reads these and renders in the warm palette automatically. */
+  --background: var(--paper);
+  --foreground: var(--ink);
+  --card: var(--page);
+  --card-foreground: var(--ink);
+  --popover: var(--page);
+  --popover-foreground: var(--ink);
+  --primary: var(--sage-d);
+  --primary-foreground: var(--paper);
+  --secondary: var(--vellum);
+  --secondary-foreground: var(--ink);
+  --muted: var(--vellum);
+  --muted-foreground: var(--ink-mute);
+  --accent: var(--vellum);
+  --accent-foreground: var(--ink);
+  --destructive: var(--terra);
+  --border: var(--hair);
+  --input: var(--hair);
+  --ring: var(--sage);
+  --identifier: var(--plum);
+  --rail-running: var(--ochre);
+
+  /* Re-derive Tailwind v4 `--color-*` tokens (defined in `@theme inline`)
+   * so utilities like `bg-card`, `text-primary`, `border-border` render in
+   * the warm palette inside descendants. */
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-identifier: var(--identifier);
+  --color-rail-running: var(--rail-running);
+
+  --font-display: Fraunces, ui-serif, Georgia, serif;
+  /* Inter is lighter on the page than Geist at body sizes — better for
+   * long-form editorial reading. Scoped to .bv-editorial only. */
+  --font-sans: Inter, system-ui, -apple-system, 'Segoe UI', sans-serif;
+
+  background: var(--paper);
+  color: var(--ink);
+  border: 1.5px solid var(--hair);
+  border-radius: 12px;
+  padding: 0 28px 160px;
+  margin-top: 24px;
+  /* Ensure body sans inside the editorial scope falls through to Geist
+     (rather than picking up any ancestor body style). */
+  font-family: var(--font-sans);
+}
+
+/* Any heading or display element inside .bv-editorial that wears a `bv-*-title`,
+   `bv-*__title`, or h1/h2/h3 directly under .bv-section-head defaults to Fraunces.
+   This is a belt-and-braces rule on top of the per-class declarations below so a
+   missed class name still inherits the serif. */
+.bv-editorial h1,
+.bv-editorial h2,
+.bv-editorial h3,
+.bv-editorial .bv-topic-title,
+.bv-editorial .bv-lede,
+.bv-editorial [class$='__title'] {
+  font-family: var(--font-display);
+}
+
+.bv-editorial .bv-article {
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.bv-editorial .bv-masthead {
+  padding: 96px 0 28px;
+}
+
+/* Eyebrow pattern shared across masthead and sections */
+.bv-editorial .bv-eyebrow {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-mute);
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
+.bv-editorial .bv-eyebrow::before {
+  content: '';
+  width: 22px;
+  height: 1.5px;
+  background: var(--sage);
+  flex-shrink: 0;
+}
+
+/* Masthead */
+.bv-editorial .bv-crumbs {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--ink-mute);
+  margin-bottom: 22px;
+}
+.bv-editorial .bv-crumbs a {
+  color: var(--sage-d);
+  text-decoration: none;
+  border-bottom: 1px dotted var(--sage);
+}
+.bv-editorial .bv-crumbs .sep {
+  margin: 0 8px;
+  color: var(--hair-d);
+}
+
+.bv-editorial h1.bv-topic-title,
+.bv-editorial .bv-topic-title {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: clamp(38px, 5vw, 54px);
+  line-height: 1.05;
+  letter-spacing: -0.018em;
+  color: var(--ink);
+  margin: 0 0 22px;
+}
+
+.bv-editorial p.bv-lede,
+.bv-editorial .bv-lede {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: 400;
+  font-size: 19.5px;
+  line-height: 1.55;
+  color: var(--ink-soft);
+  margin: 0 0 32px;
+}
+
+.bv-editorial .bv-status {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 22px 28px;
+  padding: 16px 0;
+  border-top: 1.5px solid var(--hair);
+  border-bottom: 1.5px solid var(--hair);
+}
+.bv-editorial .bv-status__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-mute);
+}
+.bv-editorial .bv-status__value {
+  color: var(--ink);
+  text-transform: none;
+  letter-spacing: 0;
+  font-family: var(--font-sans);
+  font-size: 13px;
+}
+.bv-editorial .bv-status__value--italic {
+  font-family: var(--font-display);
+  font-style: italic;
+}
+
+/* bv-flow — a procedural sequence, usually with → arrows. Rendered inside the
+ * Structure section, styled to match bv-task: sage-bordered aside with italic
+ * Fraunces body. */
+.bv-editorial .bv-flow-block {
+  background: var(--vellum);
+  border-left: 3px solid var(--sage);
+  border-radius: 0 8px 8px 0;
+  padding: 20px 24px;
+  margin: 28px 0;
+  max-width: 60ch;
+}
+.bv-editorial .bv-flow-block__label {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--sage-d);
+  margin-bottom: 8px;
+}
+.bv-editorial .bv-flow-block__body {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: 400;
+  font-size: 16px;
+  line-height: 1.55;
+  color: var(--ink-soft);
+}
+.bv-editorial .bv-flow-block__body code {
+  font-family: var(--font-mono);
+  font-style: normal;
+  font-size: 13.5px;
+  background: var(--paper);
+  padding: 1px 5px;
+  border-radius: 4px;
+  color: var(--ink);
+}
+
+/* bv-task — the topic's thesis statement. Sage-bordered aside with italic
+ * Fraunces body. Differs from regular Raw-Concept fields (Author / Flow /
+ * Date) because it carries intent rather than metadata. */
+.bv-editorial .bv-task-aside {
+  background: var(--vellum);
+  border-left: 3px solid var(--sage);
+  border-radius: 0 8px 8px 0;
+  padding: 20px 24px;
+  margin: 28px 0;
+  max-width: 60ch;
+}
+.bv-editorial .bv-task-aside__label {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--sage-d);
+  margin-bottom: 8px;
+}
+.bv-editorial .bv-task-aside__body {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: 400;
+  font-size: 16px;
+  line-height: 1.55;
+  color: var(--ink-soft);
+}
+.bv-editorial .bv-task-aside__body code {
+  font-family: var(--font-mono);
+  font-style: normal;
+  font-size: 13.5px;
+  background: var(--paper);
+  padding: 1px 5px;
+  border-radius: 4px;
+  color: var(--ink);
+}
+
+/* Section spacing + heading */
+.bv-editorial .bv-section-block {
+  margin-top: 80px;
+  scroll-margin-top: 24px;
+}
+.bv-editorial .bv-section-head {
+  margin-bottom: 24px;
+}
+.bv-editorial .bv-section-head .bv-eyebrow {
+  margin-bottom: 10px;
+}
+.bv-editorial .bv-section-head h2 {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 30px;
+  line-height: 1.15;
+  letter-spacing: -0.012em;
+  color: var(--ink);
+  margin: 0;
+}
+
+/* Body prose */
+.bv-editorial .bv-prose {
+  color: var(--ink-soft);
+  font-size: 16.5px;
+  line-height: 1.75;
+  max-width: 64ch;
+}
+.bv-editorial .bv-prose p {
+  margin: 0 0 18px;
+}
+.bv-editorial .bv-prose p:last-child {
+  margin-bottom: 0;
+}
+.bv-editorial .bv-prose strong {
+  color: var(--ink);
+  font-weight: 600;
+}
+.bv-editorial .bv-prose code {
+  background: var(--vellum);
+  color: var(--ink);
+}
+/* ── Lists ───────────────────────────────────
+ *  Default <ul>      → em-dash list (sage em-dash before each item)
+ *  <ul class=bv-deflist> → definition list (term: description, divider)
+ *  <ol>              → mono index (01, 02, 03 in sage)
+ * The viewer auto-promotes a <ul> to .bv-deflist when every <li>
+ * opens with <strong>. */
+
+/* Default em-dash for <ul> */
+.bv-editorial .bv-prose ul {
+  list-style: none;
+  margin: 14px 0;
+}
+.bv-editorial .bv-prose ul > li {
+  position: relative;
+  padding-left: 24px;
+  margin: 10px 0;
+  font-size: 16px;
+  line-height: 1.65;
+  color: var(--ink);
+}
+.bv-editorial .bv-prose ul > li::before {
+  content: '—';
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: auto;
+  height: auto;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  color: var(--sage-d);
+  font-weight: 500;
+}
+
+/* Definition list (term-prefixed) */
+.bv-editorial .bv-prose ul.bv-deflist {
+  margin: 14px 0;
+}
+.bv-editorial .bv-prose ul.bv-deflist > li {
+  position: static;
+  padding: 14px 0;
+  margin: 0;
+  border-bottom: 1px dashed var(--hair);
+}
+.bv-editorial .bv-prose ul.bv-deflist > li:last-child {
+  border-bottom: 0;
+}
+.bv-editorial .bv-prose ul.bv-deflist > li::before {
+  content: none;
+}
+.bv-editorial .bv-prose ul.bv-deflist > li > strong:first-child {
+  display: inline-block;
+  font-family: var(--font-display);
+  font-style: italic;
+  font-weight: 500;
+  color: var(--sage-d);
+  font-size: 17px;
+  margin-right: 8px;
+}
+
+/* Ordered list — mono index */
+.bv-editorial .bv-prose ol {
+  list-style: none;
+  margin: 14px 0;
+  counter-reset: bv-num;
+}
+.bv-editorial .bv-prose ol > li {
+  counter-increment: bv-num;
+  position: relative;
+  padding-left: 38px;
+  margin: 14px 0;
+  font-size: 16px;
+  line-height: 1.65;
+  color: var(--ink);
+}
+.bv-editorial .bv-prose ol > li::before {
+  content: counter(bv-num, decimal-leading-zero);
+  position: absolute;
+  left: 0;
+  top: 0.25em;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--sage-d);
+}
+
+/* Ornament divider between section groups */
+.bv-editorial .bv-ornament {
+  display: flex;
+  justify-content: center;
+  margin: 56px 0 0;
+  color: var(--sage);
+  opacity: 0.5;
+}
+.bv-editorial .bv-ornament svg {
+  width: 64px;
+  height: auto;
+}
+
+/* Rules — numbered marginalia + severity word */
+.bv-editorial #rules {
+  counter-reset: bv-rule;
+}
+.bv-editorial .bv-rule-item {
+  counter-increment: bv-rule;
+  display: grid;
+  grid-template-columns: 28px 1fr;
+  column-gap: 18px;
+  align-items: baseline;
+  padding: 18px 0;
+  border-bottom: 1.5px solid var(--hair);
+}
+.bv-editorial .bv-rule-item:last-child {
+  border-bottom: 0;
+}
+.bv-editorial .bv-rule-item__num {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-mute);
+  letter-spacing: 0.06em;
+  padding-top: 4px;
+  text-align: right;
+}
+.bv-editorial .bv-rule-item__num::before {
+  content: counter(bv-rule, decimal-leading-zero);
+}
+.bv-editorial .bv-rule-item__body {
+  font-size: 17px;
+  line-height: 1.55;
+  color: var(--ink);
+}
+.bv-editorial .bv-rule-item__sev {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 14px;
+  color: var(--ink-mute);
+  margin-right: 8px;
+}
+.bv-editorial .bv-rule-item__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.bv-editorial .bv-rule-item__text {
+  display: inline;
+  color: var(--ink);
+}
+.bv-editorial .bv-rule-item__text code {
+  background: var(--vellum);
+  color: var(--ink);
+  font-size: 13.5px;
+}
+
+/* Patterns — paper cards with italic label + mono source */
+.bv-editorial .bv-pattern-card {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  column-gap: 16px;
+  align-items: baseline;
+  padding: 14px 18px;
+  background: var(--page);
+  border: 1.5px solid var(--hair);
+  border-radius: 8px;
+}
+.bv-editorial .bv-pattern-card__label {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 17px;
+  color: var(--ink);
+}
+.bv-editorial .bv-pattern-card__source {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--ink-mute);
+  background: transparent;
+  padding: 0;
+}
+
+/* Field-note callouts (bv-decision, bv-bug, bv-fix, bv-diagram) inside the editorial scope */
+.bv-editorial .bv-callout-card {
+  background: var(--page);
+  border: 1.5px solid var(--hair);
+  border-left-width: 4px;
+  border-radius: 10px;
+  padding: 24px 26px;
+  margin: 18px 0;
+}
+.bv-editorial .bv-callout-card--bug {
+  border-left-color: var(--terra);
+}
+.bv-editorial .bv-callout-card--fix {
+  border-left-color: var(--sage);
+}
+.bv-editorial .bv-callout-card--decision {
+  border-left-color: var(--plum);
+}
+.bv-editorial .bv-callout-card--diagram {
+  border-left-color: var(--ochre);
+}
+
+/* bv-diagram — framed picture, not a callout: vellum art surface + caption row. */
+.bv-editorial .bv-diagram-frame {
+  background: var(--page);
+  border: 1.5px solid var(--hair);
+  border-radius: 10px;
+  overflow: hidden;
+  margin: 24px 0;
+}
+.bv-editorial .bv-diagram-frame__art {
+  background: var(--vellum);
+  padding: 28px 24px;
+}
+.bv-editorial .bv-diagram-frame__art svg {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.bv-editorial .bv-diagram-frame__source {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--ink-soft);
+  white-space: pre;
+  overflow-x: auto;
+}
+.bv-editorial .bv-diagram-frame__caption {
+  display: flex;
+  justify-content: flex-end;
+  align-items: baseline;
+  gap: 12px;
+  padding: 10px 24px;
+  border-top: 1.5px solid var(--hair);
+}
+.bv-editorial .bv-diagram-frame__title {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 15px;
+  color: var(--ink-soft);
+}
+.bv-editorial .bv-diagram-frame__type {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-mute);
+}
+
+.bv-editorial .bv-callout-card__kind {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--ink-mute);
+  margin-bottom: 8px;
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+.bv-editorial .bv-callout-card--bug .bv-callout-card__kind .label {
+  color: var(--terra);
+}
+.bv-editorial .bv-callout-card--fix .bv-callout-card__kind .label {
+  color: var(--sage-d);
+}
+.bv-editorial .bv-callout-card--decision .bv-callout-card__kind .label {
+  color: var(--plum);
+}
+.bv-editorial .bv-callout-card__sev {
+  font-family: var(--font-display);
+  font-style: italic;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 13.5px;
+  color: var(--ink-mute);
+}
+.bv-editorial .bv-callout-card__title {
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 22px;
+  line-height: 1.25;
+  letter-spacing: -0.008em;
+  color: var(--ink);
+  margin: 0 0 12px;
+}
+.bv-editorial .bv-callout-card--decision .bv-callout-card__title {
+  font-style: italic;
+}
+.bv-editorial .bv-callout-card__body {
+  font-size: 16px;
+  line-height: 1.7;
+  color: var(--ink-soft);
+}
+.bv-editorial .bv-callout-card__body code {
+  background: var(--vellum);
+}
+
+/* Colophon */
+.bv-editorial .bv-colophon {
+  margin-top: 96px;
+  padding-top: 32px;
+  border-top: 1.5px solid var(--hair);
+}
+.bv-editorial .bv-colophon .bv-eyebrow {
+  margin-bottom: 22px;
+}
+.bv-editorial .bv-colophon dl {
+  display: grid;
+  grid-template-columns: 100px 1fr;
+  column-gap: 24px;
+  row-gap: 14px;
+  margin: 0;
+}
+.bv-editorial .bv-colophon dt {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-mute);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding-top: 2px;
+}
+.bv-editorial .bv-colophon dd {
+  margin: 0;
+}
+.bv-editorial .bv-colophon dd.bv-colophon__mono {
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+.bv-editorial .bv-colophon dd.bv-colophon__italic {
+  font-family: var(--font-display);
+  font-style: italic;
+  font-size: 14.5px;
+  color: var(--ink-soft);
+}

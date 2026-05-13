@@ -7,6 +7,7 @@ import type {StoredTask} from '../types/stored-task'
 
 import {formatError} from '../../../lib/error-messages'
 import {useProviderStore} from '../../provider/stores/provider-store'
+import {TopicViewer} from '../../topic-viewer'
 import {useComposerRetryStore} from '../stores/composer-retry-store'
 import {composerTypeFromTask} from '../utils/composer-type-from-task'
 import {shortTaskId} from '../utils/format-time'
@@ -14,6 +15,8 @@ import {isProviderTaskError} from '../utils/is-provider-task-error'
 import {isActiveStatus} from '../utils/task-status'
 import {AttachmentChip} from './attachment-chip'
 import {MarkdownInline} from './markdown-inline'
+
+const isBvTopicHtml = (content: string): boolean => /^\s*<bv-topic\b/i.test(content)
 import {SectionLabel, TerminalDot} from './task-detail-shared'
 
 export function InputSection({task}: {task: StoredTask}) {
@@ -61,7 +64,11 @@ export function LiveStreamSection({task}: {task: StoredTask}) {
       <div
         className={cn('pl-3 text-foreground/90 text-sm border-l-2', isLive ? 'border-blue-500/30' : 'border-border')}
       >
-        <MarkdownInline className="text-foreground/90 text-sm">{content || ' '}</MarkdownInline>
+        {isBvTopicHtml(content) ? (
+          <TopicViewer html={content} />
+        ) : (
+          <MarkdownInline className="text-foreground/90 text-sm">{content || ' '}</MarkdownInline>
+        )}
         {isLive && <span className="bg-blue-400/70 ml-1 inline-block h-3 w-1.5 align-middle animate-pulse" />}
       </div>
     </section>
@@ -74,7 +81,11 @@ export function ResultSection({content}: {content: string}) {
       <TerminalDot tone="completed" />
       <SectionLabel>Result</SectionLabel>
       <Card className="ring-border bg-card p-5" size="sm">
-        <MarkdownInline className="text-foreground/90 text-sm">{content}</MarkdownInline>
+        {isBvTopicHtml(content) ? (
+          <TopicViewer html={content} />
+        ) : (
+          <MarkdownInline className="text-foreground/90 text-sm">{content}</MarkdownInline>
+        )}
       </Card>
     </section>
   )

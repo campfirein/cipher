@@ -1,25 +1,36 @@
-import { AuthorInfo } from '@campfirein/byterover-packages/components/contexts/author-info'
-import { DetailBody } from '@campfirein/byterover-packages/components/contexts/detail-body'
-import { FolderDetail, type FolderNode } from '@campfirein/byterover-packages/components/contexts/folder-detail'
-import { Skeleton } from '@campfirein/byterover-packages/components/skeleton'
-import { formatDistanceToNow } from 'date-fns'
-import { useMemo } from 'react'
+import {AuthorInfo} from '@campfirein/byterover-packages/components/contexts/author-info'
+import {DetailBody} from '@campfirein/byterover-packages/components/contexts/detail-body'
+import {FolderDetail, type FolderNode} from '@campfirein/byterover-packages/components/contexts/folder-detail'
+import {Skeleton} from '@campfirein/byterover-packages/components/skeleton'
+import {formatDistanceToNow} from 'date-fns'
+import {useMemo} from 'react'
 
-import type { ContextNode } from '../types'
+import type {ContextNode} from '../types'
 
-import { noop } from '../../../lib/noop'
-import { useGetContextFileMetadata } from '../api/get-context-file-metadata'
-import { useGetContextHistory } from '../api/get-context-history'
-import { useContextTree } from '../hooks/use-context-tree'
-import { isFilePath } from '../utils/tree-utils'
-import { ContextBreadcrumb } from './context-breadcrumb'
-import { MarkdownView } from './markdown-view'
+import {noop} from '../../../lib/noop'
+import {TopicEditor, type TopicEditorLanguage, TopicViewer} from '../../topic-viewer'
+import {useGetContextFileMetadata} from '../api/get-context-file-metadata'
+import {useGetContextHistory} from '../api/get-context-history'
+import {useContextTree} from '../hooks/use-context-tree'
+import {isFilePath} from '../utils/tree-utils'
+import {ContextBreadcrumb} from './context-breadcrumb'
+import {MarkdownView} from './markdown-view'
+
+const isHtmlPath = (path: string | undefined): boolean => Boolean(path && path.toLowerCase().endsWith('.html'))
+
+const editorLanguageFor = (path: string | undefined): TopicEditorLanguage => {
+  if (!path) return 'text'
+  const lower = path.toLowerCase()
+  if (lower.endsWith('.html')) return 'html'
+  if (lower.endsWith('.md')) return 'markdown'
+  return 'text'
+}
 
 interface ContextDetailPanelProps {
   onToggleHistory?: () => void
 }
 
-export function ContextDetailPanel({ onToggleHistory }: ContextDetailPanelProps) {
+export function ContextDetailPanel({onToggleHistory}: ContextDetailPanelProps) {
   const {
     cancelEdit,
     editContent,
@@ -38,7 +49,7 @@ export function ContextDetailPanel({ onToggleHistory }: ContextDetailPanelProps)
     setEditContent,
   } = useContextTree()
 
-  const { data: historyData, isPending: isHistoryPending } = useGetContextHistory({
+  const {data: historyData, isPending: isHistoryPending} = useGetContextHistory({
     enabled: Boolean(selectedPath) && isFilePath(selectedPath),
     path: selectedPath,
   })
@@ -54,10 +65,7 @@ export function ContextDetailPanel({ onToggleHistory }: ContextDetailPanelProps)
     return selectedNode.children ?? []
   }, [selectedNode, nodes])
 
-  const blobPaths = useMemo(
-    () => folderChildren.filter((n) => n.type === 'blob').map((n) => n.path),
-    [folderChildren],
-  )
+  const blobPaths = useMemo(() => folderChildren.filter((n) => n.type === 'blob').map((n) => n.path), [folderChildren])
 
   const {data: metadataResponse} = useGetContextFileMetadata({
     enabled: blobPaths.length > 0,
@@ -65,9 +73,7 @@ export function ContextDetailPanel({ onToggleHistory }: ContextDetailPanelProps)
   })
 
   const folderNodes: FolderNode[] = useMemo(() => {
-    const metadataMap = new Map(
-      (metadataResponse?.files ?? []).map((f) => [f.path, f]),
-    )
+    const metadataMap = new Map((metadataResponse?.files ?? []).map((f) => [f.path, f]))
 
     return folderChildren.map((node) => {
       const meta = metadataMap.get(node.path)
@@ -120,10 +126,24 @@ export function ContextDetailPanel({ onToggleHistory }: ContextDetailPanelProps)
           content={fileData?.content ?? ''}
           contentView={
             !isEditMode && fileData?.content ? (
-              <MarkdownView content={fileData.content} />
+              isHtmlPath(selectedNode.path) ? (
+                <TopicViewer html={fileData.content} />
+              ) : (
+                <MarkdownView content={fileData.content} />
+              )
             ) : undefined
           }
           editContent={editContent}
+          editView={
+            isEditMode ? (
+              <TopicEditor
+                disabled={isUpdating}
+                language={editorLanguageFor(selectedNode.path)}
+                onChange={setEditContent}
+                value={editContent}
+              />
+            ) : undefined
+          }
           fileName={fileData?.title ?? selectedNode.name}
           hasChanges={hasChanges}
           headerClassName="pt-4 pb-0"
@@ -162,7 +182,12 @@ export function ContextDetailPanel({ onToggleHistory }: ContextDetailPanelProps)
   return (
     <div className="flex-1 h-full flex-col flex p-5 gap-4">
       <ContextBreadcrumb />
-      <FolderDetail nodes={folderNodes} onBack={handleBack} onNodeClick={handleFolderNodeClick} showBack={Boolean(selectedPath)} />
+      <FolderDetail
+        nodes={folderNodes}
+        onBack={handleBack}
+        onNodeClick={handleFolderNodeClick}
+        showBack={Boolean(selectedPath)}
+      />
     </div>
   )
 }
