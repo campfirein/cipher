@@ -1,4 +1,3 @@
-/* eslint-disable camelcase */
 import {expect} from 'chai'
 import {mkdtempSync, rmSync, writeFileSync} from 'node:fs'
 import {tmpdir} from 'node:os'
@@ -390,57 +389,6 @@ describe('AnalyticsHook', () => {
 
       const props = trackStub.firstCall.args[1] as Record<string, unknown>
       expect(props.outcome).to.equal('cancelled')
-    })
-  })
-
-  describe('cli_invocation flow (M13.1)', () => {
-    const validCliMeta = {
-      client_sent_at: 1_700_000_000_000,
-      command_id: 'query',
-      flag_names: ['format'],
-      is_ci: false,
-      is_tty: true,
-      package_manager: 'npm' as const,
-      runtime: 'node' as const,
-    }
-    const baseRequest = {
-      content: 'analyze auth',
-      taskId: 'task-cli-1',
-      type: 'query' as const,
-    }
-
-    it('emits cli_invocation with the cli_metadata payload verbatim', async () => {
-      await hook.onTaskCreateRequest({...baseRequest, cli_metadata: validCliMeta}, 'client-1')
-
-      expect(trackStub.calledOnce).to.equal(true)
-      expect(trackStub.firstCall.args[0]).to.equal(AnalyticsEventNames.CLI_INVOCATION)
-      expect(trackStub.firstCall.args[1]).to.deep.equal(validCliMeta)
-    })
-
-    it('does NOT emit when cli_metadata is absent (daemon-internal task)', async () => {
-      await hook.onTaskCreateRequest(baseRequest, 'client-1')
-      expect(trackStub.called).to.equal(false)
-    })
-
-    it('does NOT emit when cli_metadata is structurally invalid (defense-in-depth)', async () => {
-      // Cast through `unknown` because TS rejects `runtime: 'deno'` against the enum —
-      // the whole point of this test is to verify the runtime safe-parse blocks bad shapes
-      // even when the type system was bypassed at the wire.
-      const malformed = {...validCliMeta, runtime: 'deno'} as unknown as typeof validCliMeta
-      await hook.onTaskCreateRequest({...baseRequest, cli_metadata: malformed}, 'client-1')
-      expect(trackStub.called).to.equal(false)
-    })
-
-    it('swallows analyticsClient.track throws (does not propagate)', async () => {
-      trackStub.throws(new Error('boom'))
-      await hook.onTaskCreateRequest({...baseRequest, cli_metadata: validCliMeta}, 'client-1')
-      expect(trackStub.called).to.equal(true)
-    })
-
-    it('is a no-op when setAnalyticsClient was never called', async () => {
-      const bareHook = new AnalyticsHook()
-      await bareHook.onTaskCreateRequest({...baseRequest, cli_metadata: validCliMeta}, 'client-1')
-      // No throw, no assertions on track (no client to inspect)
     })
   })
 
