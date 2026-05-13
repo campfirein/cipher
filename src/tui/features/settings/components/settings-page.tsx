@@ -7,8 +7,10 @@
  * the transport. Validation errors render as a single line directly under
  * the editing row and persist until `Enter` is re-pressed with valid input.
  *
- * Rendered in plain text — no theme colours on row content. The ASCII `>`
- * cursor is the only selection signal.
+ * Colour rules: the selected row is highlighted with `colors.primary`, the
+ * inline validation error uses `colors.errorText`, and the restart banner
+ * uses `colors.warning`. Modified-vs-default is NOT colour-encoded — the
+ * default-in-parens column is the diff signal.
  */
 
 import {Box, Text, useInput} from 'ink'
@@ -17,6 +19,7 @@ import React, {useCallback, useMemo, useState} from 'react'
 
 import type {CustomDialogCallbacks} from '../../../types/commands.js'
 
+import {useTheme} from '../../../hooks/index.js'
 import {useGetSettings, useResetSetting, useSetSetting} from '../api/settings-api.js'
 import {
   bottomHintFor,
@@ -33,6 +36,9 @@ export function SettingsPage({onCancel, onComplete}: CustomDialogCallbacks): Rea
   const {data, error, isLoading} = useGetSettings()
   const setMutation = useSetSetting()
   const resetMutation = useResetSetting()
+  const {
+    theme: {colors},
+  } = useTheme()
 
   const [cursor, setCursor] = useState(0)
   const [mode, setMode] = useState<Mode>('browse')
@@ -191,7 +197,7 @@ export function SettingsPage({onCancel, onComplete}: CustomDialogCallbacks): Rea
     <Box flexDirection="column">
       {dirtyKeys.size > 0 && (
         <Box marginBottom={1}>
-          <Text>Settings changed. Run `brv restart` to apply.</Text>
+          <Text color={colors.warning}>Settings changed. Run `brv restart` to apply.</Text>
         </Box>
       )}
 
@@ -217,13 +223,13 @@ export function SettingsPage({onCancel, onComplete}: CustomDialogCallbacks): Rea
             })
             return (
               <Box flexDirection="column" key={row.key}>
-                <Text>
+                <Text color={isSelected ? colors.primary : undefined}>
                   {marker}
                   {pad(row.label, keyWidth)}  {currentDisplay}  {pad(`(default ${row.displayDefault})`, defaultWidth + 10)}  {pad(row.displayRange, rangeWidth)}
                 </Text>
                 {isSelected && rowError !== undefined && (
                   <Box marginLeft={2}>
-                    <Text>{rowError}</Text>
+                    <Text color={colors.errorText}>{rowError}</Text>
                   </Box>
                 )}
               </Box>
