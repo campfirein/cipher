@@ -103,7 +103,6 @@ Bad:
             format,
             projectRoot,
             query: args.query,
-            timeoutMs: DEFAULT_TIMEOUT_SECONDS * 1000,
             worktreeRoot,
           })
         },
@@ -141,10 +140,9 @@ Bad:
     format: 'json' | 'text'
     projectRoot?: string
     query: string
-    timeoutMs?: number
     worktreeRoot?: string
   }): Promise<void> {
-    const {client, format, projectRoot, query, timeoutMs, worktreeRoot} = props
+    const {client, format, projectRoot, query, worktreeRoot} = props
     const taskId = randomUUID()
     const taskPayload = {
       clientCwd: process.cwd(),
@@ -227,7 +225,6 @@ Bad:
           }
         },
         taskId,
-        timeoutMs,
       },
       (msg) => this.log(msg),
     )

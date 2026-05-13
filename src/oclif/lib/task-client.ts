@@ -22,7 +22,7 @@ import type {
 } from '../../server/core/domain/entities/query-log-entry.js'
 
 import {TaskErrorCode} from '../../server/core/domain/errors/task-error.js'
-import {LlmEvents, TaskEvents} from '../../shared/transport/events/index.js'
+import {LlmEvents, TaskEvents, type TaskHeartbeatEvent} from '../../shared/transport/events/index.js'
 import {ReviewEvents, type ReviewNotifyEvent} from '../../shared/transport/events/review-events.js'
 import {writeJsonResponse} from './json-response.js'
 
@@ -101,20 +101,26 @@ export interface WaitForTaskOptions {
   onResponse?: (content: string, taskId: string) => void
   /** Task ID to wait for */
   taskId: string
-  /** Timeout in ms (default: 5 minutes) */
-  timeoutMs?: number
 }
 
 /** Grace period before treating 'reconnecting' as daemon death (ms) */
 const DISCONNECT_GRACE_MS = 10_000
-/** Default timeout for task completion (seconds) — shared across curate/query commands. */
+/** Default timeout for task completion (seconds) — kept for back-compat with the deprecated `--timeout` flag. */
 export const DEFAULT_TIMEOUT_SECONDS = 300
-/** Minimum --timeout value accepted from the CLI (seconds). */
+/** Minimum --timeout value accepted from the CLI (seconds). Deprecated. */
 export const MIN_TIMEOUT_SECONDS = 10
-/** Maximum --timeout value accepted from the CLI (seconds). */
+/** Maximum --timeout value accepted from the CLI (seconds). Deprecated. */
 export const MAX_TIMEOUT_SECONDS = 3600
-/** Default timeout for task completion (ms) */
-const DEFAULT_TIMEOUT_MS = DEFAULT_TIMEOUT_SECONDS * 1000
+
+/**
+ * Maximum time the CLI tolerates without any task-scoped event before
+ * declaring the daemon stuck. Sized at ~3x the daemon's heartbeat
+ * interval (`TASK_HEARTBEAT_INTERVAL_MS = 10_000`) so a single missed
+ * heartbeat does not trigger a false positive.
+ */
+const STALE_THRESHOLD_MS = 30_000
+/** How often the CLI re-checks `Date.now() - lastActivityAt`. */
+const STALE_CHECK_INTERVAL_MS = 5000
 
 /**
  * Format tool call for CLI display (simplified version of TUI formatToolDisplay).
@@ -170,7 +176,7 @@ export function formatToolDisplay(toolName: string, args: Record<string, unknown
  * allowing withDaemonRetry to handle reconnection.
  */
 export function waitForTaskCompletion(options: WaitForTaskOptions, log: (msg: string) => void): Promise<void> {
-  const {client, command, format, onCompleted, onError, onResponse, taskId, timeoutMs = DEFAULT_TIMEOUT_MS} = options
+  const {client, command, format, onCompleted, onError, onResponse, taskId} = options
   const isText = format === 'text'
 
   return new Promise((resolve, reject) => {
@@ -178,6 +184,10 @@ export function waitForTaskCompletion(options: WaitForTaskOptions, log: (msg: st
     let disconnectTimer: NodeJS.Timeout | undefined
     const toolCalls: ToolCallRecord[] = []
     let pendingReview: undefined | {pendingCount: number; reviewUrl: string}
+    let lastActivityAt = Date.now()
+    const markActive = (): void => {
+      lastActivityAt = Date.now()
+    }
 
     const rejectRetryable = (message: string): void => {
       if (completed) return
@@ -186,28 +196,42 @@ export function waitForTaskCompletion(options: WaitForTaskOptions, log: (msg: st
       reject(Object.assign(new Error(message), {code: TaskErrorCode.AGENT_DISCONNECTED}))
     }
 
-    const timeout = setTimeout(() => {
-      if (!completed) {
+    // Heartbeat-driven liveness watcher. The daemon emits
+    // `TaskEvents.HEARTBEAT` every ~10s during quiet periods and any
+    // other task-scoped event refreshes `lastActivityAt`. A single
+    // "Task timed out after Xs" misfire while the daemon was making
+    // progress is what M6 is replacing — when nothing arrives within
+    // ~30s the daemon really is stuck.
+    const staleCheckTimer = setInterval(() => {
+      if (completed) return
+      if (Date.now() - lastActivityAt > STALE_THRESHOLD_MS) {
         completed = true
         cleanup()
-        const timeoutMessage = `Task timed out after ${timeoutMs / 1000}s`
+        const message = 'Daemon is unresponsive on this task'
         if (isText) {
-          reject(new Error(timeoutMessage))
+          reject(new Error(message))
         } else {
           writeJsonResponse({
             command,
-            data: {event: 'error', message: timeoutMessage, status: 'error'},
+            data: {event: 'error', message, status: 'error'},
             success: false,
           })
           resolve()
         }
       }
-    }, timeoutMs)
+    }, STALE_CHECK_INTERVAL_MS)
 
     const unsubscribers = [
+      // Heartbeat — keeps the stale-check alive during quiet phases.
+      client.on<TaskHeartbeatEvent>(TaskEvents.HEARTBEAT, (data) => {
+        if (data.taskId !== taskId) return
+        markActive()
+      }),
+
       // Tool call started (same as TUI addToolCall)
       client.on<LlmToolCall>(LlmEvents.TOOL_CALL, (data) => {
         if (!data.taskId) return
+        markActive()
         toolCalls.push({
           args: data.args,
           callId: data.callId,
@@ -227,6 +251,7 @@ export function waitForTaskCompletion(options: WaitForTaskOptions, log: (msg: st
       // Tool call completed (same as TUI updateToolCallResult)
       client.on<LlmToolResult>(LlmEvents.TOOL_RESULT, (data) => {
         if (!data.taskId) return
+        markActive()
 
         let index = -1
         if (data.callId) {
@@ -274,6 +299,7 @@ export function waitForTaskCompletion(options: WaitForTaskOptions, log: (msg: st
       // Thinking started (same as TUI addReasoningContent)
       client.on<{taskId: string}>(LlmEvents.THINKING, (data) => {
         if (!data.taskId) return
+        markActive()
 
         if (isText) {
           log('  Thinking...')
@@ -289,12 +315,14 @@ export function waitForTaskCompletion(options: WaitForTaskOptions, log: (msg: st
       // Streaming chunk (same as TUI appendStreamingContent) — silent for CLI
       client.on<LlmChunk>(LlmEvents.CHUNK, () => {
         // Collected by TUI for streaming display; CLI doesn't render partial chunks
+        markActive()
       }),
 
       // LLM response (final answer — used by query command)
       client.on<LlmResponse>(LlmEvents.RESPONSE, (data) => {
-        if (!data.taskId || !onResponse) return
-        onResponse(data.content, data.taskId)
+        if (!data.taskId) return
+        markActive()
+        if (onResponse) onResponse(data.content, data.taskId)
       }),
 
       // Pending review notification — emitted by server after curate completes with review-required ops
@@ -367,7 +395,7 @@ export function waitForTaskCompletion(options: WaitForTaskOptions, log: (msg: st
         }
       }),
 
-      () => clearTimeout(timeout),
+      () => clearInterval(staleCheckTimer),
       () => {
         if (disconnectTimer) clearTimeout(disconnectTimer)
       },
