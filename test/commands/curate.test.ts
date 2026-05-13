@@ -567,4 +567,147 @@ describe('Curate Command', () => {
       expect(loggedMessages.some((m) => m.includes('✓ Context curated successfully'))).to.be.true
     })
   })
+
+  // ==================== --cancel flag (T2.2) ====================
+
+  describe('--cancel flag', () => {
+    // eslint-disable-next-line unicorn/consistent-function-scoping -- captures mockClient from outer beforeEach
+    function stubCancelResponse(response: {error?: string; success: boolean}): void {
+      ;(mockClient.requestWithAck as sinon.SinonStub).callsFake(async (event: string) => {
+        if (event === 'task:cancel') return response
+        // Provider config still answers if the command ever asks — but the cancel
+        // branch should never get here. Returning a config keeps the stub honest
+        // so the assertion below catches a missed short-circuit.
+        return {activeProvider: 'anthropic'}
+      })
+    }
+
+    it('short-circuits the create flow: emits task:cancel, never asks provider config or task:create', async () => {
+      stubCancelResponse({success: true})
+
+      await createCommand('--cancel', 'task-A').run()
+
+      const requestStub = mockClient.requestWithAck as sinon.SinonStub
+      const eventNames = requestStub.getCalls().map((c) => c.args[0])
+      expect(eventNames).to.deep.equal(['task:cancel'])
+      expect(requestStub.firstCall.args[1]).to.deep.equal({taskId: 'task-A'})
+    })
+
+    it('prints "Cancelled <id>" on success (text format)', async () => {
+      stubCancelResponse({success: true})
+
+      await createCommand('--cancel', 'task-B').run()
+
+      expect(loggedMessages).to.include('Cancelled task-B')
+    })
+
+    it('prints a failure line including the daemon-provided reason (text format) and exits non-zero', async () => {
+      stubCancelResponse({error: 'Task not found', success: false})
+
+      let exitError: unknown
+      try {
+        await createCommand('--cancel', 'task-X').run()
+      } catch (error) {
+        exitError = error
+      }
+
+      expect(loggedMessages.some((m) => m.includes('Failed to cancel task-X') && m.includes('Task not found'))).to.be.true
+      // oclif throws ExitError when this.exit(1) runs
+      expect(exitError).to.not.equal(undefined)
+    })
+
+    it('emits the project JSON envelope when --format json is given (success)', async () => {
+      stubCancelResponse({success: true})
+
+      await createJsonCommand('--cancel', 'task-J').run()
+
+      const json = parseJsonOutput()
+      expect(json.command).to.equal('curate')
+      expect(json.success).to.equal(true)
+      expect(json.data).to.deep.include({status: 'cancelled', taskId: 'task-J'})
+    })
+
+    it('emits the project JSON envelope when --format json is given (failure)', async () => {
+      stubCancelResponse({error: 'Task not found', success: false})
+
+      try {
+        await createJsonCommand('--cancel', 'task-K').run()
+      } catch {
+        // ExitError on non-zero exit
+      }
+
+      const json = parseJsonOutput()
+      expect(json.command).to.equal('curate')
+      expect(json.success).to.equal(false)
+      expect(json.data).to.deep.include({error: 'Task not found', status: 'error', taskId: 'task-K'})
+    })
+
+    it('does NOT call validateInput (no context required when --cancel is used)', async () => {
+      stubCancelResponse({success: true})
+
+      await createCommand('--cancel', 'task-C').run()
+
+      // Without --cancel, missing context would log this hint.
+      expect(loggedMessages.some((m) => m.includes('Either a context argument'))).to.equal(false)
+    })
+
+    it('rejects --cancel together with --files (mutually exclusive)', async () => {
+      stubCancelResponse({success: true})
+
+      let parseError: unknown
+      try {
+        await createCommand('--cancel', 'task-Z', '--files', 'foo.ts').run()
+      } catch (error) {
+        parseError = error
+      }
+
+      // oclif throws CLIError when exclusive flags are combined; no transport calls are made.
+      expect(parseError).to.not.equal(undefined)
+      expect((mockClient.requestWithAck as sinon.SinonStub).called).to.equal(false)
+    })
+
+    it('rejects --cancel together with --folder (mutually exclusive)', async () => {
+      stubCancelResponse({success: true})
+
+      let parseError: unknown
+      try {
+        await createCommand('--cancel', 'task-Z', '--folder', 'src/').run()
+      } catch (error) {
+        parseError = error
+      }
+
+      expect(parseError).to.not.equal(undefined)
+      expect((mockClient.requestWithAck as sinon.SinonStub).called).to.equal(false)
+    })
+
+    it('rejects --cancel together with --detach (mutually exclusive)', async () => {
+      stubCancelResponse({success: true})
+
+      let parseError: unknown
+      try {
+        await createCommand('--cancel', 'task-Z', '--detach').run()
+      } catch (error) {
+        parseError = error
+      }
+
+      expect(parseError).to.not.equal(undefined)
+      expect((mockClient.requestWithAck as sinon.SinonStub).called).to.equal(false)
+    })
+
+    it('allows --cancel alongside --timeout (timeout has no effect on the cancel branch)', async () => {
+      stubCancelResponse({success: true})
+
+      let parseError: unknown
+      try {
+        await createCommand('--cancel', 'task-T', '--timeout', '60').run()
+      } catch (error) {
+        parseError = error
+      }
+
+      expect(parseError).to.equal(undefined)
+      const requestStub = mockClient.requestWithAck as sinon.SinonStub
+      const eventNames = requestStub.getCalls().map((c) => c.args[0])
+      expect(eventNames).to.deep.equal(['task:cancel'])
+    })
+  })
 })

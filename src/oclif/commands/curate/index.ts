@@ -9,6 +9,7 @@ import {BRV_DIR, CONTEXT_TREE_DIR} from '../../../server/constants.js'
 import {ProviderConfigResponse, TransportStateEventNames} from '../../../server/core/domain/transport/index.js'
 import {extractCurateOperations} from '../../../server/utils/curate-result-parser.js'
 import {TaskEvents} from '../../../shared/transport/events/index.js'
+import {runCancelTask} from '../../lib/cancel-task.js'
 import {
   type DaemonClientOptions,
   formatConnectionError,
@@ -68,6 +69,10 @@ Bad examples:
     '<%= config.bin %> curate view --status completed --since 1h',
   ]
   public static flags = {
+    cancel: Flags.string({
+      description: 'Cancel a running task by id. Short-circuits the create flow — no new task is created.',
+      exclusive: ['files', 'folder', 'detach'],
+    }),
     detach: Flags.boolean({
       default: false,
       description: 'Queue task and exit without waiting for completion',
@@ -109,6 +114,11 @@ Bad examples:
       timeout: rawFlags.timeout,
     }
     const format: 'json' | 'text' = flags.format ?? 'text'
+
+    if (rawFlags.cancel) {
+      await this.runCancelBranch(rawFlags.cancel, format)
+      return
+    }
 
     if (!this.validateInput(args, flags, format)) return
 
@@ -284,6 +294,30 @@ Bad examples:
       // eslint-disable-next-line n/no-process-exit, unicorn/no-process-exit
       process.exit(1)
     }
+  }
+
+  private async runCancelBranch(taskId: string, format: 'json' | 'text'): Promise<void> {
+    let success = false
+    try {
+      await withDaemonRetry(
+        async (client) => {
+          success = await runCancelTask({
+            client,
+            command: 'curate',
+            format,
+            log: (msg) => this.log(msg),
+            taskId,
+          })
+        },
+        this.getDaemonClientOptions(),
+      )
+    } catch (error) {
+      this.reportError(error, format)
+      this.exit(1)
+      return
+    }
+
+    if (!success) this.exit(1)
   }
 
   private async submitTask(props: {
