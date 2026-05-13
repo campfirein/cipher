@@ -23,6 +23,49 @@ import {CHANNEL_CLIENT_ERROR_CODE, ChannelClientError} from './errors.js'
  * ```
  */
 
+/**
+ * Slice 8.0 — typed options for {@link ChannelClient.mention}. Mirrors the
+ * `channel:mention` wire schema in `src/shared/transport/events/channel-events.ts`.
+ */
+export type ChannelMentionOptions = {
+  readonly channelId: string
+  readonly prompt: string
+  /** Default: `'stream'`. `'sync'` makes the ack wait for terminal + return finalAnswer. */
+  readonly mode?: 'stream' | 'sync'
+  /** Default: `false`. Drops `agent_thought_chunk` events at the daemon. */
+  readonly suppressThoughts?: boolean
+  /** Sync-mode timeout in milliseconds. Default: 300_000. Ignored when `mode === 'stream'`. */
+  readonly timeout?: number
+}
+
+/** Stream-mode ack: the §8.4 `ChannelTurnAcceptedResponse` shape. */
+export type ChannelMentionStreamAck = {
+  readonly turn: {readonly turnId: string; readonly channelId: string; readonly [k: string]: unknown}
+  readonly deliveries: ReadonlyArray<{readonly deliveryId: string; readonly [k: string]: unknown}>
+}
+
+/** Sync-mode ack: the §8.4 `ChannelMentionSyncResponse` shape. */
+export type ChannelMentionSyncResponse = {
+  readonly channelId: string
+  readonly durationMs: number
+  readonly endedState: 'completed' | 'cancelled'
+  readonly finalAnswer: string
+  readonly toolCalls: ReadonlyArray<{
+    readonly callId: string
+    readonly name: string
+    readonly status?: string
+  }>
+  readonly turnId: string
+}
+
+type ChannelMentionPayload = {
+  channelId: string
+  prompt: string
+  mode?: 'stream' | 'sync'
+  suppressThoughts?: boolean
+  timeout?: number
+}
+
 export type ChannelClientConnectOptions = DiscoverDaemonOptions & {
   /** Override the daemon URL (skips disk discovery). Useful for tests. */
   readonly daemonUrl?: string
@@ -257,6 +300,30 @@ export class ChannelClient {
         )
       })
     })
+  }
+
+  /**
+   * Slice 8.0 — ergonomic `channel:mention` wrapper. In `'sync'` mode the
+   * daemon buffers the turn and returns the assembled
+   * `ChannelMentionSyncResponse`; in `'stream'` mode it returns the
+   * dispatch acknowledgement (`ChannelTurnAcceptedResponse`) immediately
+   * and events flow over the broadcast channel.
+   *
+   * Defaults: `mode = 'stream'` (Phase 1–7 behaviour), `suppressThoughts = false`.
+   *
+   * Errors:
+   *  - sync timeout, overflow, external cancel, daemon shutdown surface as
+   *    `ChannelClientError` with the daemon-supplied code preserved.
+   */
+  public mention<TSync extends ChannelMentionSyncResponse = ChannelMentionSyncResponse, TStream extends ChannelMentionStreamAck = ChannelMentionStreamAck>(
+    options: ChannelMentionOptions,
+  ): Promise<TSync | TStream> {
+    const {channelId, mode, prompt, suppressThoughts, timeout} = options
+    const payload: ChannelMentionPayload = {channelId, prompt}
+    if (mode !== undefined) payload.mode = mode
+    if (suppressThoughts !== undefined) payload.suppressThoughts = suppressThoughts
+    if (timeout !== undefined) payload.timeout = timeout
+    return this.request<ChannelMentionPayload, TSync | TStream>('channel:mention', payload)
   }
 
   /**

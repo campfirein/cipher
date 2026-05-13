@@ -6,6 +6,9 @@
 export {
   ChannelClient,
   type ChannelClientConnectOptions,
+  type ChannelMentionOptions,
+  type ChannelMentionStreamAck,
+  type ChannelMentionSyncResponse,
   type TurnEvent,
 } from './channel-client.js'
 

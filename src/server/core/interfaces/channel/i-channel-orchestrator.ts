@@ -102,14 +102,40 @@ export type DispatchMentionArgs = {
   readonly channelId: string
   readonly idempotencyKey?: string
   readonly mentions?: string[]
+  // Slice 8.0 — sync mode + thought suppression. See
+  // plan/channel-protocol/IMPLEMENTATION_PHASE_8.md §8.0.
+  readonly mode?: 'stream' | 'sync'
   readonly projectRoot: string
   readonly prompt?: string
   readonly promptBlocks?: ContentBlock[]
+  readonly suppressThoughts?: boolean
+  readonly timeout?: number
 }
 
 export type DispatchMentionResult = {
   readonly deliveries: TurnDelivery[]
   readonly turn: Turn
+}
+
+/**
+ * Slice 8.0 — assembled response surfaced when `dispatchMention` is
+ * called with `mode === 'sync'`. The orchestrator buffers per-member
+ * `agent_message_chunk` content until the turn reaches a terminal state,
+ * then resolves with this shape. Errors surface as `ChannelError`
+ * subclasses (CHANNEL_SYNC_TIMEOUT / SYNC_OVERFLOW / TURN_CANCELLED /
+ * DAEMON_SHUTDOWN), not via a separate failure shape.
+ */
+export type ChannelMentionSyncResult = {
+  readonly channelId: string
+  readonly durationMs: number
+  readonly endedState: 'cancelled' | 'completed'
+  readonly finalAnswer: string
+  readonly toolCalls: ReadonlyArray<{
+    readonly callId: string
+    readonly name: string
+    readonly status?: string
+  }>
+  readonly turnId: string
 }
 
 export type CancelTurnArgs = {
@@ -140,6 +166,14 @@ export type PermissionDecisionArgs = {
  */
 export interface IChannelOrchestrator {
   archiveChannel(args: ArchiveChannelArgs): Promise<Channel>
+  /**
+   * Slice 8.0 — paired with `dispatchMention` when `args.mode === 'sync'`.
+   * Returns a promise that resolves with the assembled answer when the
+   * turn reaches a terminal state, or rejects with one of the four
+   * Phase-8 sync-mode `ChannelError` subclasses on timeout / overflow /
+   * cancel / shutdown. Call exactly once per sync dispatch.
+   */
+  awaitSyncMention(turnId: string): Promise<ChannelMentionSyncResult>
   cancelTurn(args: CancelTurnArgs): Promise<CancelTurnResult>
   createChannel(args: CreateChannelArgs): Promise<Channel>
   dispatchMention(args: DispatchMentionArgs): Promise<DispatchMentionResult>

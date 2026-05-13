@@ -30,6 +30,11 @@ export const CHANNEL_ERROR_CODE = {
   AGENT_DRIVER_PROFILE_NOT_FOUND: 'AGENT_DRIVER_PROFILE_NOT_FOUND',
   ALREADY_EXISTS: 'CHANNEL_ALREADY_EXISTS',
   ARCHIVED: 'CHANNEL_ARCHIVED',
+  // Phase 8 / Slice 8.0 — sync-mode lifecycle codes. Surfaced via the
+  // `{success: false, code}` ack envelope when a sync mention can't return
+  // an assembled answer (timeout, byte-budget overflow, externally
+  // cancelled, daemon shutting down). See CHANNEL_PROTOCOL.md §13.
+  DAEMON_SHUTDOWN: 'CHANNEL_DAEMON_SHUTDOWN',
   DELIVERY_NOT_FOUND: 'CHANNEL_DELIVERY_NOT_FOUND',
   // Phase 3 additions ------------------------------------------------------
   DISABLED: 'CHANNEL_DISABLED',
@@ -47,6 +52,10 @@ export const CHANNEL_ERROR_CODE = {
   PROFILE_NOT_FOUND: 'CHANNEL_PROFILE_NOT_FOUND',
   PROMPT_EMPTY: 'CHANNEL_PROMPT_EMPTY',
   REQUEST_TIMEOUT: 'CHANNEL_REQUEST_TIMEOUT',
+  // Phase 8 / Slice 8.0 — see DAEMON_SHUTDOWN comment above.
+  SYNC_OVERFLOW: 'CHANNEL_SYNC_OVERFLOW',
+  SYNC_TIMEOUT: 'CHANNEL_SYNC_TIMEOUT',
+  TURN_CANCELLED: 'CHANNEL_TURN_CANCELLED',
   TURN_NOT_CANCELLABLE: 'CHANNEL_TURN_NOT_CANCELLABLE',
   TURN_NOT_FOUND: 'CHANNEL_TURN_NOT_FOUND',
   UNAUTHORIZED: 'CHANNEL_UNAUTHORIZED',
@@ -404,5 +413,80 @@ export class AgentDriverProfileNotFoundError extends ChannelError {
     super(`Agent driver profile not found: ${profileName}`, CHANNEL_ERROR_CODE.AGENT_DRIVER_PROFILE_NOT_FOUND)
     this.name = 'AgentDriverProfileNotFoundError'
     this.profileName = profileName
+  }
+}
+
+// ─── Phase 8 / Slice 8.0 — sync-mode lifecycle errors ──────────────────────
+
+/**
+ * `channel:mention` with `mode === 'sync'` did not reach a terminal turn
+ * within the configured timeout. The pending-sync entry is rejected with
+ * this code AND the orchestrator's cancelTurn path is triggered so the
+ * turn produces a real terminal event on disk.
+ */
+export class ChannelSyncTimeoutError extends ChannelError {
+  public readonly timeoutMs: number
+  public readonly turnId: string
+
+  public constructor(turnId: string, timeoutMs: number) {
+    super(
+      `Sync mention for turn ${turnId} did not complete within ${timeoutMs}ms`,
+      CHANNEL_ERROR_CODE.SYNC_TIMEOUT,
+      {timeoutMs, turnId},
+    )
+    this.name = 'ChannelSyncTimeoutError'
+    this.turnId = turnId
+    this.timeoutMs = timeoutMs
+  }
+}
+
+/**
+ * Sync-mode buffer for a turn exceeded the per-turn byte budget. The
+ * pending entry is rejected and the turn is cancelled so the buffer can
+ * be freed.
+ */
+export class ChannelSyncOverflowError extends ChannelError {
+  public readonly byteBudget: number
+  public readonly turnId: string
+
+  public constructor(turnId: string, byteBudget: number) {
+    super(
+      `Sync mention buffer for turn ${turnId} exceeded ${byteBudget} bytes`,
+      CHANNEL_ERROR_CODE.SYNC_OVERFLOW,
+      {byteBudget, turnId},
+    )
+    this.name = 'ChannelSyncOverflowError'
+    this.turnId = turnId
+    this.byteBudget = byteBudget
+  }
+}
+
+/**
+ * Sync-mode pending entry was settled because the turn was cancelled by
+ * an external party (`channel:cancel`, broker, etc.) before reaching a
+ * terminal completion. Distinct from `CHANNEL_SYNC_TIMEOUT` so callers
+ * can distinguish "we ran out of time" from "someone aborted us".
+ */
+export class ChannelTurnCancelledError extends ChannelError {
+  public readonly turnId: string
+
+  public constructor(turnId: string) {
+    super(`Turn ${turnId} was cancelled before sync mention could complete`, CHANNEL_ERROR_CODE.TURN_CANCELLED, {
+      turnId,
+    })
+    this.name = 'ChannelTurnCancelledError'
+    this.turnId = turnId
+  }
+}
+
+/**
+ * Daemon is shutting down while a sync mention is pending. All pending
+ * entries are rejected with this code so callers know the failure is
+ * infrastructural, not agent-side.
+ */
+export class ChannelDaemonShutdownError extends ChannelError {
+  public constructor() {
+    super('Daemon is shutting down; sync mention cannot complete', CHANNEL_ERROR_CODE.DAEMON_SHUTDOWN)
+    this.name = 'ChannelDaemonShutdownError'
   }
 }

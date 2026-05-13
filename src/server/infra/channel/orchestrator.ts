@@ -15,6 +15,7 @@ import type {
   ArchiveChannelArgs,
   CancelTurnArgs,
   CancelTurnResult,
+  ChannelMentionSyncResult,
   CreateChannelArgs,
   DispatchMentionArgs,
   DispatchMentionResult,
@@ -41,9 +42,13 @@ import {
   AgentDriverProfileNotFoundError,
   ChannelAlreadyExistsError,
   ChannelArchivedError,
+  ChannelDaemonShutdownError,
   ChannelInvalidRequestError,
   ChannelMentionEmptyError,
   ChannelNotFoundError,
+  ChannelSyncOverflowError,
+  ChannelSyncTimeoutError,
+  ChannelTurnCancelledError,
   ChannelTurnNotFoundError,
 } from '../../core/domain/channel/errors.js'
 import {assertLegalTurnTransition} from '../../core/domain/channel/turn-state-machine.js'
@@ -108,8 +113,51 @@ type ActiveTurn = {
   deliveries: TurnDelivery[]
   members: ChannelMember[]
   projectRoot: string
+  // Slice 8.0 — if true, `persistAndBroadcast` drops `agent_thought_chunk`
+  // events (neither persisted nor broadcast). Read by `persistAndBroadcast`
+  // via `this.activeTurns.get(turnId)`.
+  suppressThoughts: boolean
   turn: Turn
 }
+
+/**
+ * Slice 8.0 — per-turn buffer + promise wiring for `mode: 'sync'`. One
+ * entry per sync mention. `awaitSyncMention(turnId)` returns this entry's
+ * promise. The buffer accumulates per-member `agent_message_chunk`
+ * content as it streams; on terminal `turn_state_change`, the buffer is
+ * assembled into `finalAnswer` and the promise resolves. Timeouts,
+ * overflow, external cancel, and daemon shutdown reject it.
+ */
+type PendingSyncEntry = {
+  readonly byteBudget: number
+  bytesWritten: number
+  readonly channelId: string
+  chunks: Map<string, string[]>
+  readonly reject: (error: Error) => void
+  readonly resolve: (result: ChannelMentionSyncResult) => void
+  settled: boolean
+  readonly startedAtMs: number
+  timer?: NodeJS.Timeout
+  toolCalls: Map<string, {callId: string; name: string; status?: string}>
+  readonly turnId: string
+}
+
+// Default per-turn buffer ceiling for sync mode (1 MiB). Configurable via
+// `BRV_CHANNEL_SYNC_BYTE_BUDGET` env var so operators can raise it for
+// chatty agents without recompiling.
+const DEFAULT_SYNC_BYTE_BUDGET = 1_048_576
+
+const resolveSyncByteBudget = (): number => {
+  const raw = process.env.BRV_CHANNEL_SYNC_BYTE_BUDGET
+  if (raw === undefined || raw === '') return DEFAULT_SYNC_BYTE_BUDGET
+  const parsed = Number.parseInt(raw, 10)
+  if (!Number.isFinite(parsed) || parsed <= 0) return DEFAULT_SYNC_BYTE_BUDGET
+  return parsed
+}
+
+const DEFAULT_SYNC_TIMEOUT_MS = 300_000
+
+const SYNC_FAN_OUT_SEPARATOR = '\n\n[@'
 
 const firstTextOf = (blocks: ContentBlock[]): string => {
   for (const b of blocks) {
@@ -142,6 +190,11 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
     handle: string,
   ) => IAcpDriver
   private readonly idGenerator: () => string
+  // Slice 8.0 — `mode: 'sync'` pending entries keyed by turnId. Populated
+  // synchronously inside `dispatchMention` BEFORE any background delivery
+  // task can run; settled by `finaliseTurn` / `cancelTurn` / timeout /
+  // overflow / `dispose`.
+  private readonly pendingSyncResponses = new Map<string, PendingSyncEntry>()
   private readonly permissionBroker: IPermissionBroker
   private readonly pool: IAcpDriverPool
   private readonly profileStore: IDriverProfileStore | undefined
@@ -190,6 +243,15 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
   }
 
   // ─── Phase-2 cancel ───────────────────────────────────────────────────
+
+  public async awaitSyncMention(turnId: string): Promise<ChannelMentionSyncResult> {
+    const entry = this.pendingSyncResponses.get(turnId)
+    if (entry === undefined) {
+      throw new ChannelTurnNotFoundError('', turnId)
+    }
+
+    return (entry as PendingSyncEntry & {promise: Promise<ChannelMentionSyncResult>}).promise
+  }
 
   async cancelTurn(args: CancelTurnArgs): Promise<CancelTurnResult> {
     const active = this.activeTurns.get(args.turnId)
@@ -240,6 +302,8 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
     return {deliveries: active.deliveries, turn: active.turn}
   }
 
+  // ─── Phase-2 dispatch ─────────────────────────────────────────────────
+
   async createChannel(args: CreateChannelArgs): Promise<Channel> {
     const now = this.clock().toISOString()
     const channelId = args.channelId ?? this.idGenerator()
@@ -270,8 +334,6 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
 
     return channel
   }
-
-  // ─── Phase-2 dispatch ─────────────────────────────────────────────────
 
   async dispatchMention(args: DispatchMentionArgs): Promise<DispatchMentionResult> {
     const meta = await this.store.readChannelMeta({
@@ -384,9 +446,25 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
       deliveries,
       members,
       projectRoot: args.projectRoot,
+      // Slice 8.0 — per-turn suppressThoughts flag read by
+      // `persistAndBroadcast` to drop `agent_thought_chunk` events at the
+      // boundary where per-turn policy is in scope (NOT the projector).
+      suppressThoughts: args.suppressThoughts === true,
       turn,
     }
     this.activeTurns.set(turnId, active)
+
+    // Slice 8.0 — `mode: 'sync'` registers a pending entry BEFORE any
+    // background task can emit chunks. The handler awaits
+    // `awaitSyncMention(turnId)` instead of returning the
+    // ChannelTurnAcceptedResponse immediately.
+    if (args.mode === 'sync') {
+      this.registerPendingSync({
+        channelId: args.channelId,
+        timeout: args.timeout,
+        turnId,
+      })
+    }
 
     // Step 10: emit `delivery_state_change queued → dispatched` for the
     // first `maxParallel` deliveries; the rest stay `queued` and are
@@ -423,6 +501,19 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
     return {deliveries, turn}
   }
 
+  /**
+   * Reject every outstanding pending-sync entry with
+   * `CHANNEL_DAEMON_SHUTDOWN`. Hook for daemon shutdown / orchestrator
+   * disposal.
+   */
+  public disposeSyncMentions(): void {
+    for (const turnId of this.pendingSyncResponses.keys()) {
+      this.failPendingSync(turnId, new ChannelDaemonShutdownError())
+    }
+  }
+
+  // ─── Phase-2 invite/uninvite ──────────────────────────────────────────
+
   async getChannel(args: GetChannelArgs): Promise<Channel> {
     const channel = await this.store.readChannel({
       channelId: args.channelId,
@@ -450,8 +541,6 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
       ? {events: result.events, turn: result.turn}
       : {deliveries: result.deliveries, events: result.events, turn: result.turn}
   }
-
-  // ─── Phase-2 invite/uninvite ──────────────────────────────────────────
 
   async inviteMember(args: InviteMemberArgs): Promise<ChannelMember> {
     if (args.profileName !== undefined && args.invocation !== undefined) {
@@ -543,6 +632,8 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
     return member
   }
 
+  // ─── Phase-2 permission decision ──────────────────────────────────────
+
   async listChannels(args: ListChannelsArgs): Promise<Channel[]> {
     return this.store.listChannels({
       includeArchived: args.archived === true,
@@ -566,8 +657,6 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
 
     return {nextCursor: result.nextCursor, turns: result.turns}
   }
-
-  // ─── Phase-2 permission decision ──────────────────────────────────────
 
   async permissionDecision(args: PermissionDecisionArgs): Promise<TurnEvent> {
     const active = this.activeTurns.get(args.turnId)
@@ -619,6 +708,8 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
 
     return decisionEvent
   }
+
+  // ─── private helpers ──────────────────────────────────────────────────
 
   async postTurn(args: PostTurnArgs): Promise<Turn> {
     const channel = await this.store.readChannel({
@@ -727,7 +818,41 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
     return existing
   }
 
-  // ─── private helpers ──────────────────────────────────────────────────
+  /**
+   * Concatenate per-member chunks into a single `finalAnswer`. For a
+   * single member, no separator. For fan-out (>= 2 members), prefix each
+   * member's section with `\n\n[@<handle>]\n` so the structured response
+   * preserves who said what.
+   */
+  private assembleFinalAnswer(entry: PendingSyncEntry): string {
+    const members = [...entry.chunks.entries()]
+    if (members.length === 0) return ''
+    if (members.length === 1) {
+      const [, chunks] = members[0]!
+      return chunks.join('')
+    }
+
+    const parts: string[] = []
+    for (const [member, chunks] of members) {
+      parts.push(`${SYNC_FAN_OUT_SEPARATOR}${member}]\n${chunks.join('')}`)
+    }
+
+    return parts.join('').trimStart()
+  }
+
+  /**
+   * Reject the pending entry with a `ChannelError`. Used by timeout,
+   * overflow, external cancel, and daemon shutdown paths. Idempotent.
+   */
+  private failPendingSync(turnId: string, error: Error): void {
+    const entry = this.pendingSyncResponses.get(turnId)
+    if (entry === undefined || entry.settled) return
+
+    entry.settled = true
+    if (entry.timer !== undefined) clearTimeout(entry.timer)
+    this.pendingSyncResponses.delete(turnId)
+    entry.reject(error)
+  }
 
   private async fetchPriorTurns(args: {
     channelId: string
@@ -748,6 +873,8 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
     return out.reverse()
   }
 
+  // ─── Slice 8.0 — sync-mode pending-entry lifecycle ──────────────────────
+
   private async finaliseTurn(active: ActiveTurn): Promise<void> {
     // Idempotency guard: cancelTurn and the background streaming task can
     // race to call finaliseTurn (both observe `activeTurns.has(turnId)`
@@ -755,6 +882,21 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
     // BEFORE any await ensures only one caller proceeds to disk writes.
     if (!this.activeTurns.has(active.turn.turnId)) return
     this.activeTurns.delete(active.turn.turnId)
+
+    // Slice 8.0 — settle the sync-mode pending entry if one exists. For
+    // `cancelled` we use the dedicated `CHANNEL_TURN_CANCELLED` reject
+    // path (external cancel beat us to the assembled answer) unless the
+    // turn cancelled itself via timeout/overflow (entry already settled).
+    if (this.pendingSyncResponses.has(active.turn.turnId)) {
+      if (active.turn.state === 'cancelled') {
+        this.failPendingSync(
+          active.turn.turnId,
+          new ChannelTurnCancelledError(active.turn.turnId),
+        )
+      } else if (active.turn.state === 'completed') {
+        this.settlePendingSync(active.turn.turnId, 'completed')
+      }
+    }
 
     // Persist turn snapshot + delivery snapshots + message body for each delivery.
     await this.store.writeTurnSnapshot({
@@ -891,8 +1033,133 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
     turnId: string,
     event: TurnEvent,
   ): Promise<void> {
+    // Slice 8.0 — suppressThoughts policy: drop `agent_thought_chunk`
+    // events at this boundary when the active turn opted in. Neither
+    // persisted nor broadcast — saves disk + Socket.IO bandwidth for
+    // agent-driven sync mentions. Stream callers can still set
+    // `suppressThoughts: true` to get the savings without sync mode.
+    if (event.kind === 'agent_thought_chunk') {
+      const active = this.activeTurns.get(turnId)
+      if (active?.suppressThoughts === true) return
+    }
+
     await this.store.appendTurnEvent({channelId, event, projectRoot, turnId})
     this.broadcaster.broadcastToChannel(channelId, ChannelEvents.TURN_EVENT, {channelId, event})
+
+    // Slice 8.0 — sync-mode side-channels. Run AFTER persist+broadcast so
+    // the canonical transcript is the source of truth for any reader.
+    this.recordSyncEvent(turnId, event)
+  }
+
+  /**
+   * Side-channel into persist/broadcast that captures sync-relevant
+   * events into the per-turn buffer. Idempotent across replays — only
+   * `agent_message_chunk`, `tool_call`, and `tool_call_update` events
+   * mutate the buffer; everything else is ignored.
+   */
+  private recordSyncEvent(turnId: string, event: TurnEvent): void {
+    const entry = this.pendingSyncResponses.get(turnId)
+    if (entry === undefined || entry.settled) return
+
+    switch (event.kind) {
+    case 'agent_message_chunk': {
+      const member = event.memberHandle ?? '<unknown>'
+      const {content} = (event as TurnEvent & {content?: unknown})
+      const text = typeof content === 'string' ? content : ''
+      if (text.length === 0) return
+      const newBytes = Buffer.byteLength(text, 'utf8')
+      if (entry.bytesWritten + newBytes > entry.byteBudget) {
+        this.failPendingSync(
+          turnId,
+          new ChannelSyncOverflowError(turnId, entry.byteBudget),
+        )
+        // Trigger a real cancel so the turn produces a terminal event.
+        this.scheduleCancelForSyncFailure(entry)
+        return
+      }
+
+      entry.bytesWritten += newBytes
+      const existing = entry.chunks.get(member)
+      if (existing === undefined) {
+        entry.chunks.set(member, [text])
+      } else {
+        existing.push(text)
+      }
+    
+    break;
+    }
+
+    case 'tool_call': {
+      const callId = (event as TurnEvent & {toolCallId?: unknown}).toolCallId
+      const {name} = (event as TurnEvent & {name?: unknown})
+      if (typeof callId === 'string') {
+        entry.toolCalls.set(callId, {
+          callId,
+          name: typeof name === 'string' ? name : '<tool>',
+        })
+      }
+    
+    break;
+    }
+
+    case 'tool_call_update': {
+      const callId = (event as TurnEvent & {toolCallId?: unknown}).toolCallId
+      const {status} = (event as TurnEvent & {status?: unknown})
+      if (typeof callId === 'string') {
+        const existing = entry.toolCalls.get(callId)
+        if (existing !== undefined && typeof status === 'string') {
+          entry.toolCalls.set(callId, {...existing, status})
+        }
+      }
+    
+    break;
+    }
+    // No default
+    }
+  }
+
+  /**
+   * Synchronously register a pending-sync entry for `turnId`. Called
+   * from `dispatchMention` BEFORE any background streaming task can
+   * emit chunks, so the buffer never misses an event. `awaitSyncMention`
+   * returns the entry's promise.
+   */
+  private registerPendingSync(args: {
+    channelId: string
+    timeout?: number
+    turnId: string
+  }): void {
+    const byteBudget = resolveSyncByteBudget()
+    const timeoutMs = args.timeout === undefined ? DEFAULT_SYNC_TIMEOUT_MS : args.timeout
+    let resolveFn!: (result: ChannelMentionSyncResult) => void
+    let rejectFn!: (error: Error) => void
+    const promise = new Promise<ChannelMentionSyncResult>((resolve, reject) => {
+      resolveFn = resolve
+      rejectFn = reject
+    })
+
+    const entry: PendingSyncEntry = {
+      byteBudget,
+      bytesWritten: 0,
+      channelId: args.channelId,
+      chunks: new Map(),
+      reject: rejectFn,
+      resolve: resolveFn,
+      settled: false,
+      startedAtMs: this.clock().getTime(),
+      toolCalls: new Map(),
+      turnId: args.turnId,
+    }
+
+    entry.timer = setTimeout(() => {
+      this.failPendingSync(args.turnId, new ChannelSyncTimeoutError(args.turnId, timeoutMs))
+    }, timeoutMs)
+    // Don't keep the daemon alive just for a timeout-driven cleanup.
+    if (typeof entry.timer.unref === 'function') entry.timer.unref()
+
+    this.pendingSyncResponses.set(args.turnId, entry)
+    // Stash the promise on the entry so awaitSyncMention can find it.
+    ;(entry as PendingSyncEntry & {promise: Promise<ChannelMentionSyncResult>}).promise = promise
   }
 
   /**
@@ -1031,6 +1298,55 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
 
     // Try to finalise — only when every delivery is terminal.
     await this.maybeFinaliseTurn(active)
+  }
+
+  /**
+   * Overflow path — eagerly fail the pending entry, then schedule a
+   * real `cancelTurn` so the turn produces a terminal `cancelled` event
+   * on disk. Without this, an unbounded streaming agent could leak the
+   * `activeTurns` entry.
+   */
+  private scheduleCancelForSyncFailure(entry: PendingSyncEntry): void {
+    const active = this.activeTurns.get(entry.turnId)
+    if (active === undefined) return
+    // Fire-and-forget — errors during cancel surface via cancel's own
+    // wire events; we've already failed the sync caller.
+    this.cancelTurn({
+      channelId: entry.channelId,
+      projectRoot: active.projectRoot,
+      turnId: entry.turnId,
+    }).catch(() => {
+      // Fire-and-forget: sync caller already failed; cancel errors are
+      // surfaced via the cancel path's own wire events.
+    })
+  }
+
+  /**
+   * Called from `finaliseTurn` when an active turn reaches a terminal
+   * state (completed or cancelled). Assembles `finalAnswer` from the
+   * per-member buffer and resolves the pending promise. No-op if there
+   * is no pending entry or it was already settled by timeout/overflow.
+   */
+  private settlePendingSync(turnId: string, endedState: 'cancelled' | 'completed'): void {
+    const entry = this.pendingSyncResponses.get(turnId)
+    if (entry === undefined || entry.settled) return
+
+    entry.settled = true
+    if (entry.timer !== undefined) clearTimeout(entry.timer)
+    this.pendingSyncResponses.delete(turnId)
+
+    const finalAnswer = this.assembleFinalAnswer(entry)
+    const durationMs = this.clock().getTime() - entry.startedAtMs
+    const toolCalls = [...entry.toolCalls.values()]
+
+    entry.resolve({
+      channelId: entry.channelId,
+      durationMs,
+      endedState,
+      finalAnswer,
+      toolCalls,
+      turnId: entry.turnId,
+    })
   }
 
   private wrapPayload(args: {

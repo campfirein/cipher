@@ -68,6 +68,17 @@ describe('ChannelHandler (Slice 1.4)', () => {
       orchestratorCalls.push({args, method: 'archiveChannel'})
       return {...sampleChannel, archivedAt: '2026-05-11T00:00:02.000Z'}
     },
+    async awaitSyncMention(turnId) {
+      orchestratorCalls.push({args: {turnId}, method: 'awaitSyncMention'})
+      return {
+        channelId: 'pi-test',
+        durationMs: 100,
+        endedState: 'completed',
+        finalAnswer: 'mock-sync-answer',
+        toolCalls: [],
+        turnId,
+      }
+    },
     async cancelTurn(args) {
       orchestratorCalls.push({args, method: 'cancelTurn'})
       return {deliveries: [], turn: sampleTurn}

@@ -252,10 +252,53 @@ export const ChannelMentionRequestSchema = z.object({
   // is enforced after normalisation by the prompt normaliser so the wire
   // error surfaces as CHANNEL_PROMPT_EMPTY.
   mentions: z.array(HandleSchema).optional(),
+  // ─── Slice 8.0 — sync mode + suppressThoughts ────────────────────────────
+  // mode: 'sync' makes the daemon buffer agent_message_chunks per member
+  // until the turn reaches a terminal state, then ack with the assembled
+  // ChannelMentionSyncResponse. Default 'stream' preserves Phase-1..7
+  // behaviour. suppressThoughts drops agent_thought_chunk events at the
+  // orchestrator's persist/broadcast boundary; timeout caps the sync
+  // wait (ms). Plan: plan/channel-protocol/IMPLEMENTATION_PHASE_8.md §8.0.
+  mode: z.enum(['stream', 'sync']).optional(),
   prompt: z.string().optional(),
+
   promptBlocks: z.array(ContentBlockSchema).optional(),
+  suppressThoughts: z.boolean().optional(),
+  timeout: z.number().int().positive().optional(),
 })
 export type ChannelMentionRequest = z.infer<typeof ChannelMentionRequestSchema>
+
+/**
+ * §8.4 — Sync-mode response shape returned by `channel:mention` when
+ * `mode === 'sync'`. The daemon blocks the ack until the turn reaches a
+ * terminal state, then assembles `finalAnswer` from `agent_message_chunk`
+ * events (per-member when fan-out; joined with `\n\n[@<member>]\n`
+ * separator).
+ *
+ * Error paths surface via the `{success: false, code}` ack envelope
+ * (`CHANNEL_SYNC_TIMEOUT`, `CHANNEL_SYNC_OVERFLOW`,
+ * `CHANNEL_TURN_CANCELLED`, `CHANNEL_DAEMON_SHUTDOWN`), not via
+ * `endedState` — which mirrors `TurnStateSchema`'s terminal subset.
+ */
+export const ChannelMentionSyncResponseSchema = z.object({
+  channelId: z.string(),
+  durationMs: z.number().int().nonnegative(),
+  // Mirrors TurnStateSchema (src/shared/types/channel.ts) terminal states.
+  endedState: z.enum(['completed', 'cancelled']),
+  finalAnswer: z.string(),
+  // Tool-call status is an open string per src/shared/types/channel.ts §300
+  // (Slice 4.−1 loosening — real agents emit values like 'pending',
+  // 'in_progress' that a closed enum would drop).
+  toolCalls: z.array(
+    z.object({
+      callId: z.string(),
+      name: z.string(),
+      status: z.string().optional(),
+    }),
+  ),
+  turnId: z.string(),
+})
+export type ChannelMentionSyncResponse = z.infer<typeof ChannelMentionSyncResponseSchema>
 
 /**
  * `channel:mention` and `channel:cancel` both return the §8.4

@@ -2,6 +2,7 @@ import {Args, Command, Flags} from '@oclif/core'
 
 import type {
   ChannelMentionRequest,
+  ChannelMentionSyncResponse,
   ChannelTurnAcceptedResponse,
 } from '../../../shared/transport/events/channel-events.js'
 import type {TurnEvent} from '../../../shared/types/channel.js'
@@ -22,9 +23,27 @@ public static examples = [
 public static flags = {
     'idempotency-key': Flags.string({description: 'Optional dedupe key (CHANNEL_PROTOCOL.md §12)'}),
     json: Flags.boolean({default: false, description: 'Emit JSON instead of pretty output'}),
+    // Slice 8.0 — sync mode + thought suppression. `--mode sync` makes
+    // the daemon block the ack until the turn reaches a terminal state
+    // and assemble `{finalAnswer, toolCalls, durationMs}` instead of
+    // returning the immediate ChannelTurnAcceptedResponse. Default
+    // 'stream' preserves Phase-1..7 behaviour. `--suppress-thoughts`
+    // drops `agent_thought_chunk` events on both the wire and disk.
+    mode: Flags.string({
+      default: 'stream',
+      description: 'Wire mode: "stream" (default, Phase 1–7 behaviour) or "sync" (block until terminal)',
+      options: ['stream', 'sync'],
+    }),
     'no-wait': Flags.boolean({
       default: false,
       description: 'Return immediately after dispatch instead of streaming until terminal',
+    }),
+    'suppress-thoughts': Flags.boolean({
+      default: false,
+      description: 'Drop agent_thought_chunk events at the daemon (no broadcast, no persist)',
+    }),
+    timeout: Flags.integer({
+      description: 'Sync-mode timeout in ms (default 300_000; ignored unless --mode sync)',
     }),
   }
 
@@ -33,6 +52,32 @@ public static flags = {
 
     try {
       await withChannelClient(async (client) => {
+        // Slice 8.0 — sync mode: the daemon buffers the turn and acks
+        // with `{finalAnswer, toolCalls, ...}` when terminal. No client-side
+        // stream subscription is needed.
+        if (flags.mode === 'sync') {
+          const syncResponse = await client.request<ChannelMentionRequest, ChannelMentionSyncResponse>(
+            ChannelEvents.MENTION,
+            {
+              channelId: args.channelId,
+              idempotencyKey: flags['idempotency-key'],
+              mode: 'sync',
+              prompt: args.text,
+              suppressThoughts: flags['suppress-thoughts'],
+              timeout: flags.timeout,
+            },
+          )
+          if (flags.json) {
+            this.log(JSON.stringify(syncResponse, undefined, 2))
+          } else {
+            this.log(syncResponse.finalAnswer)
+            this.log(`turn ${syncResponse.turnId} ${syncResponse.endedState} (${syncResponse.durationMs}ms)`)
+          }
+
+          return
+        }
+
+        // Stream mode (default) — Phase 1–7 behaviour.
         // Subscribe BEFORE sending the request so the broadcast is not missed.
         if (!flags['no-wait']) await client.subscribe(args.channelId)
 
@@ -60,6 +105,7 @@ public static flags = {
             channelId: args.channelId,
             idempotencyKey: flags['idempotency-key'],
             prompt: args.text,
+            suppressThoughts: flags['suppress-thoughts'],
           },
         )
 

@@ -194,6 +194,38 @@ class ChannelClient:
             response.get("details"),
         )
 
+    async def mention(
+        self,
+        channel_id: str,
+        prompt: str,
+        *,
+        mode: str = "stream",
+        suppress_thoughts: bool = False,
+        timeout: float | None = None,
+    ) -> Any:
+        """Slice 8.0 — ergonomic ``channel:mention`` wrapper.
+
+        - ``mode="stream"`` (default): returns the ``ChannelTurnAcceptedResponse``
+          dispatch dict (``{"deliveries": [...], "turn": {...}}``); turn events
+          flow via :meth:`subscribe_turn` / :meth:`subscribe_channel`.
+        - ``mode="sync"``: daemon buffers the turn and returns the assembled
+          ``ChannelMentionSyncResponse`` dict (``{"finalAnswer", "endedState",
+          "durationMs", "toolCalls", "turnId", "channelId"}``) when terminal.
+
+        ``suppress_thoughts=True`` drops ``agent_thought_chunk`` events on the
+        wire and the disk. ``timeout`` is the per-request socket-call timeout
+        in seconds; for sync mode the daemon also enforces its own timeout.
+        """
+        payload: dict[str, Any] = {"channelId": channel_id, "prompt": prompt}
+        if mode != "stream":
+            payload["mode"] = mode
+        if suppress_thoughts:
+            payload["suppressThoughts"] = True
+        if timeout is not None:
+            # Convert client-side seconds to daemon-side milliseconds.
+            payload["timeout"] = int(timeout * 1000)
+        return await self.request("channel:mention", payload, timeout=timeout)
+
     async def subscribe(self, channel_id: str) -> None:
         """Join the Socket.IO room for ``channel_id`` so broadcasts reach
         this client.  Returns when the daemon acks the join.

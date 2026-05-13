@@ -259,6 +259,9 @@ export class ChannelHandler {
     })
 
     // channel:mention — synchronous validation + dispatch; background streams.
+    // Slice 8.0 — when `mode: 'sync'`, the handler awaits the orchestrator's
+    // pending-sync promise and returns the assembled `ChannelMentionSyncResponse`
+    // instead of the immediate `ChannelTurnAcceptedResponse`.
     register(ChannelEvents.MENTION, async (data, _clientId, ctx) => {
       const projectRoot = projectRootFromCtx(ctx)
       const req = parseOrThrow(ChannelMentionRequestSchema, data)
@@ -266,10 +269,18 @@ export class ChannelHandler {
         channelId: req.channelId,
         idempotencyKey: req.idempotencyKey,
         mentions: req.mentions,
+        mode: req.mode,
         projectRoot,
         prompt: req.prompt,
         promptBlocks: req.promptBlocks,
+        suppressThoughts: req.suppressThoughts,
+        timeout: req.timeout,
       })
+
+      if (req.mode === 'sync') {
+        return this.orchestrator.awaitSyncMention(result.turn.turnId)
+      }
+
       return {deliveries: result.deliveries, turn: result.turn}
     })
 
