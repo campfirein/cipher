@@ -808,28 +808,6 @@ export class TaskRouter {
       return {taskId}
     }
 
-    // ── M13.1: onTaskCreateRequest fires once per inbound request, before
-    // task-validity gates. Hooks (e.g. AnalyticsHook for `cli_invocation`)
-    // observe the raw transport payload — including fields like `cli_metadata`
-    // that aren't carried on TaskInfo. Fire-and-forget so the synchronous
-    // `tasks.set` + broadcast contract downstream is preserved (an `await` here
-    // would let a concurrent dup-retry slip past the `this.tasks.has` gate).
-    // Hook failures never block dispatch.
-    for (const hook of this.lifecycleHooks) {
-      if (!hook.onTaskCreateRequest) continue
-      try {
-        hook.onTaskCreateRequest(data, clientId).catch((error: unknown) => {
-          transportLog(
-            `lifecycle hook onTaskCreateRequest failed: ${error instanceof Error ? error.message : String(error)}`,
-          )
-        })
-      } catch (error) {
-        transportLog(
-          `lifecycle hook onTaskCreateRequest threw synchronously: ${error instanceof Error ? error.message : String(error)}`,
-        )
-      }
-    }
-
     // ── Early validation: no hooks called if invalid ──────────────────────────
 
     if (!this.agentPool) {
