@@ -23,6 +23,7 @@ import type {ConsolidationAction} from '../dream-response-schemas.js'
 import type {DreamState, PendingMerge} from '../dream-state-schema.js'
 
 import {warnSidecarFailure} from '../../../core/domain/knowledge/sidecar-logging.js'
+import {isExcludedFromSync} from '../../context-tree/derived-artifact.js'
 import {ConsolidateResponseSchema} from '../dream-response-schemas.js'
 import {parseDreamResponse} from '../parse-dream-response.js'
 
@@ -295,7 +296,7 @@ function addFrontmatterFields(content: string, fields: Record<string, unknown>):
         if (parsed && typeof parsed === 'object') {
           // Spread preserves existing key order; new fields are appended at end.
           const merged = {...parsed, ...fields}
-          const newYaml = yamlDump(merged, {flowLevel: 2, lineWidth: -1, sortKeys: false}).trimEnd()
+          const newYaml = yamlDump(merged, {flowLevel: 1, lineWidth: -1, sortKeys: false}).trimEnd()
           return `---\n${newYaml}\n---\n${body}`
         }
       } catch {
@@ -305,7 +306,7 @@ function addFrontmatterFields(content: string, fields: Record<string, unknown>):
   }
 
   // No valid frontmatter — prepend
-  const yaml = yamlDump(fields, {flowLevel: 2, lineWidth: -1, sortKeys: false}).trimEnd()
+  const yaml = yamlDump(fields, {flowLevel: 1, lineWidth: -1, sortKeys: false}).trimEnd()
   return `---\n${yaml}\n---\n${content}`
 }
 
@@ -621,9 +622,11 @@ async function executeCrossReference(action: ConsolidationAction, ctx: ActionCon
   }
 
   // For each file, add the other files to its related frontmatter
+  // Skip derived-artifact targets so we never write related: onto them.
+  const eligibleFiles = action.files.filter((f) => !isExcludedFromSync(f))
   await Promise.all(
-    action.files.map((file) => {
-      const otherFiles = action.files.filter((f) => f !== file)
+    eligibleFiles.map((file) => {
+      const otherFiles = eligibleFiles.filter((f) => f !== file)
       return addRelatedLinks(join(contextTreeDir, file), otherFiles)
     }),
   )
@@ -639,6 +642,9 @@ async function executeCrossReference(action: ConsolidationAction, ctx: ActionCon
 }
 
 async function addRelatedLinks(filePath: string, relatedPaths: string[]): Promise<void> {
+  // Skip paths that won't be pushed — they'd be dangling refs on remote.
+  const incoming = relatedPaths.filter((p) => !isExcludedFromSync(p))
+
   let content: string
   try {
     content = await readFile(filePath, 'utf8')
@@ -660,8 +666,13 @@ async function addRelatedLinks(filePath: string, relatedPaths: string[]): Promis
       try {
         const parsed = yamlLoad(yamlBlock) as null | Record<string, unknown>
         if (parsed && typeof parsed === 'object') {
-          const existing = Array.isArray(parsed.related) ? (parsed.related as string[]) : []
-          parsed.related = [...new Set([...existing, ...relatedPaths])]
+          const hadRelated = Array.isArray(parsed.related)
+          const existing = (Array.isArray(parsed.related) ? (parsed.related as string[]) : [])
+            .filter((p) => !isExcludedFromSync(p))
+          const merged = [...new Set([...existing, ...incoming])]
+          // Don't introduce a related: [] key into a file that didn't have one.
+          if (!hadRelated && merged.length === 0) return
+          parsed.related = merged
           const newYaml = yamlDump(parsed, {flowLevel: 1, lineWidth: -1, sortKeys: false}).trimEnd()
           await atomicWrite(filePath, `---\n${newYaml}\n---\n${body}`)
           return
@@ -672,8 +683,9 @@ async function addRelatedLinks(filePath: string, relatedPaths: string[]): Promis
     }
   }
 
-  // No existing frontmatter — add one with related field
-  const yaml = yamlDump({related: relatedPaths}, {flowLevel: 1, lineWidth: -1, sortKeys: false}).trimEnd()
+  // No existing frontmatter — add one with related field, unless filter left nothing to add.
+  if (incoming.length === 0) return
+  const yaml = yamlDump({related: incoming}, {flowLevel: 1, lineWidth: -1, sortKeys: false}).trimEnd()
   await atomicWrite(filePath, `---\n${yaml}\n---\n${content}`)
 }
 

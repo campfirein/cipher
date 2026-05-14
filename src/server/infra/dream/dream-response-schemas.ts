@@ -21,6 +21,10 @@ export type ConsolidateResponse = z.infer<typeof ConsolidateResponseSchema>
 
 // ── Synthesize ───────────────────────────────────────────────────────────────
 
+// Bounds are slightly above the prompt's soft targets (200 chars / 3-5 tags /
+// 5-10 keywords) so a model that goes a little over still produces a usable
+// synthesis instead of being rejected outright; the caps still prevent a
+// runaway model from landing oversized text directly in card-mode YAML.
 export const SynthesisCandidateSchema = z.object({
   claim: z.string(),
   confidence: z.number().min(0).max(1),
@@ -28,7 +32,10 @@ export const SynthesisCandidateSchema = z.object({
     domain: z.string(),
     fact: z.string(),
   })),
+  keywords: z.array(z.string()).max(15),
   placement: z.string(),
+  summary: z.string().max(500),
+  tags: z.array(z.string()).max(8),
   title: z.string(),
 })
 

@@ -110,6 +110,18 @@ export const QUERY_LOG_ID_PREFIX = 'qry'
 export const DREAM_LOG_DIR = 'dream-log'
 export const DREAM_LOG_ID_PREFIX = 'drm'
 
+// Task history (per-project on-disk task journal — see M2 milestone)
+export const TASK_HISTORY_DIR = 'task-history'
+export const TASK_HISTORY_ID_PREFIX = 'tsk'
+// Age-based prune is disabled by default. Task history is a business artifact
+// (audit/review), not a log — count-based rotation is the sole retention policy.
+// Override per-store via `maxAgeDays` constructor option if a deployment ever
+// needs time-based eviction.
+export const TASK_HISTORY_DEFAULT_MAX_AGE_DAYS = 0
+export const TASK_HISTORY_DEFAULT_MAX_ENTRIES = 1000
+export const TASK_HISTORY_DEFAULT_MAX_INDEX_BLOAT_RATIO = 2
+export const TASK_HISTORY_STALE_THRESHOLD_MS = 600_000
+
 // Review backups (stores pre-curate file content for local HITL review diffs)
 export const REVIEW_BACKUPS_DIR = 'review-backups'
 // === Hierarchical DAG (summary, archive, manifest) ===
