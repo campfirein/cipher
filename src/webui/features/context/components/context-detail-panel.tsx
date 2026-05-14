@@ -2,13 +2,14 @@ import {AuthorInfo} from '@campfirein/byterover-packages/components/contexts/aut
 import {DetailBody} from '@campfirein/byterover-packages/components/contexts/detail-body'
 import {FolderDetail, type FolderNode} from '@campfirein/byterover-packages/components/contexts/folder-detail'
 import {Skeleton} from '@campfirein/byterover-packages/components/skeleton'
+import {TopicEditor, type TopicEditorLanguage} from '@campfirein/byterover-packages/components/topic-viewer/topic-editor'
+import {TopicViewer} from '@campfirein/byterover-packages/components/topic-viewer/topic-viewer'
 import {formatDistanceToNow} from 'date-fns'
 import {useMemo} from 'react'
 
 import type {ContextNode} from '../types'
 
 import {noop} from '../../../lib/noop'
-import {TopicEditor, type TopicEditorLanguage, TopicViewer} from '../../topic-viewer'
 import {useGetContextFileMetadata} from '../api/get-context-file-metadata'
 import {useGetContextHistory} from '../api/get-context-history'
 import {useContextTree} from '../hooks/use-context-tree'

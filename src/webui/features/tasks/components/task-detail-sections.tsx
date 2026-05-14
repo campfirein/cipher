@@ -1,5 +1,6 @@
 import {Button} from '@campfirein/byterover-packages/components/button'
 import {Card} from '@campfirein/byterover-packages/components/card'
+import {TopicViewer} from '@campfirein/byterover-packages/components/topic-viewer/topic-viewer'
 import {cn} from '@campfirein/byterover-packages/lib/utils'
 import {Folder, Paperclip, RotateCcw} from 'lucide-react'
 
@@ -7,16 +8,14 @@ import type {StoredTask} from '../types/stored-task'
 
 import {formatError} from '../../../lib/error-messages'
 import {useProviderStore} from '../../provider/stores/provider-store'
-import {TopicViewer} from '../../topic-viewer'
 import {useComposerRetryStore} from '../stores/composer-retry-store'
 import {composerTypeFromTask} from '../utils/composer-type-from-task'
 import {shortTaskId} from '../utils/format-time'
+import {isBvTopicHtml} from '../utils/is-bv-topic-html'
 import {isProviderTaskError} from '../utils/is-provider-task-error'
 import {isActiveStatus} from '../utils/task-status'
 import {AttachmentChip} from './attachment-chip'
 import {MarkdownInline} from './markdown-inline'
-
-const isBvTopicHtml = (content: string): boolean => /^\s*<bv-topic\b/i.test(content)
 import {SectionLabel, TerminalDot} from './task-detail-shared'
 
 export function InputSection({task}: {task: StoredTask}) {
