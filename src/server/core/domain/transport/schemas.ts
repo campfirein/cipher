@@ -424,7 +424,7 @@ export const TaskExecuteSchema = z.object({
   /** Dream trigger source — how this dream was initiated */
   trigger: z.enum(['agent-idle', 'cli', 'manual']).optional(),
   /** Task type */
-  type: z.enum(['curate', 'curate-folder', 'dream', 'query', 'query-tool-mode', 'search']),
+  type: z.enum(['curate', 'curate-folder', 'curate-html-direct', 'dream', 'query', 'query-tool-mode', 'search']),
   /** Workspace root for scoped query/curate */
   worktreeRoot: z.string().optional(),
 })
@@ -731,7 +731,15 @@ export type TaskQueryResultEvent = z.infer<typeof TaskQueryResultEventSchema>
 // Request/Response Schemas (for client → server commands)
 // ============================================================================
 
-export const TaskTypeSchema = z.enum(['curate', 'curate-folder', 'dream', 'query', 'query-tool-mode', 'search'])
+export const TaskTypeSchema = z.enum([
+  'curate',
+  'curate-folder',
+  'curate-html-direct',
+  'dream',
+  'query',
+  'query-tool-mode',
+  'search',
+])
 
 /**
  * Request to create a new task

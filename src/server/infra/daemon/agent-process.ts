@@ -21,8 +21,8 @@
 
 import {connectToTransport, type ITransportClient} from '@campfirein/brv-transport-client'
 import {randomUUID} from 'node:crypto'
-import {appendFileSync} from 'node:fs'
-import {join} from 'node:path'
+import {appendFileSync, existsSync} from 'node:fs'
+import {join, relative} from 'node:path'
 
 import type {ISearchKnowledgeService} from '../../../agent/infra/sandbox/tools-sdk.js'
 import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
@@ -37,11 +37,12 @@ import {SessionMetadataStore} from '../../../agent/infra/session/session-metadat
 import {FileKeyStorage} from '../../../agent/infra/storage/file-key-storage.js'
 import {runWithReviewDisabled} from '../../../agent/infra/tools/implementations/curate-tool-task-context.js'
 import {createSearchKnowledgeService} from '../../../agent/infra/tools/implementations/search-knowledge-service.js'
+import {decodeCurateHtmlContent} from '../../../shared/transport/curate-html-content.js'
 import {AuthEvents} from '../../../shared/transport/events/auth-events.js'
 import {decodeQueryToolModeContent} from '../../../shared/transport/query-tool-mode-content.js'
 import {decodeSearchContent} from '../../../shared/transport/search-content.js'
 import {getCurrentConfig} from '../../config/environment.js'
-import {BRV_DIR, DEFAULT_LLM_MODEL, PROJECT} from '../../constants.js'
+import {BRV_DIR, CONTEXT_TREE_DIR, DEFAULT_LLM_MODEL, PROJECT} from '../../constants.js'
 import {serializeTaskError, TaskError, TaskErrorCode} from '../../core/domain/errors/task-error.js'
 import {loadSources} from '../../core/domain/source/source-schema.js'
 import {
@@ -61,6 +62,7 @@ import {DreamExecutor} from '../executor/dream-executor.js'
 import {FolderPackExecutor} from '../executor/folder-pack-executor.js'
 import {QueryExecutor} from '../executor/query-executor.js'
 import {SearchExecutor} from '../executor/search-executor.js'
+import {validateHtmlTopic, writeHtmlTopic} from '../render/writer/html-writer.js'
 import {FileCurateLogStore} from '../storage/file-curate-log-store.js'
 import {FileReviewBackupStore} from '../storage/file-review-backup-store.js'
 import {TaskUsageAggregator} from '../telemetry/task-usage-aggregator.js'
@@ -482,10 +484,11 @@ async function executeTask(
   const {clientCwd, clientId, content, files, folderPath, force, reviewDisabled, taskId, trigger, type, worktreeRoot} = task
   if (!transport || !agent) return
 
-  // Search + tool-mode query are pure BM25 retrieval — no LLM, no
-  // provider needed. Skip provider validation so they work even
-  // without a configured provider (the headline promise of tool mode).
-  if (type !== 'search' && type !== 'query-tool-mode') {
+  // Search + tool-mode query + tool-mode curate are pure deterministic
+  // paths — no LLM, no provider needed. Skip provider validation so they
+  // work even without a configured provider (the headline promise of
+  // tool mode).
+  if (type !== 'search' && type !== 'query-tool-mode' && type !== 'curate-html-direct') {
     const freshProviderConfig = await transport.requestWithAck<ProviderConfigResponse>(
       TransportStateEventNames.GET_PROVIDER_CONFIG,
     )
@@ -642,6 +645,48 @@ async function executeTask(
           })
           result = folderResult.response
           postWork = folderResult.finalize
+
+          break
+        }
+
+        case 'curate-html-direct': {
+          // Tool-mode curate: no LLM dispatch, no provider gate, no
+          // usage aggregator. Calling agent (typically over MCP) has
+          // already authored the <bv-topic> HTML; daemon validates +
+          // writes the topic file. Single-shot, single round-trip.
+          // Mirrors the post-ENG-2815 oclif `brv curate` writer-direct
+          // flow but exposed as a daemon task type so MCP clients can
+          // hit it the same way they hit `query-tool-mode`.
+          const {confirmOverwrite, html} = decodeCurateHtmlContent(content)
+          const contextTreeRoot = join(projectPath, BRV_DIR, CONTEXT_TREE_DIR)
+
+          // Pre-resolve the target path so we can report whether the
+          // write replaced an existing file. validateHtmlTopic is
+          // idempotent + cheap (parse5 only); writeHtmlTopic re-runs
+          // it internally so we don't risk drift between checks.
+          const preValidation = validateHtmlTopic(html)
+          const existedBefore =
+            preValidation.ok && existsSync(join(contextTreeRoot, `${preValidation.topicPath}.html`))
+
+          const writeResult = await writeHtmlTopic({confirmOverwrite, contextTreeRoot, rawHtml: html})
+
+          // Validation failures emit task:completed (NOT task:error) so
+          // the calling agent sees the structured errors via the normal
+          // result payload and can retry with corrected HTML. task:error
+          // would force MCP clients into an isError path that some host
+          // renderers collapse or truncate.
+          if (writeResult.ok) {
+            const relativeFilePath = relative(contextTreeRoot, writeResult.filePath)
+            const topicPath = relativeFilePath.replace(/\.html$/, '')
+            result = JSON.stringify({
+              filePath: relativeFilePath,
+              overwrote: existedBefore && Boolean(confirmOverwrite),
+              status: 'ok',
+              topicPath,
+            })
+          } else {
+            result = JSON.stringify({errors: writeResult.errors, status: 'validation-failed'})
+          }
 
           break
         }
