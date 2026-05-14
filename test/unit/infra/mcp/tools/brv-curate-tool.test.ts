@@ -151,11 +151,26 @@ describe('brv-curate-tool', () => {
     })
 
     it('rejects legacy {context, files, folder} shape', () => {
-      // The old API took context/files/folder. After M3 the schema only
-      // accepts {cwd, html, confirmOverwrite?} — extra fields don't block
-      // zod by default, but the missing `html` does. Migration sentinel.
-      const result = BrvCurateInputSchema.safeParse({context: 'Auth uses JWT', files: ['a.ts']})
+      // The old API took context/files/folder. After M3 the schema only accepts
+      // {cwd, html, confirmOverwrite?} and is .strict(), so even a payload that
+      // carries valid `html` alongside the dropped fields fails — callers see
+      // the breaking change instead of silently losing context/files/folder.
+      const result = BrvCurateInputSchema.safeParse({
+        context: 'Auth uses JWT',
+        files: ['a.ts'],
+        folder: 'src/auth',
+        html: '<bv-topic path="x/y"></bv-topic>',
+      })
       expect(result.success).to.be.false
+      if (!result.success) {
+        // Strict zod emits a single `unrecognized_keys` issue listing the
+        // offending field names — assert all three legacy fields surface so a
+        // regression that flips `.strict()` off (or drops a field) fails loudly.
+        const unrecognized = result.error.issues.flatMap((i) =>
+          i.code === 'unrecognized_keys' ? (i as {keys: string[]}).keys : [],
+        )
+        expect(unrecognized).to.include.members(['context', 'files', 'folder'])
+      }
     })
   })
 

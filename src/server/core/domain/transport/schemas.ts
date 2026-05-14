@@ -521,6 +521,21 @@ export const LlmUnsupportedInputEventSchema = z.object({
 // ============================================================================
 
 /**
+ * Closed set of task types. Single source of truth — broadcast-event schemas
+ * (e.g. `TaskCreatedSchema`) and request schemas (e.g. `TaskExecuteSchema`)
+ * both reference this so a new task type only needs to be added in one place.
+ */
+export const TaskTypeSchema = z.enum([
+  'curate',
+  'curate-folder',
+  'curate-html-direct',
+  'dream',
+  'query',
+  'query-tool-mode',
+  'search',
+])
+
+/**
  * task:ack - Transport acknowledges task creation
  */
 export const TaskAckSchema = z.object({
@@ -548,8 +563,8 @@ export const TaskCreatedSchema = z.object({
   provider: z.string().optional(),
   /** Unique task identifier */
   taskId: z.string(),
-  /** Task type */
-  type: z.enum(['curate', 'curate-folder', 'query', 'search']),
+  /** Task type — closed enum kept in sync with `TaskTypeSchema`. */
+  type: TaskTypeSchema,
 })
 
 /**
@@ -730,16 +745,6 @@ export type TaskQueryResultEvent = z.infer<typeof TaskQueryResultEventSchema>
 // ============================================================================
 // Request/Response Schemas (for client → server commands)
 // ============================================================================
-
-export const TaskTypeSchema = z.enum([
-  'curate',
-  'curate-folder',
-  'curate-html-direct',
-  'dream',
-  'query',
-  'query-tool-mode',
-  'search',
-])
 
 /**
  * Request to create a new task

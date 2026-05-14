@@ -22,7 +22,7 @@
 import {connectToTransport, type ITransportClient} from '@campfirein/brv-transport-client'
 import {randomUUID} from 'node:crypto'
 import {appendFileSync, existsSync} from 'node:fs'
-import {join, relative} from 'node:path'
+import {join, relative, sep} from 'node:path'
 
 import type {ISearchKnowledgeService} from '../../../agent/infra/sandbox/tools-sdk.js'
 import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
@@ -676,8 +676,14 @@ async function executeTask(
           // would force MCP clients into an isError path that some host
           // renderers collapse or truncate.
           if (writeResult.ok) {
-            const relativeFilePath = relative(contextTreeRoot, writeResult.filePath)
-            const topicPath = relativeFilePath.replace(/\.html$/, '')
+            // Normalize to forward-slashes — the CurateHtmlDirectResult contract
+            // (i-curate-executor.ts) documents `topicPath: 'security/auth'` form, and
+            // the renderer surfaces filePath to the calling agent verbatim. On Windows,
+            // relative() would otherwise return `security\auth.html`.
+            const relativeFilePath = relative(contextTreeRoot, writeResult.filePath).replaceAll(sep, '/')
+            const topicPath = preValidation.ok
+              ? preValidation.topicPath
+              : relativeFilePath.replace(/\.html$/, '')
             result = JSON.stringify({
               filePath: relativeFilePath,
               overwrote: existedBefore && Boolean(confirmOverwrite),

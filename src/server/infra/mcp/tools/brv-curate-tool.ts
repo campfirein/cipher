@@ -64,21 +64,27 @@ const TOOL_DESCRIPTION = [
   '`confirmOverwrite: true` to replace the existing topic entirely.',
 ].join('\n')
 
-export const BrvCurateInputSchema = z.object({
-  confirmOverwrite: z
-    .boolean()
-    .optional()
-    .describe(
-      'Set true to replace an existing topic at the resolved path. Default false — the daemon refuses to clobber and returns a structured `path-exists` error with the existing content for merging.',
-    ),
-  cwd: cwdField,
-  html: z
-    .string()
-    .min(1)
-    .describe(
-      'Complete <bv-topic> HTML document. Must include a `path` attribute on the root <bv-topic>. See the tool description for the closed element vocabulary and output contract.',
-    ),
-})
+// Strict so the legacy `{context, files, folder}` shape (or any typo'd field)
+// fails fast at the MCP boundary instead of being silently dropped — the
+// breaking-change contract from the PR is that callers see an error pointing
+// at the new schema, not a successful no-op.
+export const BrvCurateInputSchema = z
+  .object({
+    confirmOverwrite: z
+      .boolean()
+      .optional()
+      .describe(
+        'Set true to replace an existing topic at the resolved path. Default false — the daemon refuses to clobber and returns a structured `path-exists` error with the existing content for merging.',
+      ),
+    cwd: cwdField,
+    html: z
+      .string()
+      .min(1)
+      .describe(
+        'Complete <bv-topic> HTML document. Must include a `path` attribute on the root <bv-topic>. See the tool description for the closed element vocabulary and output contract.',
+      ),
+  })
+  .strict()
 
 /**
  * Registers the brv-curate tool with the MCP server.
