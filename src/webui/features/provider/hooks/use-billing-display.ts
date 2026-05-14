@@ -20,13 +20,13 @@ export function useBillingDisplay({preferredOrgId}: {preferredOrgId?: string} = 
   const {hasPaidTeam, isLoaded, paidOrganizationIds, usagesByOrg} = useBillingUsages()
   const freeMonthly = useFreeMonthlyCredits({enabled: isLoaded && !hasPaidTeam})
 
-  const resolvedTeam = resolveBilledTeam({hasPaidTeam, paidOrganizationIds, preferredOrgId, usagesByOrg})
+  const resolvedTeam = resolveBilledTeam({paidOrganizationIds, preferredOrgId, usagesByOrg})
   const isPaidOrg = resolvedTeam !== undefined && resolvedTeam.tier !== 'FREE'
   const billingSource: BillingToneInput | undefined = resolvedTeam ?? freeMonthly
   const paidOrg = isPaidOrg ? resolvedTeam : undefined
 
   return {
-    billedOrgId: preferredOrgId ?? paidOrg?.organizationId,
+    billedOrgId: resolvedTeam?.organizationId ?? preferredOrgId,
     billingSource,
     billingTone: getBillingTone(billingSource),
     hasPaidTeam,
