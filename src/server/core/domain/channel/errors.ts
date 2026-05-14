@@ -35,8 +35,9 @@ export const CHANNEL_ERROR_CODE = {
   // an assembled answer (timeout, byte-budget overflow, externally
   // cancelled, daemon shutting down). See CHANNEL_PROTOCOL.md §13.
   DAEMON_SHUTDOWN: 'CHANNEL_DAEMON_SHUTDOWN',
-  DELIVERY_NOT_FOUND: 'CHANNEL_DELIVERY_NOT_FOUND',
   // Phase 3 additions ------------------------------------------------------
+  DELIVERY_FAILED: 'CHANNEL_DELIVERY_FAILED',
+  DELIVERY_NOT_FOUND: 'CHANNEL_DELIVERY_NOT_FOUND',
   DISABLED: 'CHANNEL_DISABLED',
   INVALID_CURSOR: 'CHANNEL_INVALID_CURSOR',
   INVALID_REQUEST: 'CHANNEL_INVALID_REQUEST',
@@ -488,5 +489,47 @@ export class ChannelDaemonShutdownError extends ChannelError {
   public constructor() {
     super('Daemon is shutting down; sync mention cannot complete', CHANNEL_ERROR_CODE.DAEMON_SHUTDOWN)
     this.name = 'ChannelDaemonShutdownError'
+  }
+}
+
+/**
+ * Bug 2 follow-up (2026-05-14): one or more per-member deliveries for a
+ * sync-mode turn ended in `errored` state. The turn-level state is
+ * `completed` (it reached a terminal event), but the underlying
+ * delivery failed before producing a usable answer. Without this code
+ * the sync resolver returned `{success: true, endedState: 'completed',
+ * finalAnswer: ''}` — which masked real failures as empty-success.
+ *
+ * `failedDeliveries` carries one entry per errored member so callers
+ * can distinguish "kimi failed, opencode succeeded" in fan-out and
+ * decide whether to retry against the failed member only.
+ */
+export class ChannelDeliveryFailedError extends ChannelError {
+  public readonly failedDeliveries: ReadonlyArray<{
+    code: string | undefined
+    handle: string
+    reason: string | undefined
+  }>
+  public readonly turnId: string
+
+  public constructor(
+    turnId: string,
+    failedDeliveries: ReadonlyArray<{
+      code: string | undefined
+      handle: string
+      reason: string | undefined
+    }>,
+  ) {
+    const summary = failedDeliveries
+      .map((d) => `${d.handle}${d.code === undefined ? '' : ` (${d.code})`}: ${d.reason ?? 'unknown'}`)
+      .join('; ')
+    super(
+      `Delivery failed for turn ${turnId}: ${summary}`,
+      CHANNEL_ERROR_CODE.DELIVERY_FAILED,
+      {failedDeliveries, turnId},
+    )
+    this.name = 'ChannelDeliveryFailedError'
+    this.turnId = turnId
+    this.failedDeliveries = failedDeliveries
   }
 }

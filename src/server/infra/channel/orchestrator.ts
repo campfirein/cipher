@@ -43,6 +43,7 @@ import {
   ChannelAlreadyExistsError,
   ChannelArchivedError,
   ChannelDaemonShutdownError,
+  ChannelDeliveryFailedError,
   ChannelInvalidRequestError,
   ChannelMentionEmptyError,
   ChannelNotFoundError,
@@ -887,6 +888,15 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
     // `cancelled` we use the dedicated `CHANNEL_TURN_CANCELLED` reject
     // path (external cancel beat us to the assembled answer) unless the
     // turn cancelled itself via timeout/overflow (entry already settled).
+    //
+    // Bug 2 follow-up (2026-05-14): if any per-member delivery is in
+    // `errored` state when the turn reaches `completed`, reject the
+    // pending entry with `CHANNEL_DELIVERY_FAILED` instead of resolving
+    // with an empty `finalAnswer`. Without this fix, callers saw
+    // `{success: true, endedState: 'completed', finalAnswer: ''}` for
+    // turns whose underlying delivery actually failed — the worst-of-
+    // both-worlds "success with no answer" shape that masked real
+    // failures. See `plan/channel-protocol/IMPLEMENTATION_PHASE_8_FOLLOWUPS.md`.
     if (this.pendingSyncResponses.has(active.turn.turnId)) {
       if (active.turn.state === 'cancelled') {
         this.failPendingSync(
@@ -894,7 +904,22 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
           new ChannelTurnCancelledError(active.turn.turnId),
         )
       } else if (active.turn.state === 'completed') {
-        this.settlePendingSync(active.turn.turnId, 'completed')
+        const erroredDeliveries = active.deliveries.filter((d) => d.state === 'errored')
+        if (erroredDeliveries.length > 0) {
+          this.failPendingSync(
+            active.turn.turnId,
+            new ChannelDeliveryFailedError(
+              active.turn.turnId,
+              erroredDeliveries.map((d) => ({
+                code: d.errorCode,
+                handle: d.memberHandle,
+                reason: d.errorMessage,
+              })),
+            ),
+          )
+        } else {
+          this.settlePendingSync(active.turn.turnId, 'completed')
+        }
       }
     }
 

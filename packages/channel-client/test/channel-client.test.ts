@@ -151,6 +151,125 @@ describe('ChannelClient (Slice 7.−1a)', () => {
         await client.close()
       }
     })
+
+    it('honours per-call timeoutMs override on request() (Bug 1 follow-up)', async () => {
+      // Constructor default is 100ms (would time out). Per-call override
+      // is 5000ms — handler delays 400ms then acks. Should succeed.
+      daemon.handle('channel:slow', (_data, ack) => {
+        setTimeout(() => ack?.({data: {ok: true}, success: true}), 400)
+      })
+      const client = await ChannelClient.connect({
+        dataDir: daemon.dataDir,
+        requestTimeoutMs: 100,
+      })
+      try {
+        const out = await client.request<unknown, {ok: boolean}>('channel:slow', {}, {timeoutMs: 5000})
+        expect(out.ok).to.equal(true)
+      } finally {
+        await client.close()
+      }
+    })
+  })
+
+  describe('mention (sync mode timeout — Bug 1 follow-up)', () => {
+    it('mode: sync bumps the transport request timeout to (timeout + grace) so the daemon has time to settle', async () => {
+      // Default transport timeout is 100ms; without the fix, this would
+      // reject with CHANNEL_REQUEST_TIMEOUT before the daemon's 400ms
+      // delay finishes. With the fix, mention() passes timeoutMs ~=
+      // 5000+grace to request() and the call succeeds.
+      daemon.handle('channel:mention', (_data, ack) => {
+        setTimeout(() => {
+          ack?.({
+            data: {
+              channelId: 'c1',
+              durationMs: 400,
+              endedState: 'completed',
+              finalAnswer: 'sync ok',
+              toolCalls: [],
+              turnId: 't1',
+            },
+            success: true,
+          })
+        }, 400)
+      })
+      const client = await ChannelClient.connect({
+        dataDir: daemon.dataDir,
+        requestTimeoutMs: 100,
+      })
+      try {
+        const out = await client.mention({
+          channelId: 'c1',
+          mode: 'sync',
+          prompt: '@x hi',
+          timeout: 5000,
+        })
+        expect((out as {finalAnswer: string}).finalAnswer).to.equal('sync ok')
+      } finally {
+        await client.close()
+      }
+    })
+
+    it('mode: stream leaves the transport request timeout at the constructor default', async () => {
+      // Stream mode acks immediately; the daemon-side turn-timeout flag
+      // is unrelated to the transport timeout. If a stream-mode ack is
+      // late, we DO want the default transport timeout to fire — this
+      // test pins that behaviour so we don't accidentally bump stream
+      // mode along with sync.
+      daemon.handle('channel:mention', (_data, ack) => {
+        setTimeout(() => ack?.({data: {turn: {turnId: 't1'}}, success: true}), 400)
+      })
+      const client = await ChannelClient.connect({
+        dataDir: daemon.dataDir,
+        requestTimeoutMs: 100,
+      })
+      try {
+        let caught: unknown
+        try {
+          await client.mention({
+            channelId: 'c1',
+            mode: 'stream',
+            prompt: '@x hi',
+            timeout: 5000,
+          })
+        } catch (error) {
+          caught = error
+        }
+
+        expect(caught).to.be.instanceOf(ChannelClientError)
+        expect((caught as ChannelClientError).code).to.equal('CHANNEL_REQUEST_TIMEOUT')
+      } finally {
+        await client.close()
+      }
+    })
+
+    it('mode: sync without an explicit timeout uses the wire default (300s) + grace as the transport timeout', async () => {
+      // Caller omits `timeout`. Daemon-side turn timeout falls back to
+      // 300s; transport timeout must follow suit so we never time out
+      // the transport before the daemon's own turn limit.
+      let observedDataReceived = false
+      daemon.handle('channel:mention', (_data, ack) => {
+        observedDataReceived = true
+        // Ack quickly — we're only testing that the call doesn't
+        // pre-emptively time out at the 100ms transport default.
+        setTimeout(() => {
+          ack?.({
+            data: {channelId: 'c1', durationMs: 50, endedState: 'completed', finalAnswer: 'ok', toolCalls: [], turnId: 't1'},
+            success: true,
+          })
+        }, 250)
+      })
+      const client = await ChannelClient.connect({
+        dataDir: daemon.dataDir,
+        requestTimeoutMs: 100,
+      })
+      try {
+        const out = await client.mention({channelId: 'c1', mode: 'sync', prompt: '@x hi'})
+        expect(observedDataReceived).to.equal(true)
+        expect((out as {finalAnswer: string}).finalAnswer).to.equal('ok')
+      } finally {
+        await client.close()
+      }
+    })
   })
 
   describe('subscribeTurn', () => {

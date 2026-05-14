@@ -110,6 +110,24 @@ type AckEnvelope = AckEnvelopeFailure | AckEnvelopeSuccess
 const isAckEnvelope = (value: unknown): value is AckEnvelope =>
   typeof value === 'object' && value !== null && 'success' in value
 
+/**
+ * Wire default for `channel:mention` sync-mode turn timeout. Mirrors
+ * the daemon-side default (`ChannelMentionRequest.timeout` fallback in
+ * `src/shared/transport/events/channel-events.ts`); kept in sync by
+ * convention. Used when the caller invokes `mention({mode: 'sync'})`
+ * without an explicit `timeout`.
+ */
+const SYNC_DEFAULT_TURN_TIMEOUT_MS = 300_000
+
+/**
+ * Grace added on top of the daemon-side turn timeout when computing the
+ * transport-level request timeout in sync mode. Covers the round-trip
+ * of the resolved ack envelope after the daemon settles the pending
+ * sync entry. Without this the client could time out exactly when the
+ * daemon would have answered.
+ */
+const SYNC_TIMEOUT_GRACE_MS = 5_000
+
 const resolveDefaultRequestTimeoutMs = (override?: number): number => {
   if (override !== undefined && override > 0) return override
   const env = process.env.BRV_CHANNEL_REQUEST_TIMEOUT_MS
@@ -241,8 +259,19 @@ export class ChannelClient {
    * Resolves with the `data` payload on `{success: true}`.
    * Rejects with `ChannelClientError(code, message, details)` on
    * `{success: false}`. Honors a per-request timeout.
+   *
+   * @param options.timeoutMs - Override the client's default request
+   *   timeout for this call. Use when the daemon-side operation has its
+   *   own (longer) deadline — e.g. `channel:mention` in `mode: 'sync'`
+   *   holds the ack until the turn completes, so the transport timeout
+   *   must be ≥ the daemon-side turn timeout. See Bug 1 follow-up in
+   *   `plan/channel-protocol/IMPLEMENTATION_PHASE_8_FOLLOWUPS.md`.
    */
-  public request<TReq = unknown, TRes = unknown>(event: string, data: TReq): Promise<TRes> {
+  public request<TReq = unknown, TRes = unknown>(
+    event: string,
+    data: TReq,
+    options?: {timeoutMs?: number},
+  ): Promise<TRes> {
     if (this.closed) {
       return Promise.reject(
         new ChannelClientError(
@@ -254,7 +283,10 @@ export class ChannelClient {
 
     return new Promise<TRes>((resolve, reject) => {
       let settled = false
-      const timeoutMs = this.defaultRequestTimeoutMs
+      const timeoutMs =
+        options?.timeoutMs !== undefined && options.timeoutMs > 0
+          ? options.timeoutMs
+          : this.defaultRequestTimeoutMs
       const timer = setTimeout(() => {
         if (settled) return
         settled = true
@@ -323,7 +355,16 @@ export class ChannelClient {
     if (mode !== undefined) payload.mode = mode
     if (suppressThoughts !== undefined) payload.suppressThoughts = suppressThoughts
     if (timeout !== undefined) payload.timeout = timeout
-    return this.request<ChannelMentionPayload, TSync | TStream>('channel:mention', payload)
+
+    // Bug 1 follow-up: in sync mode the daemon holds the ack until the
+    // turn settles, so the transport request-timeout must be >= the
+    // daemon-side turn timeout. Otherwise the caller passing
+    // `--timeout 300000` would still see CHANNEL_REQUEST_TIMEOUT at the
+    // default transport timeout (60s). Add a 5s grace so the round-trip
+    // of the resolved ack itself doesn't race the deadline.
+    const requestOptions = mode === 'sync' ? {timeoutMs: (timeout ?? SYNC_DEFAULT_TURN_TIMEOUT_MS) + SYNC_TIMEOUT_GRACE_MS} : undefined
+
+    return this.request<ChannelMentionPayload, TSync | TStream>('channel:mention', payload, requestOptions)
   }
 
   /**
