@@ -899,7 +899,10 @@ describe('IsomorphicGitService', () => {
       await service.add({directory: testDir, filePaths: ['shared.txt']})
       await service.commit({directory: testDir, message: 'other'})
 
-      // Detach HEAD to the original commit by writing the SHA directly.
+      // Detach HEAD by writing the SHA directly to `.git/HEAD`. isomorphic-git's
+      // `git.checkout({ref: sha})` creates/switches a local branch and does not have
+      // a `--detach` mode, so a filesystem-layer write is the only way to reach the
+      // detached-HEAD state we need to exercise here.
       await writeFile(join(testDir, '.git', 'HEAD'), `${detachedSha}\n`)
       const branchNow = await service.getCurrentBranch({directory: testDir})
       expect(branchNow, 'precondition: HEAD must be detached').to.equal(undefined)
