@@ -116,7 +116,15 @@ Bad examples:
     const format: 'json' | 'text' = flags.format ?? 'text'
 
     if (rawFlags.cancel) {
-      await this.runCancelBranch(rawFlags.cancel, format)
+      const ok = await runCancelBranchWithRetry({
+        command: 'curate',
+        daemonClientOptions: this.getDaemonClientOptions(),
+        format,
+        log: (msg) => this.log(msg),
+        onTransportError: (error) => this.reportError(error, format),
+        taskId: rawFlags.cancel,
+      })
+      if (!ok) this.exit(1)
       return
     }
 
@@ -302,18 +310,6 @@ Bad examples:
       // eslint-disable-next-line n/no-process-exit, unicorn/no-process-exit
       process.exit(1)
     }
-  }
-
-  private async runCancelBranch(taskId: string, format: 'json' | 'text'): Promise<void> {
-    const success = await runCancelBranchWithRetry({
-      command: 'curate',
-      daemonClientOptions: this.getDaemonClientOptions(),
-      format,
-      log: (msg) => this.log(msg),
-      onTransportError: (error) => this.reportError(error, format),
-      taskId,
-    })
-    if (!success) this.exit(1)
   }
 
   private async submitTask(props: {

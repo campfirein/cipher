@@ -8,6 +8,21 @@
  * Why scoped here instead of inside curate-flow / query-flow: those components
  * unmount as soon as the daemon acks task:create (< 100ms), so they cannot
  * own a keybind that needs to be active for the entire task lifetime.
+ *
+ * RESERVED CHORD WARNING (read before binding Ctrl+Q anywhere else in the TUI):
+ * - This keybind is mounted globally via `app-providers.tsx → CancelKeybindInitializer`,
+ *   so as soon as ANY non-terminal task exists in the tasks store, Ctrl+Q is
+ *   intercepted everywhere — text inputs, REPL prompt, search box, modals, etc.
+ * - DO NOT bind Ctrl+Q to any other action while a curate/query/dream task can
+ *   be in flight; the global cancel will eat the chord first.
+ * - The binding targets `selectCancelTargetTaskId`'s "most recently created
+ *   non-terminal task." With multiple in-flight tasks, Ctrl+Q always cancels
+ *   the most recent one, not the one currently focused in the UI.
+ * - There is no confirmation step today — the cancel network round-trip starts
+ *   the instant the chord lands. If a real-world conflict surfaces (user
+ *   accidentally cancelling), the recommended follow-up is to mirror the SIGINT
+ *   double-tap pattern in `installSigintCancel` (first Ctrl+Q arms, second
+ *   within Ns fires).
  */
 
 import {useInput} from 'ink'

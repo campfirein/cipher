@@ -600,7 +600,15 @@ export class TaskRouter {
       {taskId},
       task.clientId,
     )
-    this.tasks.delete(taskId)
+    // Stamp status='cancelled' before moveToCompleted so the in-memory
+    // completedTasks cache stores a 'cancelled' entry — the fast-path
+    // idempotency check at handleTaskCancel reads `prior?.task.status`.
+    // Without this, sequential retries (queued-cancel + no-agent-cancel
+    // paths) would skip the in-memory cache entirely and have to win a
+    // race against the fire-and-forget notifyHooksCancelled before the
+    // durable history-store lookup could see the persisted status.
+    this.tasks.set(taskId, {...task, completedAt: Date.now(), status: 'cancelled'})
+    this.moveToCompleted(taskId)
     this.notifyHooksCancelled(taskId, task).catch(() => {})
   }
 
@@ -685,7 +693,14 @@ export class TaskRouter {
       return {success: true}
     }
 
-    // If Agent connected for this task's project, forward cancel request
+    // If Agent connected for this task's project, forward cancel request.
+    // NOTE: `success: true` here means "queued for forward", NOT "agent
+    // confirmed cancellation". The agent may have already finished the task
+    // (race window between daemon dispatch and agent terminal event), in
+    // which case agent-cancel-listener returns false and emits no
+    // task:cancelled. Callers must rely on the terminal event broadcast,
+    // not this success flag, to know the final task state. See JSDoc on
+    // TaskCancelResponse for full semantics.
     const agentId = this.getAgentForProject(task.projectPath)
     if (agentId) {
       this.transport.sendTo(agentId, TransportTaskEventNames.CANCEL, {taskId})

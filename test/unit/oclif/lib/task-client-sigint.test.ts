@@ -1,17 +1,17 @@
-import type {ITransportClient} from '@campfirein/brv-transport-client'
-
 import {expect} from 'chai'
 import {createSandbox, type SinonSandbox, type SinonStub} from 'sinon'
 
-import {waitForTaskCompletion} from '../../../../src/oclif/lib/task-client.js'
+import {type WaitForTaskClient, waitForTaskCompletion} from '../../../../src/oclif/lib/task-client.js'
 
 type EventHandler = (data: unknown) => void
 
 /**
- * Build a TransportClient stub that exposes:
+ * Build a WaitForTaskClient stub that exposes:
  *  - eventHandlers map keyed by event name with the registered listener
  *  - on/onStateChange returning unsubscribe stubs (counted for cleanup checks)
  *  - request stub for verifying the cancel emission
+ *
+ * Stub conforms to the narrow `WaitForTaskClient` contract — no cast needed.
  */
 function makeStubClient(sandbox: SinonSandbox) {
   const eventHandlers = new Map<string, EventHandler>()
@@ -28,12 +28,13 @@ function makeStubClient(sandbox: SinonSandbox) {
   const onStateChangeStub = sandbox.stub().returns(stateUnsub)
   unsubscribeStubs.push(stateUnsub)
 
-  const client = {
+  const requestStub = sandbox.stub()
+
+  const client: WaitForTaskClient = {
     on: onStub,
     onStateChange: onStateChangeStub,
-    request: sandbox.stub(),
-    requestWithAck: sandbox.stub(),
-  } as unknown as ITransportClient
+    request: requestStub,
+  }
 
   return {
     client,
@@ -41,7 +42,7 @@ function makeStubClient(sandbox: SinonSandbox) {
       eventHandlers.get(event)?.(data)
     },
     onStub,
-    requestStub: client.request as SinonStub,
+    requestStub,
     unsubscribeStubs,
   }
 }

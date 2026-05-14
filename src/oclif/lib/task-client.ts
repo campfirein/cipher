@@ -85,10 +85,17 @@ export interface TaskErrorResult {
   toolCalls: ToolCallRecord[]
 }
 
+/**
+ * Subset of ITransportClient used by waitForTaskCompletion + installSigintCancel.
+ * Narrow on purpose so test stubs can satisfy the contract structurally without
+ * an `as unknown as ITransportClient` cast.
+ */
+export type WaitForTaskClient = Pick<ITransportClient, 'on' | 'onStateChange' | 'request'>
+
 /** Options for waitForTaskCompletion */
 export interface WaitForTaskOptions {
   /** Client to subscribe events on */
-  client: ITransportClient
+  client: WaitForTaskClient
   /** Command name for JSON output */
   command: string
   /** Output format */
@@ -173,7 +180,7 @@ export function formatToolDisplay(toolName: string, args: Record<string, unknown
  * cleanup path. Always uninstall to keep the signal stack clean for any work
  * that runs after wait returns (e.g., subsequent commands in the same process).
  */
-function installSigintCancel(deps: {client: ITransportClient; taskId: string}): () => void {
+function installSigintCancel(deps: {client: Pick<ITransportClient, 'request'>; taskId: string}): () => void {
   let cancelRequested = false
 
   const onSigint = (): void => {

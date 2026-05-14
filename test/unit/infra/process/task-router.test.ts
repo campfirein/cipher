@@ -970,6 +970,22 @@ describe('TaskRouter', () => {
           {taskId},
         )).to.be.true
       })
+
+      it('returns success on a sequential retry after queued cancel — in-memory fast path', async () => {
+        // Regression guard: cancelTaskLocally must seed completedTasks with a
+        // 'cancelled' entry so the fast-path idempotency check at handleTaskCancel
+        // catches a sequential retry. Without that seeding, the retry would race
+        // the fire-and-forget notifyHooksCancelled to the durable history store
+        // and could return a misleading "Task not found".
+        agentPool.cancelQueuedTask.returns(true)
+        const handler = transportHelper.requestHandlers.get(TransportTaskEventNames.CANCEL)
+
+        const first = await handler!({taskId}, 'client-1')
+        const second = await handler!({taskId}, 'client-1')
+
+        expect(first).to.deep.equal({success: true})
+        expect(second).to.deep.equal({success: true})
+      })
     })
   })
 
