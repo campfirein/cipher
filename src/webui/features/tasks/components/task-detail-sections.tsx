@@ -1,5 +1,6 @@
 import {Button} from '@campfirein/byterover-packages/components/button'
 import {Card} from '@campfirein/byterover-packages/components/card'
+import {TopicViewer} from '@campfirein/byterover-packages/components/topic-viewer/topic-viewer'
 import {cn} from '@campfirein/byterover-packages/lib/utils'
 import {Folder, Paperclip, RotateCcw} from 'lucide-react'
 
@@ -10,6 +11,7 @@ import {useProviderStore} from '../../provider/stores/provider-store'
 import {useComposerRetryStore} from '../stores/composer-retry-store'
 import {composerTypeFromTask} from '../utils/composer-type-from-task'
 import {shortTaskId} from '../utils/format-time'
+import {isBvTopicHtml} from '../utils/is-bv-topic-html'
 import {isProviderTaskError} from '../utils/is-provider-task-error'
 import {isActiveStatus} from '../utils/task-status'
 import {AttachmentChip} from './attachment-chip'
@@ -61,7 +63,11 @@ export function LiveStreamSection({task}: {task: StoredTask}) {
       <div
         className={cn('pl-3 text-foreground/90 text-sm border-l-2', isLive ? 'border-blue-500/30' : 'border-border')}
       >
-        <MarkdownInline className="text-foreground/90 text-sm">{content || ' '}</MarkdownInline>
+        {isBvTopicHtml(content) ? (
+          <TopicViewer html={content} />
+        ) : (
+          <MarkdownInline className="text-foreground/90 text-sm">{content || ' '}</MarkdownInline>
+        )}
         {isLive && <span className="bg-blue-400/70 ml-1 inline-block h-3 w-1.5 align-middle animate-pulse" />}
       </div>
     </section>
@@ -74,7 +80,11 @@ export function ResultSection({content}: {content: string}) {
       <TerminalDot tone="completed" />
       <SectionLabel>Result</SectionLabel>
       <Card className="ring-border bg-card p-5" size="sm">
-        <MarkdownInline className="text-foreground/90 text-sm">{content}</MarkdownInline>
+        {isBvTopicHtml(content) ? (
+          <TopicViewer html={content} />
+        ) : (
+          <MarkdownInline className="text-foreground/90 text-sm">{content}</MarkdownInline>
+        )}
       </Card>
     </section>
   )
