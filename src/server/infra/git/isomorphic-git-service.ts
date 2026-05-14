@@ -196,19 +196,19 @@ export class IsomorphicGitService implements IGitService {
     // When HEAD points at an unborn branch (post-init, pre-commit), the ref does
     // not resolve — treat as no tracked files and skip the staged-conflict guard.
     const sourceBranch = await this.getCurrentBranch(params)
-    const sourceOid = sourceBranch ? await git.resolveRef({dir, fs, ref: sourceBranch}).catch(() => {}) : undefined
-    const sourceBranchResolves = sourceOid !== undefined
+    const sourceOid = sourceBranch ? await this.tryResolveRef(dir, sourceBranch) : undefined
     const sourceFiles =
-      sourceBranch && sourceBranchResolves
+      sourceBranch && sourceOid
         ? new Set(await git.listFiles({dir, fs, ref: sourceBranch}))
         : new Set<string>()
 
     // isomorphic-git's checkout detects unstaged conflicts (CheckoutConflictError)
     // but silently overwrites staged changes — a data-loss bug. Guard staged
-    // conflicts here to match native git behavior. The guard also handles unborn
-    // HEAD (sourceBranchResolves === false) by treating every staged blob as new.
+    // conflicts here to match native git behavior. The guard also covers unborn
+    // HEAD and detached HEAD (sourceOid undefined): every staged blob is treated
+    // as new content, so a conflicting target blob still trips.
     if (!params.force) {
-      await this.guardStagedConflicts(dir, sourceBranchResolves ? sourceBranch : undefined, params.ref)
+      await this.guardStagedConflicts(dir, sourceOid, params.ref)
     }
 
     try {
@@ -1063,11 +1063,16 @@ export class IsomorphicGitService implements IGitService {
    * Guard against staged changes that would be overwritten by checkout.
    * isomorphic-git's checkout only detects unstaged conflicts — it silently
    * overwrites staged changes, causing data loss. This method fills that gap
-   * to match native git behavior. Accepts `undefined` for the source branch when
-   * HEAD is unborn; in that case every staged blob is treated as new (sourceBlobOid
-   * undefined) so a target blob with content still triggers a conflict.
+   * to match native git behavior. Accepts `undefined` for the source OID when
+   * HEAD is unborn (or detached without a resolvable ref); in that case every
+   * staged blob is treated as new (sourceBlobOid undefined) so a target blob
+   * with content still triggers a conflict.
    */
-  private async guardStagedConflicts(dir: string, sourceBranch: string | undefined, targetRef: string): Promise<void> {
+  private async guardStagedConflicts(
+    dir: string,
+    sourceOid: string | undefined,
+    targetRef: string,
+  ): Promise<void> {
     const matrix = await git.statusMatrix({dir, fs})
 
     const stagedFiles = matrix
@@ -1076,7 +1081,11 @@ export class IsomorphicGitService implements IGitService {
 
     if (stagedFiles.length === 0) return
 
-    const sourceOid = sourceBranch ? await git.resolveRef({dir, fs, ref: sourceBranch}).catch(() => {}) : undefined
+    // If our resolver cannot pin the target OID (no direct ref + no unambiguous
+    // remote DWIM match), skip the guard and let `git.checkout` surface the
+    // missing-ref error itself. The trade-off: when isomorphic-git's internal
+    // resolution finds a path we missed, the guard will not have read against
+    // the same tree git.checkout writes — acceptable for single-remote setups.
     const targetOid = await this.resolveCheckoutRef(dir, targetRef)
     if (!targetOid) return
 
@@ -1383,21 +1392,25 @@ export class IsomorphicGitService implements IGitService {
   }
 
   /**
-   * Resolve a checkout target the way `git.checkout` does — including DWIM for
+   * Resolve a checkout target's OID, mirroring `git.checkout`'s DWIM for
    * remote-only branches. Returns undefined if the ref cannot be resolved
-   * anywhere (caller decides whether to surface or skip).
+   * anywhere, OR if multiple remotes match the same short name (matches native
+   * git's refuse-on-ambiguity, lets the caller defer to `git.checkout`'s own
+   * error). Caller decides whether to surface or skip.
    */
   private async resolveCheckoutRef(dir: string, ref: string): Promise<string | undefined> {
-    const direct = await git.resolveRef({dir, fs, ref}).catch(() => {})
+    const direct = await this.tryResolveRef(dir, ref)
     if (direct) return direct
 
     const remotes = await git.listRemotes({dir, fs}).catch(() => [])
+    const matches: string[] = []
     for (const {remote} of remotes) {
       // eslint-disable-next-line no-await-in-loop
-      const remoteOid = await git.resolveRef({dir, fs, ref: `refs/remotes/${remote}/${ref}`}).catch(() => {})
-      if (remoteOid) return remoteOid
+      const remoteOid = await this.tryResolveRef(dir, `refs/remotes/${remote}/${ref}`)
+      if (remoteOid) matches.push(remoteOid)
     }
 
+    if (matches.length === 1) return matches[0]
     return undefined
   }
 
@@ -1471,5 +1484,14 @@ export class IsomorphicGitService implements IGitService {
           await fs.promises.writeFile(filePath, content)
         }),
     )
+  }
+
+  /** Resolve a ref to its OID, returning undefined instead of throwing on missing/unborn refs. */
+  private async tryResolveRef(dir: string, ref: string): Promise<string | undefined> {
+    try {
+      return await git.resolveRef({dir, fs, ref})
+    } catch {
+      return undefined
+    }
   }
 }

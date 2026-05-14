@@ -54,17 +54,24 @@ async function initWithCommit(
 describe('IsomorphicGitService', () => {
   let testDir: string
   let service: IsomorphicGitService
+  /** Auxiliary tmp dirs created per-test; cleaned in afterEach even on assertion failure. */
+  let extraTmpDirs: string[]
 
   beforeEach(async () => {
     testDir = makeTestDir()
     await mkdir(testDir, {recursive: true})
     service = new IsomorphicGitService(makeAuth())
+    extraTmpDirs = []
   })
 
   afterEach(async () => {
     if (existsSync(testDir)) {
       await rm(testDir, {force: true, recursive: true})
     }
+
+    await Promise.all(
+      extraTmpDirs.filter((d) => existsSync(d)).map((d) => rm(d, {force: true, recursive: true})),
+    )
   })
 
   // ---- init() ----
@@ -752,6 +759,7 @@ describe('IsomorphicGitService', () => {
       // Simulate: `brv vc init` then `brv vc fetch` then `brv vc checkout feat/ENG-2512`.
       // Use a separate "remote" repo so we don't depend on network.
       const remoteDir = makeTestDir()
+      extraTmpDirs.push(remoteDir)
       await mkdir(remoteDir, {recursive: true})
       const remoteSvc = new IsomorphicGitService(makeAuth())
       await remoteSvc.init({directory: remoteDir})
@@ -762,17 +770,18 @@ describe('IsomorphicGitService', () => {
       // Fresh repo with unborn HEAD → main, and a remote-tracking ref written manually
       // (equivalent to what `git fetch` populates).
       const freshDir = makeTestDir()
+      extraTmpDirs.push(freshDir)
       await mkdir(freshDir, {recursive: true})
       const freshSvc = new IsomorphicGitService(makeAuth())
       await freshSvc.init({directory: freshDir})
       await freshSvc.addRemote({directory: freshDir, remote: 'origin', url: 'https://example.invalid/repo.git'})
       await mkdir(join(freshDir, '.git', 'refs', 'remotes', 'origin', 'feat'), {recursive: true})
       await writeFile(join(freshDir, '.git', 'refs', 'remotes', 'origin', 'feat', 'ENG-2512'), `${remoteHeadSha}\n`)
-      // Copy the commit + tree + blob objects so the ref resolves.
-      const objectsSrc = join(remoteDir, '.git', 'objects')
-      const objectsDst = join(freshDir, '.git', 'objects')
+      // Copy the commit + tree + blob objects so the ref resolves. Inline `await import`
+      // because the lint rule `n/no-unsupported-features/node-builtins` flags a static
+      // `cpSync` import (experimental until Node 22.3.0; project requires Node >=20.0.0).
       const {cpSync} = await import('node:fs')
-      cpSync(objectsSrc, objectsDst, {recursive: true})
+      cpSync(join(remoteDir, '.git', 'objects'), join(freshDir, '.git', 'objects'), {recursive: true})
 
       // HEAD is still on unborn main — this is the scenario that previously failed.
       const beforeBranch = await freshSvc.getCurrentBranch({directory: freshDir})
@@ -784,15 +793,13 @@ describe('IsomorphicGitService', () => {
       expect(branch).to.equal('feat/ENG-2512')
       const checkedOut = await readFile(join(freshDir, 'remote-only.md'), 'utf8')
       expect(checkedOut).to.equal('remote body')
-
-      await rm(remoteDir, {force: true, recursive: true})
-      await rm(freshDir, {force: true, recursive: true})
     })
 
     it('checks out a remote-tracking ref when local main is on a stale commit (fetch + checkout)', async () => {
       // Simulate: clone-then-fetch flow — local main has commits (stale), fetch adds
       // a NEW remote-only branch, checkout switches and creates the local branch.
       const remoteDir = makeTestDir()
+      extraTmpDirs.push(remoteDir)
       await mkdir(remoteDir, {recursive: true})
       const remoteSvc = new IsomorphicGitService(makeAuth())
       await remoteSvc.init({directory: remoteDir})
@@ -807,6 +814,7 @@ describe('IsomorphicGitService', () => {
 
       // Local repo: pre-populated main on the initial commit only ("stale main").
       const localDir = makeTestDir()
+      extraTmpDirs.push(localDir)
       await mkdir(localDir, {recursive: true})
       const localSvc = new IsomorphicGitService(makeAuth())
       await localSvc.init({directory: localDir})
@@ -816,6 +824,7 @@ describe('IsomorphicGitService', () => {
       // Manually populate refs/remotes/origin/feat/new + copy objects (simulates fetch).
       await mkdir(join(localDir, '.git', 'refs', 'remotes', 'origin', 'feat'), {recursive: true})
       await writeFile(join(localDir, '.git', 'refs', 'remotes', 'origin', 'feat', 'new'), `${remoteFeatSha}\n`)
+      // cpSync via dynamic import: the lint rule flags static use of an API stable only on Node >=22.3
       const {cpSync} = await import('node:fs')
       cpSync(join(remoteDir, '.git', 'objects'), join(localDir, '.git', 'objects'), {recursive: true})
 
@@ -833,9 +842,6 @@ describe('IsomorphicGitService', () => {
       // feature.md (introduced on feat/new) is now present.
       const feature = await readFile(join(localDir, 'feature.md'), 'utf8')
       expect(feature).to.equal('feature body')
-
-      await rm(remoteDir, {force: true, recursive: true})
-      await rm(localDir, {force: true, recursive: true})
     })
 
     it('blocks checkout when unborn HEAD has a staged file that conflicts with target tree', async () => {
@@ -843,6 +849,7 @@ describe('IsomorphicGitService', () => {
       // Verify isomorphic-git's own CheckoutConflictError still protects against data
       // loss when a staged blob would be overwritten by the target.
       const remoteDir = makeTestDir()
+      extraTmpDirs.push(remoteDir)
       await mkdir(remoteDir, {recursive: true})
       const remoteSvc = new IsomorphicGitService(makeAuth())
       await remoteSvc.init({directory: remoteDir})
@@ -851,6 +858,7 @@ describe('IsomorphicGitService', () => {
       const topicSha = await git.resolveRef({dir: remoteDir, fs, ref: 'refs/heads/topic'})
 
       const freshDir = makeTestDir()
+      extraTmpDirs.push(freshDir)
       await mkdir(freshDir, {recursive: true})
       const freshSvc = new IsomorphicGitService(makeAuth())
       await freshSvc.init({directory: freshDir})
@@ -876,15 +884,49 @@ describe('IsomorphicGitService', () => {
       expect(threw, 'expected checkout to block on conflicting workdir/staged file').to.be.true
       const preserved = await readFile(join(freshDir, 'shared.txt'), 'utf8')
       expect(preserved).to.equal('local-staged')
+    })
 
-      await rm(remoteDir, {force: true, recursive: true})
-      await rm(freshDir, {force: true, recursive: true})
+    it('blocks checkout from detached HEAD when a staged file conflicts with target tree', async () => {
+      // The guard's gate widened in ENG-2835 to also cover detached HEAD (previously
+      // skipped, leaving the documented data-loss bug unprotected). Verify the guard
+      // now trips: stage a file on a detached commit, then attempt to switch to a
+      // branch where that file has different content.
+      await initWithCommit(service, testDir, 'shared.txt', 'commit-a', 'a')
+      const detachedSha = await git.resolveRef({dir: testDir, fs, ref: 'HEAD'})
+      await service.createBranch({branch: 'other', directory: testDir})
+      await service.checkout({directory: testDir, ref: 'other'})
+      await writeFile(join(testDir, 'shared.txt'), 'other-content')
+      await service.add({directory: testDir, filePaths: ['shared.txt']})
+      await service.commit({directory: testDir, message: 'other'})
+
+      // Detach HEAD to the original commit by writing the SHA directly.
+      await writeFile(join(testDir, '.git', 'HEAD'), `${detachedSha}\n`)
+      const branchNow = await service.getCurrentBranch({directory: testDir})
+      expect(branchNow, 'precondition: HEAD must be detached').to.equal(undefined)
+
+      // Stage a conflicting blob; attempt to switch to `other`.
+      await writeFile(join(testDir, 'shared.txt'), 'detached-staged')
+      await service.add({directory: testDir, filePaths: ['shared.txt']})
+
+      let threw = false
+      try {
+        await service.checkout({directory: testDir, ref: 'other'})
+      } catch (error) {
+        threw = true
+        expect(error).to.be.instanceOf(GitError)
+        expect((error as GitError).message).to.include('would be overwritten')
+      }
+
+      expect(threw, 'expected checkout from detached HEAD to block on staged conflict').to.be.true
+      const preserved = await readFile(join(testDir, 'shared.txt'), 'utf8')
+      expect(preserved).to.equal('detached-staged')
     })
 
     it('blocks checkout when unborn HEAD workdir has an untracked file conflicting with target tree', async () => {
       // Untracked file with different content than target — isomorphic-git's
       // CheckoutConflictError should block (matches native git behavior).
       const remoteDir = makeTestDir()
+      extraTmpDirs.push(remoteDir)
       await mkdir(remoteDir, {recursive: true})
       const remoteSvc = new IsomorphicGitService(makeAuth())
       await remoteSvc.init({directory: remoteDir})
@@ -892,6 +934,7 @@ describe('IsomorphicGitService', () => {
       const topicSha = await git.resolveRef({dir: remoteDir, fs, ref: 'main'})
 
       const freshDir = makeTestDir()
+      extraTmpDirs.push(freshDir)
       await mkdir(freshDir, {recursive: true})
       const freshSvc = new IsomorphicGitService(makeAuth())
       await freshSvc.init({directory: freshDir})
@@ -915,9 +958,6 @@ describe('IsomorphicGitService', () => {
       expect(threw, 'expected checkout to block on untracked-file conflict').to.be.true
       const preserved = await readFile(join(freshDir, 'overlap.md'), 'utf8')
       expect(preserved).to.equal('local-untracked')
-
-      await rm(remoteDir, {force: true, recursive: true})
-      await rm(freshDir, {force: true, recursive: true})
     })
   })
 
