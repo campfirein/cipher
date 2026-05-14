@@ -6,25 +6,9 @@
  * Mirrors the TUI's tasks-store `Task` shape so both UIs share the mental model.
  */
 
-import type {TaskListItem} from '../../../../shared/transport/events/task-events'
+import type {ReasoningContentItem, TaskListItem, ToolCallEvent} from '../../../../shared/transport/events/task-events'
 
-export interface ToolCallEvent {
-  args: Record<string, unknown>
-  callId?: string
-  error?: string
-  errorType?: string
-  result?: unknown
-  sessionId: string
-  status: 'completed' | 'error' | 'running'
-  timestamp: number
-  toolName: string
-}
-
-export interface ReasoningContentItem {
-  content: string
-  isThinking?: boolean
-  timestamp: number
-}
+export type {ReasoningContentItem, ToolCallEvent} from '../../../../shared/transport/events/task-events'
 
 export interface StoredTask extends TaskListItem {
   /**
