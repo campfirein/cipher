@@ -67,13 +67,13 @@ export function Header() {
 
   const {data: teamsData} = useListTeams()
 
-  const {billingSource, billingTone, needsPickPrompt, paidOrg, showCreditPill: hasBillingData} = useBillingDisplay({
+  const {billedOrgId, billingSource, billingTone, needsPickPrompt, showCreditPill: hasBillingData} = useBillingDisplay({
     preferredOrgId: pinnedData?.teamId,
   })
   const showCreditPill = isByteRoverActive && hasBillingData
 
   const {data: envConfig} = useGetEnvironmentConfig()
-  const teamSlug = teamsData?.teams?.find((t) => t.id === paidOrg?.organizationId)?.slug
+  const teamSlug = teamsData?.teams?.find((t) => t.id === billedOrgId)?.slug
   const topUpUrl = buildTopUpUrl({teamSlug, webAppUrl: envConfig?.webAppUrl})
 
   const needsAttention = !activeProvider || (isByteRoverActive && needsPickPrompt)

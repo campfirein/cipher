@@ -1,12 +1,12 @@
 import type {BillingUsageDTO} from '../../../../shared/transport/types/dto'
 
-import {useAuthStore} from '../../auth/stores/auth-store'
-import {useGetFreeUserLimit} from '../api/get-free-user-limit'
-import {useListBillingUsage} from '../api/list-billing-usage'
 import {type BillingTone, type BillingToneInput, getBillingTone} from '../utils/get-billing-tone'
-import {getPaidOrganizationIds} from '../utils/has-paid-team'
+import {resolveBilledTeam} from '../utils/resolve-billed-team'
+import {useBillingUsages} from './use-billing-usages'
+import {useFreeMonthlyCredits} from './use-free-monthly-credits'
 
 export interface BillingDisplay {
+  billedOrgId?: string
   billingSource?: BillingToneInput
   billingTone: BillingTone
   hasPaidTeam: boolean
@@ -17,32 +17,21 @@ export interface BillingDisplay {
 }
 
 export function useBillingDisplay({preferredOrgId}: {preferredOrgId?: string} = {}): BillingDisplay {
-  const isAuthorized = useAuthStore((s) => s.isAuthorized)
+  const {hasPaidTeam, isLoaded, paidOrganizationIds, usagesByOrg} = useBillingUsages()
+  const freeMonthly = useFreeMonthlyCredits({enabled: isLoaded && !hasPaidTeam})
 
-  const {data: usagesData} = useListBillingUsage({enabled: isAuthorized})
-  const usagesByOrg = usagesData?.usage ?? {}
-  const paidOrganizationIds = getPaidOrganizationIds(usagesByOrg)
-  const hasPaidTeam = paidOrganizationIds.length > 0
-
-  const {data: freeData} = useGetFreeUserLimit({
-    enabled: isAuthorized && usagesData !== undefined && !hasPaidTeam,
-  })
-  const freeMonthly = freeData?.limit?.monthly
-
-  const pinUsage = preferredOrgId ? usagesByOrg[preferredOrgId] : undefined
-  const autoPickUsage = paidOrganizationIds.length === 1 ? usagesByOrg[paidOrganizationIds[0]] : undefined
-  const resolvedTeam = hasPaidTeam ? (pinUsage ?? autoPickUsage) : undefined
+  const resolvedTeam = resolveBilledTeam({hasPaidTeam, paidOrganizationIds, preferredOrgId, usagesByOrg})
   const isPaidOrg = resolvedTeam !== undefined && resolvedTeam.tier !== 'FREE'
   const billingSource: BillingToneInput | undefined = resolvedTeam ?? freeMonthly
-  const billingTone = getBillingTone(billingSource)
-  const needsPickPrompt = paidOrganizationIds.length > 1 && resolvedTeam === undefined
+  const paidOrg = isPaidOrg ? resolvedTeam : undefined
 
   return {
+    billedOrgId: preferredOrgId ?? paidOrg?.organizationId,
     billingSource,
-    billingTone,
+    billingTone: getBillingTone(billingSource),
     hasPaidTeam,
-    needsPickPrompt,
-    paidOrg: isPaidOrg ? resolvedTeam : undefined,
+    needsPickPrompt: paidOrganizationIds.length > 1 && resolvedTeam === undefined,
+    paidOrg,
     showCreditPill: billingSource !== undefined,
     usagesByOrg,
   }

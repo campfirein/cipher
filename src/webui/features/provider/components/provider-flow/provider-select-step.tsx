@@ -67,14 +67,14 @@ export function ProviderSelectStep({onSelect, providers}: ProviderSelectStepProp
     () => providers.find((p) => p.id === BYTEROVER_PROVIDER_ID && p.isCurrent),
     [providers],
   )
-  const {billingSource: usage, billingTone, paidOrg} = useBillingDisplay({
+  const {billedOrgId, billingSource: usage, billingTone} = useBillingDisplay({
     preferredOrgId: pinnedData?.teamId,
   })
   const isExhausted = byteRoverActive !== undefined && billingTone === 'danger' && usage !== undefined
 
   const {data: envConfig} = useGetEnvironmentConfig()
   const {data: teamsData} = useListTeams()
-  const teamSlug = teamsData?.teams?.find((t) => t.id === paidOrg?.organizationId)?.slug
+  const teamSlug = teamsData?.teams?.find((t) => t.id === billedOrgId)?.slug
   const topUpUrl = buildTopUpUrl({teamSlug, webAppUrl: envConfig?.webAppUrl})
 
   const filtered = useMemo(() => {
