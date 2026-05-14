@@ -81,6 +81,7 @@ npm run dev:ui:package               # Vite dev server resolving shared UI from 
 - Global daemon (`server/infra/daemon/`) hosts Socket.IO transport; clients connect via `@campfirein/brv-transport-client`
 - Agent pool manages forked child processes per project; task routing in `server/infra/process/`
 - MCP server in `server/infra/mcp/` exposes tools via Model Context Protocol; `tools/` subdir has dedicated implementations (`brv-query-tool`, `brv-curate-tool`)
+- Connector subsystem (`server/infra/connectors/`): `rules/`, `skill/`, `mcp/`, `hook/`, `shared/`. Shared rules files (e.g. `AGENTS.md` shared by Amp/Codex/OpenCode) embed an agent-name footer inside `<!-- BEGIN/END BYTEROVER RULES -->` markers — see `shared/constants.ts` (`BRV_RULE_MARKERS`, `BRV_RULE_TAG`, `extractInstalledAgentFromBrvSection`) — so each agent owns its own segment. Preserve the footer when editing rule-section logic
 
 ### Web UI (`src/webui/`, `src/server/infra/webui/`)
 
@@ -108,6 +109,15 @@ npm run dev:ui:package               # Vite dev server resolving shared UI from 
 - `brv curate` runs Phases 1–3 in the foreground and detaches Phase 4 (post-curate finalization: summary regeneration, manifest rebuild) to the daemon's `PostWorkRegistry`, which serializes per project and coordinates with `dream-lock-service.ts` to prevent concurrent `_index.md` writes. `--detach` makes the entire run background. Overlapping curate runs for the same project are still rejected. Behavioral contract lives in `src/server/templates/sections/` (`brv-instructions.md`, `workflow.md`, `skill/SKILL.md`) — the in-daemon agent reads these at runtime
 - `brv review [--disable | --enable]` — toggle the project-scoped HITL review log; `brv review pending` lists items, `brv review approve <id>` / `brv review reject <id>` resolve them. When disabled, sync curate skips the "X operations require review" prompt, detached curate stops emitting per-operation review markers, and `brv dream` no longer surfaces `needsReview` operations. The flag is snapshotted at task creation and propagated via `AsyncLocalStorage` (`resolveReviewDisabled`) so mid-task toggles do not race
 - `brv login` defaults to OAuth (interactive provider picker); pass `--api-key` only for CI. `brv logout` clears credentials
+
+### LLM Billing
+
+- Paid LLM operations (`brv query`, `brv curate`, status checks) call `ensureBillingFunds()` (`src/oclif/lib/insufficient-credits.ts`) before dispatching, throwing `InsufficientCreditsError` if no paid team has credits
+- Server: `server/infra/billing/` — `http-billing-service.ts` (HTTP client against `BRV_BILLING_BASE_URL`), `resolve-billing-source.ts` (priority: project-pinned team > org default), `resolve-billing-team.ts`, `build-status-billing.ts` (status payload), `paid-organizations-endpoint.ts`, `billing-state-endpoint.ts`. Pinned-team selection persisted via `server/infra/storage/file-billing-config-store.ts`
+- Transport: `BillingEvents` / `TeamEvents` in `shared/transport/events/` (resolve, get/list usage, get/set pinned team, get free-user limit, list teams). Handlers: `billing-handler.ts`, `team-handler.ts`, `status-handler.ts`
+- CLI status line: `brv status` / `brv providers list` render credits via `oclif/lib/billing-line.ts` + `format-billing-line.ts`
+- `brv providers connect` (byterover provider) runs a team-select step that emits `BillingEvents.SET_PINNED_TEAM`
+- WebUI: credits pill (`webui/features/provider/components/credits-pill.tsx`), team-select step in `provider-flow-dialog.tsx`, billing API wrappers in `webui/features/provider/api/` (`list-billing-usage`, `list-teams`, `get-pinned-team`, `set-pinned-team`, `get-free-user-limit`)
 
 ### Other oclif topic groups
 
@@ -152,6 +162,7 @@ npm run dev:ui:package               # Vite dev server resolving shared UI from 
 ## Environment
 
 - `BRV_ENV` — `development` | `production` (dev-only commands require `development`, set by `bin/dev.js` and `bin/run.js`)
+- Required service base URLs (loaded from `.env.development` / `.env.production`, see `.env.example`): `BRV_IAM_BASE_URL`, `BRV_COGIT_BASE_URL`, `BRV_LLM_BASE_URL`, `BRV_BILLING_BASE_URL`, `BRV_WEB_APP_URL`, `BRV_GIT_REMOTE_BASE_URL`. Loaded in `server/config/environment.ts`; IAM/COGIT/BILLING are additionally validated by `assertRootDomain` (no paths allowed). All are normalized to strip trailing slashes
 - `BRV_WEBUI_PORT` — override the web UI port (default `7700`)
 - `BRV_UI_SOURCE` — `submodule` | `package` — forces Vite's shared-UI resolution mode
 - `BRV_DATA_DIR` — override the global data dir (default `~/.brv`)
