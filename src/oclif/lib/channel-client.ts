@@ -87,8 +87,15 @@ export type ChannelClient = {
    * Emit a request and await the server's response. Resolves with the response
    * data on success; rejects with a {@link ChannelClientError} carrying the
    * canonical wire code (CHANNEL_*, ACP_*, AGENT_DRIVER_PROFILE_*) on failure.
+   *
+   * `options.timeoutMs` overrides the env-default for this call. Use when the
+   * daemon-side operation has its own (longer) deadline — e.g.
+   * `channel:mention` in `mode: 'sync'` holds the ack until the turn
+   * completes, so the transport timeout must be ≥ the daemon-side turn
+   * timeout. See Bug 1 follow-up in
+   * `plan/channel-protocol/IMPLEMENTATION_PHASE_8_FOLLOWUPS.md`.
    */
-  request<TReq = unknown, TRes = unknown>(event: string, data: TReq): Promise<TRes>
+  request<TReq = unknown, TRes = unknown>(event: string, data: TReq, options?: {timeoutMs?: number}): Promise<TRes>
   /**
    * Phase-2: join the Socket.IO room `channel:<channelId>` so broadcasts
    * (`channel:turn-event`, `channel:state-change`, `channel:member-update`)
@@ -222,19 +229,23 @@ export const connectChannelClient = async (options?: ChannelClientOptions): Prom
       connectedSocket.on(event, wrapped)
       return () => connectedSocket.off(event, wrapped)
     },
-    request: <TReq, TRes>(event: string, data: TReq): Promise<TRes> =>
+    request: <TReq, TRes>(event: string, data: TReq, options?: {timeoutMs?: number}): Promise<TRes> =>
       new Promise<TRes>((resolve, reject) => {
         // Slice 3.5b safety net: if the daemon never invokes the ack
         // callback (e.g. because it has no registered handler for the
         // event), the promise would hang forever. The timeout below
         // surfaces this as `CHANNEL_REQUEST_TIMEOUT` so the CLI exits
-        // non-zero. Override via `BRV_CHANNEL_REQUEST_TIMEOUT_MS`; the
-        // default (60s) is long enough for the slowest production
-        // request path (synchronous invite-time ACP `initialize`).
-        const timeoutMs = Number.parseInt(
-          process.env.BRV_CHANNEL_REQUEST_TIMEOUT_MS ?? '60000',
-          10,
-        )
+        // non-zero.
+        //
+        // Per-call `options.timeoutMs` wins (e.g. `channel:mention --mode
+        // sync` passes turn_timeout + grace so the transport doesn't time
+        // out before the daemon settles the sync response — Bug 1 follow-up
+        // in `plan/channel-protocol/IMPLEMENTATION_PHASE_8_FOLLOWUPS.md`).
+        // Otherwise fall back to `BRV_CHANNEL_REQUEST_TIMEOUT_MS` env or 60s.
+        const timeoutMs =
+          options?.timeoutMs !== undefined && options.timeoutMs > 0
+            ? options.timeoutMs
+            : Number.parseInt(process.env.BRV_CHANNEL_REQUEST_TIMEOUT_MS ?? '60000', 10)
         let settled = false
         const timer = Number.isFinite(timeoutMs) && timeoutMs > 0
           ? setTimeout(() => {

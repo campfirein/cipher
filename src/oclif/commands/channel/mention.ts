@@ -56,6 +56,14 @@ public static flags = {
         // with `{finalAnswer, toolCalls, ...}` when terminal. No client-side
         // stream subscription is needed.
         if (flags.mode === 'sync') {
+          // Bug 1 follow-up: in sync mode the daemon holds the ack until the
+          // turn settles, so the transport request-timeout MUST be ≥ the
+          // daemon-side turn timeout. Otherwise the CLI sees
+          // `CHANNEL_REQUEST_TIMEOUT` at the env default (60s) even when the
+          // user passed `--timeout 300000`. Pass `(timeout + 5s grace)` so the
+          // resolved ack has time to travel back.
+          const turnTimeoutMs = flags.timeout ?? 300_000
+          const transportTimeoutMs = turnTimeoutMs + 5000
           const syncResponse = await client.request<ChannelMentionRequest, ChannelMentionSyncResponse>(
             ChannelEvents.MENTION,
             {
@@ -66,6 +74,7 @@ public static flags = {
               suppressThoughts: flags['suppress-thoughts'],
               timeout: flags.timeout,
             },
+            {timeoutMs: transportTimeoutMs},
           )
           if (flags.json) {
             this.log(JSON.stringify(syncResponse, undefined, 2))
