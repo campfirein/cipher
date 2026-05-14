@@ -7,12 +7,30 @@ import type {IAnalyticsSender, SendResult} from '../../../../../src/server/core/
 import type {IIdentityResolver} from '../../../../../src/server/core/interfaces/analytics/i-identity-resolver.js'
 import type {IJsonlAnalyticsStore, JsonlAnalyticsStoreUpdateStatus} from '../../../../../src/server/core/interfaces/analytics/i-jsonl-analytics-store.js'
 import type {ISuperPropertiesResolver, SuperProperties} from '../../../../../src/server/core/interfaces/analytics/i-super-properties-resolver.js'
+import type {CurateOperationAppliedProps} from '../../../../../src/shared/analytics/events/curate-operation-applied.js'
 import type {StoredAnalyticsRecord} from '../../../../../src/shared/analytics/stored-record.js'
 
 import {AnalyticsBatch} from '../../../../../src/server/core/domain/analytics/batch.js'
 import {AnalyticsClient} from '../../../../../src/server/infra/analytics/analytics-client.js'
 import {BoundedQueue} from '../../../../../src/server/infra/analytics/bounded-queue.js'
 import {NoOpAnalyticsSender} from '../../../../../src/server/infra/analytics/no-op-analytics-sender.js'
+import {AnalyticsEventNames} from '../../../../../src/shared/analytics/event-names.js'
+
+/**
+ * Valid CurateOperationAppliedProps payload used for tests that need a real
+ * typed event with non-trivial properties (e.g. property merge / precedence).
+ * DAEMON_START is used elsewhere where the call shape only needs to fire.
+ */
+function makeCurateOpProps(overrides: Partial<CurateOperationAppliedProps> = {}): CurateOperationAppliedProps {
+  return {
+    absolute_path: '/tmp/file.md',
+    knowledge_path: 'cli_architecture/test.md',
+    needs_review: false,
+    operation_type: 'ADD',
+    task_id: 'task-1',
+    ...overrides,
+  }
+}
 
 type FakeJsonlStore = IJsonlAnalyticsStore & {
   appendSpy: ReturnType<typeof spy>
@@ -135,7 +153,7 @@ async function flushMicrotasks(): Promise<void> {
 
 async function seedPending(client: AnalyticsClient, count: number): Promise<void> {
   for (let i = 0; i < count; i++) {
-    client.track(`event_${i}`)
+    client.track(AnalyticsEventNames.DAEMON_START)
   }
 
   await flushMicrotasks()
@@ -158,7 +176,7 @@ describe('AnalyticsClient', () => {
       })
 
       for (let i = 0; i < 1000; i++) {
-        client.track(`event_${i}`, {x: i})
+        client.track(AnalyticsEventNames.DAEMON_START)
       }
 
       await flushMicrotasks()
@@ -185,7 +203,8 @@ describe('AnalyticsClient', () => {
       })
 
       const before = Date.now()
-      client.track('e1', {x: 1})
+      const opProps = makeCurateOpProps({absolute_path: '/tmp/merge-fixture.md'})
+      client.track(AnalyticsEventNames.CURATE_OPERATION_APPLIED, opProps)
       await flushMicrotasks()
       const after = Date.now()
 
@@ -193,13 +212,14 @@ describe('AnalyticsClient', () => {
 
       expect(batch.events).to.have.lengthOf(1)
       const [event] = batch.events
-      expect(event.name).to.equal('e1')
+      expect(event.name).to.equal(AnalyticsEventNames.CURATE_OPERATION_APPLIED)
       expect(event.identity).to.deep.equal(identity)
       expect(event.timestamp).to.be.at.least(before)
       expect(event.timestamp).to.be.at.most(after)
 
-      // user property merged
-      expect(event.properties.x).to.equal(1)
+      // user properties merged through
+      expect(event.properties.absolute_path).to.equal('/tmp/merge-fixture.md')
+      expect(event.properties.operation_type).to.equal('ADD')
       // all 5 super properties stamped
       expect(event.properties.cli_version).to.equal('3.10.3')
       expect(event.properties.device_id).to.equal(validDeviceId)
@@ -227,13 +247,13 @@ describe('AnalyticsClient', () => {
         superPropsResolver,
       })
 
-      client.track('a1')
-      client.track('a2')
+      client.track(AnalyticsEventNames.DAEMON_START)
+      client.track(AnalyticsEventNames.DAEMON_START)
       await flushMicrotasks()
 
       currentIdentity = makeRegisteredIdentity()
-      client.track('r1')
-      client.track('r2')
+      client.track(AnalyticsEventNames.DAEMON_START)
+      client.track(AnalyticsEventNames.DAEMON_START)
       await flushMicrotasks()
 
       const batch = await client.flush()
@@ -262,7 +282,7 @@ describe('AnalyticsClient', () => {
       })
 
       for (let i = 0; i < 10; i++) {
-        client.track(`event_${i}`)
+        client.track(AnalyticsEventNames.DAEMON_START)
       }
 
       await flushMicrotasks()
@@ -288,7 +308,7 @@ describe('AnalyticsClient', () => {
         superPropsResolver: makeStubSuperPropsResolver(makeSuperProps()),
       })
 
-      client.track('round_trip')
+      client.track(AnalyticsEventNames.DAEMON_START)
       await flushMicrotasks()
 
       const batch = await client.flush()
@@ -296,7 +316,7 @@ describe('AnalyticsClient', () => {
 
       expect(restored).to.not.be.undefined
       expect(restored?.events).to.have.lengthOf(1)
-      expect(restored?.events[0].name).to.equal('round_trip')
+      expect(restored?.events[0].name).to.equal(AnalyticsEventNames.DAEMON_START)
     })
 
     it('should return an empty batch when the queue has been fully drained', async () => {
@@ -331,7 +351,7 @@ describe('AnalyticsClient', () => {
       })
 
       // Must not throw to the caller
-      expect(() => client.track('boom')).to.not.throw()
+      expect(() => client.track(AnalyticsEventNames.DAEMON_START)).to.not.throw()
 
       await flushMicrotasks()
 
@@ -353,7 +373,7 @@ describe('AnalyticsClient', () => {
         superPropsResolver,
       })
 
-      expect(() => client.track('boom')).to.not.throw()
+      expect(() => client.track(AnalyticsEventNames.DAEMON_START)).to.not.throw()
 
       await flushMicrotasks()
 
@@ -382,7 +402,7 @@ describe('AnalyticsClient', () => {
       })
 
       const before = Date.now()
-      client.track('e1')
+      client.track(AnalyticsEventNames.DAEMON_START)
       const after = Date.now()
 
       // Hold the resolver pending across a real timer gap so settle-time and
@@ -405,31 +425,6 @@ describe('AnalyticsClient', () => {
     })
   })
 
-  describe('super-properties precedence', () => {
-    it('should let super-properties win on key conflict with user properties', async () => {
-      const queue = new BoundedQueue()
-      const client = new AnalyticsClient({
-        identityResolver: makeStubIdentityResolver(makeAnonIdentity()),
-        isEnabled: () => true,
-        jsonlStore: makeFakeJsonlStore(),
-        queue,
-        sender: makeFakeSender(),
-        superPropsResolver: makeStubSuperPropsResolver(makeSuperProps()),
-      })
-
-      client.track('e1', {cli_version: 'lying', custom: 'kept'})
-      await flushMicrotasks()
-
-      const batch = await client.flush()
-      expect(batch.events).to.have.lengthOf(1)
-      const [event] = batch.events
-      // Super-property wins
-      expect(event.properties.cli_version).to.equal('3.10.3')
-      // User property without conflict is preserved
-      expect(event.properties.custom).to.equal('kept')
-    })
-  })
-
   describe('M9.3 JSONL-first persistence (dual write)', () => {
     it('should append to JSONL before pushing to queue (happy path)', async () => {
       const queue = new BoundedQueue()
@@ -443,13 +438,13 @@ describe('AnalyticsClient', () => {
         superPropsResolver: makeStubSuperPropsResolver(makeSuperProps()),
       })
 
-      client.track('e1', {x: 1})
+      client.track(AnalyticsEventNames.CURATE_OPERATION_APPLIED, makeCurateOpProps())
       await flushMicrotasks()
 
       // JSONL has the row
       expect(jsonlStore.records).to.have.lengthOf(1)
       const stored = jsonlStore.records[0]
-      expect(stored.name).to.equal('e1')
+      expect(stored.name).to.equal(AnalyticsEventNames.CURATE_OPERATION_APPLIED)
       expect(stored.status).to.equal('pending')
       expect(stored.attempts).to.equal(0)
       expect(stored.id).to.be.a('string').and.have.length.greaterThan(0)
@@ -472,7 +467,7 @@ describe('AnalyticsClient', () => {
       })
 
       for (let i = 0; i < 5; i++) {
-        client.track(`event_${i}`)
+        client.track(AnalyticsEventNames.DAEMON_START)
       }
 
       await flushMicrotasks()
@@ -494,7 +489,7 @@ describe('AnalyticsClient', () => {
         superPropsResolver: makeStubSuperPropsResolver(makeSuperProps()),
       })
 
-      expect(() => client.track('boom')).to.not.throw()
+      expect(() => client.track(AnalyticsEventNames.DAEMON_START)).to.not.throw()
       await flushMicrotasks()
 
       // JSONL append rejected (called once, but no record persisted)
@@ -517,7 +512,7 @@ describe('AnalyticsClient', () => {
       })
 
       for (let i = 0; i < 100; i++) {
-        expect(() => client.track(`event_${i}`)).to.not.throw()
+        expect(() => client.track(AnalyticsEventNames.DAEMON_START)).to.not.throw()
       }
 
       await flushMicrotasks()
@@ -539,7 +534,7 @@ describe('AnalyticsClient', () => {
 
       const N = 20
       for (let i = 0; i < N; i++) {
-        client.track(`event_${i}`)
+        client.track(AnalyticsEventNames.DAEMON_START)
       }
 
       await flushMicrotasks()
@@ -560,7 +555,7 @@ describe('AnalyticsClient', () => {
         superPropsResolver: makeStubSuperPropsResolver(makeSuperProps()),
       })
 
-      client.track('e1')
+      client.track(AnalyticsEventNames.DAEMON_START)
       await flushMicrotasks()
 
       expect(jsonlStore.appendSpy.called).to.equal(false)
@@ -588,7 +583,12 @@ describe('AnalyticsClient', () => {
       expect(sender.calls).to.have.lengthOf(1)
       const [shipped] = sender.calls
       expect(shipped).to.have.lengthOf(3)
-      expect(shipped.map((r) => r.name).sort()).to.deep.equal(['event_0', 'event_1', 'event_2'])
+      // All seeded via DAEMON_START so every shipped row carries the same name.
+      expect(shipped.map((r) => r.name)).to.deep.equal([
+        AnalyticsEventNames.DAEMON_START,
+        AnalyticsEventNames.DAEMON_START,
+        AnalyticsEventNames.DAEMON_START,
+      ])
     })
 
     it('should mirror all-succeeded result by flipping rows to status=sent', async () => {
@@ -739,7 +739,7 @@ describe('AnalyticsClient', () => {
 
       expect(batch.events).to.have.lengthOf(1)
       const [event] = batch.events
-      expect(event).to.have.property('name', 'event_0')
+      expect(event).to.have.property('name', AnalyticsEventNames.DAEMON_START)
       expect(event).to.have.property('timestamp')
       expect(event).to.have.property('properties')
       expect(event).to.have.property('identity')

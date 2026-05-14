@@ -1,3 +1,5 @@
+import type {AnalyticsEventName} from '../../../shared/analytics/event-names.js'
+import type {PropsArg} from '../../../shared/analytics/events/index.js'
 import type {IAnalyticsClient} from '../../core/interfaces/analytics/i-analytics-client.js'
 
 import {AnalyticsBatch} from '../../core/domain/analytics/batch.js'
@@ -13,7 +15,7 @@ export class NoOpAnalyticsClient implements IAnalyticsClient {
     return AnalyticsBatch.create([])
   }
 
-  public track(_event: string, _properties?: Record<string, unknown>): void {
+  public track<E extends AnalyticsEventName>(_event: E, ..._rest: PropsArg<E>): void {
     // intentional no-op
   }
 }

@@ -1,5 +1,3 @@
- 
-
 /**
  * Canonical wire-format names for every analytics event the daemon may emit.
  *
@@ -10,6 +8,10 @@
  * use as in-source constants. Adding a new event REQUIRES adding both:
  *   1. A new entry here.
  *   2. A new schema file in ./events/ and registration in ./events/index.ts.
+ *
+ * Some entries are deferred scaffolding (no producer yet — emitter lands in
+ * a future ticket). They are intentional, not Outside-In violations; the
+ * upcoming milestones will wire the producer alongside its consumer.
  */
 export const AnalyticsEventNames = {
   CLI_INVOCATION: 'cli_invocation',

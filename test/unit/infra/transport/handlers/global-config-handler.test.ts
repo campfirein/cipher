@@ -36,14 +36,14 @@ describe('GlobalConfigHandler', () => {
 
   async function callGet(): Promise<{analytics: boolean; deviceId: string; version: string}> {
     const fn = transport._handlers.get(GlobalConfigEvents.GET)
-    expect(fn).to.exist
-    return fn!(undefined, 'client-1')
+    if (!fn) throw new Error(`handler not registered: ${GlobalConfigEvents.GET}`)
+    return fn(undefined, 'client-1')
   }
 
   async function callSet(analytics: boolean): Promise<{current: boolean; previous: boolean}> {
     const fn = transport._handlers.get(GlobalConfigEvents.SET_ANALYTICS)
-    expect(fn).to.exist
-    return fn!({analytics}, 'client-1')
+    if (!fn) throw new Error(`handler not registered: ${GlobalConfigEvents.SET_ANALYTICS}`)
+    return fn({analytics}, 'client-1')
   }
 
   describe('setup', () => {

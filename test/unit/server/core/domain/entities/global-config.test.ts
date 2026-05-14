@@ -165,11 +165,15 @@ describe('GlobalConfig', () => {
 
     it('should round-trip analytics: true through toJson/fromJson', () => {
       const fromTrue = GlobalConfig.fromJson({analytics: true, deviceId: validDeviceId, version: '0.0.1'})
-      const restoredTrue = GlobalConfig.fromJson(fromTrue!.toJson())
+      expect(fromTrue, 'fromJson must accept valid analytics: true input').to.not.be.undefined
+      if (!fromTrue) throw new Error('fromJson returned undefined for valid input')
+      const restoredTrue = GlobalConfig.fromJson(fromTrue.toJson())
       expect(restoredTrue?.analytics).to.equal(true)
 
       const fromFalse = GlobalConfig.fromJson({analytics: false, deviceId: validDeviceId, version: '0.0.1'})
-      const restoredFalse = GlobalConfig.fromJson(fromFalse!.toJson())
+      expect(fromFalse, 'fromJson must accept valid analytics: false input').to.not.be.undefined
+      if (!fromFalse) throw new Error('fromJson returned undefined for valid input')
+      const restoredFalse = GlobalConfig.fromJson(fromFalse.toJson())
       expect(restoredFalse?.analytics).to.equal(false)
     })
 

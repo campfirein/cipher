@@ -1,5 +1,7 @@
 import {randomUUID} from 'node:crypto'
 
+import type {AnalyticsEventName} from '../../../shared/analytics/event-names.js'
+import type {PropsArg, PropsForEvent} from '../../../shared/analytics/events/index.js'
 import type {StoredAnalyticsRecord} from '../../../shared/analytics/stored-record.js'
 import type {IAnalyticsClient} from '../../core/interfaces/analytics/i-analytics-client.js'
 import type {IAnalyticsQueue} from '../../core/interfaces/analytics/i-analytics-queue.js'
@@ -91,13 +93,14 @@ export class AnalyticsClient implements IAnalyticsClient {
     }
   }
 
-  public track(event: string, properties?: Record<string, unknown>): void {
+  public track<E extends AnalyticsEventName>(event: E, ...rest: PropsArg<E>): void {
     if (!this.deps.isEnabled()) return
     // Capture the timestamp synchronously at call-site so it reflects WHEN the
     // user action happened, not when the async resolver chain settled. Under
     // burst load (many tracks queued before the first resolver completes) this
     // preserves the inter-event durations downstream consumers care about.
     const timestamp = Date.now()
+    const [properties] = rest
     // eslint-disable-next-line no-void
     void this.trackAsync(event, properties, timestamp)
   }
@@ -118,9 +121,9 @@ export class AnalyticsClient implements IAnalyticsClient {
     return AnalyticsBatch.create(records.map((r) => toWireEvent(r)))
   }
 
-  private async trackAsync(
-    event: string,
-    properties: Record<string, unknown> | undefined,
+  private async trackAsync<E extends AnalyticsEventName>(
+    event: E,
+    properties: PropsForEvent<E> | undefined,
     timestamp: number,
   ): Promise<void> {
     try {

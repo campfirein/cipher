@@ -1,4 +1,3 @@
- 
 import {expect} from 'chai'
 
 import {type AnalyticsEventName, AnalyticsEventNames} from '../../../../src/shared/analytics/event-names.js'

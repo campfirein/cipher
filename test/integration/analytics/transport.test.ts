@@ -19,6 +19,7 @@ import {SuperPropertiesResolver} from '../../../src/server/infra/analytics/super
 import {FileGlobalConfigStore} from '../../../src/server/infra/storage/file-global-config-store.js'
 import {AnalyticsHandler} from '../../../src/server/infra/transport/handlers/analytics-handler.js'
 import {GlobalConfigHandler} from '../../../src/server/infra/transport/handlers/global-config-handler.js'
+import {AnalyticsEventNames} from '../../../src/shared/analytics/event-names.js'
 import {AnalyticsEvents} from '../../../src/shared/transport/events/analytics-events.js'
 import {createMockTransportServer} from '../../helpers/mock-factories.js'
 
@@ -89,23 +90,36 @@ describe('analytics:track transport round-trip integration (M2.6)', () => {
 
     new AnalyticsHandler({analyticsClient, transport}).setup()
 
-    // Simulate what `emitAnalytics(client, 'cli_invocation', {command_id})` would
-    // deliver to the daemon's analytics:track handler.
+    // Simulate a daemon-internal emit going through the wire `analytics:track`
+    // path (validated against the per-event Zod schema before dispatch).
     const handler = transport._handlers.get(AnalyticsEvents.TRACK) as AnalyticsTrackHandler
     expect(handler, 'analytics:track handler must be registered').to.exist
 
-    await handler({event: 'cli_invocation', properties: {command_id: 'status'}}, 'client-1')
+    await handler(
+      {
+        event: AnalyticsEventNames.CURATE_OPERATION_APPLIED,
+        properties: {
+          absolute_path: '/tmp/x.md',
+          knowledge_path: 'kg/x.md',
+          needs_review: false,
+          operation_type: 'ADD',
+          task_id: 't-1',
+        },
+      },
+      'client-1',
+    )
     await waitForQueueSize(queue, 1)
 
     const batch = await analyticsClient.flush()
     expect(batch.events).to.have.lengthOf(1)
     const [event] = batch.events
 
-    expect(event.name).to.equal('cli_invocation')
+    expect(event.name).to.equal(AnalyticsEventNames.CURATE_OPERATION_APPLIED)
     expect(event.identity).to.deep.equal({device_id: validDeviceId})
 
-    // User-supplied property preserved
-    expect(event.properties.command_id).to.equal('status')
+    // User-supplied properties preserved end-to-end
+    expect(event.properties.absolute_path).to.equal('/tmp/x.md')
+    expect(event.properties.operation_type).to.equal('ADD')
 
     // All five super-properties stamped on receipt
     expect(event.properties.cli_version).to.equal('3.10.3')
@@ -134,7 +148,7 @@ describe('analytics:track transport round-trip integration (M2.6)', () => {
     new AnalyticsHandler({analyticsClient, transport}).setup()
 
     const handler = transport._handlers.get(AnalyticsEvents.TRACK) as AnalyticsTrackHandler
-    await handler({event: 'cli_invocation', properties: {command_id: 'status'}}, 'client-1')
+    await handler({event: AnalyticsEventNames.DAEMON_START}, 'client-1')
     // Two ticks suffice — the disabled path is sync inside track() and never schedules async work.
     await new Promise<void>((resolve) => {
       setImmediate(resolve)

@@ -1,3 +1,5 @@
+import type {AnalyticsEventName} from '../event-names.js'
+
 import {AnalyticsEventNames} from '../event-names.js'
 import {type CliInvocationProps, CliInvocationSchema} from './cli-invocation.js'
 import {type CurateOperationAppliedProps, CurateOperationAppliedSchema} from './curate-operation-applied.js'
@@ -14,12 +16,16 @@ import {type TaskFailedProps, TaskFailedSchema} from './task-failed.js'
  * Registry of every shipped event schema, keyed by wire name. Used by:
  *   - The privacy fixture, which walks every entry and asserts no field
  *     name appears on the forbidden PII list.
- *   - Future per-event validation at emit time.
+ *   - Per-event validation at the wire boundary (`AnalyticsHandler`).
  *
- * Direct schema/type imports go through the per-event files
- * (./cli-invocation.js, ./daemon-start.js, …). This module deliberately
- * exports only the aggregate registry and the discriminated union, so it
- * never duplicates per-event re-exports.
+ * Adding a new event requires three steps:
+ *   1. New constant in `../event-names.ts`.
+ *   2. New per-event file in this folder.
+ *   3. New entry in both `ALL_EVENT_SCHEMAS` and `AnyAnalyticsEvent` below.
+ *
+ * Some entries are deferred scaffolding for upcoming milestones — they have
+ * schemas but no emitter today. The wire-side handler dispatch must still
+ * cover them (drop with Zod parse) once an emitter lands.
  */
 export const ALL_EVENT_SCHEMAS = {
   [AnalyticsEventNames.CLI_INVOCATION]: CliInvocationSchema,
@@ -50,3 +56,28 @@ export type AnyAnalyticsEvent =
   | {name: typeof AnalyticsEventNames.TASK_COMPLETED; properties: TaskCompletedProps}
   | {name: typeof AnalyticsEventNames.TASK_CREATED; properties: TaskCreatedProps}
   | {name: typeof AnalyticsEventNames.TASK_FAILED; properties: TaskFailedProps}
+
+/**
+ * Type-derived properties for a given event name. Magic-string typos
+ * (e.g. `'daemon_starts'`) and wrong-shape payloads (e.g. `tool_name`
+ * on `daemon_start`) become compile errors instead of runtime drops.
+ */
+export type PropsForEvent<E extends AnalyticsEventName> = Extract<AnyAnalyticsEvent, {name: E}>['properties']
+
+/**
+ * If the event has no required properties (e.g. `daemon_start`), the
+ * `properties` argument is optional. Otherwise it is required. Implemented
+ * via a rest tuple so the call site stays ergonomic.
+ */
+export type PropsArg<E extends AnalyticsEventName> = keyof PropsForEvent<E> extends never
+  ? [properties?: PropsForEvent<E>]
+  : [properties: PropsForEvent<E>]
+
+/**
+ * Runtime guard: narrows an unknown string to a known `AnalyticsEventName`.
+ * Used by the wire-side handler to reject events that have no schema
+ * before forwarding to the typed daemon client.
+ */
+export function isAnalyticsEventName(value: unknown): value is AnalyticsEventName {
+  return typeof value === 'string' && value in ALL_EVENT_SCHEMAS
+}

@@ -1,6 +1,10 @@
 /* eslint-disable camelcase */
 import {readFileSync} from 'node:fs'
 
+import type {AnalyticsEventName} from '../../../shared/analytics/event-names.js'
+import type {CurateRunCompletedProps} from '../../../shared/analytics/events/curate-run-completed.js'
+import type {PropsArg} from '../../../shared/analytics/events/index.js'
+import type {QueryCompletedProps} from '../../../shared/analytics/events/query-completed.js'
 import type {LlmToolResultEvent} from '../../core/domain/transport/schemas.js'
 import type {TaskInfo} from '../../core/domain/transport/task-info.js'
 import type {IAnalyticsClient} from '../../core/interfaces/analytics/i-analytics-client.js'
@@ -257,7 +261,7 @@ export class AnalyticsHook implements ITaskLifecycleHook {
     state: CurateTaskAnalyticsState
     task: TaskInfo
     taskId: string
-  }): Record<string, unknown> {
+  }): CurateRunCompletedProps {
     return {
       duration_ms: this.durationMs(task),
       operations_added: state.counters.added,
@@ -282,7 +286,7 @@ export class AnalyticsHook implements ITaskLifecycleHook {
     state: QueryTaskAnalyticsState
     task: TaskInfo
     taskId: string
-  }): Record<string, unknown> {
+  }): QueryCompletedProps {
     const readPaths = new Set<string>()
     let readToolCallCount = 0
     let searchCallCount = 0
@@ -375,11 +379,11 @@ export class AnalyticsHook implements ITaskLifecycleHook {
     return Math.max(0, (task.completedAt ?? Date.now()) - task.createdAt)
   }
 
-  private emit(event: string, properties: Record<string, unknown>): void {
+  private emit<E extends AnalyticsEventName>(event: E, ...rest: PropsArg<E>): void {
     const client = this.analyticsClient
     if (!client) return
     try {
-      client.track(event, properties)
+      client.track(event, ...rest)
     } catch (error) {
       processLog(`AnalyticsHook: ${event} track failed: ${error instanceof Error ? error.message : String(error)}`)
     }

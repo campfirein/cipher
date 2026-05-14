@@ -15,6 +15,7 @@ import type {StoredAnalyticsRecord} from '../../../src/shared/analytics/stored-r
 import {AnalyticsClient} from '../../../src/server/infra/analytics/analytics-client.js'
 import {BoundedQueue} from '../../../src/server/infra/analytics/bounded-queue.js'
 import {JsonlAnalyticsStore} from '../../../src/server/infra/analytics/jsonl-analytics-store.js'
+import {AnalyticsEventNames} from '../../../src/shared/analytics/event-names.js'
 import {MAX_ATTEMPTS} from '../../../src/shared/analytics/stored-record.js'
 
 const validDeviceId = '550e8400-e29b-41d4-a716-446655440000'
@@ -105,7 +106,7 @@ describe('M10.3 retry-cap end-to-end composition (M9.1 constant + M9.2 store + M
     })
 
     // Track exactly one event so the cap walk is unambiguous.
-    client.track('retry_target')
+    client.track(AnalyticsEventNames.DAEMON_START)
     await waitForRows(jsonlStore, 1)
 
     const initialRows = await jsonlStore.list({limit: 100, offset: 0})
@@ -159,7 +160,7 @@ describe('M10.3 retry-cap end-to-end composition (M9.1 constant + M9.2 store + M
       superPropsResolver: makeStubSuperPropsResolver(makeSuperProps()),
     })
 
-    client.track('overshoot_target')
+    client.track(AnalyticsEventNames.DAEMON_START)
     await waitForRows(jsonlStore, 1)
     const initial = await jsonlStore.list({limit: 100, offset: 0})
     const {id} = initial.rows[0]
@@ -193,7 +194,7 @@ describe('M10.3 retry-cap end-to-end composition (M9.1 constant + M9.2 store + M
       superPropsResolver: makeStubSuperPropsResolver(makeSuperProps()),
     })
 
-    client.track('exclusion_target')
+    client.track(AnalyticsEventNames.DAEMON_START)
     await waitForRows(jsonlStore, 1)
 
     // Drive to terminal failed.
