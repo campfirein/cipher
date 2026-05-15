@@ -4,7 +4,10 @@ import {ProjectGuard} from './features/project/components/project-guard'
 import {MainLayout} from './layouts/main-layout'
 import {AnalyticsPage} from './pages/analytics-page'
 import {ChangesPage} from './pages/changes-page'
-import {ConfigurationPage} from './pages/configuration-page'
+import {GeneralSection} from './pages/configuration/general'
+import {ConfigurationLayout} from './pages/configuration/layout'
+import {LlmSection} from './pages/configuration/llm'
+import {VersionControlSection} from './pages/configuration/version-control'
 import {ContextsPage} from './pages/contexts-page'
 import {HomePage} from './pages/home-page'
 import {NotFoundPage} from './pages/not-found-page'
@@ -29,7 +32,12 @@ export const router = createBrowserRouter([
             path: 'changes',
           },
           {
-            element: <ConfigurationPage />,
+            children: [
+              {element: <GeneralSection />, index: true},
+              {element: <VersionControlSection />, path: 'version-control'},
+              {element: <LlmSection />, path: 'llm'},
+            ],
+            element: <ConfigurationLayout />,
             path: 'configuration',
           },
           {
