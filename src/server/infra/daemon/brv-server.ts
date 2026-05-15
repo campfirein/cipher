@@ -51,6 +51,7 @@ import {
 import {getGlobalDataDir} from '../../utils/global-data-path.js'
 import {getProjectDataDir} from '../../utils/path-utils.js'
 import {crashLog, processLog} from '../../utils/process-logger.js'
+import {createBillingStateHandler} from '../billing/billing-state-endpoint.js'
 import {ClientManager} from '../client/client-manager.js'
 import {ProjectConfigStore} from '../config/file-config-store.js'
 import {readContextTreeRemoteUrl} from '../context-tree/read-context-tree-remote.js'
@@ -63,10 +64,7 @@ import {setupFeatureHandlers} from '../process/feature-handlers.js'
 import {QueryLogHandler} from '../process/query-log-handler.js'
 import {TaskHeartbeatManager} from '../process/task-heartbeat-manager.js'
 import {TaskHistoryHook} from '../process/task-history-hook.js'
-import {
-  configureTaskHistoryStoreCache,
-  getStore as getTaskHistoryStore,
-} from '../process/task-history-store-cache.js'
+import {configureTaskHistoryStoreCache, getStore as getTaskHistoryStore} from '../process/task-history-store-cache.js'
 import {TransportHandlers} from '../process/transport-handlers.js'
 import {ProjectRegistry} from '../project/project-registry.js'
 import {createProviderOAuthTokenStore} from '../provider-oauth/provider-oauth-token-store.js'
@@ -75,6 +73,7 @@ import {clearStaleProviderConfig, resolveProviderConfig} from '../provider/provi
 import {ProjectRouter} from '../routing/project-router.js'
 import {AuthStateStore} from '../state/auth-state-store.js'
 import {ProjectStateLoader} from '../state/project-state-loader.js'
+import {FileBillingConfigStore} from '../storage/file-billing-config-store.js'
 import {FileCurateLogStore} from '../storage/file-curate-log-store.js'
 import {FileProviderConfigStore} from '../storage/file-provider-config-store.js'
 import {FileReviewBackupStore} from '../storage/file-review-backup-store.js'
@@ -458,17 +457,16 @@ async function main(): Promise<void> {
       emit(taskId, clientId, projectPath) {
         const payload: TaskHeartbeatEvent = {lastActivityAt: Date.now(), taskId}
         transportServer!.sendTo(clientId, TaskEvents.HEARTBEAT, payload)
-        broadcastToProjectRoom(
-          projectRegistry,
-          projectRouter,
-          projectPath,
-          TaskEvents.HEARTBEAT,
-          payload,
-          clientId,
-        )
+        broadcastToProjectRoom(projectRegistry, projectRouter, projectPath, TaskEvents.HEARTBEAT, payload, clientId)
       },
       intervalMs: TASK_HEARTBEAT_INTERVAL_MS,
     })
+    const billingConfigStoreFactory = (projectPath: string) =>
+      new FileBillingConfigStore({baseDir: join(projectPath, BRV_DIR)})
+    transportServer.onRequest(
+      TransportStateEventNames.GET_BILLING_CONFIG,
+      createBillingStateHandler(billingConfigStoreFactory),
+    )
 
     const transportHandlers = new TransportHandlers({
       agentPool,
@@ -710,6 +708,7 @@ async function main(): Promise<void> {
     // without waiting for OIDC discovery (~400ms).
     await setupFeatureHandlers({
       authStateStore,
+      billingConfigStoreFactory,
       broadcastToProject(projectPath, event, data) {
         broadcastToProjectRoom(projectRegistry, projectRouter, projectPath, event, data)
       },
