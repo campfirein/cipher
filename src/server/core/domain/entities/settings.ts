@@ -68,7 +68,7 @@ export const SETTINGS_REGISTRY: readonly SettingDescriptor[] = [
   {
     category: 'concurrency',
     default: AGENT_POOL_MAX_SIZE,
-    description: 'Max concurrent active projects (one agent process per project).',
+    description: 'How many projects can be active at the same time',
     key: SETTINGS_KEYS.AGENT_POOL_MAX_SIZE,
     max: 100,
     min: 1,
@@ -78,7 +78,7 @@ export const SETTINGS_REGISTRY: readonly SettingDescriptor[] = [
   {
     category: 'concurrency',
     default: AGENT_MAX_CONCURRENT_TASKS,
-    description: 'Max parallel curate/query tasks within a single project.',
+    description: 'Max parallel curate/query tasks within a single project',
     key: SETTINGS_KEYS.AGENT_POOL_MAX_CONCURRENT_TASKS,
     max: 50,
     min: 1,
@@ -88,7 +88,7 @@ export const SETTINGS_REGISTRY: readonly SettingDescriptor[] = [
   {
     category: 'llm',
     default: AGENT_LLM_ITERATION_BUDGET_MS,
-    description: 'Max wall-clock budget for one agentic loop, in milliseconds.',
+    description: 'Max wall-clock budget for one agentic loop, in milliseconds',
     key: SETTINGS_KEYS.LLM_ITERATION_BUDGET_MS,
     max: 3_600_000,
     min: 60_000,
@@ -99,7 +99,7 @@ export const SETTINGS_REGISTRY: readonly SettingDescriptor[] = [
   {
     category: 'llm',
     default: AGENT_LLM_REQUEST_TIMEOUT_MS,
-    description: 'Max wall-clock per LLM HTTP request, ms. Must be <= llm.iterationBudgetMs.',
+    description: 'Max wait time per LLM response. Must be less than the agentic loop budget',
     key: SETTINGS_KEYS.LLM_REQUEST_TIMEOUT_MS,
     max: 3_600_000,
     min: 10_000,
@@ -110,7 +110,7 @@ export const SETTINGS_REGISTRY: readonly SettingDescriptor[] = [
   {
     category: 'task-history',
     default: TASK_HISTORY_DEFAULT_MAX_ENTRIES,
-    description: 'Max task records `brv query-log view` retains per project.',
+    description: 'Max task records `brv query-log view` retains per project',
     key: SETTINGS_KEYS.TASK_HISTORY_MAX_ENTRIES,
     max: 10_000,
     min: 10,

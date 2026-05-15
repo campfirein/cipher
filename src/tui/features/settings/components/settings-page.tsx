@@ -1,34 +1,14 @@
-/**
- * SettingsPage — interactive /settings view for the TUI.
- *
- * Browse mode: arrow keys move the cursor, Enter edits, R resets, Esc exits.
- * Edit mode: the focused row transforms in place to `<current> -> [<buffer>]`,
- * the bottom hint line swaps to edit-mode help, and `Enter` saves through
- * the transport. Validation errors render as a single line directly under
- * the editing row and persist until `Enter` is re-pressed with valid input.
- *
- * Colour rules: the selected row is highlighted with `colors.primary`, the
- * inline validation error uses `colors.errorText`, and the restart banner
- * uses `colors.warning`. Modified-vs-default is NOT colour-encoded — the
- * default-in-parens column is the diff signal.
- */
-
 import {Box, Text, useInput} from 'ink'
 import Spinner from 'ink-spinner'
 import React, {useCallback, useMemo, useState} from 'react'
 
+import type {SettingsRow} from '../../../../shared/types/settings-row.js'
 import type {CustomDialogCallbacks} from '../../../types/commands.js'
 
+import {buildSettingsRows, parseRowInput} from '../../../../shared/utils/format-settings.js'
 import {useTheme} from '../../../hooks/index.js'
 import {useGetSettings, useResetSetting, useSetSetting} from '../api/settings-api.js'
-import {
-  bottomHintFor,
-  buildSettingsRows,
-  groupRowsByCategory,
-  parseRowInput,
-  preFillBufferFor,
-  type SettingsRow,
-} from '../utils/format-settings.js'
+import {bottomHintFor, groupRowsByCategory, preFillBufferFor} from '../utils/format-settings.js'
 
 type Mode = 'browse' | 'edit' | 'saving'
 
