@@ -1,0 +1,69 @@
+import {Command} from '@oclif/core'
+
+// Slice 8.8 — `brv channel --help` (and bare `brv channel`) renders this
+// rich onboarding guide. A host LLM that runs `--help` cold (no skill
+// loaded) has enough info here to onboard any of the four reviewer
+// agents, create a channel, invite, and run a structured mention.
+//
+// Plan: plan/channel-protocol/IMPLEMENTATION_PHASE_8_FOLLOWUPS.md §"Slice 8.8".
+
+export default class ChannelTopic extends Command {
+  public static description = `Multi-agent channel orchestration — invite ACP agents into a shared transcript and route work between them.
+
+Set up a channel from scratch in four steps:
+
+  1. ONBOARD each reviewer agent as a driver profile (one-time per agent):
+       brv channel onboard kimi -- kimi acp
+       brv channel onboard opencode -- opencode acp
+       brv channel onboard codex -- codex-acp     # requires: npm i -g @zed-industries/codex-acp
+       brv channel onboard pi -- pi-acp           # requires: npm i -g pi-acp
+
+  2. CREATE a channel:
+       brv channel new my-review
+
+  3. INVITE one or more onboarded agents:
+       brv channel invite my-review @kimi --profile kimi
+       brv channel invite my-review @codex --profile codex
+
+  4. MENTION an agent to get a response:
+       brv channel mention my-review "@kimi please review src/auth.py" \\
+         --mode sync --suppress-thoughts --json --timeout 300000
+
+For the natural-language host-LLM flow (Claude Code / Codex / kimi / opencode
+/ Pi reads the brv-channel skill and runs 'brv channel mention …' for you
+when you ask), install the skill once with:
+       brv channel skill install
+
+Common follow-ups: 'brv channel list' to see channels, 'brv channel doctor'
+to check member health, 'brv channel show <ch> <turnId>' to inspect a past
+turn, 'brv channel watch <ch>' to live-tail.
+
+Codex and Pi require separate ACP adapter packages — both are external
+npm packages:
+  - @zed-industries/codex-acp — Codex doesn't ship an ACP server natively
+  - pi-acp                    — Pi's --mode rpc is a Pi-specific protocol
+Kimi and opencode have native 'kimi acp' / 'opencode acp' subcommands and
+need no adapter package beyond the agent CLI itself.`
+public static examples = [
+    {
+      command: '<%= config.bin %> channel onboard kimi -- kimi acp',
+      description: 'Register kimi as a driver profile (one-time)',
+    },
+    {
+      command: '<%= config.bin %> channel new review-2026 && <%= config.bin %> channel invite review-2026 @kimi --profile kimi',
+      description: 'Create a channel and invite kimi as @kimi',
+    },
+    {
+      command: '<%= config.bin %> channel mention review-2026 "@kimi please review auth.py" --mode sync --suppress-thoughts --json --timeout 300000',
+      description: 'Ask @kimi a question and block for a structured response',
+    },
+    {
+      command: '<%= config.bin %> channel skill install',
+      description: 'Install the brv-channel skill so host LLMs (Claude Code, Codex, kimi, opencode, Pi) drive channel mentions automatically',
+    },
+  ]
+
+  public async run(): Promise<void> {
+    await this.config.runCommand('help', ['channel'])
+  }
+}

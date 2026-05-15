@@ -1,0 +1,64 @@
+import {expect} from 'chai'
+
+import ChannelTopic from '../../../src/oclif/commands/channel/index.js'
+
+// Slice 8.8 — `brv channel --help` (and bare `brv channel`) renders a
+// rich onboarding guide so a host LLM that runs `--help` cold has
+// enough info to onboard reviewers without consulting the brv-channel
+// skill or docs. The test below pins the load-bearing strings so a
+// future refactor can't silently delete the onboarding flow.
+
+describe('ChannelTopic (Slice 8.8 — channel --help)', () => {
+  describe('description', () => {
+    it('should be defined and non-trivial (≥ 200 chars)', () => {
+      expect(ChannelTopic.description).to.be.a('string')
+      expect(ChannelTopic.description.length).to.be.greaterThan(200)
+    })
+
+    it('should describe the four-step onboarding flow (onboard → new → invite → mention)', () => {
+      expect(ChannelTopic.description).to.match(/onboard/i)
+      expect(ChannelTopic.description).to.match(/\bnew\b/i)
+      expect(ChannelTopic.description).to.match(/invite/i)
+      expect(ChannelTopic.description).to.match(/mention/i)
+    })
+
+    it('should state Codex requires @zed-industries/codex-acp', () => {
+      expect(ChannelTopic.description).to.include('@zed-industries/codex-acp')
+    })
+
+    it('should state Pi requires pi-acp', () => {
+      expect(ChannelTopic.description).to.include('pi-acp')
+    })
+
+    it('should mention the skill install command', () => {
+      expect(ChannelTopic.description).to.match(/channel skill install/)
+    })
+
+    it('should show the canonical --mode sync flags for mention', () => {
+      expect(ChannelTopic.description).to.match(/--mode sync/)
+      expect(ChannelTopic.description).to.match(/--suppress-thoughts/)
+      expect(ChannelTopic.description).to.match(/--json/)
+    })
+  })
+
+  describe('examples', () => {
+    it('should expose at least four examples (onboard, new+invite, mention, skill install)', () => {
+      expect(ChannelTopic.examples).to.be.an('array').with.length.greaterThan(3)
+    })
+
+    it('should include an onboard example covering kimi (the simplest native-ACP case)', () => {
+      const text = JSON.stringify(ChannelTopic.examples)
+      expect(text).to.match(/channel onboard kimi/)
+    })
+
+    it('should include a mention example using --mode sync', () => {
+      const text = JSON.stringify(ChannelTopic.examples)
+      expect(text).to.match(/channel mention .* --mode sync/)
+    })
+
+    it('should include a `channel skill install` example', () => {
+      const text = JSON.stringify(ChannelTopic.examples)
+      expect(text).to.match(/channel skill install/)
+    })
+  })
+})
