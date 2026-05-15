@@ -36,7 +36,9 @@ when you ask), install the skill once with:
 
 Common follow-ups: 'brv channel list' to see channels, 'brv channel doctor'
 to check member health, 'brv channel show <ch> <turnId>' to inspect a past
-turn, 'brv channel watch <ch>' to live-tail.
+turn, 'brv channel watch <ch>' to live-tail, or
+'brv channel subscribe <ch> --roles @kimi --exit-on-terminal' for a bounded,
+filtered push stream that exits when the named reviewer finishes a turn.
 
 Codex and Pi require separate ACP adapter packages — both are external
 npm packages:
@@ -60,6 +62,10 @@ public static examples = [
     {
       command: '<%= config.bin %> channel skill install',
       description: 'Install the brv-channel skill so host LLMs (Claude Code, Codex, kimi, opencode, Pi) drive channel mentions automatically',
+    },
+    {
+      command: '<%= config.bin %> channel subscribe my-review --roles @kimi,@codex --count 2 --exit-on-terminal',
+      description: 'Push-stream filtered events as JSONL; exit when both reviewers finish (no polling)',
     },
   ]
 
