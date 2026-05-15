@@ -7,6 +7,7 @@ import {ProviderSubscriptionInitializer} from '../../provider/components/provide
 import {TaskSubscriptionInitializer} from '../../tasks/components/task-subscription-initializer'
 import {useGetProjectList} from '../api/get-project-list'
 import {resolveAutoSelectProject} from '../utils/resolve-auto-select-project'
+import {ProjectAssociationInitializer} from './project-association-initializer'
 
 export function ProjectGuard() {
   const location = useLocation()
@@ -52,6 +53,7 @@ export function ProjectGuard() {
   if (selectedProject) {
     return (
       <AuthInitializer>
+        <ProjectAssociationInitializer />
         <ProviderSubscriptionInitializer />
         <TaskSubscriptionInitializer />
         <Outlet />

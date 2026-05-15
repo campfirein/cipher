@@ -14,6 +14,7 @@ import type {IProviderKeychainStore} from '../../core/interfaces/i-provider-keyc
 import type {IProviderOAuthTokenStore} from '../../core/interfaces/i-provider-oauth-token-store.js'
 import type {IProjectRegistry} from '../../core/interfaces/project/i-project-registry.js'
 import type {IAuthStateStore} from '../../core/interfaces/state/i-auth-state-store.js'
+import type {IBillingConfigStore} from '../../core/interfaces/storage/i-billing-config-store.js'
 import type {ITransportServer} from '../../core/interfaces/transport/i-transport-server.js'
 import type {ProjectBroadcaster, ProjectPathResolver} from '../transport/handlers/handler-types.js'
 
@@ -21,9 +22,12 @@ import {ReviewEvents} from '../../../shared/transport/events/review-events.js'
 import {getAuthConfig} from '../../config/auth.config.js'
 import {getCurrentConfig} from '../../config/environment.js'
 import {API_V1_PATH, BRV_DIR} from '../../constants.js'
+import {TransportStateEventNames} from '../../core/domain/transport/schemas.js'
 import {getProjectDataDir} from '../../utils/path-utils.js'
 import {OAuthService} from '../auth/oauth-service.js'
 import {OidcDiscoveryService} from '../auth/oidc-discovery-service.js'
+import {HttpBillingService} from '../billing/http-billing-service.js'
+import {createPaidOrganizationsHandler} from '../billing/paid-organizations-endpoint.js'
 import {SystemBrowserLauncher} from '../browser/system-browser-launcher.js'
 import {HttpCogitPullService} from '../cogit/http-cogit-pull-service.js'
 import {HttpCogitPushService} from '../cogit/http-cogit-push-service.js'
@@ -50,6 +54,7 @@ import {HttpTeamService} from '../team/http-team-service.js'
 import {FsTemplateLoader} from '../template/fs-template-loader.js'
 import {
   AuthHandler,
+  BillingHandler,
   ConfigHandler,
   ConnectorsHandler,
   ContextTreeHandler,
@@ -65,6 +70,7 @@ import {
   SourceHandler,
   SpaceHandler,
   StatusHandler,
+  TeamHandler,
   VcHandler,
   WorktreeHandler,
 } from '../transport/handlers/index.js'
@@ -73,6 +79,7 @@ import {FileVcGitConfigStore} from '../vc/file-vc-git-config-store.js'
 
 export interface FeatureHandlersOptions {
   authStateStore: IAuthStateStore
+  billingConfigStoreFactory: (projectPath: string) => IBillingConfigStore
   broadcastToProject: ProjectBroadcaster
   getActiveProjectPaths: () => string[]
   log: (msg: string) => void
@@ -91,6 +98,7 @@ export interface FeatureHandlersOptions {
  */
 export async function setupFeatureHandlers({
   authStateStore,
+  billingConfigStoreFactory,
   broadcastToProject,
   getActiveProjectPaths,
   log,
@@ -109,9 +117,11 @@ export async function setupFeatureHandlers({
   // API version paths appended at point of use.
   // Note: IAM and Cogit currently share this version path, but may version independently in the future.
   const iamApiV1 = `${envConfig.iamBaseUrl}${API_V1_PATH}`
+  const billingApiV1 = `${envConfig.billingBaseUrl}${API_V1_PATH}`
   const userService = new HttpUserService({apiBaseUrl: iamApiV1})
   const teamService = new HttpTeamService({apiBaseUrl: iamApiV1})
   const spaceService = new HttpSpaceService({apiBaseUrl: iamApiV1})
+  const billingService = new HttpBillingService({apiBaseUrl: billingApiV1})
 
   // Auth handler requires async OIDC discovery
   const discoveryService = new OidcDiscoveryService()
@@ -126,6 +136,7 @@ export async function setupFeatureHandlers({
     browserLauncher: new SystemBrowserLauncher(),
     callbackHandler: new CallbackHandler(),
     projectConfigStore,
+    providerConfigStore,
     resolveProjectPath,
     tokenStore,
     transport,
@@ -138,6 +149,26 @@ export async function setupFeatureHandlers({
     providerConfigStore,
     providerKeychainStore,
     providerOAuthTokenStore,
+    transport,
+  }).setup()
+
+  new BillingHandler({
+    authStateStore,
+    billingConfigStoreFactory,
+    billingService,
+    providerConfigStore,
+    resolveProjectPath,
+    transport,
+  }).setup()
+
+  transport.onRequest(
+    TransportStateEventNames.GET_PAID_ORGANIZATIONS,
+    createPaidOrganizationsHandler({authStateStore, billingService}),
+  )
+
+  new TeamHandler({
+    authStateStore,
+    teamService,
     transport,
   }).setup()
 
@@ -168,10 +199,14 @@ export async function setupFeatureHandlers({
   const gitService = new IsomorphicGitService(authStateStore)
 
   new StatusHandler({
+    authStateStore,
+    billingConfigStoreFactory,
+    billingService,
     contextTreeService,
     contextTreeSnapshotService,
     curateLogStoreFactory: (projectPath) => new FileCurateLogStore({ baseDir: getProjectDataDir(projectPath) }),
     projectConfigStore,
+    providerConfigStore,
     resolveProjectPath,
     tokenStore,
     transport,

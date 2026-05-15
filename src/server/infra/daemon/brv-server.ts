@@ -50,6 +50,7 @@ import {
 import {buildReviewUrl} from '../../utils/build-review-url.js'
 import {getGlobalDataDir} from '../../utils/global-data-path.js'
 import {crashLog, processLog} from '../../utils/process-logger.js'
+import {createBillingStateHandler} from '../billing/billing-state-endpoint.js'
 import {ClientManager} from '../client/client-manager.js'
 import {ProjectConfigStore} from '../config/file-config-store.js'
 import {readContextTreeRemoteUrl} from '../context-tree/read-context-tree-remote.js'
@@ -69,6 +70,7 @@ import {clearStaleProviderConfig, resolveProviderConfig} from '../provider/provi
 import {ProjectRouter} from '../routing/project-router.js'
 import {AuthStateStore} from '../state/auth-state-store.js'
 import {ProjectStateLoader} from '../state/project-state-loader.js'
+import {FileBillingConfigStore} from '../storage/file-billing-config-store.js'
 import {FileProviderConfigStore} from '../storage/file-provider-config-store.js'
 import {createProviderKeychainStore} from '../storage/provider-keychain-store.js'
 import {createTokenStore} from '../storage/token-store.js'
@@ -423,6 +425,13 @@ async function main(): Promise<void> {
       resolveProviderConfig({authStateStore, providerConfigStore, providerKeychainStore, tokenRefreshManager}),
     )
 
+    const billingConfigStoreFactory = (projectPath: string) =>
+      new FileBillingConfigStore({baseDir: join(projectPath, BRV_DIR)})
+    transportServer.onRequest(
+      TransportStateEventNames.GET_BILLING_CONFIG,
+      createBillingStateHandler(billingConfigStoreFactory),
+    )
+
     const transportHandlers = new TransportHandlers({
       agentPool,
       clientManager,
@@ -656,6 +665,7 @@ async function main(): Promise<void> {
     // without waiting for OIDC discovery (~400ms).
     await setupFeatureHandlers({
       authStateStore,
+      billingConfigStoreFactory,
       broadcastToProject(projectPath, event, data) {
         broadcastToProjectRoom(projectRegistry, projectRouter, projectPath, event, data)
       },
