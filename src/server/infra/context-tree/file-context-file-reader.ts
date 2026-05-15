@@ -93,5 +93,6 @@ export class FileContextFileReader implements IContextFileReader {
 }
 
 function isHtmlTopic(relativePath: string): boolean {
-  return relativePath.toLowerCase().endsWith('.html')
+  const lower = relativePath.toLowerCase()
+  return lower.endsWith('.html') || lower.endsWith('.htm')
 }

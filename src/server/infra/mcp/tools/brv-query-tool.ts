@@ -164,6 +164,6 @@ function renderEnvelope(envelope: QueryToolModeResult, query: string): string {
 }
 
 function renderMatch(doc: QueryToolModeMatchedDoc): string {
-  const heading = doc.title?.trim().length > 0 ? doc.title : doc.path
+  const heading = doc.title.trim().length > 0 ? doc.title : doc.path
   return `## ${heading}\n\n${doc.rendered_md}`
 }

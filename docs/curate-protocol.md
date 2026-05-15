@@ -4,28 +4,23 @@ The session protocol lets a calling agent (Claude Code, Cursor, etc.) drive `brv
 
 This document defines the wire contract: CLI surface, JSON envelope, lifecycle. SKILL.md authors and other tool consumers key off the shapes documented here.
 
-> **TKT 02 status.** The real state machine runs end-to-end:
-> - Kickoff returns `needs-llm-step` with a generate-html prompt (stub — TKT 03 replaces with the real prompt + condensed bv-* schema).
-> - Continuation runs `validateHtmlTopic` + `writeHtmlTopic`; on success writes to `.brv/context-tree/<topic.path>.html` atomically.
-> - On validation failure the session enters a correction loop with retry cap = 3 (one initial generate + three corrections = `MAX_ATTEMPTS = 4` total LLM responses).
-
 ## CLI surface
 
-### Kickoff — opt-in via `BRV_CURATE_TOOL_MODE=1`
+### Kickoff
 
 ```bash
-BRV_CURATE_TOOL_MODE=1 brv curate "<user intent>" --format json
+brv curate "<user intent>" --format json
 ```
 
-Without the env var, `brv curate` runs today's legacy agent-driven path (unchanged). The env var is the temporary opt-in; TKT 02 replaces it with a `BrvConfig` field.
+Tool mode is the only path for `brv curate` — no provider configuration, no env-var opt-in.
 
-### Continuation — `--session` implies tool mode
+### Continuation — `--session` carries the prior call's id
 
 ```bash
 brv curate --session <sessionId> --response "<calling agent's output>" --format json
 ```
 
-Presence of `--session` always means tool-mode continuation. The env var is not consulted on continuation calls.
+Presence of `--session` resumes an in-flight session created by a prior kickoff.
 
 ### Overwrite intent — `--overwrite` on continuation
 
@@ -53,7 +48,7 @@ Every kickoff and continuation call returns the same JSON envelope under the sta
     "sessionId": "<uuid>",       // present on needs-llm-step AND on transient failed (see below)
     "step": "generate-html" | "correct-html",
     "prompt": "<free-text>",      // free-text instruction for the calling agent's LLM
-    "schema": { ... },            // optional per-step schema slice (TKT 03 populates)
+    "schema": { ... },            // optional per-step schema slice
     "errors": [                   // present on correct-html and on failed
       {
         "kind": "<machine-readable>",
@@ -114,7 +109,7 @@ A complete tool-mode curate session, end-to-end:
 ### 1. Kickoff
 
 ```bash
-BRV_CURATE_TOOL_MODE=1 brv curate "remember we decided to use RS256" --format json
+brv curate "remember we decided to use RS256" --format json
 ```
 
 Response (placeholder):
@@ -173,10 +168,10 @@ Abandoned sessions are not yet pruned — a 1-hour TTL is a planned follow-up th
 
 ## Stability promise
 
-Once SKILL.md (TKT 04) ships against this envelope, renaming any key here is a breaking change. New error kinds and new step values can be added without breaking existing consumers — calling agents are expected to gracefully ignore unknown values.
+SKILL.md ships against this envelope, so renaming any key here is a breaking change. New error kinds and new step values can be added without breaking existing consumers — calling agents are expected to gracefully ignore unknown values.
 
 ## What's not the protocol's job
 
 - **HTML generation.** Calling agent's LLM authors the HTML per the `prompt`. Byterover never touches an LLM in tool mode.
-- **Schema knowledge.** Embedded in the `prompt` (TKT 03 condenses the bv-* spec). Calling agent doesn't pre-load any schema.
+- **Schema knowledge.** Embedded in the `prompt` (the prompt builder condenses the bv-* spec). Calling agent doesn't pre-load any schema.
 - **Retry strategy beyond the protocol's correct-html loop.** If the calling agent's LLM keeps producing invalid HTML for 3 rounds, the session terminates `failed` — the calling agent surfaces this and falls back to asking the user for clarification.
