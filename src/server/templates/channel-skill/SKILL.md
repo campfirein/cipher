@@ -182,3 +182,12 @@ You:
 
 If the shell command times out or errors, surface the `code` field
 verbatim and stop — don't retry silently.
+
+## Error recovery
+
+| Error code | Means | What to do |
+|---|---|---|
+| `CHANNEL_PERMISSION_LOST_ON_RESTART` | The brv daemon restarted while a delivery was awaiting a permission decision. The ACP subprocess is dead; the user's choice cannot be forwarded. The error message contains a `--after-seq` cursor pointing at the daemon-written `errored` event. | **Do NOT retry the approve** — the in-flight session is unrecoverable. Re-invite the affected member (re-spawns the ACP subprocess), then re-mention with the original context. Optionally use the supplied `brv channel subscribe <ch> --turn <id> --after-seq <n>` command to inspect the lost-permission event. |
+| `CHANNEL_DRIVER_NOT_REGISTERED` / `unknown` delivery error | The ACP driver isn't currently registered with the daemon (typically after a daemon restart). | Re-invite the member with `brv channel invite <ch> @handle --profile <name>` before retrying the mention. |
+| `CHANNEL_TURN_NOT_FOUND` | The turn id genuinely doesn't exist in this channel. | Verify the channel id and turn id; don't retry blindly. |
+

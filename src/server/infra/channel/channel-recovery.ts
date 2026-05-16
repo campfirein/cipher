@@ -41,10 +41,29 @@ export type ChannelRecoveryDeps = {
   readonly treeReader: ChannelTreeReader
 }
 
+// Slice 8.10 — every orphaned permission produces one of these records so the
+// orchestrator can seed an in-memory registry; `permissionDecision()` then
+// surfaces `CHANNEL_PERMISSION_LOST_ON_RESTART` (with a Slice-8.9 cursor)
+// instead of the misleading `CHANNEL_TURN_NOT_FOUND`. erroredSeq is the seq
+// of the `delivery_state_change → errored` event on disk (newly written or
+// pre-existing per the idempotency guard).
+export type RestartLossRecord = {
+  channelId: string
+  erroredSeq: number
+  permissionRequestId: string
+  turnId: string
+}
+
 export type ChannelRecoverySummary = {
   finalisedTurns: number
   recoveredDeliveries: number
+  restartLosses: RestartLossRecord[]
 }
+
+// Used by the idempotency guard (codex Q1): if a delivery already has a
+// restart-loss errored event on disk, skip the duplicate write but still
+// emit the corresponding RestartLossRecord from the existing event's seq.
+const RESTART_LOSS_ERROR_TEXT = 'permission state lost on daemon restart'
 
 export const runChannelRecovery = async (deps: ChannelRecoveryDeps): Promise<ChannelRecoverySummary> => {
   const records = await deps.brokerPersistence.readAll()
@@ -53,7 +72,7 @@ export const runChannelRecovery = async (deps: ChannelRecoveryDeps): Promise<Cha
     // Nothing to do; still truncate so a fresh start doesn't accumulate
     // stale resolve-tombstones over time.
     await deps.brokerPersistence.truncate()
-    return {finalisedTurns: 0, recoveredDeliveries: 0}
+    return {finalisedTurns: 0, recoveredDeliveries: 0, restartLosses: []}
   }
 
   // Group live entries by (channelId, turnId, projectRoot).
@@ -71,6 +90,7 @@ export const runChannelRecovery = async (deps: ChannelRecoveryDeps): Promise<Cha
 
   let finalisedTurns = 0
   let recoveredDeliveries = 0
+  const restartLosses: RestartLossRecord[] = []
 
   for (const {channelId, entries, projectRoot, turnId} of byTurn.values()) {
     // eslint-disable-next-line no-await-in-loop
@@ -87,6 +107,24 @@ export const runChannelRecovery = async (deps: ChannelRecoveryDeps): Promise<Cha
     deps.seqAllocator.seed({channelId, lastSeq, turnId})
     deps.eventsWriter.seedLastSeq(channelId, turnId, lastSeq)
 
+    // Codex Q1 idempotency guard: if a prior recovery already wrote the
+    // restart-loss errored event for a deliveryId (e.g. the daemon crashed
+    // between writing the event and truncating pending-permissions.jsonl),
+    // re-running recovery should NOT write a second event. But the orphan
+    // registry still needs an entry for `permissionDecision()` to surface
+    // the loss code, so we emit a RestartLossRecord from the existing seq.
+    const existingRestartLossByDelivery = new Map<string, number>()
+    for (const e of events) {
+      if (
+        e.kind === 'delivery_state_change' &&
+        e.to === 'errored' &&
+        e.error === RESTART_LOSS_ERROR_TEXT &&
+        e.deliveryId !== null
+      ) {
+        existingRestartLossByDelivery.set(e.deliveryId, e.seq)
+      }
+    }
+
     // Emit `delivery_state_change → errored` for each pending permission.
     // The orchestrator's recovery is responsible for `awaiting_permission`
     // → `errored` only (other in-flight states finalise via the normal
@@ -94,12 +132,25 @@ export const runChannelRecovery = async (deps: ChannelRecoveryDeps): Promise<Cha
     // future invite).
     const erroredDeliveryIds = new Set<string>()
     for (const entry of entries) {
+      const existingSeq = existingRestartLossByDelivery.get(entry.deliveryId)
+      if (existingSeq !== undefined) {
+        // Idempotency guard fired — record the existing seq, no append.
+        restartLosses.push({
+          channelId,
+          erroredSeq: existingSeq,
+          permissionRequestId: entry.permissionRequestId,
+          turnId,
+        })
+        erroredDeliveryIds.add(entry.deliveryId)
+        continue
+      }
+
       const seq = deps.seqAllocator.next({channelId, turnId})
       const event: TurnEvent = {
         channelId,
         deliveryId: entry.deliveryId,
         emittedAt: deps.clock().toISOString(),
-        error: 'permission state lost on daemon restart',
+        error: RESTART_LOSS_ERROR_TEXT,
         from: 'awaiting_permission',
         kind: 'delivery_state_change',
         memberHandle: entry.memberHandle,
@@ -121,6 +172,12 @@ export const runChannelRecovery = async (deps: ChannelRecoveryDeps): Promise<Cha
         // durably persisted on disk.
       }
 
+      restartLosses.push({
+        channelId,
+        erroredSeq: seq,
+        permissionRequestId: entry.permissionRequestId,
+        turnId,
+      })
       erroredDeliveryIds.add(entry.deliveryId)
       recoveredDeliveries += 1
     }
@@ -174,5 +231,5 @@ export const runChannelRecovery = async (deps: ChannelRecoveryDeps): Promise<Cha
   }
 
   await deps.brokerPersistence.truncate()
-  return {finalisedTurns, recoveredDeliveries}
+  return {finalisedTurns, recoveredDeliveries, restartLosses}
 }

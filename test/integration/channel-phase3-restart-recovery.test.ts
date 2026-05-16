@@ -72,4 +72,44 @@ describe('Channel Phase 3 — restart recovery', () => {
     expect(completedTurn, 'recovery must finalise the turn → completed').to.not.equal(undefined)
     expect(completedTurn!.seq).to.be.greaterThan(erroredDelivery!.seq)
   })
+
+  // Slice 8.10 — V3 reproducer: when the daemon restarts mid-permission and
+  // the user then approves, the new daemon must surface
+  // `CHANNEL_PERMISSION_LOST_ON_RESTART` (not the misleading
+  // `CHANNEL_TURN_NOT_FOUND`) and embed an exclusive `--after-seq` recovery
+  // cursor that points at the daemon-written `errored` event.
+  // See plan/channel-protocol/IMPLEMENTATION_PHASE_8_FOLLOWUPS.md §"Slice 8.10".
+  it('returns CHANNEL_PERMISSION_LOST_ON_RESTART when approve fires after a daemon restart killed the ACP session (Slice 8.10)', async () => {
+    await harness.run(`channel onboard mock -- node ${FIXTURE_PERM}`)
+    await harness.run('channel new pi-test')
+    await harness.run('channel invite pi-test @mock --profile mock')
+
+    const mention = await harness.run('channel mention pi-test "@mock please write" --no-wait --json')
+    expect(mention.exitCode, mention.stderr).to.equal(0)
+    const accepted = parseJson<{turn: {turnId: string}}>(mention.stdout)
+    const {turnId} = accepted.turn
+
+    const permRequest = await harness.pollForEvent(
+      'pi-test',
+      turnId,
+      (e) => e.kind === 'permission_request',
+    )
+    const {permissionRequestId} = (permRequest as TurnEvent & {kind: 'permission_request'; permissionRequestId: string})
+
+    // Kill mid-permission so the orphan registry seeds at next boot.
+    await harness.restart()
+
+    // First call after restart spawns the fresh daemon; recovery runs and
+    // seeds the orphan registry before the Socket.IO port opens.
+    await harness.run('channel get pi-test --json')
+
+    // Now approve. The orchestrator's activeTurns is empty (lost on restart),
+    // but the orphan registry has an entry → we get the new code, not the old.
+    const approve = await harness.run(`channel approve pi-test ${turnId} ${permissionRequestId} --json`)
+    expect(approve.exitCode, approve.stdout + '\n' + approve.stderr).to.not.equal(0)
+    const stdout = approve.stdout + approve.stderr
+    expect(stdout, 'expected CHANNEL_PERMISSION_LOST_ON_RESTART in approve output').to.match(/CHANNEL_PERMISSION_LOST_ON_RESTART/)
+    expect(stdout, 'expected re-invite hint').to.match(/re-invite/i)
+    expect(stdout, 'expected --after-seq cursor in the human message').to.match(/--after-seq \d+/)
+  })
 })

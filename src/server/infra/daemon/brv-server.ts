@@ -805,7 +805,7 @@ async function main(): Promise<void> {
     // failure here logs but does not block bootstrap.
     if (channelsEnabled()) {
       try {
-        await runChannelRecovery({
+        const recoverySummary = await runChannelRecovery({
           broadcaster: channelBroadcaster,
           brokerPersistence: channelBrokerPersistence,
           clock: () => new Date(),
@@ -814,6 +814,13 @@ async function main(): Promise<void> {
           store: channelStore,
           treeReader: channelTreeReader,
         })
+        // Slice 8.10: seed the orphan-permission registry so
+        // `permissionDecision()` surfaces CHANNEL_PERMISSION_LOST_ON_RESTART
+        // instead of the misleading CHANNEL_TURN_NOT_FOUND when the user
+        // approves a permission whose ACP subprocess died with the daemon.
+        // V3 super-mario reproducer (2026-05-16). Empty list is a no-op so
+        // we don't gate on length — keeps main()'s cyclomatic budget intact.
+        channelOrchestrator.seedRestartLosses(recoverySummary.restartLosses)
       } catch (error) {
         log(`channel-recovery error (continuing): ${error instanceof Error ? error.message : String(error)}`)
       }

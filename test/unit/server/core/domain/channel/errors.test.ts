@@ -8,6 +8,7 @@ import {
   ChannelInvalidCursorError,
   ChannelInvalidRequestError,
   ChannelNotFoundError,
+  ChannelPermissionLostOnRestartError,
   ChannelPromptEmptyError,
   ChannelTurnNotFoundError,
   ChannelUnauthorizedError,
@@ -93,5 +94,59 @@ describe('ChannelError hierarchy (Slice 1.3 / Phase 1)', () => {
     expect(new ChannelInvalidCursorError('x')).to.be.instanceOf(ChannelError)
     expect(new ChannelPromptEmptyError()).to.be.instanceOf(ChannelError)
     expect(new ChannelTurnNotFoundError('x', 'y')).to.be.instanceOf(ChannelError)
+  })
+})
+
+// Slice 8.10 — daemon-restart permission recovery. When the brv daemon
+// restarts mid-turn with a delivery in `awaiting_permission`, the ACP
+// subprocess dies and the in-memory `activeTurns` Map is lost. The
+// approve path should distinguish this case from a true "turn never existed"
+// lookup miss so the host LLM can recover via the Slice 8.9 cursor flow.
+// See plan/channel-protocol/IMPLEMENTATION_PHASE_8_FOLLOWUPS.md §"Slice 8.10".
+// eslint-disable-next-line mocha/max-top-level-suites
+describe('ChannelPermissionLostOnRestartError (Slice 8.10)', () => {
+  it('exposes the new wire code CHANNEL_PERMISSION_LOST_ON_RESTART', () => {
+    expect(CHANNEL_ERROR_CODE.PERMISSION_LOST_ON_RESTART).to.equal('CHANNEL_PERMISSION_LOST_ON_RESTART')
+  })
+
+  it('binds (channelId, turnId, permissionRequestId, erroredSeq) on the error', () => {
+    const err = new ChannelPermissionLostOnRestartError('pubsub-review', 'turn-xyz', 'perm-abc', 7)
+    expect(err.code).to.equal('CHANNEL_PERMISSION_LOST_ON_RESTART')
+    expect(err.channelId).to.equal('pubsub-review')
+    expect(err.turnId).to.equal('turn-xyz')
+    expect(err.permissionRequestId).to.equal('perm-abc')
+    expect(err.erroredSeq).to.equal(7)
+    expect(err).to.be.instanceOf(ChannelError)
+    expect(err.name).to.equal('ChannelPermissionLostOnRestartError')
+  })
+
+  it('embeds the exclusive --after-seq recovery cursor in the human message (codex Q6 cursor fix)', () => {
+    // `subscribe --after-seq` is exclusive (event.seq > afterSeq). To replay
+    // the just-emitted errored event at seq=N, the user passes --after-seq N-1.
+    const err = new ChannelPermissionLostOnRestartError('ch', 'turn-1', 'perm-1', 7)
+    expect(err.message).to.match(/--after-seq 6\b/)
+    expect(err.message).to.include('turn-1')
+  })
+
+  it('interpolates channelId into the recovery-cursor command (codex impl-review fix: was previously a literal "<channelId>" placeholder)', () => {
+    const err = new ChannelPermissionLostOnRestartError('my-channel', 'turn-1', 'perm-1', 7)
+    expect(err.message).to.match(/brv channel subscribe my-channel /)
+    expect(err.message).to.not.match(/<channelId>/)
+  })
+
+  it('tells the host to re-invite AND re-mention (codex Q5: not retry, re-invite needed)', () => {
+    const err = new ChannelPermissionLostOnRestartError('ch', 'turn-1', 'perm-1', 5)
+    expect(err.message).to.match(/re-invite/i)
+    expect(err.message).to.match(/re-mention/i)
+  })
+
+  it('exposes the structured details payload for transport serialisation', () => {
+    const err = new ChannelPermissionLostOnRestartError('ch', 'turn-1', 'perm-1', 5)
+    expect(err.details).to.deep.equal({
+      channelId: 'ch',
+      erroredSeq: 5,
+      permissionRequestId: 'perm-1',
+      turnId: 'turn-1',
+    })
   })
 })

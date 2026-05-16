@@ -47,12 +47,14 @@ import {
   ChannelInvalidRequestError,
   ChannelMentionEmptyError,
   ChannelNotFoundError,
+  ChannelPermissionLostOnRestartError,
   ChannelSyncOverflowError,
   ChannelSyncTimeoutError,
   ChannelTurnCancelledError,
   ChannelTurnNotFoundError,
 } from '../../core/domain/channel/errors.js'
 import {assertLegalTurnTransition} from '../../core/domain/channel/turn-state-machine.js'
+import {type RestartLossRecord} from './channel-recovery.js'
 import {CancelCoordinator, type CancelDeliveryRef} from './drivers/cancel-coordinator.js'
 import {IPermissionBroker} from './drivers/permission-broker.js'
 import {buildLookback} from './lookback-builder.js'
@@ -199,6 +201,14 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
   private readonly permissionBroker: IPermissionBroker
   private readonly pool: IAcpDriverPool
   private readonly profileStore: IDriverProfileStore | undefined
+  // Slice 8.10 — orphan registry for in-flight permissions lost on daemon
+  // restart. Populated once at daemon startup via `seedRestartLosses()` from
+  // `runChannelRecovery()` results. Consulted by `permissionDecision()` when
+  // `activeTurns.get()` misses so we surface CHANNEL_PERMISSION_LOST_ON_RESTART
+  // (with a Slice-8.9 cursor) instead of the misleading CHANNEL_TURN_NOT_FOUND.
+  // Keyed by permissionRequestId per codex Q6 — a single turn can host
+  // multiple orphaned permissions, one per delivery.
+  private readonly restartLosses = new Map<string, RestartLossRecord>()
   private readonly seqAllocator: ITurnSequenceAllocator
   private readonly store: IChannelStore
 
@@ -303,8 +313,6 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
     return {deliveries: active.deliveries, turn: active.turn}
   }
 
-  // ─── Phase-2 dispatch ─────────────────────────────────────────────────
-
   async createChannel(args: CreateChannelArgs): Promise<Channel> {
     const now = this.clock().toISOString()
     const channelId = args.channelId ?? this.idGenerator()
@@ -335,6 +343,8 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
 
     return channel
   }
+
+  // ─── Phase-2 dispatch ─────────────────────────────────────────────────
 
   async dispatchMention(args: DispatchMentionArgs): Promise<DispatchMentionResult> {
     const meta = await this.store.readChannelMeta({
@@ -513,8 +523,6 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
     }
   }
 
-  // ─── Phase-2 invite/uninvite ──────────────────────────────────────────
-
   async getChannel(args: GetChannelArgs): Promise<Channel> {
     const channel = await this.store.readChannel({
       channelId: args.channelId,
@@ -523,6 +531,8 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
     if (channel === undefined) throw new ChannelNotFoundError(args.channelId)
     return channel
   }
+
+  // ─── Phase-2 invite/uninvite ──────────────────────────────────────────
 
   async getTurn(args: GetTurnArgs): Promise<GetTurnResult> {
     const channel = await this.store.readChannel({
@@ -633,14 +643,14 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
     return member
   }
 
-  // ─── Phase-2 permission decision ──────────────────────────────────────
-
   async listChannels(args: ListChannelsArgs): Promise<Channel[]> {
     return this.store.listChannels({
       includeArchived: args.archived === true,
       projectRoot: args.projectRoot,
     })
   }
+
+  // ─── Phase-2 permission decision ──────────────────────────────────────
 
   async listTurns(args: ListTurnsArgs): Promise<ListTurnsResult> {
     const channel = await this.store.readChannel({
@@ -662,6 +672,22 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
   async permissionDecision(args: PermissionDecisionArgs): Promise<TurnEvent> {
     const active = this.activeTurns.get(args.turnId)
     if (active === undefined || active.channelId !== args.channelId) {
+      // Slice 8.10 — when the daemon restarted while this delivery was in
+      // `awaiting_permission`, the in-memory activeTurns entry is gone but
+      // the orphan registry (seeded at startup from runChannelRecovery)
+      // remembers the loss. Surface a precise error so the host LLM knows
+      // (a) the ACP session can't be resumed and (b) where to pick up via
+      // the Slice-8.9 subscribe cursor.
+      const lost = this.restartLosses.get(args.permissionRequestId)
+      if (lost !== undefined && lost.channelId === args.channelId && lost.turnId === args.turnId) {
+        throw new ChannelPermissionLostOnRestartError(
+          lost.channelId,
+          lost.turnId,
+          lost.permissionRequestId,
+          lost.erroredSeq,
+        )
+      }
+
       throw new ChannelTurnNotFoundError(args.channelId, args.turnId)
     }
 
@@ -709,8 +735,6 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
 
     return decisionEvent
   }
-
-  // ─── private helpers ──────────────────────────────────────────────────
 
   async postTurn(args: PostTurnArgs): Promise<Turn> {
     const channel = await this.store.readChannel({
@@ -772,6 +796,19 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
     })
 
     return turn
+  }
+
+  // ─── private helpers ──────────────────────────────────────────────────
+
+  // ─── Slice 8.10 — orphan-permission registry ────────────────────────
+  // Called once at daemon startup from brv-server.ts after
+  // `runChannelRecovery()` resolves. Subsequent calls overwrite per
+  // permissionRequestId — the V3 reproducer can recur if the daemon
+  // restarts a second time, so we accept re-seeding.
+  public seedRestartLosses(records: readonly RestartLossRecord[]): void {
+    for (const record of records) {
+      this.restartLosses.set(record.permissionRequestId, record)
+    }
   }
 
   async uninviteMember(args: UninviteMemberArgs): Promise<ChannelMember> {

@@ -49,6 +49,11 @@ export const CHANNEL_ERROR_CODE = {
   MENTION_RESERVED: 'CHANNEL_MENTION_RESERVED',
   NOT_FOUND: 'CHANNEL_NOT_FOUND',
   PERMISSION_ALREADY_RESOLVED: 'CHANNEL_PERMISSION_ALREADY_RESOLVED',
+  // Slice 8.10 — daemon restarted while a delivery was awaiting_permission.
+  // The ACP subprocess is dead so the user's choice cannot be forwarded;
+  // surface this distinctly from CHANNEL_TURN_NOT_FOUND so the host LLM
+  // doesn't loop on retry. V3 super-mario reproducer (2026-05-16).
+  PERMISSION_LOST_ON_RESTART: 'CHANNEL_PERMISSION_LOST_ON_RESTART',
   PERMISSION_NOT_FOUND: 'CHANNEL_PERMISSION_NOT_FOUND',
   PROFILE_NOT_FOUND: 'CHANNEL_PROFILE_NOT_FOUND',
   PROMPT_EMPTY: 'CHANNEL_PROMPT_EMPTY',
@@ -154,6 +159,40 @@ export class ChannelTurnNotFoundError extends ChannelError {
     this.name = 'ChannelTurnNotFoundError'
     this.channelId = channelId
     this.turnId = turnId
+  }
+}
+
+// Slice 8.10 — daemon restarted mid-turn while a delivery was in
+// `awaiting_permission`. The ACP subprocess is dead so the user's choice
+// cannot be forwarded to the agent. This error tells the host LLM not to
+// retry the approve, and gives a Slice-8.9 `subscribe --after-seq` cursor
+// to pick up the daemon-written `errored` event. erroredSeq is the seq of
+// the errored event itself; the message embeds `--after-seq <erroredSeq - 1>`
+// because subscribe's --after-seq is exclusive (codex impl-review-2 Q6).
+export class ChannelPermissionLostOnRestartError extends ChannelError {
+  public readonly channelId: string
+  public readonly erroredSeq: number
+  public readonly permissionRequestId: string
+  public readonly turnId: string
+
+  public constructor(
+    channelId: string,
+    turnId: string,
+    permissionRequestId: string,
+    erroredSeq: number,
+  ) {
+    super(
+      `Permission ${permissionRequestId} on turn ${turnId} was lost during a daemon restart; ` +
+        `the ACP session cannot be resumed. Re-invite the member and re-mention. ` +
+        `Recovery cursor: brv channel subscribe ${channelId} --turn ${turnId} --after-seq ${erroredSeq - 1}`,
+      CHANNEL_ERROR_CODE.PERMISSION_LOST_ON_RESTART,
+      {channelId, erroredSeq, permissionRequestId, turnId},
+    )
+    this.name = 'ChannelPermissionLostOnRestartError'
+    this.channelId = channelId
+    this.turnId = turnId
+    this.permissionRequestId = permissionRequestId
+    this.erroredSeq = erroredSeq
   }
 }
 
