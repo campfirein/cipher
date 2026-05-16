@@ -31,6 +31,13 @@ describe('ChannelError hierarchy (Slice 1.3 / Phase 1)', () => {
     expect(CHANNEL_ERROR_CODE.TURN_NOT_FOUND).to.equal('CHANNEL_TURN_NOT_FOUND')
   })
 
+  it('exports CHANNEL_DRIVER_NOT_REGISTERED (Slice 8.11 Layer 1)', () => {
+    // V3 super-mario retest documented `unknown` as the surfaced reason on
+    // pool.acquire() miss. Slice 8.11 Layer 1 adds a precise wire code so
+    // host LLMs can detect the failure and re-invite before retrying.
+    expect(CHANNEL_ERROR_CODE.DRIVER_NOT_REGISTERED).to.equal('CHANNEL_DRIVER_NOT_REGISTERED')
+  })
+
   it('ChannelUnauthorizedError exposes the canonical wire code', () => {
     const err = new ChannelUnauthorizedError('missing token')
     expect(err).to.be.instanceOf(ChannelError)

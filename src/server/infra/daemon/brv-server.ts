@@ -28,7 +28,7 @@ import {nanoid} from 'nanoid'
 import {fork, type StdioOptions} from 'node:child_process'
 import {randomUUID} from 'node:crypto'
 import {mkdirSync, readdirSync, readFileSync, unlinkSync} from 'node:fs'
-import {dirname, join} from 'node:path'
+import {dirname, join, resolve} from 'node:path'
 import {fileURLToPath} from 'node:url'
 
 import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
@@ -824,6 +824,27 @@ async function main(): Promise<void> {
       } catch (error) {
         log(`channel-recovery error (continuing): ${error instanceof Error ? error.message : String(error)}`)
       }
+
+      // Slice 8.11 Layer 2: warm ACP drivers for a project's channels on the
+      // first Socket.IO connection from that cwd. Set is in-memory, rebuilt
+      // each daemon lifetime so a restart triggers fresh warm on first request.
+      // Fire-and-forget — Layer 1 (CHANNEL_DRIVER_NOT_REGISTERED) catches the
+      // race window where a mention arrives before spawn completes.
+      // V3 super-mario reproducer (2026-05-16 §"Driver reinvite needed").
+      const warmedProjects = new Set<string>()
+      transportServer.onConnection((_clientId, metadata) => {
+        const rawCwd = metadata.cwd
+        if (rawCwd === undefined || rawCwd === '') return
+        // Codex Q3: canonicalize via path.resolve so trailing slashes,
+        // `.`, `..`, and equivalent forms don't trigger duplicate warms
+        // for the same project from the same daemon lifetime.
+        const cwd = resolve(rawCwd)
+        if (warmedProjects.has(cwd)) return
+        warmedProjects.add(cwd)
+        channelOrchestrator.warmDriversForProject(cwd).catch((error: unknown) => {
+          log(`channel-warm error for ${cwd} (continuing): ${error instanceof Error ? error.message : String(error)}`)
+        })
+      })
     }
 
     // Slice 3.5b: gate the FULL handler registration on

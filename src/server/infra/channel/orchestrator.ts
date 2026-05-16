@@ -1,3 +1,5 @@
+import {promises as fs} from 'node:fs'
+
 import type {
   AgentDriverProfileInvocation,
   Channel,
@@ -40,6 +42,7 @@ import {ChannelEvents} from '../../../shared/transport/events/channel-events.js'
 import {
   AcpPromptFailedError,
   AgentDriverProfileNotFoundError,
+  CHANNEL_ERROR_CODE,
   ChannelAlreadyExistsError,
   ChannelArchivedError,
   ChannelDaemonShutdownError,
@@ -61,6 +64,7 @@ import {buildLookback} from './lookback-builder.js'
 import {resolveMentions} from './member-resolver.js'
 import {parseMentions} from './mention-parser.js'
 import {normalisePrompt} from './prompt-normaliser.js'
+import {channelPaths} from './storage/paths.js'
 
 /**
  * Channel orchestrator (Phase 1 lifecycle + Phase 2 active dispatch).
@@ -211,6 +215,10 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
   private readonly restartLosses = new Map<string, RestartLossRecord>()
   private readonly seqAllocator: ITurnSequenceAllocator
   private readonly store: IChannelStore
+  // Slice 8.11 Layer 2 — per-key (channelId\0memberHandle) in-flight spawn
+  // tracker so concurrent warm + inviteMember don't double-spawn the same
+  // ACP subprocess. Codex Q6.
+  private readonly warmInFlight = new Map<string, Promise<void>>()
 
   public constructor(deps: ChannelOrchestratorDeps) {
     this.broadcaster = deps.broadcaster
@@ -856,6 +864,48 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
     return existing
   }
 
+  // ─── Slice 8.11 Layer 2 — driver auto-warm ──────────────────────────
+  // Called on the first client connection per (project, daemon-lifetime)
+  // from brv-server.ts. Reads each channel's meta.json and spawns ACP
+  // drivers for every acp-agent member not already in the pool.
+  // Codex Q6 invariants: per-key in-flight guard prevents double-spawn
+  // when warm + inviteMember race; post-spawn re-check ensures we don't
+  // register a driver for a now-archived channel or now-removed member.
+  // V3 reproducer (2026-05-16, line 91: "Driver reinvite needed before
+  // every phase") — this method eliminates the workaround.
+  public async warmDriversForProject(projectRoot: string): Promise<void> {
+    // Defensive against pre-existing strict-validation bug in `tryReadMeta`
+    // (channel-store.ts re-throws Zod parse errors). `listChannels` would
+    // fail-the-whole-call on a single legacy/malformed meta.json, blocking
+    // warm for every valid channel in the same project. We bypass it: read
+    // the channel directory directly, then try-read each meta with per-
+    // channel error handling. One bad meta logs + skips, others warm.
+    // The underlying listChannels tolerance bug is tracked as a follow-up.
+    const channelsRoot = channelPaths.channelsRoot(projectRoot)
+    let entries: string[]
+    try {
+      entries = await fs.readdir(channelsRoot)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
+      // Best-effort: log via stdout (orchestrator has no logger by design;
+      // brv-server's .catch() also logs the rejection).
+      throw error
+    }
+
+    await Promise.allSettled(
+      entries.map(async (channelId) => {
+        const meta = await this.store.readChannelMeta({channelId, projectRoot}).catch(() => null)
+        if (meta === null || meta === undefined) return
+        if (meta.archivedAt !== undefined) return
+        await Promise.allSettled(
+          meta.members
+            .filter((m): m is ChannelMemberAcpAgent => m.memberKind === 'acp-agent')
+            .map((m) => this.warmOneDriver(meta.channelId, projectRoot, m)),
+        )
+      }),
+    )
+  }
+
   /**
    * Concatenate per-member chunks into a single `finalAnswer`. For a
    * single member, no separator. For fan-out (>= 2 members), prefix each
@@ -910,8 +960,6 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
     // tail (last N), so reverse to oldest-first.
     return out.reverse()
   }
-
-  // ─── Slice 8.0 — sync-mode pending-entry lifecycle ──────────────────────
 
   private async finaliseTurn(active: ActiveTurn): Promise<void> {
     // Idempotency guard: cancelTurn and the background streaming task can
@@ -980,6 +1028,8 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
 
     this.seqAllocator.reset({channelId: active.channelId, turnId: active.turn.turnId})
   }
+
+  // ─── Slice 8.0 — sync-mode pending-entry lifecycle ──────────────────────
 
   private async handleDriverPayload(
     active: ActiveTurn,
@@ -1271,7 +1321,31 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
 
     const driver = this.pool.acquire({channelId, memberHandle: member.handle})
     if (driver === undefined) {
+      // Slice 8.11 Layer 1: surface CHANNEL_DRIVER_NOT_REGISTERED instead of
+      // the misleading `'unknown'` (errors.ts fallback). Populate
+      // delivery.errorCode/Message AND emit a delivery_state_change → errored
+      // event so subscribe/watch hosts see the transition (codex Q6).
+      // V3 super-mario reproducer (2026-05-16, line 91).
+      const from = delivery.state
+      delivery.errorCode = CHANNEL_ERROR_CODE.DRIVER_NOT_REGISTERED
+      delivery.errorMessage =
+        `No live ACP driver registered for ${member.handle} in channel #${channelId}. ` +
+        `Daemon may have restarted before warmDriversForProject fired. ` +
+        `Re-invite the member: brv channel invite ${channelId} ${member.handle} --profile <name>`
       delivery.state = 'errored'
+      await this.persistAndBroadcast(channelId, projectRoot, turnId, {
+        channelId,
+        deliveryId: delivery.deliveryId,
+        emittedAt: this.clock().toISOString(),
+        error: delivery.errorMessage,
+        errorCode: delivery.errorCode,
+        from,
+        kind: 'delivery_state_change',
+        memberHandle: member.handle,
+        seq: this.seqAllocator.next({channelId, turnId}),
+        to: 'errored',
+        turnId,
+      })
       // Don't tear down the whole turn — other deliveries may still be running.
       await this.maybeFinaliseTurn(active)
       return
@@ -1409,6 +1483,51 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
       toolCalls,
       turnId: entry.turnId,
     })
+  }
+
+  // Per-key in-flight guard: dedupe concurrent warms for the same
+  // (channelId, memberHandle). Returns the shared promise if one is in
+  // flight, otherwise starts a new spawn and tracks it.
+  private warmOneDriver(channelId: string, projectRoot: string, member: ChannelMemberAcpAgent): Promise<void> {
+    if (this.pool.acquire({channelId, memberHandle: member.handle}) !== undefined) {
+      return Promise.resolve()
+    }
+
+    const key = `${channelId}\0${member.handle}`
+    const existing = this.warmInFlight.get(key)
+    if (existing !== undefined) return existing
+
+    const promise = (async () => {
+      try {
+        const driver = this.driverFactory(member.invocation, member.handle)
+        await driver.start()
+
+        // Codex Q4 race re-check: meta may have changed during the ACP handshake
+        // (channel archived, member removed, etc). Re-read and validate before
+        // registering to prevent zombie drivers in archived channels.
+        const fresh = await this.store.readChannelMeta({channelId, projectRoot})
+        const stillValid =
+          fresh !== undefined &&
+          fresh.archivedAt === undefined &&
+          fresh.members.some((m) => m.handle === member.handle && m.memberKind === 'acp-agent')
+        if (!stillValid) {
+          await driver.stop()
+          return
+        }
+
+        // Concurrent inviteMember may have raced to register — final check.
+        if (this.pool.acquire({channelId, memberHandle: member.handle}) !== undefined) {
+          await driver.stop()
+          return
+        }
+
+        this.pool.register({channelId, driver})
+      } finally {
+        this.warmInFlight.delete(key)
+      }
+    })()
+    this.warmInFlight.set(key, promise)
+    return promise
   }
 
   private wrapPayload(args: {

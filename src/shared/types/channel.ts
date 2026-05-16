@@ -350,6 +350,12 @@ export const TurnEventSchema = z.discriminatedUnion('kind', [
     from: TurnDeliveryStateSchema,
     to: TurnDeliveryStateSchema,
     error: z.string().optional(),
+    // Slice 8.11 Layer 1 (codex Q6): canonical wire code for a terminal
+    // delivery transition, so hosts subscribed via subscribe/watch can
+    // programmatically detect failures (e.g. CHANNEL_DRIVER_NOT_REGISTERED)
+    // from the event itself, not just the `error` human-readable text.
+    // Backward-compatible because optional.
+    errorCode: z.string().optional(),
   }),
   z.object({
     ...TurnEventBaseShape,

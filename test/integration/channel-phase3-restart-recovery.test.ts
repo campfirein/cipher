@@ -112,4 +112,64 @@ describe('Channel Phase 3 — restart recovery', () => {
     expect(stdout, 'expected re-invite hint').to.match(/re-invite/i)
     expect(stdout, 'expected --after-seq cursor in the human message').to.match(/--after-seq \d+/)
   })
+
+  // Slice 8.11 — V3 reproducer line 91 ("Driver reinvite needed before every
+  // phase"): after a daemon restart, the orchestrator's in-memory pool is
+  // empty. Layer 1 surfaces CHANNEL_DRIVER_NOT_REGISTERED on the first
+  // mention's race window. Layer 2 (warmDriversForProject) spawns drivers
+  // from meta.json on first client connection per project. After the warm
+  // completes, subsequent mentions succeed WITHOUT explicit re-invite.
+  // See plan/channel-protocol/IMPLEMENTATION_PHASE_8_FOLLOWUPS.md §"Slice 8.11".
+  it('surfaces CHANNEL_DRIVER_NOT_REGISTERED on the first mention after restart (Slice 8.11 Layer 1 race)', async () => {
+    // Use the mock fixture WITHOUT permission — just a normal driver.
+    const FIXTURE = resolve(HERE, '..', 'fixtures', 'mock-acp.js')
+    await harness.run(`channel onboard mock -- node ${FIXTURE}`)
+    await harness.run('channel new pi-test')
+    await harness.run('channel invite pi-test @mock --profile mock')
+
+    // Sanity: first mention works (driver in pool).
+    const baseline = await harness.run('channel mention pi-test "@mock ping" --mode sync --suppress-thoughts --json --timeout 30000')
+    expect(baseline.exitCode, baseline.stderr).to.equal(0)
+
+    // Kill the daemon to drop the in-memory pool.
+    await harness.restart()
+
+    // First mention after restart RACES against Layer 2 warm.
+    // Whether it wins or loses, Layer 1 means the error is now informative.
+    const racy = await harness.run('channel mention pi-test "@mock ping again" --mode sync --suppress-thoughts --json --timeout 30000')
+
+    // Either the warm beat us (delivery succeeds) OR we beat the warm and
+    // get CHANNEL_DRIVER_NOT_REGISTERED — never the legacy `unknown` failure.
+    const combined = racy.stdout + racy.stderr
+    if (racy.exitCode === 0) {
+      // Warm beat us — delivery succeeded. Layer 2 fully covered the gap.
+      expect(combined).to.match(/finalAnswer/)
+    } else {
+      // Race: warm hadn't completed. Layer 1 must surface the canonical code.
+      expect(combined, 'first-mention race must surface CHANNEL_DRIVER_NOT_REGISTERED, never "unknown"').to.match(/CHANNEL_DRIVER_NOT_REGISTERED/)
+      expect(combined, 'Layer 1 hint must mention re-invite').to.match(/re-invite/i)
+      expect(combined, 'must NOT surface the legacy `unknown` reason').to.not.match(/"reason":\s*"unknown"|: unknown$/m)
+    }
+  })
+
+  it('Layer 2 warm: subsequent mention after warm completes succeeds without explicit re-invite (Slice 8.11)', async () => {
+    const FIXTURE = resolve(HERE, '..', 'fixtures', 'mock-acp.js')
+    await harness.run(`channel onboard mock -- node ${FIXTURE}`)
+    await harness.run('channel new pi-test')
+    await harness.run('channel invite pi-test @mock --profile mock')
+
+    await harness.restart()
+
+    // The first run triggers daemon spawn + warm. Give warm enough time.
+    // (mock-acp.js has fast initialize; a short delay is reliable.)
+    await harness.run('channel list --json')
+    await new Promise((r) => {
+      setTimeout(r, 1500)
+    })
+
+    // Mention WITHOUT calling invite — Layer 2 should have warmed the driver.
+    const after = await harness.run('channel mention pi-test "@mock no-reinvite-test" --mode sync --suppress-thoughts --json --timeout 30000')
+    expect(after.exitCode, `post-warm mention should succeed without re-invite; stdout=${after.stdout}, stderr=${after.stderr}`).to.equal(0)
+    expect(after.stdout, 'expected finalAnswer from mock driver').to.match(/finalAnswer/)
+  })
 })

@@ -39,6 +39,12 @@ export const CHANNEL_ERROR_CODE = {
   DELIVERY_FAILED: 'CHANNEL_DELIVERY_FAILED',
   DELIVERY_NOT_FOUND: 'CHANNEL_DELIVERY_NOT_FOUND',
   DISABLED: 'CHANNEL_DISABLED',
+  // Slice 8.11 Layer 1 — pool.acquire() returned undefined because no ACP
+  // driver is registered for this (channelId, memberHandle). Usually means
+  // the daemon restarted and warmDriversForProject (Layer 2) hasn't fired
+  // yet, or the driver crashed earlier and was never re-registered. Host
+  // should re-invite the member. V3 super-mario reproducer (2026-05-16).
+  DRIVER_NOT_REGISTERED: 'CHANNEL_DRIVER_NOT_REGISTERED',
   INVALID_CURSOR: 'CHANNEL_INVALID_CURSOR',
   INVALID_REQUEST: 'CHANNEL_INVALID_REQUEST',
   // Review fix #14: §11 codes for member liveness signals.
