@@ -68,6 +68,7 @@ import {ChannelOnboardService} from '../channel/onboard-service.js'
 import {ChannelOrchestrator} from '../channel/orchestrator.js'
 import {FileProfileMetadataStore} from '../channel/profile-metadata-store.js'
 import {ChannelEventsWriter} from '../channel/storage/events-writer.js'
+import {ChannelTurnIndexStore} from '../channel/storage/index-store.js'
 import {ChannelSnapshotWriter} from '../channel/storage/snapshot-writer.js'
 import {ChannelTreeReader} from '../channel/storage/tree-reader.js'
 import {TurnSequenceAllocator} from '../channel/storage/turn-sequence-allocator.js'
@@ -735,8 +736,13 @@ async function main(): Promise<void> {
     // lastSeqByTurn and walk events.jsonl via the tree reader.
     const channelEventsWriter = new ChannelEventsWriter({serializer: channelWriteSerializer})
     const channelTreeReader = new ChannelTreeReader()
+    // Slice 9.3 — per-channel materialised index for fast list-turns +
+    // lookback. Shares the serializer so concurrent index appends from
+    // multiple terminal turns on the same channel don't tear the JSONL.
+    const channelIndexStore = new ChannelTurnIndexStore({serializer: channelWriteSerializer})
     const channelStore = new ChannelStore({
       eventsWriter: channelEventsWriter,
+      indexStore: channelIndexStore,
       // Slice 9.2: snapshot-writer routes structural lines through the
       // events-writer's held per-turn stream + per-turn lock so terminal
       // writes never tear concurrent in-flight event appends and we
@@ -828,6 +834,12 @@ async function main(): Promise<void> {
       } catch (error) {
         log(`channel-recovery error (continuing): ${error instanceof Error ? error.message : String(error)}`)
       }
+      // Note: Slice 9.3 index 2PC-gap recovery is triggered lazily from
+      // `ChannelStore.listTurns` on first access per channel, not at
+      // daemon startup. Eager startup recovery requires a list of
+      // project roots that have ever used channels — discovery is
+      // bigger than Phase 9; lazy recovery covers correctness with no
+      // bootstrap-time cost.
 
       // Slice 8.11 Layer 2: warm ACP drivers for a project's channels on the
       // first Socket.IO connection from that cwd. Set is in-memory, rebuilt

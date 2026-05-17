@@ -1,14 +1,16 @@
 import {createHash} from 'node:crypto'
 
-import type {ContentBlock, Turn, TurnEvent} from '../../../shared/types/channel.js'
+import type {ContentBlock, Turn} from '../../../shared/types/channel.js'
 
 /**
  * Capability-gated lookback rendering (CHANNEL_PROTOCOL.md §5.2,
  * DESIGN.md §4.3).
  *
  * Inputs:
- *   - `priorTurns` — the most recent turns (and their replayed events) to
- *     fold into the lookback transcript.
+ *   - `priorTurns` — the most recent finished turns to fold into the
+ *     lookback transcript. Slice 9.3 — orchestrator now hands in a
+ *     `Turn[]` from the per-channel materialised index, so the
+ *     lookback path opens zero per-turn NDJSON files.
  *   - `capabilities` — strings derived from the agent's
  *     `agentCapabilities.promptCapabilities` (e.g. `'embeddedContext'`).
  *   - `normalisedPromptBlocks` — the §8.4-normalised prompt blocks the
@@ -34,7 +36,7 @@ export type LookbackBuilderArgs = {
   capabilities: string[]
   channelId: string
   normalisedPromptBlocks: ContentBlock[]
-  priorTurns: Array<{events: TurnEvent[]; turn: Turn}>
+  priorTurns: Turn[]
 }
 
 export type LookbackBuilderResult = {
@@ -46,11 +48,23 @@ export type LookbackBuilderResult = {
 const truncate = (s: string, max: number): string =>
   s.length <= max ? s : `${s.slice(0, max)}… (truncated)`
 
-const renderTurn = (entry: {events: TurnEvent[]; turn: Turn}): string => {
-  const headerAuthor = entry.turn.author.handle
-  const messageEvents = entry.events.filter((e): e is Extract<TurnEvent, {kind: 'message'}> => e.kind === 'message')
-  const messageBody = messageEvents.map((m) => m.content).join('\n')
-  return `### Turn ${entry.turn.turnId} — ${headerAuthor}\n\n${truncate(messageBody, MAX_BODY_CHARS)}`
+const extractBlockText = (block: ContentBlock): string => {
+  if (block.type === 'text') return block.text
+  if (block.type === 'resource') {
+    const {text} = (block.resource as {text?: unknown})
+    return typeof text === 'string' ? text : ''
+  }
+
+  return ''
+}
+
+const renderTurn = (turn: Turn): string => {
+  const headerAuthor = turn.author.handle
+  const body = turn.promptBlocks
+    .map((b) => extractBlockText(b))
+    .filter((s) => s.length > 0)
+    .join('\n')
+  return `### Turn ${turn.turnId} — ${headerAuthor}\n\n${truncate(body, MAX_BODY_CHARS)}`
 }
 
 export const buildLookback = (args: LookbackBuilderArgs): LookbackBuilderResult => {

@@ -108,8 +108,35 @@ export type ChannelStoreCloseTranscriptArgs = {
   readonly turnId: string
 }
 
+export type ChannelTurnIndexDeliverySummary = {
+  readonly deliveryId: string
+  readonly finalAnswer?: string
+  readonly memberHandle: string
+  readonly state: TurnDelivery['state']
+}
+
+export type ChannelTurnIndexEntry = {
+  readonly deliveries: ChannelTurnIndexDeliverySummary[]
+  readonly turn: Turn
+}
+
+export type ChannelStoreAppendTurnIndexArgs = {
+  readonly channelId: string
+  readonly entry: ChannelTurnIndexEntry
+  readonly projectRoot: string
+}
+
 export interface IChannelStore {
   appendTurnEvent(args: ChannelStoreAppendEventArgs): Promise<void>
+  /**
+   * Slice 9.3 — append a terminal-state materialised entry to the
+   * per-channel index. No-op when the index store is not wired (read-
+   * from-both migration window). The orchestrator calls this after
+   * writeTurnSnapshot / writeDeliverySnapshot at every terminal state
+   * so the next mention's list-turns + lookback paths skip per-turn
+   * NDJSON opens.
+   */
+  appendTurnIndexEntry(args: ChannelStoreAppendTurnIndexArgs): Promise<void>
   /**
    * Slice 9.2 — close the per-turn held-open write stream. Called by the
    * orchestrator at terminal state after writeTurnSnapshot and any

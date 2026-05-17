@@ -1,11 +1,14 @@
 import {expect} from 'chai'
 
-import type {ContentBlock, Turn, TurnEvent} from '../../../../../src/shared/types/channel.js'
+import type {ContentBlock, Turn} from '../../../../../src/shared/types/channel.js'
 
 import {buildLookback} from '../../../../../src/server/infra/channel/lookback-builder.js'
 
 // Slice 2.3 — capability-gated lookback per CHANNEL_PROTOCOL.md §5.2 and
-// IMPLEMENTATION_PHASE_2.md §Slice 2.3 §4.
+// IMPLEMENTATION_PHASE_2.md §Slice 2.3 §4. Slice 9.3 — priorTurns are
+// pulled from the per-channel index, so rendering reads from
+// `turn.promptBlocks` directly (no events replay; zero per-turn NDJSON
+// opens on the lookback hot path).
 //
 // Inputs: { channelId, capabilities, normalisedPromptBlocks, priorTurns }
 // Outputs: { blocks, digest, summary }
@@ -16,30 +19,15 @@ import {buildLookback} from '../../../../../src/server/infra/channel/lookback-bu
 //   - baseline → prepend a `text` block with `## brv channel lookback`
 //   - digest is sha256 hex of the rendered lookback bytes; empty when no block
 
-const fakeTurn = (turnId: string, content: string): {events: TurnEvent[]; turn: Turn} => ({
-  events: [
-    {
-      channelId: 'pi-test',
-      content,
-      deliveryId: null,
-      emittedAt: '2026-05-11T00:00:00.000Z',
-      kind: 'message',
-      memberHandle: null,
-      role: 'user',
-      seq: 0,
-      turnId,
-    } as TurnEvent,
-  ],
-  turn: {
-    author: {handle: 'you', kind: 'local-user'},
-    channelId: 'pi-test',
-    mentions: [],
-    promptBlocks: [{text: content, type: 'text'}],
-    promptedBy: 'user',
-    startedAt: '2026-05-11T00:00:00.000Z',
-    state: 'completed',
-    turnId,
-  },
+const fakeTurn = (turnId: string, content: string): Turn => ({
+  author: {handle: 'you', kind: 'local-user'},
+  channelId: 'pi-test',
+  mentions: [],
+  promptBlocks: [{text: content, type: 'text'}],
+  promptedBy: 'user',
+  startedAt: '2026-05-11T00:00:00.000Z',
+  state: 'completed',
+  turnId,
 })
 
 const userPromptBlocks: ContentBlock[] = [{text: '@mock hello', type: 'text'}]

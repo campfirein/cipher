@@ -22,6 +22,10 @@ import type {
 
 import {ChannelMetaSchema, TurnDeliverySchema} from '../../../shared/types/channel.js'
 import {ChannelEventsWriter} from './storage/events-writer.js'
+import {
+  type ChannelTurnIndexEntry,
+  ChannelTurnIndexStore,
+} from './storage/index-store.js'
 import {channelPaths} from './storage/paths.js'
 import {ChannelSnapshotWriter} from './storage/snapshot-writer.js'
 import {ChannelTreeReader} from './storage/tree-reader.js'
@@ -44,6 +48,12 @@ import {ChannelWriteSerializer} from './storage/write-serializer.js'
  */
 export type ChannelStoreDeps = {
   readonly eventsWriter: ChannelEventsWriter
+  /**
+   * Slice 9.3 — per-channel materialised view that powers fast list-turns
+   * and lookback. Optional during the read-from-both migration window;
+   * when omitted, list-turns falls back to the per-turn NDJSON scan.
+   */
+  readonly indexStore?: ChannelTurnIndexStore
   readonly snapshotWriter: ChannelSnapshotWriter
   readonly treeReader: ChannelTreeReader
   readonly writeSerializer: ChannelWriteSerializer
@@ -88,12 +98,14 @@ const tryReadMeta = async (path: string): Promise<ChannelMeta | undefined> => {
 
 export class ChannelStore implements IChannelStore {
   private readonly eventsWriter: ChannelEventsWriter
+  private readonly indexStore?: ChannelTurnIndexStore
   private readonly snapshotWriter: ChannelSnapshotWriter
   private readonly treeReader: ChannelTreeReader
   private readonly writeSerializer: ChannelWriteSerializer
 
   public constructor(deps: ChannelStoreDeps) {
     this.eventsWriter = deps.eventsWriter
+    this.indexStore = deps.indexStore
     this.snapshotWriter = deps.snapshotWriter
     this.treeReader = deps.treeReader
     this.writeSerializer = deps.writeSerializer
@@ -106,6 +118,20 @@ export class ChannelStore implements IChannelStore {
       projectRoot: args.projectRoot,
       turnId: args.turnId,
     })
+  }
+
+  /**
+   * Slice 9.3 — append a terminal-state entry to the per-channel
+   * index.jsonl. No-op when the index store has not been wired (read-from-
+   * both migration window).
+   */
+  async appendTurnIndexEntry(args: {
+    readonly channelId: string
+    readonly entry: ChannelTurnIndexEntry
+    readonly projectRoot: string
+  }): Promise<void> {
+    if (this.indexStore === undefined) return
+    await this.indexStore.appendEntry(args)
   }
 
   async closeTranscriptStream(args: ChannelStoreCloseTranscriptArgs): Promise<void> {
@@ -156,19 +182,41 @@ export class ChannelStore implements IChannelStore {
     // Slice 9.1 — union the new mount (.brv/channel-history/<ch>/turns/*.ndjson)
     // with the legacy mount (.brv/context-tree/channel/<ch>/turns/<turnId>/)
     // so existing pre-Phase-9 turns remain discoverable during the
-    // migration window. Dedup by turnId — tree-reader prefers the new
-    // mount when both exist, so the projection is consistent.
+    // migration window.
+    // Slice 9.3 — for terminal turns already in the index, the entry's
+    // materialised `turn` field is the projection (O(1) per turn, no
+    // per-turn NDJSON open). Index miss → fall back to per-turn
+    // `readTurn` (covers in-flight / recovery-pending turns + legacy).
     const turnIds = await this.enumerateTurnIds(args.projectRoot, args.channelId)
+    // Slice 9.3 — lazy 2PC-gap recovery (kimi defect): rebuild any
+    // index entries whose NDJSON is on disk but never made it into
+    // index.jsonl before a crash. Idempotent + cheap when the index is
+    // already complete.
+    const indexMap =
+      this.indexStore === undefined
+        ? new Map<string, ChannelTurnIndexEntry>()
+        : await (async () => {
+            await this.indexStore!.recoverFromNdjson({
+              channelId: args.channelId,
+              projectRoot: args.projectRoot,
+            })
+            return this.indexStore!.getEntries({
+              channelId: args.channelId,
+              projectRoot: args.projectRoot,
+            })
+          })()
 
     const records = (
       await Promise.all(
-        [...turnIds].map((turnId) =>
-          this.treeReader.readTurn({
+        [...turnIds].map(async (turnId) => {
+          const cached = indexMap.get(turnId)
+          if (cached !== undefined) return cached.turn
+          return this.treeReader.readTurn({
             channelId: args.channelId,
             projectRoot: args.projectRoot,
             turnId,
-          }),
-        ),
+          })
+        }),
       )
     ).filter((r): r is NonNullable<typeof r> => r !== undefined)
 

@@ -808,6 +808,15 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
     // mentions on the same channel.
     await this.store.closeTranscriptStream({channelId: args.channelId, turnId})
 
+    // Slice 9.3 — passive turns have no deliveries; the index entry
+    // surfaces them in `list-turns` without forcing a per-turn NDJSON
+    // read for metadata.
+    await this.store.appendTurnIndexEntry({
+      channelId: args.channelId,
+      entry: {deliveries: [], turn},
+      projectRoot: args.projectRoot,
+    })
+
     return turn
   }
 
@@ -951,14 +960,17 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
     channelId: string
     currentTurnId: string
     projectRoot: string
-  }): Promise<Array<{events: TurnEvent[]; turn: Turn}>> {
+  }): Promise<Turn[]> {
+    // Slice 9.3 — listTurns is index-backed for terminal turns; falls
+    // back to per-turn readTurn only for in-flight or legacy
+    // pre-Phase-9 turns. Lookback rendering uses `turn.promptBlocks`
+    // directly (see lookback-builder), so no events replay is needed
+    // and no per-turn NDJSON files are opened on this hot path.
     const list = await this.store.listTurns({channelId: args.channelId, projectRoot: args.projectRoot})
-    const out: Array<{events: TurnEvent[]; turn: Turn}> = []
+    const out: Turn[] = []
     for (const turn of list.turns) {
       if (turn.turnId === args.currentTurnId) continue
-      // eslint-disable-next-line no-await-in-loop
-      const full = await this.store.readTurn({channelId: args.channelId, projectRoot: args.projectRoot, turnId: turn.turnId})
-      if (full !== undefined) out.push({events: full.events, turn: full.turn})
+      out.push(turn)
     }
 
     // listTurns returns most-recent-first; the lookback builder takes the
@@ -1039,6 +1051,25 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
     await this.store.closeTranscriptStream({
       channelId: active.channelId,
       turnId: active.turn.turnId,
+    })
+
+    // Slice 9.3 — materialise this terminal turn into the per-channel
+    // index so the next mention's list-turns + lookback paths skip
+    // every per-turn NDJSON open. Kimi 2PC defect: a crash between
+    // the per-turn NDJSON snapshot writes above and this index append
+    // leaves the index stale; daemon startup's `recoverFromNdjson`
+    // sweep rebuilds missing entries from the on-disk NDJSON.
+    await this.store.appendTurnIndexEntry({
+      channelId: active.channelId,
+      entry: {
+        deliveries: active.deliveries.map((d) => ({
+          deliveryId: d.deliveryId,
+          memberHandle: d.memberHandle,
+          state: d.state,
+        })),
+        turn: active.turn,
+      },
+      projectRoot: active.projectRoot,
     })
 
     this.seqAllocator.reset({channelId: active.channelId, turnId: active.turn.turnId})
