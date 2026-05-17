@@ -35,7 +35,7 @@ describe('ChannelTreeReader (Slice 9.1 — read from both new + legacy)', () => 
     reader = new ChannelTreeReader()
     serializer = new ChannelWriteSerializer()
     eventsWriter = new ChannelEventsWriter({serializer})
-    snapshotWriter = new ChannelSnapshotWriter({serializer})
+    snapshotWriter = new ChannelSnapshotWriter({eventsWriter})
   })
 
   afterEach(async () => {

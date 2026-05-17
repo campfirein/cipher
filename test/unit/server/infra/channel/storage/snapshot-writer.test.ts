@@ -3,6 +3,7 @@ import {promises as fs} from 'node:fs'
 
 import type {Turn} from '../../../../../../src/shared/types/channel.js'
 
+import {ChannelEventsWriter} from '../../../../../../src/server/infra/channel/storage/events-writer.js'
 import {channelPaths} from '../../../../../../src/server/infra/channel/storage/paths.js'
 import {ChannelSnapshotWriter} from '../../../../../../src/server/infra/channel/storage/snapshot-writer.js'
 import {ChannelWriteSerializer} from '../../../../../../src/server/infra/channel/storage/write-serializer.js'
@@ -21,6 +22,7 @@ import {removeTempDir} from '../../../../../helpers/temp-dir.js'
 describe('ChannelSnapshotWriter (Slice 9.1 — NDJSON envelope)', () => {
   let projectRoot: string
   let writer: ChannelSnapshotWriter
+  let eventsWriter: ChannelEventsWriter
   const channelId = 'pi-test'
   const turnId = '01HX'
 
@@ -38,10 +40,14 @@ describe('ChannelSnapshotWriter (Slice 9.1 — NDJSON envelope)', () => {
 
   beforeEach(async () => {
     projectRoot = await makeTempContextTree()
-    writer = new ChannelSnapshotWriter({serializer: new ChannelWriteSerializer()})
+    // Slice 9.2: snapshot-writer routes structural lines through the
+    // events-writer's held per-turn stream + per-turn lock.
+    eventsWriter = new ChannelEventsWriter({serializer: new ChannelWriteSerializer()})
+    writer = new ChannelSnapshotWriter({eventsWriter})
   })
 
   afterEach(async () => {
+    await eventsWriter.closeAll()
     await removeTempDir(projectRoot)
   })
 

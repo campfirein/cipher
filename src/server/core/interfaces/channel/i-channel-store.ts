@@ -103,8 +103,20 @@ export type ChannelStoreReadDeliveriesArgs = {
   readonly turnId: string
 }
 
+export type ChannelStoreCloseTranscriptArgs = {
+  readonly channelId: string
+  readonly turnId: string
+}
+
 export interface IChannelStore {
   appendTurnEvent(args: ChannelStoreAppendEventArgs): Promise<void>
+  /**
+   * Slice 9.2 — close the per-turn held-open write stream. Called by the
+   * orchestrator at terminal state after writeTurnSnapshot and any
+   * writeDeliverySnapshot calls, so the underlying file descriptor is
+   * released. Idempotent: a no-op if no stream is open for the turn.
+   */
+  closeTranscriptStream(args: ChannelStoreCloseTranscriptArgs): Promise<void>
   createChannel(args: ChannelStoreCreateArgs): Promise<Channel>
   listChannels(args: ChannelStoreListArgs): Promise<Channel[]>
   listTurns(args: ChannelStoreListTurnsArgs): Promise<ChannelStoreListTurnsResult>

@@ -803,6 +803,11 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
       turnId,
     })
 
+    // Slice 9.2 — passive turns reach terminal state inline; close the
+    // held-open write stream so we don't leak a file descriptor between
+    // mentions on the same channel.
+    await this.store.closeTranscriptStream({channelId: args.channelId, turnId})
+
     return turn
   }
 
@@ -1025,6 +1030,16 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
         turnId: active.turn.turnId,
       })
     }
+
+    // Slice 9.2 — release the held-open write stream now that the turn
+    // has reached terminal state and the structural snapshot lines have
+    // been written. Subsequent reads come from the closed NDJSON file
+    // via the tree-reader's lazy open; the next mention to this channel
+    // opens a fresh stream for its own turnId.
+    await this.store.closeTranscriptStream({
+      channelId: active.channelId,
+      turnId: active.turn.turnId,
+    })
 
     this.seqAllocator.reset({channelId: active.channelId, turnId: active.turn.turnId})
   }

@@ -4,6 +4,7 @@ import {dirname, join} from 'node:path'
 import type {Channel, ChannelMeta, TurnDelivery} from '../../../shared/types/channel.js'
 import type {
   ChannelStoreAppendEventArgs,
+  ChannelStoreCloseTranscriptArgs,
   ChannelStoreCreateArgs,
   ChannelStoreListArgs,
   ChannelStoreListTurnsArgs,
@@ -103,6 +104,13 @@ export class ChannelStore implements IChannelStore {
       channelId: args.channelId,
       event: args.event,
       projectRoot: args.projectRoot,
+      turnId: args.turnId,
+    })
+  }
+
+  async closeTranscriptStream(args: ChannelStoreCloseTranscriptArgs): Promise<void> {
+    await this.eventsWriter.closeStreamForTurn({
+      channelId: args.channelId,
       turnId: args.turnId,
     })
   }

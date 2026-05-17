@@ -1,10 +1,6 @@
-import {promises as fs} from 'node:fs'
-import {dirname} from 'node:path'
-
 import type {Turn, TurnDelivery} from '../../../../shared/types/channel.js'
 
-import {channelPaths} from './paths.js'
-import {ChannelWriteSerializer} from './write-serializer.js'
+import {ChannelEventsWriter} from './events-writer.js'
 
 /**
  * Terminal-state structural-line writer for the per-turn NDJSON
@@ -23,11 +19,11 @@ import {ChannelWriteSerializer} from './write-serializer.js'
  * emission. Both codex and kimi flagged the collision risk in the Phase 9
  * design review; this enforces their consensus shape.
  *
- * Writes share the {@link ChannelWriteSerializer} with the channel
- * events writer so concurrent fan-out terminal writes do not interleave with in-flight
- * event appends to the same `(channelId, turnId)`. The single NDJSON
- * append is append-only and atomic at the OS-syscall level under the
- * lock; there is no temp+rename round-trip.
+ * Slice 9.2 — structural lines are appended through the
+ * {@link ChannelEventsWriter}'s `appendRawLine` so both writers share
+ * the held per-turn write stream AND the per-turn lock. This prevents
+ * concurrent fan-out terminal writes from tearing NDJSON line ordering
+ * (kimi Q8) and avoids a redundant open/close pair per terminal record.
  *
  * Callers (orchestrator's finaliseTurn / finaliseDelivery) MUST only
  * invoke these methods on terminal-state transitions; the writer does
@@ -37,7 +33,7 @@ import {ChannelWriteSerializer} from './write-serializer.js'
  */
 
 export type ChannelSnapshotWriterOptions = {
-  readonly serializer: ChannelWriteSerializer
+  readonly eventsWriter: ChannelEventsWriter
 }
 
 export type WriteTurnSnapshotArgs = {
@@ -69,10 +65,10 @@ type StructuralLine =
   | {readonly _recordType: 'turn_snapshot'; readonly turn: Turn}
 
 export class ChannelSnapshotWriter {
-  private readonly serializer: ChannelWriteSerializer
+  private readonly eventsWriter: ChannelEventsWriter
 
   public constructor(options: ChannelSnapshotWriterOptions) {
-    this.serializer = options.serializer
+    this.eventsWriter = options.eventsWriter
   }
 
   async writeDeliverySnapshot(args: WriteDeliverySnapshotArgs): Promise<void> {
@@ -112,13 +108,11 @@ export class ChannelSnapshotWriter {
     readonly turnId: string
   }): Promise<void> {
     const {channelId, line, projectRoot, turnId} = args
-    const lockKey = `${channelId}:${turnId}`
-
-    await this.serializer.withLock(lockKey, async () => {
-      const file = channelPaths.turnNdjsonFile(projectRoot, channelId, turnId)
-      await fs.mkdir(dirname(file), {recursive: true})
-      const physical = `${JSON.stringify(line)}\n`
-      await fs.appendFile(file, physical, {encoding: 'utf8', flag: 'a'})
+    await this.eventsWriter.appendRawLine({
+      channelId,
+      line: JSON.stringify(line),
+      projectRoot,
+      turnId,
     })
   }
 }

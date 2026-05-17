@@ -33,7 +33,7 @@ describe('ChannelStore delivery + in-flight extensions (Slice 2.0)', () => {
     eventsWriter = new ChannelEventsWriter({serializer})
     store = new ChannelStore({
       eventsWriter,
-      snapshotWriter: new ChannelSnapshotWriter({serializer}),
+      snapshotWriter: new ChannelSnapshotWriter({eventsWriter}),
       treeReader: new ChannelTreeReader(),
       writeSerializer: serializer,
     })

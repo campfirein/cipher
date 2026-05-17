@@ -44,7 +44,7 @@ describe('ChannelOrchestrator (Phase 3 fan-out)', () => {
     const serializer = new ChannelWriteSerializer()
     store = new ChannelStore({
       eventsWriter: new ChannelEventsWriter({serializer}),
-      snapshotWriter: new ChannelSnapshotWriter({serializer: new ChannelWriteSerializer()}),
+      snapshotWriter: new ChannelSnapshotWriter({eventsWriter: new ChannelEventsWriter({serializer: new ChannelWriteSerializer()})}),
       treeReader: new ChannelTreeReader(),
       writeSerializer: serializer,
     })

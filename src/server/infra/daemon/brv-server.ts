@@ -737,10 +737,11 @@ async function main(): Promise<void> {
     const channelTreeReader = new ChannelTreeReader()
     const channelStore = new ChannelStore({
       eventsWriter: channelEventsWriter,
-      // Slice 9.1: snapshot-writer shares the per-turn write serializer
-      // with events-writer so concurrent terminal writes can't tear the
-      // NDJSON line ordering on the consolidated per-turn file.
-      snapshotWriter: new ChannelSnapshotWriter({serializer: channelWriteSerializer}),
+      // Slice 9.2: snapshot-writer routes structural lines through the
+      // events-writer's held per-turn stream + per-turn lock so terminal
+      // writes never tear concurrent in-flight event appends and we
+      // don't pay the open/close syscall pair per terminal record.
+      snapshotWriter: new ChannelSnapshotWriter({eventsWriter: channelEventsWriter}),
       treeReader: channelTreeReader,
       writeSerializer: channelWriteSerializer,
     })
@@ -873,11 +874,16 @@ async function main(): Promise<void> {
     // subprocess agents do not leak. Phase 3 wires a first-class
     // shutdown-handler hook; for Phase 2 we hook the existing signal
     // listeners that already drive `shutdownHandler.shutdown()` below.
-    const releasePoolOnExit = (): void => {
+    // Slice 9.2 — also drain every held-open per-turn write stream so
+    // any buffered transcript bytes flush to disk before exit. Without
+    // this, an abrupt SIGTERM mid-streaming-turn would truncate the
+    // last few chunks at the OS layer.
+    const releaseChannelResourcesOnExit = (): void => {
       channelPool.releaseAll().catch(() => {})
+      channelEventsWriter.closeAll().catch(() => {})
     }
 
-    process.once('beforeExit', releasePoolOnExit)
+    process.once('beforeExit', releaseChannelResourcesOnExit)
 
     // Load auth token AFTER feature handlers are registered.
     // AuthHandler's onAuthChanged/onAuthExpired callbacks must be wired first

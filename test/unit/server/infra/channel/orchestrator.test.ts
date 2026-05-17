@@ -58,7 +58,7 @@ describe('ChannelOrchestrator (Phase 1 / passive only)', () => {
     const serializer = new ChannelWriteSerializer()
     const store = new ChannelStore({
       eventsWriter: new ChannelEventsWriter({serializer}),
-      snapshotWriter: new ChannelSnapshotWriter({serializer: new ChannelWriteSerializer()}),
+      snapshotWriter: new ChannelSnapshotWriter({eventsWriter: new ChannelEventsWriter({serializer: new ChannelWriteSerializer()})}),
       treeReader: new ChannelTreeReader(),
       writeSerializer: serializer,
     })

@@ -133,4 +133,125 @@ describe('ChannelEventsWriter', () => {
     const stat = await fs.stat(channelPaths.historyTurnsDir(projectRoot, channelId))
     expect(stat.isDirectory()).to.equal(true)
   })
+
+  // Slice 9.2 — held-open per-turn write stream eliminates the
+  // per-event open()+close() syscalls that made `events.jsonl` writes
+  // the per-streaming-chunk hot path. Many appends to the same turn
+  // should reuse a single underlying `fs.createWriteStream`; appends
+  // to different turns each get their own. Both reviewers (codex + kimi
+  // Q8) flagged that the mount move alone is cosmetic without this fix.
+  describe('Slice 9.2 — held-open per-turn write stream', () => {
+    it('opens the per-turn stream exactly ONCE across many appends to the same turn', async () => {
+      const N = 50
+      for (let i = 0; i < N; i++) {
+        // eslint-disable-next-line no-await-in-loop
+        await writer.append({channelId, event: makeEvent({seq: i}), projectRoot, turnId})
+      }
+
+      expect(writer.openStreamCount(), `expected 1 open stream for 1 turn, got ${writer.openStreamCount()}`).to.equal(1)
+
+      const file = channelPaths.turnNdjsonFile(projectRoot, channelId, turnId)
+      const raw = await fs.readFile(file, 'utf8')
+      const lines = raw.split('\n').filter((l) => l.length > 0)
+      expect(lines).to.have.lengthOf(N)
+    })
+
+    it('opens one stream per distinct (channelId, turnId) pair', async () => {
+      const turns = ['01HX-a', '01HX-b', '01HX-c']
+      for (const t of turns) {
+        // eslint-disable-next-line no-await-in-loop
+        await writer.append({channelId, event: makeEvent({seq: 0, turnId: t}), projectRoot, turnId: t})
+      }
+
+      expect(writer.openStreamCount()).to.equal(3)
+    })
+
+    it('closeStreamForTurn drains and removes the stream', async () => {
+      await writer.append({channelId, event: makeEvent({seq: 0}), projectRoot, turnId})
+      expect(writer.openStreamCount()).to.equal(1)
+
+      await writer.closeStreamForTurn({channelId, turnId})
+
+      expect(writer.openStreamCount()).to.equal(0)
+
+      // The closed stream's bytes must still be visible on disk.
+      const file = channelPaths.turnNdjsonFile(projectRoot, channelId, turnId)
+      const raw = await fs.readFile(file, 'utf8')
+      expect(raw.split('\n').filter((l) => l.length > 0)).to.have.lengthOf(1)
+    })
+
+    it('closeStreamForTurn is a no-op when no stream is open', async () => {
+      let threw: unknown
+      try {
+        await writer.closeStreamForTurn({channelId, turnId: 'never-opened'})
+      } catch (error) {
+        threw = error
+      }
+
+      expect(threw).to.equal(undefined)
+      expect(writer.openStreamCount()).to.equal(0)
+    })
+
+    it('closeAll() drains every open stream and clears the map (graceful shutdown)', async () => {
+      const turns = ['01HX-a', '01HX-b', '01HX-c']
+      for (const t of turns) {
+        // eslint-disable-next-line no-await-in-loop
+        await writer.append({channelId, event: makeEvent({seq: 0, turnId: t}), projectRoot, turnId: t})
+      }
+
+      expect(writer.openStreamCount()).to.equal(3)
+      await writer.closeAll()
+      expect(writer.openStreamCount()).to.equal(0)
+
+      // All three files persisted intact.
+      for (const t of turns) {
+        // eslint-disable-next-line no-await-in-loop
+        const raw = await fs.readFile(channelPaths.turnNdjsonFile(projectRoot, channelId, t), 'utf8')
+        expect(raw.split('\n').filter((l) => l.length > 0)).to.have.lengthOf(1)
+      }
+    })
+
+    it('appendRawLine bypasses the seq monotonicity check (used by snapshot-writer)', async () => {
+      // Slice 9.2: snapshot-writer writes structural lines through the
+      // events-writer's held stream via appendRawLine, so both writers
+      // share the same per-turn lock and stream lifecycle. Structural
+      // lines carry no `seq`, so appendRawLine MUST NOT consult or
+      // update the lastSeq map.
+      await writer.append({channelId, event: makeEvent({seq: 5}), projectRoot, turnId})
+      await writer.appendRawLine({
+        channelId,
+        line: JSON.stringify({_recordType: 'turn_snapshot', turn: {turnId}}),
+        projectRoot,
+        turnId,
+      })
+
+      // Subsequent wire-event append must still see lastSeq=5 (snapshot
+      // line had no seq, so the cursor didn't move).
+      await writer.append({channelId, event: makeEvent({seq: 6}), projectRoot, turnId})
+
+      const raw = await fs.readFile(channelPaths.turnNdjsonFile(projectRoot, channelId, turnId), 'utf8')
+      const lines = raw.split('\n').filter((l) => l.length > 0)
+      expect(lines).to.have.lengthOf(3)
+
+      // Order: event seq=5, structural snapshot, event seq=6.
+      const parsed = lines.map((l) => JSON.parse(l) as Record<string, unknown>)
+      expect(parsed[0].seq).to.equal(5)
+      expect(parsed[1]._recordType).to.equal('turn_snapshot')
+      expect(parsed[2].seq).to.equal(6)
+    })
+
+    it('appendRawLine reuses the same held stream (no extra open)', async () => {
+      await writer.append({channelId, event: makeEvent({seq: 0}), projectRoot, turnId})
+      const before = writer.openStreamCount()
+      await writer.appendRawLine({
+        channelId,
+        line: JSON.stringify({_recordType: 'turn_snapshot', turn: {turnId}}),
+        projectRoot,
+        turnId,
+      })
+
+      expect(writer.openStreamCount()).to.equal(before)
+      expect(before).to.equal(1)
+    })
+  })
 })

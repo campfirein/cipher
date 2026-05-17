@@ -84,7 +84,7 @@ describe('ChannelOrchestrator — sync-mode CHANNEL_DELIVERY_FAILED (Bug 2)', ()
     const serializer = new ChannelWriteSerializer()
     store = new ChannelStore({
       eventsWriter: new ChannelEventsWriter({serializer}),
-      snapshotWriter: new ChannelSnapshotWriter({serializer: new ChannelWriteSerializer()}),
+      snapshotWriter: new ChannelSnapshotWriter({eventsWriter: new ChannelEventsWriter({serializer: new ChannelWriteSerializer()})}),
       treeReader: new ChannelTreeReader(),
       writeSerializer: serializer,
     })
