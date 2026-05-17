@@ -70,6 +70,7 @@ import {FileProfileMetadataStore} from '../channel/profile-metadata-store.js'
 import {ChannelEventsWriter} from '../channel/storage/events-writer.js'
 import {ChannelTurnIndexStore} from '../channel/storage/index-store.js'
 import {ChannelSnapshotWriter} from '../channel/storage/snapshot-writer.js'
+import {ChannelTranscriptGc} from '../channel/storage/transcript-gc.js'
 import {ChannelTreeReader} from '../channel/storage/tree-reader.js'
 import {TurnSequenceAllocator} from '../channel/storage/turn-sequence-allocator.js'
 import {ChannelWriteSerializer} from '../channel/storage/write-serializer.js'
@@ -119,6 +120,24 @@ import {ShutdownHandler} from './shutdown-handler.js'
 
 function log(msg: string): void {
   processLog(`[Daemon] ${msg}`)
+}
+
+/**
+ * Slice 9.4 — parse `BRV_CHANNEL_TRANSCRIPT_RETENTION_DAYS` env var.
+ * Default 30 days (matches `FileQueryLogStore`'s retention pattern in
+ * the broader codebase). 0 disables the GC sweep entirely. Negative or
+ * unparseable values fall back to the default with a warning log line.
+ */
+function parseChannelRetentionDays(): number {
+  const raw = process.env.BRV_CHANNEL_TRANSCRIPT_RETENTION_DAYS
+  if (raw === undefined || raw.trim() === '') return 30
+  const parsed = Number.parseInt(raw, 10)
+  if (Number.isNaN(parsed) || parsed < 0) {
+    log(`invalid BRV_CHANNEL_TRANSCRIPT_RETENTION_DAYS=${raw}; defaulting to 30`)
+    return 30
+  }
+
+  return parsed
 }
 
 /**
@@ -740,6 +759,17 @@ async function main(): Promise<void> {
     // lookback. Shares the serializer so concurrent index appends from
     // multiple terminal turns on the same channel don't tear the JSONL.
     const channelIndexStore = new ChannelTurnIndexStore({serializer: channelWriteSerializer})
+    // Slice 9.4 — periodic transcript GC. Default retention 30 days,
+    // configurable via BRV_CHANNEL_TRANSCRIPT_RETENTION_DAYS. Setting
+    // to 0 disables sweep. Triggered fire-and-forget from the
+    // orchestrator's terminal path so an active channel naturally
+    // catches up on retention as it sees new finished turns.
+    const channelRetentionDays = parseChannelRetentionDays()
+    const channelTranscriptGc = new ChannelTranscriptGc({
+      indexStore: channelIndexStore,
+      retentionDays: channelRetentionDays,
+      serializer: channelWriteSerializer,
+    })
     const channelStore = new ChannelStore({
       eventsWriter: channelEventsWriter,
       indexStore: channelIndexStore,
@@ -748,6 +778,7 @@ async function main(): Promise<void> {
       // writes never tear concurrent in-flight event appends and we
       // don't pay the open/close syscall pair per terminal record.
       snapshotWriter: new ChannelSnapshotWriter({eventsWriter: channelEventsWriter}),
+      transcriptGc: channelTranscriptGc,
       treeReader: channelTreeReader,
       writeSerializer: channelWriteSerializer,
     })

@@ -28,6 +28,7 @@ import {
 } from './storage/index-store.js'
 import {channelPaths} from './storage/paths.js'
 import {ChannelSnapshotWriter} from './storage/snapshot-writer.js'
+import {ChannelTranscriptGc} from './storage/transcript-gc.js'
 import {ChannelTreeReader} from './storage/tree-reader.js'
 import {ChannelWriteSerializer} from './storage/write-serializer.js'
 
@@ -55,6 +56,13 @@ export type ChannelStoreDeps = {
    */
   readonly indexStore?: ChannelTurnIndexStore
   readonly snapshotWriter: ChannelSnapshotWriter
+  /**
+   * Slice 9.4 — periodic transcript GC. Optional; when omitted,
+   * `sweepTranscripts` is a no-op (tests that don't care about
+   * retention skip it; production daemon wires it from
+   * `BRV_CHANNEL_TRANSCRIPT_RETENTION_DAYS`).
+   */
+  readonly transcriptGc?: ChannelTranscriptGc
   readonly treeReader: ChannelTreeReader
   readonly writeSerializer: ChannelWriteSerializer
 }
@@ -100,6 +108,7 @@ export class ChannelStore implements IChannelStore {
   private readonly eventsWriter: ChannelEventsWriter
   private readonly indexStore?: ChannelTurnIndexStore
   private readonly snapshotWriter: ChannelSnapshotWriter
+  private readonly transcriptGc?: ChannelTranscriptGc
   private readonly treeReader: ChannelTreeReader
   private readonly writeSerializer: ChannelWriteSerializer
 
@@ -107,6 +116,7 @@ export class ChannelStore implements IChannelStore {
     this.eventsWriter = deps.eventsWriter
     this.indexStore = deps.indexStore
     this.snapshotWriter = deps.snapshotWriter
+    this.transcriptGc = deps.transcriptGc
     this.treeReader = deps.treeReader
     this.writeSerializer = deps.writeSerializer
   }
@@ -311,6 +321,18 @@ export class ChannelStore implements IChannelStore {
     })
 
     return deliveries.length === 0 ? {events, turn} : {deliveries, events, turn}
+  }
+
+  /**
+   * Slice 9.4 — fire a best-effort GC sweep for the channel. No-op when
+   * the transcript GC has not been wired or `retentionDays` is 0.
+   */
+  async sweepTranscripts(args: {
+    readonly channelId: string
+    readonly projectRoot: string
+  }): Promise<void> {
+    if (this.transcriptGc === undefined) return
+    await this.transcriptGc.sweepChannel(args)
   }
 
   async updateChannelMeta(args: ChannelStoreUpdateMetaArgs): Promise<Channel> {

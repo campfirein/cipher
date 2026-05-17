@@ -161,6 +161,15 @@ export interface IChannelStore {
    */
   readDeliveries(args: ChannelStoreReadDeliveriesArgs): Promise<TurnDelivery[]>
   readTurn(args: ChannelStoreReadTurnArgs): Promise<ChannelStoreReadTurnResult | undefined>
+  /**
+   * Slice 9.4 — best-effort GC sweep for a single channel. Removes
+   * per-turn NDJSON files whose materialised index entry shows the turn
+   * ended more than `retentionDays` ago, then compacts the index.
+   * No-op when the transcript GC has not been wired (e.g. tests that
+   * don't care about retention). The orchestrator fires this async
+   * from terminal-state finalisation so old transcripts cap.
+   */
+  sweepTranscripts(args: {readonly channelId: string; readonly projectRoot: string}): Promise<void>
   updateChannelMeta(args: ChannelStoreUpdateMetaArgs): Promise<Channel>
   /** Phase-2: persist a `deliveries/<id>.json` snapshot at terminal state. */
   writeDeliverySnapshot(args: ChannelStoreWriteDeliveryArgs): Promise<void>

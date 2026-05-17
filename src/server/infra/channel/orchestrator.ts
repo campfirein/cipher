@@ -1072,6 +1072,18 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
       projectRoot: active.projectRoot,
     })
 
+    // Slice 9.4 — fire-and-forget transcript GC for this channel. The
+    // sweep walks the index, deletes per-turn NDJSON files whose
+    // endedAt is older than retention, and compacts the index.
+    // Crucially: this is async — it does NOT block the terminal-state
+    // path. Failures are swallowed so a GC bug never fails the
+    // user-visible turn.
+    this.store
+      .sweepTranscripts({channelId: active.channelId, projectRoot: active.projectRoot})
+      .catch(() => {
+        // intentionally swallowed — see comment above
+      })
+
     this.seqAllocator.reset({channelId: active.channelId, turnId: active.turn.turnId})
   }
 
