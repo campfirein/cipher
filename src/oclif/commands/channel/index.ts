@@ -30,12 +30,17 @@ Set up a channel from scratch in four steps:
          --mode sync --suppress-thoughts --json --timeout 300000
 
   5. ORCHESTRATE multiple agents (fan-out + gather without polling):
-       # Dispatch to each agent in parallel; capture the turnId from --json:
+       # Dispatch to each agent in parallel; capture each turnId from --json:
        brv channel mention my-review "@kimi review src/auth.py" --no-wait --json
        brv channel mention my-review "@codex review src/auth.py" --no-wait --json
-       # Wait for both to finish (push, not poll):
+       # Wait for both terminal deliveries (count=2 is the quorum exit;
+       # do NOT add --exit-on-terminal here — it would exit on the first
+       # turn_state_change → completed before the slower turn lands):
        brv channel subscribe my-review --roles @kimi,@codex \\
-         --kinds delivery_state_change --count 2 --exit-on-terminal --json
+         --kinds delivery_state_change --count 2 --json
+       # Then read each turn's finalAnswer:
+       brv channel show my-review <turnId-kimi> --json
+       brv channel show my-review <turnId-codex> --json
 
   When an agent requests a permission mid-turn, respond with:
        brv channel approve my-review <turnId> <permissionRequestId> --json
@@ -80,12 +85,12 @@ public static examples = [
       description: 'Install the brv-channel skill so host LLMs (Claude Code, Codex, kimi, opencode, Pi) drive channel mentions automatically',
     },
     {
-      command: '<%= config.bin %> channel subscribe my-review --roles @kimi,@codex --count 2 --exit-on-terminal',
-      description: 'Push-stream filtered events as JSONL; exit when both reviewers finish (no polling)',
+      command: '<%= config.bin %> channel subscribe my-review --roles @kimi,@codex --kinds delivery_state_change --count 2 --json',
+      description: 'Quorum gather: exit when 2 unique terminal deliveries land (do NOT add --exit-on-terminal here — it would short-circuit when the first turn completes)',
     },
     {
-      command: '<%= config.bin %> channel mention my-review "@kimi review src/auth.py" --no-wait --json && <%= config.bin %> channel subscribe my-review --roles @kimi --kinds delivery_state_change --count 1 --exit-on-terminal --json',
-      description: 'Fan-out + gather pattern: dispatch async, then subscribe to wait for completion without polling',
+      command: '<%= config.bin %> channel mention my-review "@kimi review src/auth.py" --no-wait --json && <%= config.bin %> channel subscribe my-review --roles @kimi --kinds delivery_state_change --count 1 --json',
+      description: 'Fan-out + gather pattern: dispatch async, then subscribe to wait for one terminal delivery without polling',
     },
   ]
 

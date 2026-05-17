@@ -200,24 +200,39 @@ the dispatch-async + subscribe pattern instead of N serial sync mentions:
    ```
 
 2. **Subscribe** to wait for both terminal-delivery events without
-   polling — the command exits as soon as `--count` is reached:
+   polling — the command exits as soon as `--count` is reached.
+   **Do NOT add `--exit-on-terminal` to a multi-turn quorum:** it
+   short-circuits on the FIRST `turn_state_change → completed`, which
+   may fire before the slower turn's delivery lands and silently drop
+   the second result.
 
    ```bash
    {{BRV_BIN}} channel subscribe review-2026 \
-     --roles @kimi,@codex \
+     --roles handle-a,handle-b \
      --kinds delivery_state_change \
      --count 2 \
-     --exit-on-terminal \
      --json
    ```
 
-3. **Read** each turn's `finalAnswer` via `channel show <ch> <turnId>
-   --json` and synthesize the response.
+3. **Store** both `turnId` values from step 1, then for each one read
+   the final answer:
 
-**When to choose mention --mode sync vs subscribe quorum:**
-- Single agent, one question → `mention --mode sync` (simpler).
-- ≥2 agents in parallel, or you need a turnId before the result is
-  ready → `mention --no-wait` then `subscribe --count N`.
+   ```bash
+   {{BRV_BIN}} channel show review-2026 <turnId-kimi>  --json   # → finalAnswer
+   {{BRV_BIN}} channel show review-2026 <turnId-codex> --json   # → finalAnswer
+   ```
+
+   Synthesize a unified response from each `finalAnswer`.
+
+**When to choose `mention --mode sync` vs `--no-wait` + subscribe:**
+- Single agent + short question → `mention --mode sync` (simpler).
+- Single agent + long-running task, OR the host wants to interleave
+  other work while waiting → `mention --no-wait` then
+  `subscribe --turn <turnId> --kinds delivery_state_change --count 1 --json`
+  (resumable; the subscribe can be re-run with `--after-seq <n>` if
+  the host process restarts).
+- ≥2 agents in parallel → `mention --no-wait` ×N then
+  `subscribe --roles handle-a,handle-b --kinds delivery_state_change --count N --json`.
 
 **`subscribe` flag reference (Slice 8.9):**
 - `--roles @a,@b` filter by member handle
@@ -235,7 +250,17 @@ the dispatch-async + subscribe pattern instead of N serial sync mentions:
 
 If an agent's turn includes a `permission_request` event (the agent is
 asking for permission to write a file, run a command, etc.), the user's
-host LLM must respond before the turn can continue:
+host LLM must respond before the turn can continue.
+
+**Policy guard-rail (read this first):** do NOT auto-approve. Surface
+the permission request to the human user verbatim and relay their
+decision. Auto-approval is only safe when (a) the request is expected
+given the current task, (b) it is scoped to the project / sandbox the
+user authorized, and (c) it would not cause data loss or out-of-scope
+side effects. When in doubt, deny and ask the user to re-issue the
+mention with explicit authorization.
+
+Mechanics:
 
 - `{{BRV_BIN}} channel approve <ch> <turnId> <permissionRequestId> --json`
   resolves with the first `allow*`-flavoured option.
@@ -252,6 +277,6 @@ to locate it if you've lost it.
 | Error code | Means | What to do |
 |---|---|---|
 | `CHANNEL_PERMISSION_LOST_ON_RESTART` | The brv daemon restarted while a delivery was awaiting a permission decision. The ACP subprocess is dead; the user's choice cannot be forwarded. The error message contains a `--after-seq` cursor pointing at the daemon-written `errored` event. | **Do NOT retry the approve** — the in-flight session is unrecoverable. Re-invite the affected member (re-spawns the ACP subprocess), then re-mention with the original context. Optionally use the supplied `brv channel subscribe <ch> --turn <id> --after-seq <n>` command to inspect the lost-permission event. |
-| `CHANNEL_DRIVER_NOT_REGISTERED` | No live ACP driver for this `(channelId, memberHandle)`. Usually fires in the brief race window after a daemon restart but BEFORE `warmDriversForProject` has finished spawning drivers from `meta.json` (Slice 8.11 auto-warm). | **First try**: wait ~2 seconds and retry the same mention — the auto-warm typically completes within that window. If it still fails: re-invite the member with `brv channel invite <ch> @handle --profile <name>` to force-spawn a fresh subprocess. Carried on `delivery.errorCode`, `failedDeliveries[*].code`, AND the `delivery_state_change → errored` event's `errorCode` field (visible via `subscribe`/`watch`). |
+| `CHANNEL_DRIVER_NOT_REGISTERED` | No live ACP driver for this `(channelId, memberHandle)`. Usually fires in the brief race window after a daemon restart but BEFORE `warmDriversForProject` has finished spawning drivers from `meta.json` (Slice 8.11 auto-warm). | **Important**: a failed mention already created a turn on disk in `errored` state. Mentions are NOT deduped without an `--idempotency-key`, so naively retrying spins up a duplicate turn. **If you have not yet dispatched**: wait ~2s for auto-warm to land, then mention as usual. **If you already dispatched and the mention returned this code**: do NOT retry blindly. Re-invite the member with `{{BRV_BIN}} channel invite <ch> <handle> --profile <name>` to force-spawn a fresh subprocess, then either (a) re-mention with a fresh prompt, or (b) inspect the errored turn with `{{BRV_BIN}} channel show <ch> <turnId> --json` to decide whether the failure cost anything before deciding to re-dispatch. The code is carried on `delivery.errorCode`, `failedDeliveries[*].code`, AND the `delivery_state_change → errored` event's `errorCode` field (visible via `subscribe`/`watch`). |
 | `CHANNEL_TURN_NOT_FOUND` | The turn id genuinely doesn't exist in this channel. | Verify the channel id and turn id; don't retry blindly. |
 

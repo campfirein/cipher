@@ -44,6 +44,33 @@ describe('ChannelTopic (Slice 8.8 — channel --help)', () => {
       expect(ChannelTopic.description).to.match(/fan-out|in parallel/i)
     })
 
+    it('should NOT use --exit-on-terminal in the multi-agent quorum example (Slice 8.12.1 — kimi/codex bug)', () => {
+      // Independent kimi + codex review caught: combining --count N with
+      // --exit-on-terminal in a multi-turn gather corrupts the quorum
+      // because the first turn's `turn_state_change → completed` triggers
+      // --exit-on-terminal before the slower turn's delivery lands.
+      // The actual quorum SUBSCRIBE command lines must NOT use --exit-on-terminal
+      // (cautionary prose mentioning the flag IS allowed and expected).
+      // Pin via the structured `static examples` table where the command
+      // string lives independent of surrounding prose.
+      const quorumExample = ChannelTopic.examples.find(
+        (e): e is {command: string; description: string} =>
+          typeof e === 'object' &&
+          e !== null &&
+          'command' in e &&
+          typeof (e as {command: unknown}).command === 'string' &&
+          (e as {command: string}).command.includes('--count 2'),
+      )
+      expect(quorumExample, 'expected a quorum example with --count 2').to.not.equal(undefined)
+      expect(quorumExample!.command, '--count 2 quorum must NOT use --exit-on-terminal').to.not.match(/--exit-on-terminal/)
+    })
+
+    it('should spell out the gather step (channel show <ch> <turnId> --json) instead of vague "synthesize" (Slice 8.12.1)', () => {
+      // kimi Q5: "synthesize the response" was too vague. Host LLM needs
+      // the explicit final step: read each turnId's finalAnswer via show.
+      expect(ChannelTopic.description).to.match(/channel show .*--json/)
+    })
+
     it('should mention approve/deny for permission requests (Slice 8.12)', () => {
       expect(ChannelTopic.description).to.match(/channel approve /)
       expect(ChannelTopic.description).to.match(/channel deny /)
