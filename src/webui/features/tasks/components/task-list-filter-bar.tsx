@@ -1,11 +1,9 @@
-import {Button} from '@campfirein/byterover-packages/components/button'
 import {Input} from '@campfirein/byterover-packages/components/input'
 import {cn} from '@campfirein/byterover-packages/lib/utils'
-import {Plus, Search} from 'lucide-react'
+import {Search} from 'lucide-react'
 
 import type {TaskListCounts} from '../../../../shared/transport/events/task-events'
 
-import {TourPointer} from '../../onboarding/components/tour-pointer'
 import {STATUS_FILTERS, type StatusFilter} from '../stores/task-store'
 import {type DurationPreset} from '../utils/duration-presets'
 import {TaskFilterMenu} from './task-filter-menu'
@@ -31,14 +29,12 @@ export interface FilterBarProps {
   createdBefore?: number
   durationPreset: DurationPreset
   onDurationChange: (preset: DurationPreset) => void
-  onNewTask: () => void
   onSearchChange: (query: string) => void
   onStatusChange: (filter: StatusFilter) => void
   onTimeRangeChange: (range: {createdAfter?: number; createdBefore?: number}) => void
   onTypeChange: (next: string[]) => void
   searchQuery: string
   statusFilter: StatusFilter
-  tourCue?: string
   typeFilter: string[]
 }
 
@@ -48,14 +44,12 @@ export function FilterBar({
   createdBefore,
   durationPreset,
   onDurationChange,
-  onNewTask,
   onSearchChange,
   onStatusChange,
   onTimeRangeChange,
   onTypeChange,
   searchQuery,
   statusFilter,
-  tourCue,
   typeFilter,
 }: FilterBarProps) {
   return (
@@ -105,13 +99,6 @@ export function FilterBar({
             value={searchQuery}
           />
         </div>
-
-        <TourPointer active={Boolean(tourCue)} align="end" label={tourCue ?? ''}>
-          <Button className="h-8" onClick={onNewTask} size="sm" variant="default">
-            <Plus className="size-4" />
-            New task
-          </Button>
-        </TourPointer>
       </div>
     </div>
   )

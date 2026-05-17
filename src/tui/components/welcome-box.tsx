@@ -7,8 +7,8 @@
 import {Box, Spacer, Text} from 'ink'
 import React, {useRef} from 'react'
 
-import {useTheme} from '../../hooks/index.js'
-import {formatTime} from '../../utils/time.js'
+import {useTheme} from '../hooks/index.js'
+import {formatTime} from '../utils/time.js'
 
 export const WelcomeBox: React.FC = () => {
   const {
@@ -39,11 +39,13 @@ export const WelcomeBox: React.FC = () => {
           <Text color={colors.text}>Action        Command       Description</Text>
           <Text color={colors.text}>-------------------------------------------------------------</Text>
           <Text color={colors.text}>CONNECT       <Text color={colors.warning}>/connectors</Text>   Connect ByteRover to your agent</Text>
-          <Text color={colors.text}>STATUS        <Text color={colors.warning}>/status</Text>       Show project status</Text>
+          <Text color={colors.text}>STATUS        <Text color={colors.warning}>/status</Text>       Show project + context tree status</Text>
+          <Text color={colors.text}>PROJECTS      <Text color={colors.warning}>/locations</Text>    List all registered projects</Text>
           <Text color={colors.text}>-------------------------------------------------------------</Text>
           <Text color={colors.text}> </Text>
           <Text color={colors.text}>GET STARTED:</Text>
-          <Text color={colors.text}>Ask your coding agent to curate this project using the ByteRover MCP tools.</Text>
+          <Text color={colors.text}>Your memory hub is currently empty. Ask your coding agent:</Text>
+          <Text color={colors.text}><Text color={colors.primary}>"Curate the folder structure of this repository"</Text></Text>
         </Box>
       </Box>
     </Box>

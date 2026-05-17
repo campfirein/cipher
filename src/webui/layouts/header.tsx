@@ -3,7 +3,6 @@ import {Tooltip, TooltipContent, TooltipTrigger} from '@campfirein/byterover-pac
 
 import logo from '../assets/logo-byterover.svg'
 import {AuthMenu} from '../features/auth/components/auth-menu'
-import {HelpMenu} from '../features/onboarding/components/help-menu'
 import {ProjectDropdown} from '../features/project/components/project-dropdown'
 import {BranchDropdown} from '../features/vc/components/branch-dropdown'
 import {useTransportStore} from '../stores/transport-store'
@@ -43,10 +42,8 @@ export function Header() {
       {/* Spacer */}
       <div className="flex-1" />
 
-      {/* Right: docs + login */}
+      {/* Right: login */}
       <div className="flex items-center gap-3">
-        <HelpMenu />
-
         <AuthMenu />
       </div>
     </header>
