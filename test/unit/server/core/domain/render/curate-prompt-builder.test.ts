@@ -58,8 +58,8 @@ describe('curate-prompt-builder', () => {
       // The schema slice is loaded on every kickoff. Keeping it tight
       // matters — the calling agent's context is the bill payer.
       // Bumping this budget should be a deliberate decision, not a
-      // silent drift; current size ~3.1 KB across 19 elements with
-      // MD-rendering preamble stripped.
+      // silent drift; size grows with each element + authoring hint, so
+      // expect headroom to shrink as the registry grows.
       expect(CURATE_SCHEMA_PROMPT.length).to.be.lessThan(3584)
     })
 
@@ -118,7 +118,11 @@ describe('curate-prompt-builder', () => {
       // of the underlying description — without it the agent flattens
       // everything into a run of <bv-rule> siblings.
       expect(blockFor('bv-structure'), 'bv-structure authoring hint').to.include('authoring: open with `<h3>title</h3>`')
-      expect(blockFor('bv-flow'), 'bv-flow authoring hint').to.include('authoring: open with `<h3>title</h3>`')
+      // bv-flow is inline-content (registry.ts: allowedChildren === 'inline'),
+      // so its hint must NOT push the agent toward block markup. Anchor on the
+      // inline-only wording — a regression that re-introduces `<h3>`/`<ol>`
+      // guidance here would put the schema slice in contradiction with itself.
+      expect(blockFor('bv-flow'), 'bv-flow authoring hint').to.include('authoring: inline prose only')
       expect(blockFor('bv-reason'), 'bv-reason authoring hint').to.include('authoring: put at the END')
       expect(blockFor('bv-files'), 'bv-files authoring hint').to.include('authoring: wrap multiple `<li>`')
       expect(blockFor('bv-fact'), 'bv-fact authoring hint').to.include('authoring: short setup/environment detail')
@@ -129,10 +133,10 @@ describe('curate-prompt-builder', () => {
       // self-explanatory from their name + description; an authoring
       // hint there would be noise. Belt-and-braces: keep the schema
       // tight so the budget test below has room.
-      const ruleIdx = CURATE_SCHEMA_PROMPT.indexOf('\n<bv-rule>')
-      const ruleEndIdx = CURATE_SCHEMA_PROMPT.indexOf('\n<bv-', ruleIdx + 10)
-      const ruleBlock = CURATE_SCHEMA_PROMPT.slice(ruleIdx, ruleEndIdx)
-      expect(ruleBlock, 'bv-rule has no authoring hint').to.not.include('authoring:')
+      const nonStructural = ['bv-rule', 'bv-decision', 'bv-topic', 'bv-pattern', 'bv-bug', 'bv-fix']
+      for (const name of nonStructural) {
+        expect(blockFor(name), `${name} has no authoring hint`).to.not.include('authoring:')
+      }
     })
   })
 

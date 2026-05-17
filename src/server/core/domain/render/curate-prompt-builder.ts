@@ -227,7 +227,7 @@ function authoringHint(name: typeof ELEMENT_NAMES[number]): string | undefined {
     }
 
     case 'bv-flow': {
-      return 'open with `<h3>title</h3>` then `<ol>` for ordered steps'
+      return 'inline prose only; for multi-step procedures use `bv-structure` with `<ol>`'
     }
 
     case 'bv-reason': {

@@ -211,6 +211,23 @@ describe('brv-curate-tool', () => {
       expect(description).to.include('<h3>Strict TDD cycle</h3>')
     })
 
+    it('keeps the sectioned-example `<bv-flow>` inline (matches its inline-content contract)', () => {
+      // bv-flow.allowedChildren === 'inline' (registry.ts) — the example
+      // MUST NOT nest <h3>/<ol> inside, or the calling agent gets a
+      // contradictory signal vs the schema slice in the same prompt.
+      // The TDD-cycle markup belongs in <bv-structure> (block).
+      // Regex restricted to non-`<` content so we find the inline example
+      // rather than any prose mention of `<bv-flow>` elsewhere in the prompt.
+      const {getDescription} = setupHandler({
+        getClient: () => createMockClient().client,
+        getWorkingDirectory: () => '/project/root',
+      })
+
+      const description = getDescription()
+      const inlineFlowMatch = description.match(/<bv-flow>([^<]*?)<\/bv-flow>/)
+      expect(inlineFlowMatch, 'sectioned example contains an inline <bv-flow> block').to.exist
+    })
+
     it('includes the authoring-patterns guidance for sectioning', () => {
       const {getDescription} = setupHandler({
         getClient: () => createMockClient().client,
