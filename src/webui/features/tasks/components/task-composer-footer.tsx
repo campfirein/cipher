@@ -5,7 +5,6 @@ import type {ComposerType} from './task-composer-types'
 
 export function ComposerFooter({
   canSubmit,
-  hasActiveProvider,
   inTour,
   isPending,
   onClose,
@@ -15,7 +14,6 @@ export function ComposerFooter({
   type,
 }: {
   canSubmit: boolean
-  hasActiveProvider: boolean
   inTour: boolean
   isPending: boolean
   onClose: () => void
@@ -26,8 +24,7 @@ export function ComposerFooter({
 }) {
   const actionLabel = type === 'query' ? 'Query' : 'Curate'
   const pendingLabel = type === 'query' ? 'Querying…' : 'Curating…'
-  const showActionLabel = inTour || hasActiveProvider
-  const submitLabel = isPending ? pendingLabel : showActionLabel ? actionLabel : 'Connect provider…'
+  const submitLabel = isPending ? pendingLabel : actionLabel
 
   return (
     <footer className="border-border flex items-center justify-between gap-3 border-t px-7 py-3.5">

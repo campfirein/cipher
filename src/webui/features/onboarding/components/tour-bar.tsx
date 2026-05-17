@@ -6,7 +6,6 @@ import {TOUR_STEPS, useOnboardingStore} from '../stores/onboarding-store'
 const STEP_LABEL: Record<(typeof TOUR_STEPS)[number], string> = {
   connector: 'Connect to your AI tool',
   curate: 'Curate your first knowledge',
-  provider: 'Connect a provider',
   query: 'Ask your first question',
 }
 
@@ -77,9 +76,9 @@ export function TourBar() {
 
   const idx = TOUR_STEPS.indexOf(tourStep)
 
-  // Steps 2 (curate) + 3 (query) open a right-side sheet that fills full height,
-  // so the bar moves to the top to stay visually clear of it. Steps 1 (provider)
-  // and 4 (connector) use centered dialogs — bottom is the natural rest spot.
+  // Curate + query open a right-side sheet that fills full height, so the bar
+  // moves to the top to stay visually clear of it. The connector step uses
+  // a centered dialog — bottom is the natural rest spot.
   const dockTop = tourStep === 'curate' || tourStep === 'query'
   const verticalAnchor = dockTop ? 'top-4' : 'bottom-4'
 

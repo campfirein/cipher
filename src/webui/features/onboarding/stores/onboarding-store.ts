@@ -19,9 +19,9 @@
 import {create} from 'zustand'
 import {createJSONStorage, persist} from 'zustand/middleware'
 
-export type TourStep = 'connector' | 'curate' | 'provider' | 'query'
+export type TourStep = 'connector' | 'curate' | 'query'
 
-export const TOUR_STEPS: readonly TourStep[] = ['provider', 'curate', 'query', 'connector']
+export const TOUR_STEPS: readonly TourStep[] = ['curate', 'query', 'connector']
 
 interface OnboardingState {
   // persisted
@@ -81,7 +81,7 @@ export const useOnboardingStore = create<OnboardingActions & OnboardingState>()(
 
       setTourTaskId: (tourTaskId: null | string) => set({tourTaskId}),
 
-      startTour: (fromStep: TourStep = 'provider') =>
+      startTour: (fromStep: TourStep = 'curate') =>
         set({seenWelcome: true, tourActive: true, tourStep: fromStep, tourTaskId: null}),
     }),
     {

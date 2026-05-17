@@ -30,7 +30,7 @@ export function MainLayout({children, showInput = false}: MainLayoutProps): Reac
   return (
     <Box flexDirection="column" height={terminalHeight} paddingBottom={appBottomPadding}>
       <Box flexShrink={0}>
-        <Header compact={viewMode.type !== 'config-provider'} />
+        <Header compact={viewMode.type === 'ready'} />
       </Box>
 
       <Box flexDirection="column" height={contentHeight} paddingX={1} width="100%">

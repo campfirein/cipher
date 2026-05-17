@@ -7,12 +7,10 @@ import {Folder, Paperclip, RotateCcw} from 'lucide-react'
 import type {StoredTask} from '../types/stored-task'
 
 import {formatError} from '../../../lib/error-messages'
-import {useProviderStore} from '../../provider/stores/provider-store'
 import {useComposerRetryStore} from '../stores/composer-retry-store'
 import {composerTypeFromTask} from '../utils/composer-type-from-task'
 import {shortTaskId} from '../utils/format-time'
 import {isBvTopicHtml} from '../utils/is-bv-topic-html'
-import {isProviderTaskError} from '../utils/is-provider-task-error'
 import {isActiveStatus} from '../utils/task-status'
 import {AttachmentChip} from './attachment-chip'
 import {MarkdownInline} from './markdown-inline'
@@ -92,12 +90,7 @@ export function ResultSection({content}: {content: string}) {
 
 export function ErrorSection({task}: {task: StoredTask}) {
   const {error} = task
-  const openProviderDialog = useProviderStore((s) => s.openProviderDialog)
   const requestRetry = useComposerRetryStore((s) => s.requestRetry)
-  const showProviderCta = isProviderTaskError({
-    error,
-    hadLlmServiceError: Boolean(task.hadLlmServiceError),
-  })
 
   if (!error) return null
 
@@ -113,12 +106,7 @@ export function ErrorSection({task}: {task: StoredTask}) {
         <p className="text-red-400 text-sm">{formatError(error)}</p>
         {error.code && <p className="text-muted-foreground mono mt-1 text-[11px]">{error.code}</p>}
         <div className="mt-3 flex flex-wrap items-center gap-2">
-          {showProviderCta && (
-            <Button onClick={openProviderDialog} size="sm">
-              Configure provider
-            </Button>
-          )}
-          <Button onClick={retry} size="sm" variant={showProviderCta ? 'secondary' : 'default'}>
+          <Button onClick={retry} size="sm">
             <RotateCcw className="size-3.5" />
             Try again
           </Button>

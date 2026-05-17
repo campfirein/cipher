@@ -6,14 +6,12 @@ import type {ComposerType} from '../components/task-composer-types'
 import {useCreateTask} from '../api/create-task'
 
 /**
- * Encapsulates the create-task mutation, the provider gate redirect, and the
- * toast plumbing so the composer body stays focused on layout.
+ * Encapsulates the create-task mutation and the toast plumbing so the
+ * composer body stays focused on layout.
  */
 export function useComposerSubmit(args: {
   content: string
-  hasActiveProvider: boolean
   onClose: () => void
-  onProviderRequired: () => void
   onSubmitted?: (taskId: string, openDetail: boolean) => void
   openDetailAfter: boolean
   projectPath: string
@@ -25,11 +23,6 @@ export function useComposerSubmit(args: {
 
   const submit = async () => {
     if (!canSubmit || isPending) return
-
-    if (!args.hasActiveProvider) {
-      args.onProviderRequired()
-      return
-    }
 
     const taskId = crypto.randomUUID()
     const payload: TaskCreateRequest = {

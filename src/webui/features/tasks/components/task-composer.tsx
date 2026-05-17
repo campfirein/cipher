@@ -5,8 +5,6 @@ import {Command} from 'lucide-react'
 import {type ComponentRef, type KeyboardEvent, useEffect, useRef, useState} from 'react'
 
 import {useTransportStore} from '../../../stores/transport-store'
-import {useGetActiveProviderConfig} from '../../provider/api/get-active-provider-config'
-import {ProviderFlowDialog} from '../../provider/components/provider-flow'
 import {useComposerSubmit} from '../hooks/use-composer-submit'
 import {CurateAttachmentHint, HelpRow, PrefillBadge} from './task-composer-bits'
 import {ComposerFooter} from './task-composer-footer'
@@ -34,9 +32,6 @@ export function TaskComposerSheet({
   prefillNotice,
   tourStepLabel,
 }: TaskComposerSheetProps) {
-  // Tour mode keeps the dim/blur backdrop because the composer is the focal
-  // point of the step. Outside the tour, drop the overlay so the rest of the
-  // app stays sharp behind the side sheet.
   const inTour = Boolean(tourStepLabel)
   return (
     <Sheet onOpenChange={(next) => !next && onClose()} open={open}>
@@ -78,11 +73,9 @@ function ComposerForm({
   tourStepLabel?: string
 }) {
   const projectPath = useTransportStore((s) => s.selectedProject)
-  const {data: activeProviderConfig} = useGetActiveProviderConfig()
   const [type, setType] = useState<ComposerType>(initialType ?? 'curate')
   const [content, setContent] = useState(initialContent ?? '')
   const [openDetailAfter, setOpenDetailAfter] = useState(true)
-  const [providerDialogOpen, setProviderDialogOpen] = useState(false)
   const [hadPrefill, setHadPrefill] = useState(Boolean(initialContent))
   const textareaRef = useRef<ComponentRef<typeof Textarea>>(null)
 
@@ -90,14 +83,11 @@ function ComposerForm({
     textareaRef.current?.focus()
   }, [])
 
-  const hasActiveProvider = Boolean(activeProviderConfig)
   const inTour = Boolean(tourStepLabel)
 
   const {canSubmit, isPending, submit} = useComposerSubmit({
     content,
-    hasActiveProvider,
     onClose,
-    onProviderRequired: () => setProviderDialogOpen(true),
     onSubmitted,
     openDetailAfter,
     projectPath,
@@ -117,7 +107,6 @@ function ComposerForm({
     }
   }
 
-  // Once the user edits the textarea, the "example" notice is no longer accurate.
   const showPrefillNotice = Boolean(prefillNotice && hadPrefill && content === (initialContent ?? ''))
   const onContentChange = (next: string) => {
     if (hadPrefill && next !== (initialContent ?? '')) setHadPrefill(false)
@@ -125,70 +114,65 @@ function ComposerForm({
   }
 
   return (
-    <>
-      <div className="flex h-full min-h-0 flex-col">
-        <ComposerHeader
-          inTour={inTour}
-          onTypeChange={setType}
-          projectPath={projectPath}
-          tourStepLabel={tourStepLabel}
-          type={type}
-        />
+    <div className="flex h-full min-h-0 flex-col">
+      <ComposerHeader
+        inTour={inTour}
+        onTypeChange={setType}
+        projectPath={projectPath}
+        tourStepLabel={tourStepLabel}
+        type={type}
+      />
 
-        <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-7 py-5">
-          <div className="space-y-1.5">
-            <div className="relative">
-              <Textarea
-                className="bg-card dark:bg-card text-foreground/90 mono min-h-64 pr-4 pb-7 text-sm leading-relaxed"
-                onChange={(e) => onContentChange(e.target.value)}
-                onKeyDown={onTextareaKeyDown}
-                placeholder={PLACEHOLDER[type]}
-                ref={textareaRef}
-                rows={type === 'query' ? 4 : 6}
-                value={content}
-              />
-              {showPrefillNotice && prefillNotice && <PrefillBadge label={prefillNotice} />}
-              <span className="text-muted-foreground/40 mono pointer-events-none absolute right-3 bottom-2 flex items-center gap-2 text-[10px] tabular-nums">
-                <span className="text-muted-foreground/60">
-                  {content ? (
-                    <>
-                      <kbd className="bg-muted text-foreground/70 inline-flex items-center gap-1 rounded px-1.5 py-0.5 leading-none">
-                        <Command className="size-2.5" /> · Ctrl + Enter
-                      </kbd>{' '}
-                      to {type}
-                    </>
-                  ) : (
-                    <>
-                      <kbd className="bg-muted text-foreground/70 inline-flex items-center rounded px-1.5 py-0.5 leading-none">
-                        Tab
-                      </kbd>{' '}
-                      to use example
-                    </>
-                  )}
-                </span>
-                <span>{content.length} chars</span>
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-7 py-5">
+        <div className="space-y-1.5">
+          <div className="relative">
+            <Textarea
+              className="bg-card dark:bg-card text-foreground/90 mono min-h-64 pr-4 pb-7 text-sm leading-relaxed"
+              onChange={(e) => onContentChange(e.target.value)}
+              onKeyDown={onTextareaKeyDown}
+              placeholder={PLACEHOLDER[type]}
+              ref={textareaRef}
+              rows={type === 'query' ? 4 : 6}
+              value={content}
+            />
+            {showPrefillNotice && prefillNotice && <PrefillBadge label={prefillNotice} />}
+            <span className="text-muted-foreground/40 mono pointer-events-none absolute right-3 bottom-2 flex items-center gap-2 text-[10px] tabular-nums">
+              <span className="text-muted-foreground/60">
+                {content ? (
+                  <>
+                    <kbd className="bg-muted text-foreground/70 inline-flex items-center gap-1 rounded px-1.5 py-0.5 leading-none">
+                      <Command className="size-2.5" /> · Ctrl + Enter
+                    </kbd>{' '}
+                    to {type}
+                  </>
+                ) : (
+                  <>
+                    <kbd className="bg-muted text-foreground/70 inline-flex items-center rounded px-1.5 py-0.5 leading-none">
+                      Tab
+                    </kbd>{' '}
+                    to use example
+                  </>
+                )}
               </span>
-            </div>
-            <HelpRow type={type} />
+              <span>{content.length} chars</span>
+            </span>
           </div>
-
-          {type === 'curate' && !inTour && <CurateAttachmentHint />}
+          <HelpRow type={type} />
         </div>
 
-        <ComposerFooter
-          canSubmit={canSubmit}
-          hasActiveProvider={hasActiveProvider}
-          inTour={inTour}
-          isPending={isPending}
-          onClose={onClose}
-          onOpenDetailChange={setOpenDetailAfter}
-          onSubmit={submit}
-          openDetailAfter={openDetailAfter}
-          type={type}
-        />
+        {type === 'curate' && !inTour && <CurateAttachmentHint />}
       </div>
 
-      <ProviderFlowDialog onOpenChange={setProviderDialogOpen} open={providerDialogOpen} />
-    </>
+      <ComposerFooter
+        canSubmit={canSubmit}
+        inTour={inTour}
+        isPending={isPending}
+        onClose={onClose}
+        onOpenDetailChange={setOpenDetailAfter}
+        onSubmit={submit}
+        openDetailAfter={openDetailAfter}
+        type={type}
+      />
+    </div>
   )
 }

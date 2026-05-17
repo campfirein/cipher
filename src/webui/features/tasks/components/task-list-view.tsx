@@ -9,7 +9,6 @@ import type {ComposerType} from './task-composer-types'
 import {useTransportStore} from '../../../stores/transport-store'
 import {CURATE_EXAMPLE, QUERY_EXAMPLE, TOUR_STEP_LABEL} from '../../onboarding/lib/tour-examples'
 import {useOnboardingStore} from '../../onboarding/stores/onboarding-store'
-import {useGetProviders} from '../../provider/api/get-providers'
 import {useClearCompleted} from '../api/clear-completed'
 import {useDeleteBulkTasks} from '../api/delete-bulk-tasks'
 import {useDeleteTask} from '../api/delete-task'
@@ -60,29 +59,19 @@ export function TaskListView() {
     clearAllFilters,
     filters,
     setDurationPreset,
-    setModelFilter,
     setPage,
     setPageSize,
-    setProviderFilter,
     setSearchQuery,
     setStatusFilter,
     setTimeRange,
     setTypeFilter,
   } = useTaskFilterParams()
-  const {data: providersResponse} = useGetProviders()
-  const providers = providersResponse?.providers ?? []
-  const providerNames = useMemo(
-    () => new Map((providersResponse?.providers ?? []).map((p) => [p.id, p.name])),
-    [providersResponse],
-  )
   const {
     createdAfter,
     createdBefore,
     durationPreset,
-    modelFilter,
     page,
     pageSize,
-    providerFilter,
     searchQuery,
     statusFilter,
     typeFilter,
@@ -95,14 +84,12 @@ export function TaskListView() {
     () => ({
       projectPath: projectPath || undefined,
       ...(typeFilter.length > 0 ? {type: typeFilter} : {}),
-      ...(providerFilter.length > 0 ? {provider: providerFilter} : {}),
-      ...(modelFilter.length > 0 ? {model: modelFilter} : {}),
       ...(createdAfter === undefined ? {} : {createdAfter}),
       ...(createdBefore === undefined ? {} : {createdBefore}),
       ...durationRange,
       ...(debouncedSearch.trim() ? {searchText: debouncedSearch.trim()} : {}),
     }),
-    [projectPath, typeFilter, providerFilter, modelFilter, createdAfter, createdBefore, durationRange, debouncedSearch],
+    [projectPath, typeFilter, createdAfter, createdBefore, durationRange, debouncedSearch],
   )
 
   const serverStatus = useMemo(() => statusFilterToServer(statusFilter), [statusFilter])
@@ -117,14 +104,10 @@ export function TaskListView() {
 
   const tasks = data?.tasks ?? []
   const breakdown = countsData?.counts ?? {all: 0, cancelled: 0, completed: 0, failed: 0, running: 0}
-  const availableProviders = data?.availableProviders ?? []
-  const availableModels = data?.availableModels ?? []
   const now = useTickingNow(breakdown.running > 0)
   const hasActiveFilters =
     statusFilter !== 'all' ||
     typeFilter.length > 0 ||
-    providerFilter.length > 0 ||
-    modelFilter.length > 0 ||
     createdAfter !== undefined ||
     createdBefore !== undefined ||
     durationPreset !== 'all' ||
@@ -279,26 +262,15 @@ export function TaskListView() {
         />
       ) : (
         <FilterBar
-          availableModels={availableModels}
-          availableProviders={availableProviders}
           breakdown={breakdown}
           createdAfter={createdAfter}
           createdBefore={createdBefore}
           durationPreset={durationPreset}
-          modelFilter={modelFilter}
           onDurationChange={(next) => {
             setDurationPreset(next)
             clearSelection()
           }}
-          onModelChange={(next) => {
-            setModelFilter(next)
-            clearSelection()
-          }}
           onNewTask={openComposer}
-          onProviderChange={(next) => {
-            setProviderFilter(next)
-            clearSelection()
-          }}
           onSearchChange={setSearchQuery}
           onStatusChange={(filter) => {
             setStatusFilter(filter)
@@ -312,8 +284,6 @@ export function TaskListView() {
             setTypeFilter(next)
             clearSelection()
           }}
-          providerFilter={providerFilter}
-          providers={providers}
           searchQuery={searchQuery}
           statusFilter={statusFilter}
           tourCue={tourCueLabel && tasks.length > 0 ? tourCueLabel : undefined}
@@ -325,17 +295,12 @@ export function TaskListView() {
         createdAfter={createdAfter}
         createdBefore={createdBefore}
         durationPreset={durationPreset}
-        modelFilter={modelFilter}
         onClearAll={clearAllFilters}
         onDurationChange={setDurationPreset}
-        onModelChange={setModelFilter}
-        onProviderChange={setProviderFilter}
         onSearchChange={setSearchQuery}
         onStatusChange={setStatusFilter}
         onTimeRangeChange={setTimeRange}
         onTypeChange={setTypeFilter}
-        providerFilter={providerFilter}
-        providers={providers}
         searchQuery={searchQuery}
         statusFilter={statusFilter}
         typeFilter={typeFilter}
@@ -364,7 +329,6 @@ export function TaskListView() {
           onRowClick={openTask}
           onToggleSelect={toggleSelect}
           onToggleSelectAll={toggleSelectAll}
-          providerNames={providerNames}
           searchQuery={searchQuery}
           selectedIds={selectedIds}
           statusFilter={statusFilter}
