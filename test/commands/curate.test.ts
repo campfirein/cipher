@@ -336,6 +336,32 @@ describe('Curate Command', () => {
    * @param pendingCount - When provided, fires review:notify before task:completed.
    *   The server broadcasts this event when curate completes with operations requiring review.
    */
+  function simulateTaskError(
+    error: {code?: string; message: string},
+    providerConfig: {activeModel?: string; activeProvider?: string} = {
+      activeModel: 'openclaw/main',
+      activeProvider: 'openai-compatible',
+    },
+  ): void {
+    const eventHandlers = new Map<string, (data: unknown) => void>()
+
+    ;(mockClient.on as sinon.SinonStub).callsFake((event: string, handler: (data: unknown) => void) => {
+      eventHandlers.set(event, handler)
+      return () => {}
+    })
+
+    ;(mockClient.requestWithAck as sinon.SinonStub).callsFake(async (event: string, data: unknown) => {
+      if (event === 'state:getProviderConfig') return providerConfig
+
+      const {taskId} = data as {taskId: string}
+      setImmediate(() => {
+        eventHandlers.get('task:error')?.({error, logId: 'log-1', taskId})
+      })
+
+      return {logId: 'log-1'}
+    })
+  }
+
   function simulateTaskCompletion(toolResults: unknown[], pendingCount?: number, result = 'done'): void {
     const eventHandlers = new Map<string, (data: unknown) => void>()
 
@@ -385,6 +411,19 @@ describe('Curate Command', () => {
   }
 
   describe('pending review output', () => {
+    it('should sanitize provider auth failures in JSON task:error output', async () => {
+      simulateTaskError({message: 'Unauthorized: bearer SECRET_VALUE_SHOULD_NOT_LEAK'})
+
+      await createJsonCommand('test context').run()
+
+      const json = parseLastJsonLine()
+      expect(json.success).to.be.false
+      expect(json.data).to.include({event: 'error', status: 'error'})
+      expect(json.data).to.have.property('message').that.includes('LLM provider request was unauthorized')
+      expect(json.data.message).to.not.include('SECRET_VALUE_SHOULD_NOT_LEAK')
+      expect(json.data.message).to.not.include('brv login')
+    })
+
     it('should not print success when completed task result says curation was blocked', async () => {
       simulateTaskCompletion(
         [],

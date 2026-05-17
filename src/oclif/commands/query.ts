@@ -102,6 +102,7 @@ Bad:
           await this.submitTask({
             client,
             format,
+            providerContext,
             projectRoot,
             query: args.query,
             timeoutMs: (flags.timeout ?? DEFAULT_TIMEOUT_SECONDS) * 1000,
@@ -123,12 +124,12 @@ Bad:
   }
 
   private reportError(error: unknown, format: 'json' | 'text', providerContext?: ProviderErrorContext): void {
-    const errorMessage = error instanceof Error ? error.message : 'Query failed'
+    const errorMessage = formatConnectionError(error, providerContext)
 
     if (format === 'json') {
       writeJsonResponse({command: 'query', data: {error: errorMessage, status: 'error'}, success: false})
     } else {
-      this.log(formatConnectionError(error, providerContext))
+      this.log(errorMessage)
     }
 
     if (hasLeakedHandles(error)) {
@@ -140,12 +141,13 @@ Bad:
   private async submitTask(props: {
     client: ITransportClient
     format: 'json' | 'text'
+    providerContext?: ProviderErrorContext
     projectRoot?: string
     query: string
     timeoutMs?: number
     worktreeRoot?: string
   }): Promise<void> {
-    const {client, format, projectRoot, query, timeoutMs, worktreeRoot} = props
+    const {client, format, projectRoot, providerContext, query, timeoutMs, worktreeRoot} = props
     const taskId = randomUUID()
     const taskPayload = {
       clientCwd: process.cwd(),
@@ -208,9 +210,13 @@ Bad:
         },
         onError({error}) {
           if (format === 'json') {
+            const message = formatConnectionError(
+              Object.assign(new Error(error.message), error.code ? {code: error.code} : {}),
+              providerContext,
+            )
             writeJsonResponse({
               command: 'query',
-              data: {event: 'error', message: error.message, status: 'error'},
+              data: {event: 'error', message, status: 'error'},
               success: false,
             })
           }

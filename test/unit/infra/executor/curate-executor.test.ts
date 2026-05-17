@@ -153,7 +153,7 @@ describe('CurateExecutor (regression)', () => {
   })
 
   describe('background queue drain', () => {
-    it('rejects when the agent returns a blocked RLM curation response without applying operations', async () => {
+    it('returns blocked-looking responses to the caller and still cleans up the task session', async () => {
       const createTaskSession = stub().resolves('session-id')
       const deleteTaskSession = stub().resolves()
       const executeOnSession = stub().resolves(
@@ -168,19 +168,13 @@ describe('CurateExecutor (regression)', () => {
       } as unknown as ICipherAgent
 
       const executor = new CurateExecutor()
+      const response = await executor.executeWithAgent(agent, {
+        clientCwd: '/workspace',
+        content: 'capture auth knowledge',
+        taskId: 'task-123',
+      })
 
-      try {
-        await executor.executeWithAgent(agent, {
-          clientCwd: '/workspace',
-          content: 'capture auth knowledge',
-          taskId: 'task-123',
-        })
-        expect.fail('Expected blocked curation response to reject')
-      } catch (error) {
-        expect(error).to.be.instanceOf(Error)
-        expect((error as Error).message).to.include('Context curation blocked')
-      }
-
+      expect(response).to.include('required ByteRover `code_exec` tool is not exposed')
       expect(deleteTaskSession.calledOnceWithExactly('session-id')).to.be.true
     })
 

@@ -209,32 +209,35 @@ export function formatConnectionError(error: unknown, providerContext?: Provider
   }
 
   if (error instanceof ConnectionFailedError) {
-    const isSandboxError = isSandboxNetworkError(error.originalError ?? error)
+    const connectionFailedError = error as {message?: string; originalError?: unknown; port?: number}
+    const isSandboxError = isSandboxNetworkError((connectionFailedError.originalError ?? error) as Error | string)
 
     if (isSandboxError) {
       const sandboxName = getSandboxEnvironmentName()
       return (
         `Failed to connect to the daemon.\n` +
-        `Port: ${error.port ?? 'unknown'}\n` +
+        `Port: ${connectionFailedError.port ?? 'unknown'}\n` +
         `⚠️  Sandbox network restriction detected (${sandboxName}).\n\n` +
         `Please allow network access in the sandbox and retry the command.`
       )
     }
 
-    return `Failed to connect to the daemon: ${error.message}\nRun 'brv restart' if the daemon is unresponsive.`
+    return `Failed to connect to the daemon: ${connectionFailedError.message ?? 'unknown error'}\nRun 'brv restart' if the daemon is unresponsive.`
   }
 
   if (error instanceof ConnectionError) {
-    return `Connection error: ${error.message}\nRun 'brv restart' if the daemon is unresponsive.`
+    const connectionError = error as {message?: string}
+    return `Connection error: ${connectionError.message ?? 'unknown error'}\nRun 'brv restart' if the daemon is unresponsive.`
   }
 
   // Business errors from transport handlers (auth, validation, etc.)
   if (error instanceof TransportRequestError) {
+    const transportError = error as {code?: unknown; message?: string}
     // Strip the " for event '...'" suffix that TransportRequestError appends
-    const baseMessage = error.message.replace(/ for event '[^']+'$/, '')
+    const baseMessage = (transportError.message ?? 'Transport request failed').replace(/ for event '[^']+'$/, '')
 
-    if (error.code && typeof error.code === 'string') {
-      return USER_FRIENDLY_MESSAGES[error.code] ?? baseMessage
+    if (typeof transportError.code === 'string') {
+      return USER_FRIENDLY_MESSAGES[transportError.code] ?? baseMessage
     }
 
     return baseMessage

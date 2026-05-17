@@ -148,7 +148,16 @@ Bad examples:
             await ensureBillingFunds({billing, client})
           }
 
-          await this.submitTask({client, content: resolvedContent, flags, format, projectRoot, taskType, worktreeRoot})
+          await this.submitTask({
+            client,
+            content: resolvedContent,
+            flags,
+            format,
+            projectRoot,
+            providerContext,
+            taskType,
+            worktreeRoot,
+          })
         },
         {
           ...this.getDaemonClientOptions(),
@@ -283,12 +292,12 @@ Bad examples:
   }
 
   private reportError(error: unknown, format: 'json' | 'text', providerContext?: ProviderErrorContext): void {
-    const errorMessage = error instanceof Error ? error.message : 'Curate failed'
+    const errorMessage = formatConnectionError(error, providerContext)
 
     if (format === 'json') {
       writeJsonResponse({command: 'curate', data: {error: errorMessage, status: 'error'}, success: false})
     } else {
-      this.log(formatConnectionError(error, providerContext))
+      this.log(errorMessage)
     }
 
     if (hasLeakedHandles(error)) {
@@ -302,11 +311,12 @@ Bad examples:
     content: string
     flags: CurateFlags
     format: 'json' | 'text'
+    providerContext?: ProviderErrorContext
     projectRoot?: string
     taskType: string
     worktreeRoot?: string
   }): Promise<void> {
-    const {client, content, flags, format, projectRoot, taskType, worktreeRoot} = props
+    const {client, content, flags, format, projectRoot, providerContext, taskType, worktreeRoot} = props
     const hasFolders = Boolean(flags.folder?.length)
     const taskId = randomUUID()
     const taskPayload = {
@@ -395,9 +405,13 @@ Bad examples:
           },
           onError({error, logId}) {
             if (format === 'json') {
+              const message = formatConnectionError(
+                Object.assign(new Error(error.message), error.code ? {code: error.code} : {}),
+                providerContext,
+              )
               writeJsonResponse({
                 command: 'curate',
-                data: {event: 'error', logId, message: error.message, status: 'error'},
+                data: {event: 'error', logId, message, status: 'error'},
                 success: false,
               })
             }

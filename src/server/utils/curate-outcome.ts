@@ -1,10 +1,10 @@
 const CURATION_BLOCKED_PATTERNS = [
-  /\b(?:blocked|failed|failure)\b.{0,120}\b(?:curat(?:e|ion|ing)|code_exec|tool(?:ing|s)?|rlm|sandbox)\b/i,
-  /\b(?:curat(?:e|ion|ing)|code_exec|tool(?:ing|s)?|rlm|sandbox)\b.{0,120}\b(?:blocked|failed|failure)\b/i,
-  /\b(?:cannot|can't|could not|unable to)\b.{0,120}\b(?:complete|perform|do|run|access|verify|use|call)\b.{0,120}\b(?:curat(?:e|ion|ing)|code_exec|tool(?:ing|s)?|rlm|sandbox)\b/i,
-  /\b(?:curat(?:e|ion|ing)|code_exec|tool(?:ing|s)?|rlm|sandbox)\b.{0,120}\b(?:cannot|can't|could not|unable to)\b.{0,120}\b(?:complete|perform|do|run|access|verify|use|call)\b/i,
-  /\b(?:required|necessary)\b.{0,120}\b(?:code_exec|tooling|tools?)\b.{0,120}\b(?:not|missing|unavailable|exposed|provided|registered)\b/i,
-  /\b(?:code_exec|tooling|tools?)\b.{0,120}\b(?:not|missing|unavailable|exposed|provided|registered)\b/i,
+  /\bcontext curation blocked\b/i,
+  /\bi am blocked\b.{0,160}\b(?:curat(?:e|ion|ing)|code_exec|tool(?:ing|s)?|rlm|sandbox|session)\b/i,
+  /\b(?:the curation agent|this curation)\b.{0,120}\b(?:blocked|could not|cannot|can't|unable to)\b/i,
+  /\b(?:cannot|can't|could not|unable to)\b.{0,120}\b(?:complete|perform|do|run|access|verify|use|call)\b.{0,120}\b(?:proper\s+)?(?:rlm\s+)?curat(?:e|ion|ing)\b/i,
+  /\b(?:required|necessary)\b.{0,80}\b(?:code_exec|tooling|tools?)\b.{0,80}\b(?:not|missing|unavailable|exposed|provided|registered)\b/i,
+  /\b(?:code_exec|tooling|tools?)\b.{0,80}\b(?:not|missing|unavailable|exposed|provided|registered)\b.{0,80}\b(?:in this session|for (?:this|the) curation|to complete)\b/i,
 ]
 
 export function isBlockedCurationResponse(response?: string): boolean {

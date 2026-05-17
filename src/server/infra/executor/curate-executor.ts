@@ -12,7 +12,6 @@ import {
   type FileContentReader,
   type FileReadResult,
 } from '../../utils/file-content-reader.js'
-import {formatBlockedCurationMessage, isBlockedCurationResponse} from '../../utils/curate-outcome.js'
 import {validateFileForCurate} from '../../utils/file-validator.js'
 import {FileContextTreeManifestService} from '../context-tree/file-context-tree-manifest-service.js'
 import {FileContextTreeSnapshotService} from '../context-tree/file-context-tree-snapshot-service.js'
@@ -168,10 +167,6 @@ export class CurateExecutor implements ICurateExecutor {
         executionContext: {clearHistory: true, commandType: 'curate', maxIterations: 50},
         taskId,
       })
-
-      if (isBlockedCurationResponse(response)) {
-        throw new Error(formatBlockedCurationMessage(response))
-      }
 
       // Parse curation status from agent response for status tracking
       this.lastStatus = this.parseCurationStatus(taskId, response)
