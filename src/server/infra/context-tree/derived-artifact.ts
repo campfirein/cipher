@@ -60,6 +60,17 @@ export function isArchiveStub(relativePath: string): boolean {
  *
  * Slice 8.7 — Phase 8 follow-up. See
  * `plan/channel-protocol/IMPLEMENTATION_PHASE_8_FOLLOWUPS.md` §"Slice 8.7".
+ *
+ * @deprecated Slice 9.5. Phase 9 relocated channel turn transcripts to
+ * `.brv/channel-history/<channelId>/turns/<turnId>.ndjson`, which is
+ * structurally outside the cogit-scanned `.brv/context-tree/` root and
+ * needs no predicate filter. Legacy `<channelDir>/turns/<turnId>/`
+ * subdirs are now retentioned by `ChannelTranscriptGc.sweepLegacyMount`.
+ * This predicate remains load-bearing only until any host's pre-Phase-9
+ * legacy turn directory has aged out via GC — once that's confirmed for
+ * the wild (target removal: 2026-08), the predicate + its branch in
+ * `isExcludedFromSync` can be deleted in a follow-up. Do NOT add new
+ * call sites.
  */
 export function isChannelTurnArtifact(relativePath: string): boolean {
   const normalized = toUnixPath(relativePath)

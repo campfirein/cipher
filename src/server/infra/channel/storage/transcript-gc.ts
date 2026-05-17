@@ -1,29 +1,39 @@
 import {promises as fs} from 'node:fs'
+import {join} from 'node:path'
 
 import {ChannelTurnIndexStore} from './index-store.js'
 import {channelPaths} from './paths.js'
 import {ChannelWriteSerializer} from './write-serializer.js'
 
 /**
- * Slice 9.4 — periodic GC sweep over the per-channel transcript mount.
+ * Slice 9.4 + 9.5 — periodic GC sweep over both per-channel transcript
+ * mounts (new + legacy).
  *
- * Removes per-turn `<turnId>.ndjson` files whose materialised index
- * entry shows the turn reached terminal state more than `retentionDays`
- * ago, then compacts the per-channel `index.jsonl` to drop the removed
- * entries.
+ * New mount (.brv/channel-history/<ch>/turns/<turnId>.ndjson): removes
+ * NDJSON files whose materialised index entry shows the turn reached
+ * terminal state more than `retentionDays` ago, then compacts the
+ * per-channel index.jsonl.
+ *
+ * Legacy mount (.brv/context-tree/channel/<ch>/turns/<turnId>/): scans
+ * each subdir for `turn.json` and parses `endedAt`; recursively removes
+ * the subdir when older than retention. Subdirs without a `turn.json`
+ * are conservatively kept (treated as in-flight — pre-Phase-9 turns
+ * only wrote `turn.json` at terminal state). This is the mechanism that
+ * lets the `isChannelTurnArtifact` cogit exclusion eventually retire
+ * once legacy subdirs naturally vacate.
  *
  * Locked design decisions from the codex + kimi parallel review:
  *   Q5 — 30-day default, configurable via env var. `retentionDays = 0`
- *        disables the sweep entirely (no destructive delete-now mode in
- *        this slice; that's an explicit `brv channel history prune`
+ *        disables the sweep entirely (no destructive delete-now mode
+ *        in this slice; that's an explicit `brv channel history prune`
  *        follow-up).
  *   Q8 (kimi) — GC MUST exclude active turns. The predicate requires
  *        `turn.endedAt != null && endedAt < now - retention`. An
- *        in-flight turn (no endedAt) is never reaped, regardless of how
- *        long it has been alive — Slice 9.2's held-open write streams
- *        can keep a single turn alive for hours, so the wall-clock-only
- *        predicate from typical TTL stores would corrupt streaming
- *        agent runs.
+ *        in-flight turn (no endedAt) is never reaped, regardless of
+ *        how long it has been alive — Slice 9.2's held-open write
+ *        streams can keep a single turn alive for hours, so the
+ *        wall-clock-only predicate from typical TTL stores would
+ *        corrupt streaming agent runs.
  *   Q8 (codex) — GC coordinates with active readers/writers via the
  *        per-turn write-lock. Acquiring the lock before unlink gives
  *        any in-flight `appendRawLine` (snapshot writes) or
@@ -31,10 +41,6 @@ import {ChannelWriteSerializer} from './write-serializer.js'
  *   2PC-gap (kimi) — index compaction is via temp+rename, atomic at
  *        the filesystem layer; a crash mid-rewrite leaves the original
  *        index intact.
- *
- * NOT in this slice: legacy `.brv/context-tree/channel/<id>/turns/`
- * mount sweep. Defer to Slice 9.5 so this slice stays scope-limited
- * to the new mount where the index is authoritative.
  */
 
 export type ChannelTranscriptGcOptions = {
@@ -63,6 +69,24 @@ const tryUnlink = async (path: string): Promise<boolean> => {
     return true
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false
+    throw error
+  }
+}
+
+const tryReadJson = async (path: string): Promise<unknown> => {
+  try {
+    const raw = await fs.readFile(path, 'utf8')
+    return JSON.parse(raw) as unknown
+  } catch {
+    return undefined
+  }
+}
+
+const tryListDir = async (path: string): Promise<string[]> => {
+  try {
+    return await fs.readdir(path)
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return []
     throw error
   }
 }
@@ -125,7 +149,48 @@ export class ChannelTranscriptGc {
       })
     }
 
+    const deletedLegacyMount = await this.sweepLegacyMount({...args, cutoff})
+
     const remaining = entries.size - deletedNewMount
-    return {deletedLegacyMount: 0, deletedNewMount, remaining}
+    return {deletedLegacyMount, deletedNewMount, remaining}
+  }
+
+  /**
+   * Slice 9.5 — sweep pre-Phase-9 `<channelDir>/turns/<turnId>/` subdirs.
+   * Reads `turn.json` to determine `endedAt`; conservatively keeps any
+   * subdir lacking a snapshot (treated as in-flight). Removes the entire
+   * subdir recursively when eligible, under the per-turn write-lock so
+   * a concurrent legacy reader sees a consistent state.
+   */
+  private async sweepLegacyMount(
+    args: SweepChannelArgs & {readonly cutoff: number},
+  ): Promise<number> {
+    const {channelId, cutoff, projectRoot} = args
+    const turnsRoot = join(channelPaths.channelDir(projectRoot, channelId), 'turns')
+    const entries = await tryListDir(turnsRoot)
+
+    let deleted = 0
+    for (const turnId of entries) {
+      const snapshotFile = channelPaths.turnSnapshotFile(projectRoot, channelId, turnId)
+      // eslint-disable-next-line no-await-in-loop
+      const parsed = await tryReadJson(snapshotFile)
+      // No snapshot → conservative: keep (pre-Phase-9 turns only wrote
+      // turn.json at terminal state, so absence implies in-flight).
+      if (typeof parsed !== 'object' || parsed === null) continue
+      const {endedAt} = (parsed as {endedAt?: unknown})
+      if (typeof endedAt !== 'string') continue
+      const endedMs = Date.parse(endedAt)
+      if (Number.isNaN(endedMs)) continue
+      if (endedMs >= cutoff) continue
+
+      const subdir = channelPaths.turnDir(projectRoot, channelId, turnId)
+      // eslint-disable-next-line no-await-in-loop
+      await this.serializer.withLock(`${channelId}:${turnId}`, async () => {
+        await fs.rm(subdir, {force: true, recursive: true})
+      })
+      deleted++
+    }
+
+    return deleted
   }
 }

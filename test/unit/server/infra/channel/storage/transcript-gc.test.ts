@@ -275,6 +275,97 @@ describe('ChannelTranscriptGc (Slice 9.4)', () => {
     })
   })
 
+  // Slice 9.5 — legacy `.brv/context-tree/channel/<id>/turns/<turnId>/`
+  // (pre-Phase-9 layout) also ages out via the GC sweep so the
+  // `isChannelTurnArtifact` cogit exclusion can be retired once these
+  // directories naturally vacate.
+  describe('legacy mount sweep (Slice 9.5)', () => {
+    // eslint-disable-next-line unicorn/consistent-function-scoping
+    const writeLegacyTurn = async (turnId: string, endedAtIso: string | undefined): Promise<void> => {
+      const turnDir = channelPaths.turnDir(projectRoot, channelId, turnId)
+      await fs.mkdir(turnDir, {recursive: true})
+      // Legacy events.jsonl with one message + a terminal state change.
+      const events = [
+        JSON.stringify({channelId, content: 'hi', deliveryId: null, emittedAt: '2026-01-01T00:00:00.000Z', kind: 'message', memberHandle: null, role: 'user', seq: 0, turnId}),
+        JSON.stringify({channelId, deliveryId: null, emittedAt: endedAtIso ?? '2026-01-01T00:00:00.000Z', from: 'pending', kind: 'turn_state_change', memberHandle: null, seq: 1, to: 'completed', turnId}),
+      ].join('\n')
+      await fs.writeFile(channelPaths.eventsFile(projectRoot, channelId, turnId), `${events}\n`)
+      if (endedAtIso !== undefined) {
+        const legacyTurn = {
+          author: {handle: 'you', kind: 'local-user'},
+          channelId,
+          endedAt: endedAtIso,
+          mentions: [],
+          promptBlocks: [{text: 'hi', type: 'text'}],
+          promptedBy: 'user',
+          startedAt: endedAtIso,
+          state: 'completed',
+          turnId,
+        }
+        await fs.writeFile(
+          channelPaths.turnSnapshotFile(projectRoot, channelId, turnId),
+          JSON.stringify(legacyTurn, undefined, 2),
+        )
+      }
+    }
+
+    it('deletes legacy turn subdirs whose turn.json endedAt is older than retention', async () => {
+      await writeLegacyTurn('old-legacy', '2026-01-01T00:00:00.000Z')
+
+      const gc = new ChannelTranscriptGc({
+        clock: () => new Date('2026-05-17T00:00:00.000Z'),
+        indexStore,
+        retentionDays: 30,
+        serializer,
+      })
+      const result = await gc.sweepChannel({channelId, projectRoot})
+
+      expect(result.deletedLegacyMount).to.equal(1)
+
+      const dir = channelPaths.turnDir(projectRoot, channelId, 'old-legacy')
+      let exists = true
+      try {
+        await fs.stat(dir)
+      } catch {
+        exists = false
+      }
+
+      expect(exists, 'legacy turn dir must be removed').to.equal(false)
+    })
+
+    it('keeps a legacy turn whose endedAt is within retention', async () => {
+      await writeLegacyTurn('recent-legacy', '2026-05-10T00:00:00.000Z')
+
+      const gc = new ChannelTranscriptGc({
+        clock: () => new Date('2026-05-17T00:00:00.000Z'),
+        indexStore,
+        retentionDays: 30,
+        serializer,
+      })
+      const result = await gc.sweepChannel({channelId, projectRoot})
+
+      expect(result.deletedLegacyMount).to.equal(0)
+      const dir = channelPaths.turnDir(projectRoot, channelId, 'recent-legacy')
+      expect((await fs.stat(dir)).isDirectory()).to.equal(true)
+    })
+
+    it('NEVER deletes a legacy turn without a turn.json snapshot (in-flight)', async () => {
+      // No snapshot file → in-flight (Phase 1-8 turns wrote turn.json only
+      // at terminal state). Conservative: assume the turn is still running.
+      await writeLegacyTurn('inflight-legacy')
+
+      const gc = new ChannelTranscriptGc({
+        clock: () => new Date('2026-05-17T00:00:00.000Z'),
+        indexStore,
+        retentionDays: 30,
+        serializer,
+      })
+      const result = await gc.sweepChannel({channelId, projectRoot})
+
+      expect(result.deletedLegacyMount).to.equal(0)
+    })
+  })
+
   describe('lock coordination (active-turn safety)', () => {
     it('serializes deletion through the per-turn write lock', async () => {
       // Acquire the per-turn lock first, then run the sweep. The sweep
