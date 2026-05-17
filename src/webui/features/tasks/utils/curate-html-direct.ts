@@ -25,8 +25,8 @@ export type CurateHtmlDirectResultPayload =
     }
 
 export interface CurateHtmlWriteError {
-  code: string
   existingContent?: string
+  kind: string
   message: string
 }
 
@@ -72,7 +72,7 @@ export function parseCurateHtmlDirectResult(content: string): CurateHtmlDirectRe
 function isWriteError(value: unknown): value is CurateHtmlWriteError {
   if (typeof value !== 'object' || value === null) return false
   const obj = value as Record<string, unknown>
-  return typeof obj.code === 'string' && typeof obj.message === 'string'
+  return typeof obj.kind === 'string' && typeof obj.message === 'string'
 }
 
 function safeJsonParse(content: string): unknown {

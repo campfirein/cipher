@@ -63,7 +63,7 @@ export function CurateHtmlDirectResultView({payload}: {payload: CurateHtmlDirect
           {payload.errors.length === 0 ? (
             <p className="text-muted-foreground text-sm">The daemon refused the write but reported no errors.</p>
           ) : (
-            payload.errors.map((err, i) => <WriteErrorItem error={err} key={`${err.code}-${i}`} />)
+            payload.errors.map((err, i) => <WriteErrorItem error={err} key={`${err.kind}-${i}`} />)
           )}
         </div>
       </Card>
@@ -78,7 +78,7 @@ function WriteErrorItem({error}: {error: CurateHtmlWriteError}) {
         <AlertTriangle className="text-red-400 mt-0.5 size-4 shrink-0" />
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           <p className="text-red-400 text-sm font-medium">{error.message}</p>
-          <p className="text-muted-foreground mono text-[11px]">{error.code}</p>
+          <p className="text-muted-foreground mono text-[11px]">{error.kind}</p>
         </div>
       </div>
       {error.existingContent && (
