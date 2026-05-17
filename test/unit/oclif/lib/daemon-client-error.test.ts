@@ -16,6 +16,17 @@ describe('formatConnectionError — task error handling', () => {
       expect(result).to.not.include('API key is missing or invalid')
     })
 
+    it('should keep brv login guidance for cloud auth errors', () => {
+      const error = Object.assign(new Error('Not authenticated'), {
+        code: TaskErrorCode.NOT_AUTHENTICATED,
+      })
+
+      const result = formatConnectionError(error)
+
+      expect(result).to.include('Cloud sync')
+      expect(result).to.include('brv login')
+    })
+
     it('should return raw backend message for unmapped task error codes (e.g. ERR_TASK_EXECUTION)', () => {
       const backendMessage =
         "You've reached your free tier daily request limit (0/0 in the last 24 hours). " +
@@ -65,12 +76,40 @@ describe('formatConnectionError — task error handling', () => {
       expect(result).to.include('API key is missing or invalid')
     })
 
-    it('should still text-match "401" for plain errors without code', () => {
+    it('should still text-match "401" for plain errors without code and provider context', () => {
+      const error = new Error('Request failed with status code 401')
+
+      const result = formatConnectionError(error, {
+        activeModel: 'openclaw/main',
+        activeProvider: 'openai-compatible',
+      })
+
+      expect(result).to.include('LLM provider request was unauthorized')
+      expect(result).to.include('openai-compatible')
+      expect(result).to.include('openclaw/main')
+      expect(result).to.not.include('brv login')
+    })
+
+    it('should not leak secrets from provider auth failures', () => {
+      const secret = 'SECRET_VALUE_SHOULD_NOT_LEAK'
+      const error = new Error(`Unauthorized: bearer ${secret}`)
+
+      const result = formatConnectionError(error, {
+        activeModel: 'openclaw/main',
+        activeProvider: 'openai-compatible',
+      })
+
+      expect(result).to.include('LLM provider request was unauthorized')
+      expect(result).to.not.include(secret)
+    })
+
+    it('should keep cloud login guidance for plain 401 errors without provider context', () => {
       const error = new Error('Request failed with status code 401')
 
       const result = formatConnectionError(error)
 
       expect(result).to.include('Authentication required')
+      expect(result).to.include('brv login')
     })
   })
 })

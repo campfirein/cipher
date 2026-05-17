@@ -31,7 +31,7 @@ const USER_FRIENDLY_MESSAGES: Record<string, string> = {
   [TaskErrorCode.CONTEXT_TREE_NOT_INITIALIZED]: 'Context tree not initialized.',
   [TaskErrorCode.LOCAL_CHANGES_EXIST]: 'You have local changes. Run "brv push" to save your changes before pulling.',
   [TaskErrorCode.NOT_AUTHENTICATED]:
-    'Not authenticated. Cloud sync features (push/pull/space) require login — local query and curate work without authentication.',
+    'Not authenticated. Cloud sync features (push/pull/space) require login. Run "brv login" to connect your account.',
   [TaskErrorCode.OAUTH_REFRESH_FAILED]:
     'OAuth token refresh failed. Run "brv providers connect <provider> --oauth" to reconnect.',
   [TaskErrorCode.OAUTH_TOKEN_EXPIRED]:
@@ -253,6 +253,10 @@ export function formatConnectionError(error: unknown, providerContext?: Provider
   const lowerMessage = message.toLowerCase()
 
   if (lowerMessage.includes('401') || lowerMessage.includes('unauthorized')) {
+    if (isNonByteRoverProvider(providerContext)) {
+      return formatProviderUnauthorizedError(providerContext)
+    }
+
     return "Authentication required for cloud sync. Run 'brv login' to connect your account."
   }
 
@@ -261,6 +265,11 @@ export function formatConnectionError(error: unknown, providerContext?: Provider
   }
 
   return `Unexpected error: ${message}`
+}
+
+function isNonByteRoverProvider(providerContext?: ProviderErrorContext): boolean {
+  const provider = providerContext?.activeProvider
+  return Boolean(provider && provider !== 'byterover')
 }
 
 function formatApiKeyError(providerContext?: ProviderErrorContext): string {
@@ -275,5 +284,20 @@ function formatApiKeyError(providerContext?: ProviderErrorContext): string {
     '  Switch to a different provider:\n' +
     '    brv providers switch <provider>\n\n' +
     '  See all options:  brv providers --help'
+  )
+}
+
+function formatProviderUnauthorizedError(providerContext?: ProviderErrorContext): string {
+  const provider = providerContext?.activeProvider ?? '<provider>'
+  const model = providerContext?.activeModel
+  const currentInfo = model ? `Provider: ${provider}  Model: ${model}\n\n` : `Provider: ${provider}\n\n`
+  const modelFlag = model ? ` --model ${model}` : ' --model <model>'
+  const baseUrlFlag = provider === 'openai-compatible' ? ' --base-url <url>' : ''
+
+  return (
+    `LLM provider request was unauthorized.\n${currentInfo}` +
+    'Reconnect the active provider with a valid API key/token and base URL:\n' +
+    `  brv providers connect ${provider}${baseUrlFlag} --api-key <token>${modelFlag}\n\n` +
+    'Cloud sync login is not required for local query/curate unless using the ByteRover provider.'
   )
 }

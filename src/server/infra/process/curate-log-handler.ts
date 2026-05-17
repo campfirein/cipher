@@ -5,6 +5,7 @@ import type {ITaskLifecycleHook} from '../../core/interfaces/process/i-task-life
 import type {ICurateLogStore} from '../../core/interfaces/storage/i-curate-log-store.js'
 
 import {extractCurateOperations} from '../../utils/curate-result-parser.js'
+import {formatBlockedCurationMessage, isBlockedCurationResponse} from '../../utils/curate-outcome.js'
 import {getProjectDataDir} from '../../utils/path-utils.js'
 import {transportLog} from '../../utils/process-logger.js'
 import {FileCurateLogStore} from '../storage/file-curate-log-store.js'
@@ -165,6 +166,24 @@ export class CurateLogHandler implements ITaskLifecycleHook {
     if (!state) return
 
     const store = this.getOrCreateStore(state.projectPath)
+
+    if (state.operations.length === 0 && isBlockedCurationResponse(result)) {
+      const updated: CurateLogEntry = {
+        ...state.entry,
+        completedAt: Date.now(),
+        error: formatBlockedCurationMessage(result),
+        operations: state.operations,
+        status: 'error',
+        summary: computeSummary(state.operations),
+      }
+
+      await store.save(updated).catch((error: unknown) => {
+        transportLog(
+          `CurateLogHandler: failed to save blocked entry for ${taskId}: ${error instanceof Error ? error.message : String(error)}`,
+        )
+      })
+      return
+    }
 
     const updated: CurateLogEntry = {
       ...state.entry,

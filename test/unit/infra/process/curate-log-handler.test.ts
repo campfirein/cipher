@@ -428,6 +428,22 @@ describe('CurateLogHandler', () => {
       } as never)
     })
 
+    it('should save blocked zero-operation completion as an error entry', async () => {
+      handler = new CurateLogHandler(() => store)
+      await handler.onTaskCreate(makeTask())
+
+      await handler.onTaskCompleted(
+        'task-abc',
+        'The curation agent could not complete proper RLM curation because required code_exec tooling was not exposed.',
+        makeTask(),
+      )
+
+      const errorEntry = store.save.secondCall.args[0] as {error?: string; operations: unknown[]; status: string}
+      expect(errorEntry.status).to.equal('error')
+      expect(errorEntry.operations).to.have.lengthOf(0)
+      expect(errorEntry.error).to.include('Context curation blocked')
+    })
+
     it('should save completed entry with correct status and operations', async () => {
       await handler.onTaskCompleted('task-abc', 'Great job!', makeTask())
 

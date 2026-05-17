@@ -8,6 +8,7 @@ import type {CurateLogOperation} from '../../../server/core/domain/entities/cura
 import {BRV_DIR, CONTEXT_TREE_DIR} from '../../../server/constants.js'
 import {ProviderConfigResponse, TransportStateEventNames} from '../../../server/core/domain/transport/index.js'
 import {extractCurateOperations} from '../../../server/utils/curate-result-parser.js'
+import {formatBlockedCurationMessage, isBlockedCurationResponse} from '../../../server/utils/curate-outcome.js'
 import {TaskEvents} from '../../../shared/transport/events/index.js'
 import {printBillingLine} from '../../lib/billing-line.js'
 import {
@@ -193,14 +194,16 @@ Bad examples:
    * The authoritative signal for whether review is required comes from ReviewEvents.NOTIFY.
    */
   private collectPendingReviewOps(toolCalls: ToolCallRecord[]): CurateLogOperation[] {
+    return this.collectCurateOperations(toolCalls).filter((op) => op.needsReview === true)
+  }
+
+  private collectCurateOperations(toolCalls: ToolCallRecord[]): CurateLogOperation[] {
     const pending: CurateLogOperation[] = []
 
     for (const tc of toolCalls) {
       if (tc.status !== 'completed') continue
       const ops = extractCurateOperations({result: tc.result, toolName: tc.toolName})
-      for (const op of ops) {
-        if (op.needsReview === true) pending.push(op)
-      }
+      pending.push(...ops)
     }
 
     return pending
@@ -341,10 +344,20 @@ Bad examples:
           client,
           command: 'curate',
           format,
-          onCompleted: ({logId, pendingReview, taskId: tid, toolCalls}) => {
+          onCompleted: ({logId, pendingReview, result, taskId: tid, toolCalls}) => {
             const changes = this.composeChangesFromToolCalls(toolCalls)
+            const operations = this.collectCurateOperations(toolCalls)
+            const hasAppliedOperations = operations.some((op) => op.status === 'success')
+            const hasFailedOperations = operations.some((op) => op.status === 'failed')
+            const blocked = !hasAppliedOperations && isBlockedCurationResponse(result)
             // Per-file detail is best-effort enrichment; server notify is authoritative
             const pendingOps = pendingReview ? this.collectPendingReviewOps(toolCalls) : []
+            const suffix = logId ? ` (Task: ${tid} · Log: ${logId})` : ` (Task: ${tid})`
+            const message = blocked
+              ? formatBlockedCurationMessage(result)
+              : !hasAppliedOperations && !hasFailedOperations && !pendingReview
+                ? 'No context changes applied'
+                : 'Context curated successfully'
 
             if (format === 'text') {
               for (const file of changes.created) {
@@ -355,8 +368,9 @@ Bad examples:
                 this.log(`  update ${file}`)
               }
 
-              const suffix = logId ? ` (Task: ${tid} · Log: ${logId})` : ` (Task: ${tid})`
-              this.log(`✓ Context curated successfully.${suffix}`)
+              const icon =
+                blocked ? '✗' : hasAppliedOperations || hasFailedOperations || pendingReview ? '✓' : 'ℹ'
+              this.log(`${icon} ${message}.${suffix}`)
 
               if (pendingReview) {
                 this.printPendingReviewSummary(pendingReview.pendingCount, pendingOps, tid)
@@ -368,14 +382,14 @@ Bad examples:
                   changes: changes.created.length > 0 || changes.updated.length > 0 ? changes : undefined,
                   event: 'completed',
                   logId,
-                  message: 'Context curated successfully',
+                  message,
                   ...(pendingReview
                     ? {pendingReview: this.buildPendingReviewJson(pendingReview.pendingCount, pendingOps, tid)}
                     : {}),
-                  status: 'completed',
+                  status: blocked ? 'error' : 'completed',
                   taskId: tid,
                 },
-                success: true,
+                success: !blocked,
               })
             }
           },
