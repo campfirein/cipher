@@ -1,6 +1,6 @@
 import {expect} from 'chai'
 
-import {formatBlockedCurationMessage, isBlockedCurationResponse} from '../../../../../src/server/utils/curate-outcome.js'
+import {formatBlockedCurationMessage, isBlockedCurationResponse} from '../../../../src/server/utils/curate-outcome.js'
 
 describe('curate-outcome', () => {
   it('detects blocked RLM/tooling responses', () => {
