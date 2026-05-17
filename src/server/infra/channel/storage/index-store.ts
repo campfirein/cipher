@@ -152,6 +152,17 @@ const collectDeliverySnapshotsFromNdjson = (raw: string): ChannelTurnIndexDelive
 export class ChannelTurnIndexStore {
   private readonly inMemoryByChannel = new Map<string, Map<string, ChannelTurnIndexEntry>>()
   private readonly loadedChannels = new Set<string>()
+  /**
+   * Slice 9.7 (codex D5): per-daemon-lifetime guard against re-running the
+   * `recoverFromNdjson` sweep on every read. The lazy hook in
+   * `ChannelStore.listTurns` would otherwise pay an O(N) `readdir` of
+   * the per-channel `turns/` dir on every call, undercutting Slice 9.3's
+   * "index hot path" claim. Set holds `${channelId}:${projectRoot}`
+   * once recovery has run; subsequent invocations short-circuit at O(1).
+   * Lives for the daemon's lifetime (recovery is a startup/2PC-gap
+   * concern; a still-running daemon's in-memory map is authoritative).
+   */
+  private readonly recoveredChannels = new Set<string>()
   private readonly serializer: ChannelWriteSerializer
 
   public constructor(options: ChannelTurnIndexStoreOptions) {
@@ -219,12 +230,24 @@ export class ChannelTurnIndexStore {
    */
   async recoverFromNdjson(args: RecoverArgs): Promise<number> {
     const {channelId, projectRoot} = args
+    // Slice 9.7 (codex D5): per-daemon-lifetime gate. Once recovery has
+    // run for this (channelId, projectRoot), subsequent invocations are
+    // O(1) no-ops — the in-memory map is authoritative while the daemon
+    // is alive; new turns flow through `appendEntry` not `recoverFromNdjson`.
+    const recoveryKey = `${channelId}:${projectRoot}`
+    if (this.recoveredChannels.has(recoveryKey)) return 0
+
     const turnsDir = channelPaths.historyTurnsDir(projectRoot, channelId)
     let entries: string[] = []
     try {
       entries = await fs.readdir(turnsDir)
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return 0
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        // Mark recovered so future no-op calls don't readdir again.
+        this.recoveredChannels.add(recoveryKey)
+        return 0
+      }
+
       throw error
     }
 
@@ -252,6 +275,7 @@ export class ChannelTurnIndexStore {
       recovered++
     }
 
+    this.recoveredChannels.add(recoveryKey)
     return recovered
   }
 

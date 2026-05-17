@@ -232,5 +232,55 @@ describe('ChannelTurnIndexStore (Slice 9.3)', () => {
       const recovered = await store.recoverFromNdjson({channelId, projectRoot})
       expect(recovered).to.equal(0)
     })
+
+    // Slice 9.7 (codex D5): the lazy hook in `ChannelStore.listTurns`
+    // would otherwise pay an O(N) readdir on every call. Gate recovery
+    // to first-access-per-daemon-lifetime per (channelId, projectRoot).
+    it('runs the readdir sweep only ONCE per (channelId, projectRoot) — D5', async () => {
+      // First call: full sweep, recovers an orphan.
+      const ndjson = channelPaths.turnNdjsonFile(projectRoot, channelId, '01HX-orphan-A')
+      await fs.mkdir(dirname(ndjson), {recursive: true})
+      await fs.writeFile(
+        ndjson,
+        `${JSON.stringify({_recordType: 'turn_snapshot', turn: sampleTurn('01HX-orphan-A')})}\n`,
+      )
+
+      expect(await store.recoverFromNdjson({channelId, projectRoot})).to.equal(1)
+
+      // Drop ANOTHER orphan on disk after the gate has closed.
+      const ndjson2 = channelPaths.turnNdjsonFile(projectRoot, channelId, '01HX-orphan-B')
+      await fs.writeFile(
+        ndjson2,
+        `${JSON.stringify({_recordType: 'turn_snapshot', turn: sampleTurn('01HX-orphan-B')})}\n`,
+      )
+
+      // Second call: gate is closed; orphan-B is NOT recovered.
+      // This proves the readdir is skipped (the gate is the perf fix).
+      expect(await store.recoverFromNdjson({channelId, projectRoot})).to.equal(0)
+
+      const entries = await store.getEntries({channelId, projectRoot})
+      expect(entries.has('01HX-orphan-A')).to.equal(true)
+      expect(entries.has('01HX-orphan-B'), 'gate must skip post-startup orphans').to.equal(false)
+    })
+
+    it('gates per (channelId, projectRoot) — different channel still recovers', async () => {
+      // Seed orphan in channel A, recover it.
+      const a = channelPaths.turnNdjsonFile(projectRoot, channelId, '01HX-a')
+      await fs.mkdir(dirname(a), {recursive: true})
+      await fs.writeFile(a, `${JSON.stringify({_recordType: 'turn_snapshot', turn: sampleTurn('01HX-a')})}\n`)
+      expect(await store.recoverFromNdjson({channelId, projectRoot})).to.equal(1)
+
+      // Different channel: gate is per-channel, so this channel's
+      // recovery still runs.
+      const otherChannel = 'other-channel'
+      const b = channelPaths.turnNdjsonFile(projectRoot, otherChannel, '01HX-b')
+      await fs.mkdir(dirname(b), {recursive: true})
+      // sampleTurn() bakes channelId='pi-test'; switch it here so the
+      // recovery's schema parse accepts it.
+      const otherTurn = {...sampleTurn('01HX-b'), channelId: otherChannel}
+      await fs.writeFile(b, `${JSON.stringify({_recordType: 'turn_snapshot', turn: otherTurn})}\n`)
+
+      expect(await store.recoverFromNdjson({channelId: otherChannel, projectRoot})).to.equal(1)
+    })
   })
 })

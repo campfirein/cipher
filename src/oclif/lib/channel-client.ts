@@ -45,6 +45,46 @@ export class ChannelClientError extends Error {
 const DAEMON_NOT_INITIALISED = 'ERR_BRV_DAEMON_NOT_INITIALISED'
 const CONNECT_FAILED = 'ERR_BRV_CHANNEL_CONNECT_FAILED'
 
+/** Default transport timeout when no per-call override and no env override is set. */
+const DEFAULT_REQUEST_TIMEOUT_MS = 60_000
+
+/**
+ * Slice 9.7 (codex D6) — pure-function helper that resolves the transport
+ * timeout for `request()`. Extracted from the inline expression at the
+ * call site so it can be unit-tested directly without spinning up a
+ * Socket.IO server.
+ *
+ * Resolution order:
+ *   1. Per-call `options.timeoutMs` (if defined AND > 0) — Bug 1 fix
+ *      lets `channel:mention --mode sync` pass turn_timeout + grace so
+ *      the transport doesn't time out before the daemon settles the
+ *      sync response.
+ *   2. `BRV_CHANNEL_REQUEST_TIMEOUT_MS` env (if parseable to a positive
+ *      number) — operational knob for daemons under unusual load.
+ *   3. {@link DEFAULT_REQUEST_TIMEOUT_MS} (60s) — safety net per Slice
+ *      3.5b so a never-acked socket doesn't hang the CLI forever.
+ *
+ * The Bug 1 regression to catch: a future refactor reintroduces a
+ * hardcoded `60_000` that ignores both per-call and env overrides.
+ * Unit tests pin all three branches.
+ */
+export const resolveRequestTimeoutMs = (
+  options: undefined | {readonly timeoutMs?: number},
+  env: NodeJS.ProcessEnv,
+): number => {
+  if (options?.timeoutMs !== undefined && options.timeoutMs > 0) {
+    return options.timeoutMs
+  }
+
+  const envRaw = env.BRV_CHANNEL_REQUEST_TIMEOUT_MS
+  if (envRaw !== undefined && envRaw.trim() !== '') {
+    const parsed = Number.parseInt(envRaw, 10)
+    if (Number.isFinite(parsed) && parsed > 0) return parsed
+  }
+
+  return DEFAULT_REQUEST_TIMEOUT_MS
+}
+
 const tokenFilePath = (): string => join(getGlobalDataDir(), 'state', 'daemon-auth-token')
 
 const readDaemonTokenOrThrow = async (): Promise<string> => {
@@ -242,10 +282,9 @@ export const connectChannelClient = async (options?: ChannelClientOptions): Prom
         // out before the daemon settles the sync response — Bug 1 follow-up
         // in `plan/channel-protocol/IMPLEMENTATION_PHASE_8_FOLLOWUPS.md`).
         // Otherwise fall back to `BRV_CHANNEL_REQUEST_TIMEOUT_MS` env or 60s.
-        const timeoutMs =
-          options?.timeoutMs !== undefined && options.timeoutMs > 0
-            ? options.timeoutMs
-            : Number.parseInt(process.env.BRV_CHANNEL_REQUEST_TIMEOUT_MS ?? '60000', 10)
+        // Resolution logic factored to `resolveRequestTimeoutMs` so the
+        // Bug 1 regression guard has unit-test coverage (Slice 9.7 D6).
+        const timeoutMs = resolveRequestTimeoutMs(options, process.env)
         let settled = false
         const timer = Number.isFinite(timeoutMs) && timeoutMs > 0
           ? setTimeout(() => {

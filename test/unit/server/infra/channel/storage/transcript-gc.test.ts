@@ -281,7 +281,7 @@ describe('ChannelTranscriptGc (Slice 9.4)', () => {
   // directories naturally vacate.
   describe('legacy mount sweep (Slice 9.5)', () => {
     // eslint-disable-next-line unicorn/consistent-function-scoping
-    const writeLegacyTurn = async (turnId: string, endedAtIso: string | undefined): Promise<void> => {
+    const writeLegacyTurn = async (turnId: string, endedAtIso?: string): Promise<void> => {
       const turnDir = channelPaths.turnDir(projectRoot, channelId, turnId)
       await fs.mkdir(turnDir, {recursive: true})
       // Legacy events.jsonl with one message + a terminal state change.
