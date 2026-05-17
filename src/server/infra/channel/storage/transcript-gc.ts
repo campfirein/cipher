@@ -159,8 +159,20 @@ export class ChannelTranscriptGc {
    * Slice 9.5 — sweep pre-Phase-9 `<channelDir>/turns/<turnId>/` subdirs.
    * Reads `turn.json` to determine `endedAt`; conservatively keeps any
    * subdir lacking a snapshot (treated as in-flight). Removes the entire
-   * subdir recursively when eligible, under the per-turn write-lock so
-   * a concurrent legacy reader sees a consistent state.
+   * subdir recursively when eligible, under the per-turn write-lock.
+   *
+   * Slice 9.6 (codex D4): the per-turn lock is held by GC but NOT by
+   * `ChannelTreeReader.readTurn` or `ChannelStore.listTurns` — readers
+   * are intentionally lock-free for throughput. Consequence: in the
+   * narrow window where GC has unlinked an old (>retentionDays) legacy
+   * subdir but a concurrent `brv channel show <oldTurnId>` is mid-read,
+   * the reader observes `undefined` (i.e. the same shape it returns for
+   * a turnId that never existed). This is intentional: anyone reading a
+   * 30+ day old turn is reading historical data, and the race surface
+   * is identical to a user manually deleting the directory between
+   * `listTurns` and `show`. Callers already handle the `undefined`
+   * shape. If a future consumer needs lock-consistency, take the
+   * serializer in the read path too — accept the throughput hit.
    */
   private async sweepLegacyMount(
     args: SweepChannelArgs & {readonly cutoff: number},

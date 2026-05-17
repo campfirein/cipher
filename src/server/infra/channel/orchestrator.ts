@@ -1025,33 +1025,46 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
       }
     }
 
-    // Persist turn snapshot + delivery snapshots + message body for each delivery.
-    await this.store.writeTurnSnapshot({
-      channelId: active.channelId,
-      projectRoot: active.projectRoot,
-      turn: active.turn,
-      turnId: active.turn.turnId,
-    })
-    for (const delivery of active.deliveries) {
-      // eslint-disable-next-line no-await-in-loop
-      await this.store.writeDeliverySnapshot({
+    // Slice 9.6 (codex D3): wrap the disk writes + index append in a
+    // try/finally so the held-open per-turn write stream is ALWAYS
+    // closed at terminal state, even when a snapshot/index write throws
+    // unexpectedly. Without the finally, `activeTurns.delete` above had
+    // already removed the idempotency guard and a thrown write would
+    // leak the stream's file descriptor until process exit.
+    try {
+      // Persist turn snapshot + delivery snapshots + message body for each delivery.
+      await this.store.writeTurnSnapshot({
         channelId: active.channelId,
-        delivery,
-        deliveryId: delivery.deliveryId,
         projectRoot: active.projectRoot,
+        turn: active.turn,
         turnId: active.turn.turnId,
       })
+      for (const delivery of active.deliveries) {
+        // eslint-disable-next-line no-await-in-loop
+        await this.store.writeDeliverySnapshot({
+          channelId: active.channelId,
+          delivery,
+          deliveryId: delivery.deliveryId,
+          projectRoot: active.projectRoot,
+          turnId: active.turn.turnId,
+        })
+      }
+    } finally {
+      // Slice 9.2 — release the held-open write stream now that the turn
+      // has reached terminal state. Subsequent reads come from the closed
+      // NDJSON file via the tree-reader's lazy open; the next mention
+      // opens a fresh stream for its own turnId. Catch is defensive:
+      // a double-close (race with another close path) should not mask
+      // the outer error.
+      await this.store
+        .closeTranscriptStream({
+          channelId: active.channelId,
+          turnId: active.turn.turnId,
+        })
+        .catch(() => {
+          // intentionally swallowed — see comment above
+        })
     }
-
-    // Slice 9.2 — release the held-open write stream now that the turn
-    // has reached terminal state and the structural snapshot lines have
-    // been written. Subsequent reads come from the closed NDJSON file
-    // via the tree-reader's lazy open; the next mention to this channel
-    // opens a fresh stream for its own turnId.
-    await this.store.closeTranscriptStream({
-      channelId: active.channelId,
-      turnId: active.turn.turnId,
-    })
 
     // Slice 9.3 — materialise this terminal turn into the per-channel
     // index so the next mention's list-turns + lookback paths skip

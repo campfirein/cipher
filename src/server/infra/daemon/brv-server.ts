@@ -938,18 +938,23 @@ async function main(): Promise<void> {
     // 11. Start idle timer + register signal handlers
     idleTimeoutPolicy.start()
 
-    process.once('SIGTERM', () => {
-      log('SIGTERM received')
+    // Slice 9.6 (codex D2): fire `releaseChannelResourcesOnExit` from the
+    // signal handlers too, not just `beforeExit`. Live channel ACP children
+    // can keep the event loop busy long enough that `shutdownHandler.shutdown()`
+    // proceeds to `process.exit()` — which SKIPS `beforeExit` — before our
+    // streams flush. The release hook is idempotent (`releaseAll` no-ops on
+    // an empty pool; `closeAll` clears its own Map), so duplicate invocation
+    // from beforeExit later is harmless.
+    const handleShutdownSignal = (signal: 'SIGINT' | 'SIGTERM'): void => {
+      log(`${signal} received`)
+      releaseChannelResourcesOnExit()
       shutdownHandler.shutdown().catch((error: unknown) => {
         log(`Shutdown error: ${error instanceof Error ? error.message : String(error)}`)
       })
-    })
-    process.once('SIGINT', () => {
-      log('SIGINT received')
-      shutdownHandler.shutdown().catch((error: unknown) => {
-        log(`Shutdown error: ${error instanceof Error ? error.message : String(error)}`)
-      })
-    })
+    }
+
+    process.once('SIGTERM', () => handleShutdownSignal('SIGTERM'))
+    process.once('SIGINT', () => handleShutdownSignal('SIGINT'))
 
     // 11. All handlers registered — open the socket port now.
     await transportServer.start(port)

@@ -259,7 +259,7 @@ export class ChannelTurnIndexStore {
     projectRoot: string,
     channelId: string,
   ): Promise<Map<string, ChannelTurnIndexEntry>> {
-    const cacheKey = `${channelId} ${projectRoot}`
+    const cacheKey = `${channelId}:${projectRoot}`
     let map = this.inMemoryByChannel.get(cacheKey)
     if (map === undefined) {
       map = new Map<string, ChannelTurnIndexEntry>()
