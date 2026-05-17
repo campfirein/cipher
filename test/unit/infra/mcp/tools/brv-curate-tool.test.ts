@@ -192,15 +192,37 @@ describe('brv-curate-tool', () => {
       expect(description).to.include('no LLM provider required')
     })
 
-    it('includes a minimal worked example', () => {
+    it('includes both a flat example and a sectioned example', () => {
       const {getDescription} = setupHandler({
         getClient: () => createMockClient().client,
         getWorkingDirectory: () => '/project/root',
       })
 
       const description = getDescription()
+      // Short / flat example (kept for the trivial-topic case)
       expect(description).to.include('<bv-topic path="security/auth"')
       expect(description).to.include('<bv-decision id="d-rs256"')
+      // Sectioned example (anchors agents on the richer pattern for non-trivial
+      // topics; prevents the agent from defaulting to a flat run of 30+ rules)
+      expect(description).to.include('<bv-topic path="conventions/typescript_rules"')
+      expect(description).to.include('<bv-structure>')
+      expect(description).to.include('<bv-flow>')
+      expect(description).to.include('<h3>Module boundaries</h3>')
+      expect(description).to.include('<h3>Strict TDD cycle</h3>')
+    })
+
+    it('includes the authoring-patterns guidance for sectioning', () => {
+      const {getDescription} = setupHandler({
+        getClient: () => createMockClient().client,
+        getWorkingDirectory: () => '/project/root',
+      })
+
+      const description = getDescription()
+      expect(description).to.include('Authoring patterns')
+      expect(description).to.include('Group related rules under a container')
+      // The h3-inside-container rule is the headline structural invariant —
+      // dropping it would silently regress the Skill ↔ MCP output parity.
+      expect(description).to.include('Place section titles INSIDE the container')
     })
   })
 
