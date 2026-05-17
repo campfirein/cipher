@@ -183,11 +183,75 @@ You:
 If the shell command times out or errors, surface the `code` field
 verbatim and stop — don't retry silently.
 
+## Multi-agent fan-out + gather (push, not poll)
+
+When you want to ask **multiple agents** the same question in parallel and
+wait for all of them — e.g. independent reviews from kimi + codex — use
+the dispatch-async + subscribe pattern instead of N serial sync mentions:
+
+1. **Dispatch** each member with `--no-wait --json` (returns immediately
+   with the assigned turnId):
+
+   ```bash
+   {{BRV_BIN}} channel mention review-2026 "@kimi review src/auth.py" --no-wait --json
+   # parse turnId from stdout
+   {{BRV_BIN}} channel mention review-2026 "@codex review src/auth.py" --no-wait --json
+   # parse second turnId
+   ```
+
+2. **Subscribe** to wait for both terminal-delivery events without
+   polling — the command exits as soon as `--count` is reached:
+
+   ```bash
+   {{BRV_BIN}} channel subscribe review-2026 \
+     --roles @kimi,@codex \
+     --kinds delivery_state_change \
+     --count 2 \
+     --exit-on-terminal \
+     --json
+   ```
+
+3. **Read** each turn's `finalAnswer` via `channel show <ch> <turnId>
+   --json` and synthesize the response.
+
+**When to choose mention --mode sync vs subscribe quorum:**
+- Single agent, one question → `mention --mode sync` (simpler).
+- ≥2 agents in parallel, or you need a turnId before the result is
+  ready → `mention --no-wait` then `subscribe --count N`.
+
+**`subscribe` flag reference (Slice 8.9):**
+- `--roles @a,@b` filter by member handle
+- `--kinds delivery_state_change,turn_state_change` filter by event kind
+- `--turn <id>` scope to a single turnId
+- `--after-seq <n>` exclusive cursor (skip events with seq ≤ n) — used
+  for crash-recovery from a known cursor
+- `--count N` exit after N unique `(turnId, memberHandle)` terminal
+  delivery events
+- `--exit-on-terminal` exit on the first `turn_state_change → completed/cancelled`
+- `--timeout <ms>` hard timeout
+- `--json` (default true) emit newline-delimited JSON
+
+## Permission requests
+
+If an agent's turn includes a `permission_request` event (the agent is
+asking for permission to write a file, run a command, etc.), the user's
+host LLM must respond before the turn can continue:
+
+- `{{BRV_BIN}} channel approve <ch> <turnId> <permissionRequestId> --json`
+  resolves with the first `allow*`-flavoured option.
+- `{{BRV_BIN}} channel deny <ch> <turnId> <permissionRequestId> --json`
+  resolves with the first `reject*`-flavoured option.
+- `--option-id <id>` overrides the default for explicit choice.
+
+The `permissionRequestId` comes from the `permission_request` event in
+the turn's stream. Use `{{BRV_BIN}} channel show <ch> <turnId> --json`
+to locate it if you've lost it.
+
 ## Error recovery
 
 | Error code | Means | What to do |
 |---|---|---|
 | `CHANNEL_PERMISSION_LOST_ON_RESTART` | The brv daemon restarted while a delivery was awaiting a permission decision. The ACP subprocess is dead; the user's choice cannot be forwarded. The error message contains a `--after-seq` cursor pointing at the daemon-written `errored` event. | **Do NOT retry the approve** — the in-flight session is unrecoverable. Re-invite the affected member (re-spawns the ACP subprocess), then re-mention with the original context. Optionally use the supplied `brv channel subscribe <ch> --turn <id> --after-seq <n>` command to inspect the lost-permission event. |
-| `CHANNEL_DRIVER_NOT_REGISTERED` / `unknown` delivery error | The ACP driver isn't currently registered with the daemon (typically after a daemon restart). | Re-invite the member with `brv channel invite <ch> @handle --profile <name>` before retrying the mention. |
+| `CHANNEL_DRIVER_NOT_REGISTERED` | No live ACP driver for this `(channelId, memberHandle)`. Usually fires in the brief race window after a daemon restart but BEFORE `warmDriversForProject` has finished spawning drivers from `meta.json` (Slice 8.11 auto-warm). | **First try**: wait ~2 seconds and retry the same mention — the auto-warm typically completes within that window. If it still fails: re-invite the member with `brv channel invite <ch> @handle --profile <name>` to force-spawn a fresh subprocess. Carried on `delivery.errorCode`, `failedDeliveries[*].code`, AND the `delivery_state_change → errored` event's `errorCode` field (visible via `subscribe`/`watch`). |
 | `CHANNEL_TURN_NOT_FOUND` | The turn id genuinely doesn't exist in this channel. | Verify the channel id and turn id; don't retry blindly. |
 

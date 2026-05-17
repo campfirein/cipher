@@ -34,6 +34,30 @@ describe('ChannelTopic (Slice 8.8 — channel --help)', () => {
       expect(ChannelTopic.description).to.match(/channel skill install/)
     })
 
+    it('should teach multi-agent fan-out + gather (Slice 8.12 — codex Option C)', () => {
+      // Step 5 of the onboarding flow: orchestrate multiple agents in parallel
+      // using --no-wait + subscribe --count, instead of N serial sync mentions.
+      // Without this, a host LLM only knows the single-agent path.
+      expect(ChannelTopic.description).to.match(/ORCHESTRATE/)
+      expect(ChannelTopic.description).to.match(/--no-wait/)
+      expect(ChannelTopic.description).to.match(/--count \d/)
+      expect(ChannelTopic.description).to.match(/fan-out|in parallel/i)
+    })
+
+    it('should mention approve/deny for permission requests (Slice 8.12)', () => {
+      expect(ChannelTopic.description).to.match(/channel approve /)
+      expect(ChannelTopic.description).to.match(/channel deny /)
+    })
+
+    it('should point to the brv-channel skill for the full error-recovery playbook (Slice 8.12)', () => {
+      // The cold-start help mentions the two key error codes by name (so a host
+      // LLM that hits them knows where to look) and points at the installed
+      // skill for the full recovery playbook.
+      expect(ChannelTopic.description).to.match(/CHANNEL_DRIVER_NOT_REGISTERED/)
+      expect(ChannelTopic.description).to.match(/CHANNEL_PERMISSION_LOST_ON_RESTART/)
+      expect(ChannelTopic.description).to.match(/recovery playbook|brv-channel skill/i)
+    })
+
     it('should show the canonical --mode sync flags for mention', () => {
       expect(ChannelTopic.description).to.match(/--mode sync/)
       expect(ChannelTopic.description).to.match(/--suppress-thoughts/)

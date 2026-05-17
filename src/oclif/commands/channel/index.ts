@@ -29,6 +29,22 @@ Set up a channel from scratch in four steps:
        brv channel mention my-review "@kimi please review src/auth.py" \\
          --mode sync --suppress-thoughts --json --timeout 300000
 
+  5. ORCHESTRATE multiple agents (fan-out + gather without polling):
+       # Dispatch to each agent in parallel; capture the turnId from --json:
+       brv channel mention my-review "@kimi review src/auth.py" --no-wait --json
+       brv channel mention my-review "@codex review src/auth.py" --no-wait --json
+       # Wait for both to finish (push, not poll):
+       brv channel subscribe my-review --roles @kimi,@codex \\
+         --kinds delivery_state_change --count 2 --exit-on-terminal --json
+
+  When an agent requests a permission mid-turn, respond with:
+       brv channel approve my-review <turnId> <permissionRequestId> --json
+       brv channel deny    my-review <turnId> <permissionRequestId> --json
+
+  Recovery: if a mention returns CHANNEL_DRIVER_NOT_REGISTERED,
+  CHANNEL_PERMISSION_LOST_ON_RESTART, or another error code — install the
+  brv-channel skill (below) for the full per-code recovery playbook.
+
 For the natural-language host-LLM flow (Claude Code / Codex / kimi / opencode
 / Pi reads the brv-channel skill and runs 'brv channel mention …' for you
 when you ask), install the skill once with:
@@ -66,6 +82,10 @@ public static examples = [
     {
       command: '<%= config.bin %> channel subscribe my-review --roles @kimi,@codex --count 2 --exit-on-terminal',
       description: 'Push-stream filtered events as JSONL; exit when both reviewers finish (no polling)',
+    },
+    {
+      command: '<%= config.bin %> channel mention my-review "@kimi review src/auth.py" --no-wait --json && <%= config.bin %> channel subscribe my-review --roles @kimi --kinds delivery_state_change --count 1 --exit-on-terminal --json',
+      description: 'Fan-out + gather pattern: dispatch async, then subscribe to wait for completion without polling',
     },
   ]
 
