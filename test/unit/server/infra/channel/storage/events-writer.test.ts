@@ -1,6 +1,5 @@
 import {expect} from 'chai'
 import {promises as fs} from 'node:fs'
-import {join} from 'node:path'
 
 import type {TurnEvent} from '../../../../../../src/shared/types/channel.js'
 
@@ -41,11 +40,26 @@ describe('ChannelEventsWriter', () => {
     await removeTempDir(projectRoot)
   })
 
-  it('creates events.jsonl on first append and ensures the parent directory', async () => {
+  it('creates the per-turn NDJSON on first append and ensures the parent directory', async () => {
+    // Slice 9.1: writes go to .brv/channel-history/<ch>/turns/<turn>.ndjson
+    // (NOT the legacy .brv/context-tree/channel/<ch>/turns/<turn>/events.jsonl).
     await writer.append({channelId, event: makeEvent(), projectRoot, turnId})
-    const file = channelPaths.eventsFile(projectRoot, channelId, turnId)
+    const file = channelPaths.turnNdjsonFile(projectRoot, channelId, turnId)
     const contents = await fs.readFile(file, 'utf8')
     expect(contents.trim().split('\n')).to.have.lengthOf(1)
+  })
+
+  it('does NOT write to the legacy events.jsonl location (Slice 9.1)', async () => {
+    await writer.append({channelId, event: makeEvent(), projectRoot, turnId})
+    const legacyFile = channelPaths.eventsFile(projectRoot, channelId, turnId)
+    let legacyExists = true
+    try {
+      await fs.stat(legacyFile)
+    } catch {
+      legacyExists = false
+    }
+
+    expect(legacyExists, 'legacy events.jsonl must not be created').to.equal(false)
   })
 
   it('appends multiple events as newline-delimited JSON', async () => {
@@ -53,7 +67,7 @@ describe('ChannelEventsWriter', () => {
     await writer.append({channelId, event: makeEvent({seq: 1}), projectRoot, turnId})
     await writer.append({channelId, event: makeEvent({seq: 2}), projectRoot, turnId})
 
-    const file = channelPaths.eventsFile(projectRoot, channelId, turnId)
+    const file = channelPaths.turnNdjsonFile(projectRoot, channelId, turnId)
     const lines = (await fs.readFile(file, 'utf8')).trim().split('\n')
     expect(lines).to.have.lengthOf(3)
     for (const line of lines) {
@@ -83,7 +97,7 @@ describe('ChannelEventsWriter', () => {
     )
     await Promise.all(promises)
 
-    const file = channelPaths.eventsFile(projectRoot, channelId, turnId)
+    const file = channelPaths.turnNdjsonFile(projectRoot, channelId, turnId)
     const lines = (await fs.readFile(file, 'utf8')).trim().split('\n')
     expect(lines).to.have.lengthOf(N)
 
@@ -104,7 +118,7 @@ describe('ChannelEventsWriter', () => {
 
     await writer.append({channelId, event: eventWithContent, projectRoot, turnId})
 
-    const file = channelPaths.eventsFile(projectRoot, channelId, turnId)
+    const file = channelPaths.turnNdjsonFile(projectRoot, channelId, turnId)
     const raw = await fs.readFile(file, 'utf8')
     // Exactly one trailing newline, no internal raw newline breaking the JSON.
     expect(raw.endsWith('\n')).to.equal(true)
@@ -114,7 +128,9 @@ describe('ChannelEventsWriter', () => {
   it('does not require a directory to exist beforehand', async () => {
     const fresh = '01HY-new'
     await writer.append({channelId, event: makeEvent({turnId: fresh}), projectRoot, turnId: fresh})
-    const stat = await fs.stat(join(channelPaths.turnDir(projectRoot, channelId, fresh)))
+    // Slice 9.1: the parent dir for the per-turn NDJSON is the channel
+    // history turns/ dir, created lazily by the writer.
+    const stat = await fs.stat(channelPaths.historyTurnsDir(projectRoot, channelId))
     expect(stat.isDirectory()).to.equal(true)
   })
 })

@@ -84,7 +84,7 @@ describe('ChannelOrchestrator.warmDriversForProject (Slice 8.11 Layer 2)', () =>
     const serializer = new ChannelWriteSerializer()
     store = new ChannelStore({
       eventsWriter: new ChannelEventsWriter({serializer}),
-      snapshotWriter: new ChannelSnapshotWriter(),
+      snapshotWriter: new ChannelSnapshotWriter({serializer: new ChannelWriteSerializer()}),
       treeReader: new ChannelTreeReader(),
       writeSerializer: serializer,
     })

@@ -38,7 +38,7 @@ describe('ChannelDoctorService — KIMI_AUTH_STALE (Slice 4.2)', () => {
       profileStore,
       store: new ChannelStore({
         eventsWriter: new ChannelEventsWriter({serializer}),
-        snapshotWriter: new ChannelSnapshotWriter(),
+        snapshotWriter: new ChannelSnapshotWriter({serializer: new ChannelWriteSerializer()}),
         treeReader: new ChannelTreeReader(),
         writeSerializer: serializer,
       }),

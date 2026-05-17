@@ -7,23 +7,29 @@ import {channelPaths} from './paths.js'
 import {ChannelWriteSerializer} from './write-serializer.js'
 
 /**
- * Append-only writer for the per-turn `events.jsonl` source-of-truth file
- * (CHANNEL_PROTOCOL.md §4.2). Phase 1 invariants:
+ * Append-only writer for the per-turn NDJSON transcript file
+ * (CHANNEL_PROTOCOL.md §4.2; Phase 9 mount). Invariants:
+ *
+ *  - Writes go to `<projectRoot>/.brv/channel-history/<channelId>/turns/<turnId>.ndjson`
+ *    (Phase 9). The legacy `.brv/context-tree/channel/.../events.jsonl`
+ *    location is read-only fallback served by the tree-reader.
  *
  *  - Each call appends exactly one event encoded as a single-line JSON object
  *    followed by `\n`. Embedded newlines in payload strings are escaped by
- *    `JSON.stringify`, so each physical line is a complete event.
+ *    `JSON.stringify`, so each physical line is a complete event. Wire
+ *    events carry no `_recordType` envelope; the snapshot-writer is the
+ *    sole producer of structural lines on the same file.
  *
  *  - `event.seq` MUST be monotonically increasing per `(channelId, turnId)`.
  *    The writer tracks the last seq per turn in-process and rejects
  *    regressions; on cold start the orchestrator MUST seed the writer from
- *    the on-disk file (or fall back to scanning, per Slice 1.4).
+ *    the on-disk file (or fall back to scanning).
  *
  *  - Concurrent appends to the same `(channelId, turnId)` are serialised by
  *    the shared {@link ChannelWriteSerializer}. Appends to different turns
  *    may proceed in parallel.
  *
- *  - The events file's parent directory is created lazily; callers do not
+ *  - The NDJSON file's parent directory is created lazily; callers do not
  *    need to mkdir.
  */
 
@@ -64,7 +70,7 @@ export class ChannelEventsWriter {
         )
       }
 
-      const file = channelPaths.eventsFile(projectRoot, channelId, turnId)
+      const file = channelPaths.turnNdjsonFile(projectRoot, channelId, turnId)
       await fs.mkdir(dirname(file), {recursive: true})
 
       // JSON.stringify escapes newlines, so each event lands on exactly one

@@ -145,18 +145,16 @@ export class ChannelStore implements IChannelStore {
   }
 
   async listTurns(args: ChannelStoreListTurnsArgs): Promise<ChannelStoreListTurnsResult> {
-    const turnsRoot = join(channelPaths.channelDir(args.projectRoot, args.channelId), 'turns')
-    let entries: string[]
-    try {
-      entries = await fs.readdir(turnsRoot)
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {turns: []}
-      throw error
-    }
+    // Slice 9.1 — union the new mount (.brv/channel-history/<ch>/turns/*.ndjson)
+    // with the legacy mount (.brv/context-tree/channel/<ch>/turns/<turnId>/)
+    // so existing pre-Phase-9 turns remain discoverable during the
+    // migration window. Dedup by turnId — tree-reader prefers the new
+    // mount when both exist, so the projection is consistent.
+    const turnIds = await this.enumerateTurnIds(args.projectRoot, args.channelId)
 
     const records = (
       await Promise.all(
-        entries.map((turnId) =>
+        [...turnIds].map((turnId) =>
           this.treeReader.readTurn({
             channelId: args.channelId,
             projectRoot: args.projectRoot,
@@ -188,6 +186,17 @@ export class ChannelStore implements IChannelStore {
   }
 
   async readDeliveries(args: ChannelStoreReadDeliveriesArgs): Promise<TurnDelivery[]> {
+    // Slice 9.1 — three-tier read:
+    //   1) new mount NDJSON structural lines (`_recordType: 'delivery_snapshot'`)
+    //   2) legacy `deliveries/<id>.json` files for pre-Phase-9 turns
+    //   3) event-replay as a last resort
+    const newSnapshots = await this.treeReader.readDeliverySnapshotsFromNdjson({
+      channelId: args.channelId,
+      projectRoot: args.projectRoot,
+      turnId: args.turnId,
+    })
+    if (newSnapshots.length > 0) return newSnapshots
+
     const deliveriesDir = join(
       channelPaths.turnDir(args.projectRoot, args.channelId, args.turnId),
       'deliveries',
@@ -214,7 +223,7 @@ export class ChannelStore implements IChannelStore {
 
     if (snapshots.length > 0) return snapshots
 
-    // No snapshot files → replay from events.jsonl.
+    // No snapshot files in either mount → replay from events.
     return this.treeReader.replayDeliveries({
       channelId: args.channelId,
       projectRoot: args.projectRoot,
@@ -290,5 +299,39 @@ export class ChannelStore implements IChannelStore {
       turn: args.turn,
       turnId: args.turnId,
     })
+  }
+
+  /**
+   * Slice 9.1 — union the turn-id sets from both storage mounts so a
+   * channel that contains a mix of pre-Phase-9 and post-Phase-9 turns
+   * still surfaces all of them through `listTurns`. The new mount stores
+   * one `.ndjson` file per turn; the legacy mount stores one directory
+   * per turn. Returns a deduped Set keyed by turnId.
+   */
+  private async enumerateTurnIds(projectRoot: string, channelId: string): Promise<Set<string>> {
+    const turnIds = new Set<string>()
+
+    // New mount (.brv/channel-history/<ch>/turns/*.ndjson)
+    const newRoot = channelPaths.historyTurnsDir(projectRoot, channelId)
+    try {
+      const entries = await fs.readdir(newRoot)
+      for (const entry of entries) {
+        if (!entry.endsWith('.ndjson')) continue
+        turnIds.add(entry.slice(0, -'.ndjson'.length))
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    }
+
+    // Legacy mount (.brv/context-tree/channel/<ch>/turns/<turnId>/)
+    const legacyRoot = join(channelPaths.channelDir(projectRoot, channelId), 'turns')
+    try {
+      const entries = await fs.readdir(legacyRoot)
+      for (const entry of entries) turnIds.add(entry)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+    }
+
+    return turnIds
   }
 }

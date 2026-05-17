@@ -1,17 +1,29 @@
 import {join} from 'node:path'
 
 /**
- * Canonical channel-protocol on-disk layout per CHANNEL_PROTOCOL.md §4.2.
+ * Canonical channel-protocol on-disk layout per CHANNEL_PROTOCOL.md §4.2
+ * and §11 (Phase 9 transcript-storage migration).
  *
+ *   # Curated channel state (cogit-synced)
  *   <projectRoot>/.brv/context-tree/channel/<channelId>/
  *     meta.json                          (mutable; atomic rename writes)
- *     turns/<turnId>/
- *       events.jsonl                     (append-only — source of truth)
- *       turn.json                        (one-shot snapshot at terminal state)
- *       deliveries/<deliveryId>.json     (one-shot per recipient; absent for passive turns)
- *       messages/<deliveryId>.md         (rendered final message body per delivery)
  *     artifacts/<artifactId>             (files agents produced)
  *     invitations/<invitationId>.json    (pending invites)
+ *
+ *   # Ephemeral transcripts (NOT cogit-synced; retentioned in Phase 9)
+ *   <projectRoot>/.brv/channel-history/<channelId>/
+ *     index.jsonl                        (per-turn metadata index — Slice 9.3)
+ *     turns/<turnId>.ndjson              (single file per turn: events
+ *                                         interleaved with snapshot/delivery/
+ *                                         message lines tagged via
+ *                                         _recordType envelope)
+ *
+ *   # Legacy transcript layout (read-only fallback during Phase 9 migration)
+ *   <projectRoot>/.brv/context-tree/channel/<channelId>/turns/<turnId>/
+ *     events.jsonl                       (append-only event log)
+ *     turn.json                          (snapshot at terminal state)
+ *     deliveries/<deliveryId>.json
+ *     messages/<deliveryId>.md
  *
  * Every storage consumer (events-writer, snapshot-writer, tree-reader) builds
  * its filesystem paths through these helpers so the layout is defined exactly
@@ -19,6 +31,7 @@ import {join} from 'node:path'
  */
 
 const CHANNEL_TREE_SEGMENTS = ['.brv', 'context-tree', 'channel'] as const
+const CHANNEL_HISTORY_SEGMENTS = ['.brv', 'channel-history'] as const
 
 export const channelPaths = {
   artifactsDir: (projectRoot: string, channelId: string): string =>
@@ -26,6 +39,12 @@ export const channelPaths = {
 
   channelDir: (projectRoot: string, channelId: string): string =>
     join(projectRoot, ...CHANNEL_TREE_SEGMENTS, channelId),
+
+  channelHistoryDir: (projectRoot: string, channelId: string): string =>
+    join(projectRoot, ...CHANNEL_HISTORY_SEGMENTS, channelId),
+
+  channelHistoryRoot: (projectRoot: string): string =>
+    join(projectRoot, ...CHANNEL_HISTORY_SEGMENTS),
 
   channelsRoot: (projectRoot: string): string => join(projectRoot, ...CHANNEL_TREE_SEGMENTS),
 
@@ -47,6 +66,12 @@ export const channelPaths = {
 
   eventsFile: (projectRoot: string, channelId: string, turnId: string): string =>
     join(projectRoot, ...CHANNEL_TREE_SEGMENTS, channelId, 'turns', turnId, 'events.jsonl'),
+
+  historyTurnsDir: (projectRoot: string, channelId: string): string =>
+    join(projectRoot, ...CHANNEL_HISTORY_SEGMENTS, channelId, 'turns'),
+
+  indexJsonlFile: (projectRoot: string, channelId: string): string =>
+    join(projectRoot, ...CHANNEL_HISTORY_SEGMENTS, channelId, 'index.jsonl'),
 
   invitationFile: (projectRoot: string, channelId: string, invitationId: string): string =>
     join(projectRoot, ...CHANNEL_TREE_SEGMENTS, channelId, 'invitations', `${invitationId}.json`),
@@ -72,6 +97,9 @@ export const channelPaths = {
 
   turnDir: (projectRoot: string, channelId: string, turnId: string): string =>
     join(projectRoot, ...CHANNEL_TREE_SEGMENTS, channelId, 'turns', turnId),
+
+  turnNdjsonFile: (projectRoot: string, channelId: string, turnId: string): string =>
+    join(projectRoot, ...CHANNEL_HISTORY_SEGMENTS, channelId, 'turns', `${turnId}.ndjson`),
 
   turnSnapshotFile: (projectRoot: string, channelId: string, turnId: string): string =>
     join(projectRoot, ...CHANNEL_TREE_SEGMENTS, channelId, 'turns', turnId, 'turn.json'),

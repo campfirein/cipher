@@ -737,7 +737,10 @@ async function main(): Promise<void> {
     const channelTreeReader = new ChannelTreeReader()
     const channelStore = new ChannelStore({
       eventsWriter: channelEventsWriter,
-      snapshotWriter: new ChannelSnapshotWriter(),
+      // Slice 9.1: snapshot-writer shares the per-turn write serializer
+      // with events-writer so concurrent terminal writes can't tear the
+      // NDJSON line ordering on the consolidated per-turn file.
+      snapshotWriter: new ChannelSnapshotWriter({serializer: channelWriteSerializer}),
       treeReader: channelTreeReader,
       writeSerializer: channelWriteSerializer,
     })

@@ -4,28 +4,42 @@ import {dirname} from 'node:path'
 import type {Turn, TurnDelivery} from '../../../../shared/types/channel.js'
 
 import {channelPaths} from './paths.js'
+import {ChannelWriteSerializer} from './write-serializer.js'
 
 /**
- * One-shot finalisation snapshot writer (CHANNEL_PROTOCOL.md §4.2).
+ * Terminal-state structural-line writer for the per-turn NDJSON
+ * (CHANNEL_PROTOCOL.md §4.2; Phase 9 layout).
  *
- * `events.jsonl` is the source of truth; this writer emits derived caches
- * that make `brv channel show` cheap:
+ * At turn-terminal the orchestrator emits three classes of structural
+ * record that summarise the turn for fast `brv channel show` reads:
  *
- *  - `turn.json` (write-once per turn, at terminal state)
- *  - `deliveries/<deliveryId>.json` (write-once per delivery, at terminal state)
- *  - `messages/<deliveryId>.md` (write-once per delivery, at terminal state)
+ *  - `_recordType: 'turn_snapshot'`     — the full Turn record
+ *  - `_recordType: 'delivery_snapshot'` — one per delivery
+ *  - `_recordType: 'message'`           — rendered final message body per delivery
  *
- * All writes use atomic rename (`fs.writeFile` to a `.tmp.<pid>` sibling,
- * then `fs.rename`) so a crash mid-write leaves either the previous version
- * (if any) or no file at all — never a partial file. If the snapshot is
- * absent at read time, the tree-reader falls back to replaying
- * `events.jsonl`.
+ * The envelope key (`_recordType`) is intentionally separate from the
+ * wire-event `kind` field so replay scanners (subscribe/watch/--after-seq)
+ * can filter structural lines cleanly without false-positive event
+ * emission. Both codex and kimi flagged the collision risk in the Phase 9
+ * design review; this enforces their consensus shape.
  *
- * The writer does NOT enforce write-once at the call site — callers (the
- * orchestrator's finaliseTurn / finaliseDelivery) MUST only invoke these
- * methods on terminal-state transitions. Per the design, multiple calls
- * with the same input are idempotent on the final file (last writer wins).
+ * Writes share the {@link ChannelWriteSerializer} with the channel
+ * events writer so concurrent fan-out terminal writes do not interleave with in-flight
+ * event appends to the same `(channelId, turnId)`. The single NDJSON
+ * append is append-only and atomic at the OS-syscall level under the
+ * lock; there is no temp+rename round-trip.
+ *
+ * Callers (orchestrator's finaliseTurn / finaliseDelivery) MUST only
+ * invoke these methods on terminal-state transitions; the writer does
+ * not enforce write-once, but the underlying append is idempotent on
+ * downstream readers (last writer wins for the materialised snapshot
+ * — the index entry, Slice 9.3, records the latest one).
  */
+
+export type ChannelSnapshotWriterOptions = {
+  readonly serializer: ChannelWriteSerializer
+}
+
 export type WriteTurnSnapshotArgs = {
   readonly channelId: string
   readonly projectRoot: string
@@ -49,29 +63,62 @@ export type WriteMessageArgs = {
   readonly turnId: string
 }
 
-const writeAtomically = async (target: string, contents: string): Promise<void> => {
-  await fs.mkdir(dirname(target), {recursive: true})
-  const tmp = `${target}.tmp.${process.pid}.${Date.now()}`
-  await fs.writeFile(tmp, contents, {encoding: 'utf8'})
-  await fs.rename(tmp, target)
-}
+type StructuralLine =
+  | {readonly _recordType: 'delivery_snapshot'; readonly delivery: TurnDelivery; readonly deliveryId: string}
+  | {readonly _recordType: 'message'; readonly body: string; readonly deliveryId: string}
+  | {readonly _recordType: 'turn_snapshot'; readonly turn: Turn}
 
 export class ChannelSnapshotWriter {
+  private readonly serializer: ChannelWriteSerializer
+
+  public constructor(options: ChannelSnapshotWriterOptions) {
+    this.serializer = options.serializer
+  }
+
   async writeDeliverySnapshot(args: WriteDeliverySnapshotArgs): Promise<void> {
     const {channelId, delivery, deliveryId, projectRoot, turnId} = args
-    const target = channelPaths.deliverySnapshotFile(projectRoot, channelId, turnId, deliveryId)
-    await writeAtomically(target, JSON.stringify(delivery, undefined, 2))
+    await this.appendStructuralLine({
+      channelId,
+      line: {_recordType: 'delivery_snapshot', delivery, deliveryId},
+      projectRoot,
+      turnId,
+    })
   }
 
   async writeMessage(args: WriteMessageArgs): Promise<void> {
     const {body, channelId, deliveryId, projectRoot, turnId} = args
-    const target = channelPaths.messageFile(projectRoot, channelId, turnId, deliveryId)
-    await writeAtomically(target, body)
+    await this.appendStructuralLine({
+      channelId,
+      line: {_recordType: 'message', body, deliveryId},
+      projectRoot,
+      turnId,
+    })
   }
 
   async writeTurnSnapshot(args: WriteTurnSnapshotArgs): Promise<void> {
     const {channelId, projectRoot, turn, turnId} = args
-    const target = channelPaths.turnSnapshotFile(projectRoot, channelId, turnId)
-    await writeAtomically(target, JSON.stringify(turn, undefined, 2))
+    await this.appendStructuralLine({
+      channelId,
+      line: {_recordType: 'turn_snapshot', turn},
+      projectRoot,
+      turnId,
+    })
+  }
+
+  private async appendStructuralLine(args: {
+    readonly channelId: string
+    readonly line: StructuralLine
+    readonly projectRoot: string
+    readonly turnId: string
+  }): Promise<void> {
+    const {channelId, line, projectRoot, turnId} = args
+    const lockKey = `${channelId}:${turnId}`
+
+    await this.serializer.withLock(lockKey, async () => {
+      const file = channelPaths.turnNdjsonFile(projectRoot, channelId, turnId)
+      await fs.mkdir(dirname(file), {recursive: true})
+      const physical = `${JSON.stringify(line)}\n`
+      await fs.appendFile(file, physical, {encoding: 'utf8', flag: 'a'})
+    })
   }
 }

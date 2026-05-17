@@ -69,4 +69,51 @@ describe('channelPaths', () => {
       join('/abs/proj', '.brv', 'context-tree', 'channel', 'pi-test', 'invitations', 'inv-1.json'),
     )
   })
+
+  // Slice 9.1 — channel transcripts move OUT of .brv/context-tree/ to a
+  // sibling mount .brv/channel-history/. The new mount is per-project,
+  // outside the cogit-synced tree, and consolidates the previous
+  // events.jsonl + turn.json + deliveries/*.json + messages/*.md into a
+  // single NDJSON-per-turn at turns/<turnId>.ndjson. Index lives at the
+  // per-channel root. Both reviewers (codex + kimi) signed off on this
+  // layout. Path helpers are pure (no IO).
+  describe('Slice 9.1 — channel history mount', () => {
+    it('roots channel history under <project>/.brv/channel-history/', () => {
+      expect(channelPaths.channelHistoryRoot(projectRoot)).to.equal(
+        join('/abs/proj', '.brv', 'channel-history'),
+      )
+    })
+
+    it('roots a single channel history under <project>/.brv/channel-history/<id>/', () => {
+      expect(channelPaths.channelHistoryDir(projectRoot, 'pi-test')).to.equal(
+        join('/abs/proj', '.brv', 'channel-history', 'pi-test'),
+      )
+    })
+
+    it('puts the per-turn NDJSON at turns/<turnId>.ndjson under the channel history dir', () => {
+      expect(channelPaths.turnNdjsonFile(projectRoot, 'pi-test', '01HX')).to.equal(
+        join('/abs/proj', '.brv', 'channel-history', 'pi-test', 'turns', '01HX.ndjson'),
+      )
+    })
+
+    it('puts the per-channel index.jsonl directly under the channel history dir', () => {
+      expect(channelPaths.indexJsonlFile(projectRoot, 'pi-test')).to.equal(
+        join('/abs/proj', '.brv', 'channel-history', 'pi-test', 'index.jsonl'),
+      )
+    })
+
+    it('puts the per-channel turns directory at turns/ under the channel history dir', () => {
+      expect(channelPaths.historyTurnsDir(projectRoot, 'pi-test')).to.equal(
+        join('/abs/proj', '.brv', 'channel-history', 'pi-test', 'turns'),
+      )
+    })
+
+    it('keeps the channel history mount outside .brv/context-tree/', () => {
+      // Regression guard against accidental re-nesting under context-tree.
+      // If this string ever appears in the history path, cogit will start
+      // syncing transcripts again and the whole phase regresses.
+      expect(channelPaths.channelHistoryRoot(projectRoot)).to.not.match(/context-tree/)
+      expect(channelPaths.turnNdjsonFile(projectRoot, 'pi-test', '01HX')).to.not.match(/context-tree/)
+    })
+  })
 })

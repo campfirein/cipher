@@ -33,7 +33,7 @@ describe('ChannelStore delivery + in-flight extensions (Slice 2.0)', () => {
     eventsWriter = new ChannelEventsWriter({serializer})
     store = new ChannelStore({
       eventsWriter,
-      snapshotWriter: new ChannelSnapshotWriter(),
+      snapshotWriter: new ChannelSnapshotWriter({serializer}),
       treeReader: new ChannelTreeReader(),
       writeSerializer: serializer,
     })
@@ -125,7 +125,7 @@ describe('ChannelStore delivery + in-flight extensions (Slice 2.0)', () => {
   })
 
   describe('writeMessage', () => {
-    it('persists the per-delivery markdown body to messages/<deliveryId>.md', async () => {
+    it('persists the per-delivery markdown body as a structural NDJSON line (Slice 9.1)', async () => {
       const {promises: fs} = await import('node:fs')
 
       await store.createChannel({meta: baseMeta(), projectRoot})
@@ -137,9 +137,18 @@ describe('ChannelStore delivery + in-flight extensions (Slice 2.0)', () => {
         turnId,
       })
 
-      const path = channelPaths.messageFile(projectRoot, channelId, turnId, deliveryId)
-      const got = await fs.readFile(path, 'utf8')
-      expect(got).to.equal('# agent reply\n\nhello back')
+      // Slice 9.1: bodies now land as a `_recordType: 'message'` line in the
+      // per-turn NDJSON (single mount, single file). The legacy
+      // `messages/<id>.md` file is no longer written.
+      const ndjsonPath = channelPaths.turnNdjsonFile(projectRoot, channelId, turnId)
+      const raw = await fs.readFile(ndjsonPath, 'utf8')
+      const lines = raw
+        .split('\n')
+        .filter((l) => l.trim().length > 0)
+        .map((l) => JSON.parse(l) as {_recordType?: string; body?: string; deliveryId?: string})
+      const messageLine = lines.find((l) => l._recordType === 'message' && l.deliveryId === deliveryId)
+      expect(messageLine, 'expected a message structural line').to.not.equal(undefined)
+      expect(messageLine!.body).to.equal('# agent reply\n\nhello back')
     })
   })
 

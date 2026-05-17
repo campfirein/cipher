@@ -36,7 +36,7 @@ describe('ChannelDoctorService', () => {
     const serializer = new ChannelWriteSerializer()
     store = new ChannelStore({
       eventsWriter: new ChannelEventsWriter({serializer}),
-      snapshotWriter: new ChannelSnapshotWriter(),
+      snapshotWriter: new ChannelSnapshotWriter({serializer: new ChannelWriteSerializer()}),
       treeReader: new ChannelTreeReader(),
       writeSerializer: serializer,
     })

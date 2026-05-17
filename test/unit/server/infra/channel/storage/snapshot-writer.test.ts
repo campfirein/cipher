@@ -1,19 +1,24 @@
 import {expect} from 'chai'
 import {promises as fs} from 'node:fs'
-import {dirname} from 'node:path'
 
 import type {Turn} from '../../../../../../src/shared/types/channel.js'
 
 import {channelPaths} from '../../../../../../src/server/infra/channel/storage/paths.js'
 import {ChannelSnapshotWriter} from '../../../../../../src/server/infra/channel/storage/snapshot-writer.js'
+import {ChannelWriteSerializer} from '../../../../../../src/server/infra/channel/storage/write-serializer.js'
 import {makeTempContextTree} from '../../../../../helpers/temp-context-tree.js'
 import {removeTempDir} from '../../../../../helpers/temp-dir.js'
 
-// Slice 1.3 — one-shot finalisation snapshots per CHANNEL_PROTOCOL.md §4.2.
-// turn.json / delivery snapshots / message bodies are written exactly once,
-// via atomic rename, after a turn (or delivery) reaches terminal state.
-// events.jsonl remains the source of truth.
-describe('ChannelSnapshotWriter', () => {
+// Slice 9.1 — at terminal state the snapshot writer appends NDJSON lines
+// tagged with a `_recordType` envelope to the same per-turn file the
+// events writer is appending to. The three previously-separate files
+// (turn.json, deliveries/<id>.json, messages/<id>.md) collapse into
+// one append-only NDJSON. The `_recordType` field is a separate
+// top-level key (NOT overloaded on the wire-event `kind` field) so
+// replay scanners can filter structural lines cleanly. Both codex and
+// kimi independently flagged the envelope-key collision risk in the
+// Phase 9 design review.
+describe('ChannelSnapshotWriter (Slice 9.1 — NDJSON envelope)', () => {
   let projectRoot: string
   let writer: ChannelSnapshotWriter
   const channelId = 'pi-test'
@@ -33,43 +38,57 @@ describe('ChannelSnapshotWriter', () => {
 
   beforeEach(async () => {
     projectRoot = await makeTempContextTree()
-    writer = new ChannelSnapshotWriter()
+    writer = new ChannelSnapshotWriter({serializer: new ChannelWriteSerializer()})
   })
 
   afterEach(async () => {
     await removeTempDir(projectRoot)
   })
 
-  it('writes turn.json with the persisted Turn record', async () => {
+  const readNdjsonLines = async (): Promise<unknown[]> => {
+    const file = channelPaths.turnNdjsonFile(projectRoot, channelId, turnId)
+    const raw = await fs.readFile(file, 'utf8')
+    return raw
+      .split('\n')
+      .filter((l) => l.trim().length > 0)
+      .map((l) => JSON.parse(l) as unknown)
+  }
+
+  it('appends a turn_snapshot NDJSON line with the persisted Turn record', async () => {
     await writer.writeTurnSnapshot({channelId, projectRoot, turn: sampleTurn(), turnId})
-    const file = channelPaths.turnSnapshotFile(projectRoot, channelId, turnId)
-    const persisted = JSON.parse(await fs.readFile(file, 'utf8')) as Turn
-    expect(persisted.turnId).to.equal(turnId)
-    expect(persisted.state).to.equal('completed')
+    const lines = await readNdjsonLines()
+    expect(lines).to.have.lengthOf(1)
+    const [line] = lines as Array<{_recordType?: string; turn?: Turn}>
+    expect(line._recordType).to.equal('turn_snapshot')
+    expect(line.turn?.turnId).to.equal(turnId)
+    expect(line.turn?.state).to.equal('completed')
   })
 
-  it('uses atomic rename — no .tmp file survives a successful write', async () => {
+  it('tags structural lines via a separate _recordType key (NOT by overloading `kind`)', async () => {
+    // Regression guard against the codex+kimi collision risk: replay
+    // scanners filter by `_recordType !== undefined`. If structural lines
+    // hijacked the wire-event `kind` field, subscribers would emit them
+    // as fake events and break `--after-seq` seq monotonicity.
     await writer.writeTurnSnapshot({channelId, projectRoot, turn: sampleTurn(), turnId})
-    const file = channelPaths.turnSnapshotFile(projectRoot, channelId, turnId)
-    const turnDir = dirname(file)
-    const entries = await fs.readdir(turnDir)
-    expect(entries).to.include('turn.json')
-    expect(entries.some((e) => e.endsWith('.tmp'))).to.equal(false)
+    const [line] = (await readNdjsonLines()) as Array<Record<string, unknown>>
+    expect(line._recordType).to.equal('turn_snapshot')
+    expect(line.kind).to.equal(undefined)
   })
 
-  it('creates the parent directory if it does not exist', async () => {
-    const fresh = '01HY-new'
-    await writer.writeTurnSnapshot({
-      channelId,
-      projectRoot,
-      turn: {...sampleTurn(), turnId: fresh},
-      turnId: fresh,
-    })
-    const file = channelPaths.turnSnapshotFile(projectRoot, channelId, fresh)
-    expect((await fs.stat(file)).isFile()).to.equal(true)
+  it('does NOT write a legacy turn.json file (Slice 9.1)', async () => {
+    await writer.writeTurnSnapshot({channelId, projectRoot, turn: sampleTurn(), turnId})
+    const legacy = channelPaths.turnSnapshotFile(projectRoot, channelId, turnId)
+    let legacyExists = true
+    try {
+      await fs.stat(legacy)
+    } catch {
+      legacyExists = false
+    }
+
+    expect(legacyExists, 'legacy turn.json must not be created').to.equal(false)
   })
 
-  it('writes a delivery snapshot at deliveries/<deliveryId>.json', async () => {
+  it('appends a delivery_snapshot NDJSON line tagged via _recordType', async () => {
     const deliveryId = 'd-mock-1'
     const delivery = {
       artifactsTouched: [],
@@ -84,13 +103,18 @@ describe('ChannelSnapshotWriter', () => {
     }
     await writer.writeDeliverySnapshot({channelId, delivery, deliveryId, projectRoot, turnId})
 
-    const file = channelPaths.deliverySnapshotFile(projectRoot, channelId, turnId, deliveryId)
-    const persisted = JSON.parse(await fs.readFile(file, 'utf8'))
-    expect(persisted.deliveryId).to.equal(deliveryId)
-    expect(persisted.state).to.equal('completed')
+    const lines = (await readNdjsonLines()) as Array<{
+      _recordType?: string
+      delivery?: typeof delivery
+      deliveryId?: string
+    }>
+    expect(lines).to.have.lengthOf(1)
+    expect(lines[0]._recordType).to.equal('delivery_snapshot')
+    expect(lines[0].deliveryId).to.equal(deliveryId)
+    expect(lines[0].delivery?.state).to.equal('completed')
   })
 
-  it('writes a rendered message file at messages/<deliveryId>.md', async () => {
+  it('appends a message NDJSON line tagged via _recordType', async () => {
     const deliveryId = 'd-mock-1'
     await writer.writeMessage({
       body: '# Final reply\nHello from the mock agent.',
@@ -100,23 +124,78 @@ describe('ChannelSnapshotWriter', () => {
       turnId,
     })
 
-    const file = channelPaths.messageFile(projectRoot, channelId, turnId, deliveryId)
-    const persisted = await fs.readFile(file, 'utf8')
-    expect(persisted).to.include('Hello from the mock agent.')
+    const lines = (await readNdjsonLines()) as Array<{
+      _recordType?: string
+      body?: string
+      deliveryId?: string
+    }>
+    expect(lines).to.have.lengthOf(1)
+    expect(lines[0]._recordType).to.equal('message')
+    expect(lines[0].deliveryId).to.equal(deliveryId)
+    expect(lines[0].body).to.include('Hello from the mock agent.')
   })
 
-  it('uses atomic rename for message files too', async () => {
+  it('preserves embedded newlines in messages without splitting the NDJSON line', async () => {
     const deliveryId = 'd-mock-1'
     await writer.writeMessage({
-      body: 'x',
+      body: 'line one\nline two\nline three',
       channelId,
       deliveryId,
       projectRoot,
       turnId,
     })
-    const file = channelPaths.messageFile(projectRoot, channelId, turnId, deliveryId)
-    const messagesDir = dirname(file)
-    const entries = await fs.readdir(messagesDir)
-    expect(entries.some((e) => e.endsWith('.tmp'))).to.equal(false)
+
+    // Exactly one physical line (the appended message), regardless of how
+    // many '\n' the body contained.
+    const file = channelPaths.turnNdjsonFile(projectRoot, channelId, turnId)
+    const raw = await fs.readFile(file, 'utf8')
+    const physicalLines = raw.split('\n').filter((l) => l.length > 0)
+    expect(physicalLines).to.have.lengthOf(1)
+  })
+
+  it('creates the parent directory lazily on first append', async () => {
+    const fresh = '01HY-new'
+    await writer.writeTurnSnapshot({
+      channelId,
+      projectRoot,
+      turn: {...sampleTurn(), turnId: fresh},
+      turnId: fresh,
+    })
+    const file = channelPaths.turnNdjsonFile(projectRoot, channelId, fresh)
+    expect((await fs.stat(file)).isFile()).to.equal(true)
+  })
+
+  it('serialises concurrent appends to the same turn via the shared write lock', async () => {
+    // Slice 9.1: snapshot-writer + events-writer share the same per-turn
+    // lock, otherwise fan-out concurrent terminal writes could produce
+    // torn NDJSON lines. Construct three concurrent snapshot writes to
+    // the same turn and verify the file contains three intact JSON lines.
+    const deliveries = ['d-1', 'd-2', 'd-3']
+    await Promise.all(
+      deliveries.map((deliveryId) =>
+        writer.writeDeliverySnapshot({
+          channelId,
+          delivery: {
+            artifactsTouched: [],
+            channelId,
+            deliveryId,
+            endedAt: '2026-05-11T00:00:01.000Z',
+            memberHandle: '@mock',
+            startedAt: '2026-05-11T00:00:00.000Z',
+            state: 'completed' as const,
+            toolCallCount: 0,
+            turnId,
+          },
+          deliveryId,
+          projectRoot,
+          turnId,
+        }),
+      ),
+    )
+
+    const lines = (await readNdjsonLines()) as Array<{deliveryId?: string}>
+    expect(lines).to.have.lengthOf(3)
+    const seen = new Set(lines.map((l) => l.deliveryId))
+    expect(seen).to.deep.equal(new Set(deliveries))
   })
 })
