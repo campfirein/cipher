@@ -23,6 +23,15 @@ import {
 } from '../../../../../../src/server/core/domain/render/curate-prompt-builder.js'
 import {ELEMENT_NAMES} from '../../../../../../src/server/core/domain/render/element-types.js'
 
+/** Slice the schema prompt around a single element block for assertions. */
+function blockFor(name: string): string {
+  const idx = CURATE_SCHEMA_PROMPT.indexOf(`\n<${name}>`)
+  const startIdx = idx === -1 ? CURATE_SCHEMA_PROMPT.indexOf(`<${name}>`) : idx + 1
+  const nextIdx = CURATE_SCHEMA_PROMPT.indexOf('\n<bv-', startIdx + name.length + 2)
+  const end = nextIdx === -1 ? CURATE_SCHEMA_PROMPT.length : nextIdx
+  return CURATE_SCHEMA_PROMPT.slice(startIdx, end)
+}
+
 describe('curate-prompt-builder', () => {
   describe('CURATE_SCHEMA_PROMPT (derived from ELEMENT_REGISTRY)', () => {
     it('contains every registered element name', () => {
@@ -99,6 +108,31 @@ describe('curate-prompt-builder', () => {
         const block = CURATE_SCHEMA_PROMPT.slice(idx, end)
         expect(block, `${name} should declare children semantics`).to.match(/children: (any|block|inline|none)/)
       }
+    })
+
+    it('emits authoring hints for structural elements', () => {
+      // The structural containers (bv-structure, bv-flow, bv-reason,
+      // bv-files, bv-fact) each gain an `authoring:` line that points
+      // the calling agent at the sectioning convention. The hint is the
+      // structural-placement signal that condenseDescription strips out
+      // of the underlying description — without it the agent flattens
+      // everything into a run of <bv-rule> siblings.
+      expect(blockFor('bv-structure'), 'bv-structure authoring hint').to.include('authoring: open with `<h3>title</h3>`')
+      expect(blockFor('bv-flow'), 'bv-flow authoring hint').to.include('authoring: open with `<h3>title</h3>`')
+      expect(blockFor('bv-reason'), 'bv-reason authoring hint').to.include('authoring: put at the END')
+      expect(blockFor('bv-files'), 'bv-files authoring hint').to.include('authoring: wrap multiple `<li>`')
+      expect(blockFor('bv-fact'), 'bv-fact authoring hint').to.include('authoring: short setup/environment detail')
+    })
+
+    it('does NOT emit authoring hints for non-structural elements', () => {
+      // bv-rule / bv-decision / bv-topic / bv-pattern / etc. are
+      // self-explanatory from their name + description; an authoring
+      // hint there would be noise. Belt-and-braces: keep the schema
+      // tight so the budget test below has room.
+      const ruleIdx = CURATE_SCHEMA_PROMPT.indexOf('\n<bv-rule>')
+      const ruleEndIdx = CURATE_SCHEMA_PROMPT.indexOf('\n<bv-', ruleIdx + 10)
+      const ruleBlock = CURATE_SCHEMA_PROMPT.slice(ruleIdx, ruleEndIdx)
+      expect(ruleBlock, 'bv-rule has no authoring hint').to.not.include('authoring:')
     })
   })
 

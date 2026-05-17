@@ -195,7 +195,53 @@ function renderElement(name: typeof ELEMENT_NAMES[number]): string {
   }
 
   lines.push(`  children: ${entry.allowedChildren}`, `  ${condenseDescription(entry.description)}`)
+
+  const hint = authoringHint(name)
+  if (hint) {
+    lines.push(`  authoring: ${hint}`)
+  }
+
   return lines.join('\n')
+}
+
+/**
+ * Per-element authoring hint surfaced in the schema slice. Only structural
+ * containers and "support" elements get a hint — rules/decisions/facts are
+ * obvious from their name.
+ *
+ * The condenseDescription step strips the "Renders as `**X:**` inside `## Y`"
+ * prefix to save ~700 bytes. That prefix carried the structural placement
+ * signal — without it the agent flattens everything into a single run of
+ * bv-rule children. This function adds the placement signal back as a short
+ * actionable line ("place an <h3> inside…"), targeted at the elements where
+ * sectioning quality is the visible difference between rich and flat output.
+ */
+function authoringHint(name: typeof ELEMENT_NAMES[number]): string | undefined {
+  switch (name) {
+    case 'bv-fact': {
+      return 'short setup/environment detail; single-line is fine'
+    }
+
+    case 'bv-files': {
+      return 'wrap multiple `<li>` paths; no `<h3>` needed'
+    }
+
+    case 'bv-flow': {
+      return 'open with `<h3>title</h3>` then `<ol>` for ordered steps'
+    }
+
+    case 'bv-reason': {
+      return 'put at the END to capture the why'
+    }
+
+    case 'bv-structure': {
+      return 'open with `<h3>title</h3>` then `<ul>` for items; use for static state'
+    }
+
+    default: {
+      return undefined
+    }
+  }
 }
 
 /**
