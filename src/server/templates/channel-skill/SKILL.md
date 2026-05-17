@@ -127,6 +127,12 @@ Do NOT call `brv channel mention` when:
   status update.** It's not a notification mechanism.
 - **You silently ran `brv channel new` or `brv channel invite`.**
   Those are human operations; ask the user instead.
+- **You're about to dispatch parallel mentions to two agents whose code
+  must reference the SAME logical entity (coordinate, layout, API
+  signature, constant set), and you have NOT codified that value in a
+  shared file each agent will read.** This is the #1 source of
+  multi-agent integration defects across V1–V4 retests. See the
+  "Multi-agent shared state" section below for the fix.
 
 ## Quick reference
 
@@ -187,7 +193,14 @@ verbatim and stop — don't retry silently.
 
 When you want to ask **multiple agents** the same question in parallel and
 wait for all of them — e.g. independent reviews from kimi + codex — use
-the dispatch-async + subscribe pattern instead of N serial sync mentions:
+the dispatch-async + subscribe pattern instead of N serial sync mentions.
+
+**Before you dispatch parallel mentions that produce CODE meant to integrate
+together,** read the "Multi-agent shared state" section below. The most
+common defect in V1–V4 super-mario retests was two agents independently
+choosing related values that should match (spawn coordinates, layout
+grids, lock policies). Codify shared values as concrete code in a
+shared file first; let each agent read from it.
 
 1. **Dispatch** each member with `--no-wait --json` (returns immediately
    with the assigned turnId):
@@ -245,6 +258,92 @@ the dispatch-async + subscribe pattern instead of N serial sync mentions:
 - `--exit-on-terminal` exit on the first `turn_state_change → completed/cancelled`
 - `--timeout <ms>` hard timeout
 - `--json` (default true) emit newline-delimited JSON
+
+## Multi-agent shared state: codify constants BEFORE dispatching
+
+The single most common defect class in multi-agent parallel builds is
+**two agents independently choosing related values that should match**.
+Across four super-mario retests it surfaced as: tile-layout disagreement
+→ spawns-inside-walls (V1); identical `(160, 96)` hardcoded for two
+different entities (V3); rooms grid with a keyless path the lock logic
+didn't gate (V4). Three of four runs FAILed on this class.
+
+**Trip-wire (use this BEFORE you dispatch):** if your plan contains two
+`@handle` mentions that both touch the **same noun, file, route, or
+data structure**, STOP and codify the shared value as concrete code
+first. Pattern-match on the syntax of your own plan, not on intuition.
+
+The class is not just spatial — it covers any **independently chosen
+related value**:
+
+- **Spatial:** coordinates, tile sizes, canvas dimensions, layout grids.
+- **API contracts:** function signatures, return-type shape, ownership
+  (who mutates this state?), public-surface exports (`window.X` /
+  module exports).
+- **Side-effect boundaries:** "this function opens the door AND
+  decrements keys" vs "opens door, caller decrements" — pick one and
+  pin it in the contract.
+- **Conventions:** FPS / tick rate, update order, event-name strings,
+  Y-up vs Y-down, magic enums, error-code sets, REST routes, Zod
+  schemas, DB field names.
+
+**Codify the shared values as concrete code in a contract file.**
+Inline the relevant subset into each mention prompt (agents skim file-
+read instructions; the prompt body is more reliable). Optionally also
+ask the agent to `read ARCHITECTURE.md` for the rest.
+
+```ts
+// shared/contract.ts (or ARCHITECTURE.md fenced block):
+export const PLAYER_SPAWN = {x: 160, y: 96}
+export const TILE_SIZE    = 16
+export const LOCKED_DOORS = ['room-1-1-N', 'room-2-2-E']  // gates boss path
+// API signature only — implementation comes from the owning agent:
+export interface KeyHandler {
+  consumeKeyAtDoor(door: Door): boolean  // ALSO decrements keys
+}
+```
+
+Non-game example (same pattern):
+
+```ts
+// shared/api-contract.ts:
+export const ERROR_CODES = {AUTH_EXPIRED: 'E001', RATE_LIMITED: 'E002'} as const
+export const ROUTES      = {login: '/v2/auth/login', logout: '/v2/auth/logout'} as const
+export const TokenSchema = z.object({sub: z.string(), exp: z.number()})
+```
+
+**Then dispatch with the constants inlined into each prompt:**
+
+```bash
+{{BRV_BIN}} channel mention <ch> "@opencode write world.js. \
+  Use TILE_SIZE=16, PLAYER_SPAWN={x:160,y:96}, ROOM_GRID per shared/contract.ts. \
+  Read shared/contract.ts FIRST and restate the constants you'll use \
+  before editing." --no-wait --json
+
+{{BRV_BIN}} channel mention <ch> "@codex write entities.js. \
+  Use PLAYER_SPAWN={x:160,y:96}, KeyHandler interface per shared/contract.ts \
+  (consumeKeyAtDoor opens AND decrements). Read shared/contract.ts FIRST \
+  and restate the contract you'll implement before editing." --no-wait --json
+```
+
+The "restate before editing" output requirement catches agents that
+skim the read instruction — non-compliance is visible in the first
+chunks.
+
+**What NOT to do:**
+
+- ❌ Describe shared values in prose ("center of the first room", "3×3
+  rooms with locked doors", "sensible defaults"). Each agent
+  interprets differently.
+- ❌ Rely on agents reading a doc without inlining the critical
+  constants. File-read instructions get skimmed.
+- ❌ Codify AFTER dispatching, hoping the second agent will match the
+  first. Race-y; the first agent has already committed.
+
+**Backstop, not the fix:** even after codifying, run an independent
+integration review when parallel work completes. Kimi has been the
+strongest reviewer across V1–V4 — useful as a no-op confirmation step,
+but the shared-constants pattern above is the actual prevention.
 
 ## Permission requests
 
