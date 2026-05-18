@@ -1,3 +1,4 @@
+import {AnalyticsPanel} from '../features/analytics/components/analytics-panel'
 import {ConnectorsPanel} from '../features/connectors/components/connectors-panel'
 import {IdentityPanel} from '../features/vc/components/identity-panel'
 import {RemotesPanel} from '../features/vc/components/remotes-panel'
@@ -9,6 +10,7 @@ export function ConfigurationPage() {
         <IdentityPanel />
         <RemotesPanel />
         <ConnectorsPanel />
+        <AnalyticsPanel />
       </div>
     </div>
   )
