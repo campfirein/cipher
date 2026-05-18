@@ -381,6 +381,11 @@ export const ChannelMentionQuorumRequestSchema = z.object({
   // until orchestrator-side dedupe lands. Both will return when there is a
   // real consumer.
   mergePolicy: z.enum(['union']).optional(),
+  // Phase 10 Slice 10.6 — tag-based matchmaking. When provided, the
+  // handler filters channel members against the matchmaker (default
+  // `LocalMatchmaker`) before applying stake sizing, picking the
+  // highest-scoring agents per their strength profile.
+  needs: z.array(z.string()).optional(),
   // Phase 10 Slice 10.5 — pool dispatch strategy.
   //   'local-first' (default) — Slice 10.3 sequential: local pool first;
   //     escalate to remote per `escalateOn`. Cost-optimal (don't pay remote

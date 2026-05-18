@@ -69,6 +69,13 @@ Set up a channel from scratch in four steps:
      --remote-timeout-ms default 30000); use when wall-clock predictability
      matters more than remote cost.
 
+     Matchmaking (Slice 10.6): --needs tag1,tag2 scores agents by their
+     strength profile so review prompts target the right reviewer. Default
+     profiles: kimi=integration-bugs/multi-agent-coordination/protocol-
+     correctness, codex=api-design/concurrency/static-analysis/type-safety,
+     opencode=rendering/ux/visual-design, pi=concurrency/reasoning/systems-
+     design, claude-code=planning/design-review/cross-cutting-refactor.
+
   When an agent requests a permission mid-turn, respond with:
        brv channel approve my-review <turnId> <permissionRequestId> --json
        brv channel deny    my-review <turnId> <permissionRequestId> --json

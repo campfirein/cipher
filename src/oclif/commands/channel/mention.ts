@@ -74,6 +74,10 @@ public static examples = [
       command: '<%= config.bin %> <%= command.id %> review-2026 "@kimi @codex @remote-peer audit" --quorum 2 --stake high --pool-mode parallel --local-timeout-ms 5000 --remote-timeout-ms 30000 --json',
       description: 'Parallel pools (Slice 10.5): local + remote concurrent under per-pool timeouts; slow remote can\'t stall local',
     },
+    {
+      command: '<%= config.bin %> <%= command.id %> review-2026 "@kimi @codex @opencode review integration" --quorum 2 --needs integration-bugs,type-safety --json',
+      description: 'Tag-based matchmaking (Slice 10.6): picks kimi (integration-bugs) + codex (type-safety) over opencode',
+    },
   ]
 public static flags = {
     // Phase 10 Slice 10.3 — escalation policy for --quorum dispatch.
@@ -115,6 +119,13 @@ public static flags = {
       default: 'stream',
       description: 'Single-agent wire mode. "stream" (default) emits TURN_EVENT broadcasts; "sync" blocks the ack until terminal and returns the assembled answer. Ignored when --quorum is set.',
       options: ['stream', 'sync'],
+    }),
+    // Phase 10 Slice 10.6 — tag-based matchmaking. Comma-separated list of
+    // strength tags. Default profiles ship for kimi/codex/opencode/pi/
+    // claude-code; agents with custom strengths in their channel-member
+    // override take precedence.
+    needs: Flags.string({
+      description: 'Comma-separated strength tags for --quorum matchmaking (e.g. "integration-bugs,type-safety"). Agents with matching strengths are picked first; ties tie-break alphabetically by handle. Tier 1 default profiles: kimi=integration-bugs/multi-agent-coordination/protocol-correctness, codex=api-design/concurrency/static-analysis/type-safety, opencode=rendering/ux/visual-design, pi=concurrency/reasoning/systems-design, claude-code=planning/design-review/cross-cutting-refactor.',
     }),
     'no-wait': Flags.boolean({
       default: false,
@@ -204,6 +215,9 @@ public static flags = {
           const stake = flags.stake as 'critical' | 'high' | 'low' | 'medium' | undefined
           const escalateOn = flags['escalate-on'] as 'empty' | 'empty-or-contradiction' | 'low-confidence' | 'never' | undefined
           const poolMode = flags['pool-mode'] as 'local-first' | 'parallel' | undefined
+          const needs = flags.needs === undefined
+            ? undefined
+            : flags.needs.split(',').map(s => s.trim()).filter(s => s.length > 0)
           const response = await client.request<ChannelMentionQuorumRequest, ChannelMentionQuorumResponse>(
             ChannelEvents.MENTION_QUORUM,
             {
@@ -214,6 +228,7 @@ public static flags = {
               ...(lowConfidenceThreshold === undefined ? {} : {lowConfidenceThreshold}),
               mentions,
               mergePolicy: 'union',
+              ...(needs === undefined || needs.length === 0 ? {} : {needs}),
               ...(poolMode === undefined ? {} : {poolMode}),
               prompt: args.text,
               quorumThreshold: flags.quorum,

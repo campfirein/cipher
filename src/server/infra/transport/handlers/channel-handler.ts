@@ -329,6 +329,7 @@ export class ChannelHandler {
       const {QuorumDispatcher} = await import('../../channel/quorum/dispatcher.js')
       const {dispatchLocalFirst} = await import('../../channel/quorum/local-first.js')
       const {dispatchParallelPools} = await import('../../channel/quorum/parallel-pools.js')
+      const {LocalMatchmaker} = await import('../../channel/quorum/matchmaker.js')
       const {classifyAgent} = await import('../../channel/quorum/pools.js')
       const {DEFAULT_STAKE, resolveStakeGroupSize} = await import('../../channel/quorum/stake.js')
 
@@ -342,11 +343,16 @@ export class ChannelHandler {
       const localCandidates = allSelected.filter(a => classifyAgent(a) === 'local')
       const remoteCandidates = allSelected.filter(a => classifyAgent(a) === 'remote')
 
+      // Phase 10 Slice 10.6 — when `needs` is provided, score each pool's
+      // candidates against the requested tags via the matchmaker so the
+      // highest-strength agents are picked BEFORE stake sizing trims.
+      const matchmaker = new LocalMatchmaker()
       const localCount = req.remoteOnly === true ? 0 : Math.min(groupSize.local, localCandidates.length)
       const remoteCount = req.localOnly === true ? 0 : Math.min(groupSize.remote, remoteCandidates.length)
+      const neededTags = req.needs ?? []
       const dispatchAgents = [
-        ...localCandidates.slice(0, localCount),
-        ...remoteCandidates.slice(0, remoteCount),
+        ...matchmaker.matchAgents({neededTags, poolMembers: localCandidates, targetSize: localCount}),
+        ...matchmaker.matchAgents({neededTags, poolMembers: remoteCandidates, targetSize: remoteCount}),
       ]
 
       if (dispatchAgents.length === 0) {
