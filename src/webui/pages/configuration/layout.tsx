@@ -37,7 +37,7 @@ export function ConfigurationLayout() {
           ))}
         </nav>
       </aside>
-      <main className="min-w-0 flex-1 overflow-y-auto px-8 py-8 pt-4">
+      <main className="min-w-0 flex-1 overflow-y-auto px-8 pt-4 pb-8">
         <div className="mx-auto flex w-full flex-col gap-6 md:gap-12">
           <RestartBanner />
           <Outlet />
