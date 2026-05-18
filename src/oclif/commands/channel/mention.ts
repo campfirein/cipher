@@ -70,6 +70,10 @@ public static examples = [
       command: '<%= config.bin %> <%= command.id %> review-2026 "@kimi @codex @opencode audit migration" --quorum 2 --stake high --escalate-on empty-or-contradiction --json',
       description: 'Stake=high (2 local + 1 remote); auto-escalate to remote when local consensus fails',
     },
+    {
+      command: '<%= config.bin %> <%= command.id %> review-2026 "@kimi @codex @remote-peer audit" --quorum 2 --stake high --pool-mode parallel --local-timeout-ms 5000 --remote-timeout-ms 30000 --json',
+      description: 'Parallel pools (Slice 10.5): local + remote concurrent under per-pool timeouts; slow remote can\'t stall local',
+    },
   ]
 public static flags = {
     // Phase 10 Slice 10.3 — escalation policy for --quorum dispatch.
@@ -83,6 +87,11 @@ public static flags = {
     'local-only': Flags.boolean({
       default: false,
       description: 'Quorum: skip remote agents entirely (mutually exclusive with --remote-only).',
+    }),
+    // Phase 10 Slice 10.5 — per-pool timeout budgets for --pool-mode parallel.
+    'local-timeout-ms': Flags.integer({
+      description: 'Local-pool timeout budget for --pool-mode parallel (default 5000). Ignored under --pool-mode local-first.',
+      min: 1,
     }),
     // Phase 10 Slice 10.3 — confidence threshold for --escalate-on low-confidence.
     'low-confidence-threshold': Flags.string({
@@ -111,6 +120,11 @@ public static flags = {
       default: false,
       description: 'Single-agent only: ack immediately after dispatch (host LLM resumes later via `brv channel subscribe --turn <id>`).',
     }),
+    // Phase 10 Slice 10.5 — dispatch strategy for --quorum.
+    'pool-mode': Flags.string({
+      description: 'Quorum dispatch strategy: "local-first" (default; Slice 10.3 sequential, cost-optimal: only pay remote latency when local consensus fails) or "parallel" (Slice 10.5: local + remote concurrent with per-pool timeouts, latency-optimal: wall clock = max(local, remote)).',
+      options: ['local-first', 'parallel'],
+    }),
     // Phase 10 Slice 10.2 — `--quorum K` fans out the prompt to mentioned
     // channel members, awaits all terminal deliveries, and returns a
     // MergedQuorum JSON shape.
@@ -121,6 +135,10 @@ public static flags = {
     'remote-only': Flags.boolean({
       default: false,
       description: 'Quorum: skip local agents entirely (mutually exclusive with --local-only).',
+    }),
+    'remote-timeout-ms': Flags.integer({
+      description: 'Remote-pool timeout budget for --pool-mode parallel (default 30000). Ignored under --pool-mode local-first.',
+      min: 1,
     }),
     // Phase 10 Slice 10.4 — stake-driven dispatch sizing.
     stake: Flags.string({
@@ -185,18 +203,22 @@ public static flags = {
           // below still pass it through.
           const stake = flags.stake as 'critical' | 'high' | 'low' | 'medium' | undefined
           const escalateOn = flags['escalate-on'] as 'empty' | 'empty-or-contradiction' | 'low-confidence' | 'never' | undefined
+          const poolMode = flags['pool-mode'] as 'local-first' | 'parallel' | undefined
           const response = await client.request<ChannelMentionQuorumRequest, ChannelMentionQuorumResponse>(
             ChannelEvents.MENTION_QUORUM,
             {
               channelId: args.channelId,
               ...(escalateOn === undefined ? {} : {escalateOn}),
               ...(flags['local-only'] === true ? {localOnly: true} : {}),
+              ...(flags['local-timeout-ms'] === undefined ? {} : {localTimeoutMs: flags['local-timeout-ms']}),
               ...(lowConfidenceThreshold === undefined ? {} : {lowConfidenceThreshold}),
               mentions,
               mergePolicy: 'union',
+              ...(poolMode === undefined ? {} : {poolMode}),
               prompt: args.text,
               quorumThreshold: flags.quorum,
               ...(flags['remote-only'] === true ? {remoteOnly: true} : {}),
+              ...(flags['remote-timeout-ms'] === undefined ? {} : {remoteTimeoutMs: flags['remote-timeout-ms']}),
               ...(stake === undefined ? {} : {stake}),
               suppressThoughts: flags['suppress-thoughts'],
               timeout: turnTimeoutMs,

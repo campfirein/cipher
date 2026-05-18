@@ -362,11 +362,16 @@ export const ChannelMentionQuorumRequestSchema = z.object({
   // Phase 10 Slice 10.3 — escalation policy. Default `empty-or-contradiction`
   // (escalate to remote pool when local consensus is empty OR contradicted).
   // `never` keeps execution local-only regardless of result.
+  // Ignored when poolMode === 'parallel' (parallel dispatches both pools
+  // unconditionally, modulo localOnly/remoteOnly).
   escalateOn: z.enum(['empty', 'empty-or-contradiction', 'low-confidence', 'never']).optional(),
   // Phase 10 Slice 10.3 — pool overrides. `localOnly` skips remote agents
   // entirely; `remoteOnly` skips local. Mutually exclusive with each other,
   // and with the default local-first escalation.
   localOnly: z.boolean().optional(),
+  // Phase 10 Slice 10.5 — per-pool timeout budgets (parallel mode only).
+  // Defaults: local 5_000ms, remote 30_000ms (server side).
+  localTimeoutMs: z.number().int().positive().optional(),
   // Phase 10 Slice 10.3 — confidence threshold for `--escalate-on low-confidence`.
   // Default 0.6 (server side).
   lowConfidenceThreshold: z.number().min(0).max(1).optional(),
@@ -376,9 +381,18 @@ export const ChannelMentionQuorumRequestSchema = z.object({
   // until orchestrator-side dedupe lands. Both will return when there is a
   // real consumer.
   mergePolicy: z.enum(['union']).optional(),
+  // Phase 10 Slice 10.5 — pool dispatch strategy.
+  //   'local-first' (default) — Slice 10.3 sequential: local pool first;
+  //     escalate to remote per `escalateOn`. Cost-optimal (don't pay remote
+  //     latency unless local consensus fails).
+  //   'parallel'           — Slice 10.5: local + remote concurrent with
+  //     per-pool timeouts. Latency-optimal (wall clock = max(local, remote)).
+  poolMode: z.enum(['local-first', 'parallel']).optional(),
   prompt: z.string(),
   quorumThreshold: z.number().int().min(1),
   remoteOnly: z.boolean().optional(),
+  // Phase 10 Slice 10.5 — per-pool timeout budget (parallel mode only).
+  remoteTimeoutMs: z.number().int().positive().optional(),
   // Phase 10 Slice 10.4 — stake grade controls local/remote dispatch count
   // via the `STAKE_GROUP_SIZE` matrix. Defaults to `medium`. Operators tune
   // per-grade sizing via `BRV_QUORUM_STAKE_<STAKE>_<LOCAL|REMOTE>` env.
@@ -389,6 +403,8 @@ export const ChannelMentionQuorumRequestSchema = z.object({
 })
 export type ChannelMentionQuorumRequest = z.infer<typeof ChannelMentionQuorumRequestSchema>
 
+const PoolOutcomeSchema = z.enum(['completed', 'errored', 'skipped', 'timed-out'])
+
 export const ChannelMentionQuorumResponseSchema = z.object({
   channelId: z.string(),
   dispatchId: z.string(),
@@ -397,10 +413,18 @@ export const ChannelMentionQuorumResponseSchema = z.object({
   escalated: z.boolean(),
   escalationError: z.string().optional(),
   escalationReason: z.enum(['contradicted', 'empty', 'low-confidence']).optional(),
+  // Phase 10 Slice 10.5 — per-pool outcome echoed only when poolMode === 'parallel'.
+  localPoolOutcome: PoolOutcomeSchema.optional(),
+  localTimeoutMs: z.number().int().nonnegative().optional(),
   merged: MergedQuorumSchema,
+  // Phase 10 Slice 10.5 — `local-first` (Slice 10.3) or `parallel` (Slice 10.5).
+  // Echoed back so the caller knows which strategy actually ran.
+  poolMode: z.enum(['local-first', 'parallel']),
   // Phase 10 Slice 10.4 — pool grouping resolved from the stake matrix at
   // dispatch time. Echoed back so the caller knows what was actually used.
   poolSizes: z.object({local: z.number().int().nonnegative(), remote: z.number().int().nonnegative()}),
+  remotePoolOutcome: PoolOutcomeSchema.optional(),
+  remoteTimeoutMs: z.number().int().nonnegative().optional(),
 })
 export type ChannelMentionQuorumResponse = z.infer<typeof ChannelMentionQuorumResponseSchema>
 

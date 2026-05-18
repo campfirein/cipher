@@ -328,6 +328,7 @@ export class ChannelHandler {
       const {CrdtUnionMergePolicy} = await import('../../channel/quorum/merge-policy.js')
       const {QuorumDispatcher} = await import('../../channel/quorum/dispatcher.js')
       const {dispatchLocalFirst} = await import('../../channel/quorum/local-first.js')
+      const {dispatchParallelPools} = await import('../../channel/quorum/parallel-pools.js')
       const {classifyAgent} = await import('../../channel/quorum/pools.js')
       const {DEFAULT_STAKE, resolveStakeGroupSize} = await import('../../channel/quorum/stake.js')
 
@@ -368,7 +369,42 @@ export class ChannelHandler {
 
       const dispatchId = `quorum-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
       const dispatcher = new QuorumDispatcher({orchestrator: this.orchestrator})
+      const poolMode = req.poolMode ?? 'local-first'
 
+      if (poolMode === 'parallel') {
+        // Slice 10.5 — concurrent local + remote dispatch with per-pool timeouts.
+        const result = await dispatchParallelPools(dispatcher, {
+          agents: dispatchAgents,
+          channelId: req.channelId,
+          dispatchId,
+          localTimeoutMs: req.localTimeoutMs,
+          mergePolicy: new CrdtUnionMergePolicy(),
+          projectRoot,
+          prompt: req.prompt,
+          quorumThreshold: req.quorumThreshold,
+          remoteTimeoutMs: req.remoteTimeoutMs,
+          suppressThoughts: req.suppressThoughts,
+          taskSchemaHash: 'tier1-default',
+          timeoutMs: req.timeout ?? 300_000,
+        })
+
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const {localPoolOutcome, localTimeoutMs, pool, remotePoolOutcome, remoteTimeoutMs, ...mergedFields} = result
+        return {
+          channelId: req.channelId,
+          dispatchId,
+          escalated: false,
+          localPoolOutcome,
+          localTimeoutMs,
+          merged: mergedFields,
+          poolMode,
+          poolSizes: {local: localCount, remote: remoteCount},
+          remotePoolOutcome,
+          remoteTimeoutMs,
+        }
+      }
+
+      // Default: Slice 10.3 sequential local-first with escalation.
       const result = await dispatchLocalFirst(dispatcher, {
         agents: dispatchAgents,
         channelId: req.channelId,
@@ -393,6 +429,7 @@ export class ChannelHandler {
         ...(escalationError === undefined ? {} : {escalationError}),
         ...(escalationReason === undefined ? {} : {escalationReason}),
         merged: mergedFields,
+        poolMode,
         poolSizes: {local: localCount, remote: remoteCount},
       }
     })

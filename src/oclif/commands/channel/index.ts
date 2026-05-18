@@ -62,6 +62,13 @@ Set up a channel from scratch in four steps:
      Pool overrides: --local-only / --remote-only bypass the local-first
      escalation. --escalate-on never keeps execution strictly local.
 
+     Strategy (Slice 10.5): --pool-mode local-first (default) is cost-
+     optimal (only pay remote latency when local consensus fails).
+     --pool-mode parallel dispatches local + remote concurrently with
+     per-pool timeouts (--local-timeout-ms default 5000,
+     --remote-timeout-ms default 30000); use when wall-clock predictability
+     matters more than remote cost.
+
   When an agent requests a permission mid-turn, respond with:
        brv channel approve my-review <turnId> <permissionRequestId> --json
        brv channel deny    my-review <turnId> <permissionRequestId> --json
