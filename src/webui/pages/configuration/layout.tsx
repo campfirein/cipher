@@ -11,14 +11,14 @@ type SectionDef = {
 
 const SECTIONS: readonly SectionDef[] = [
   {end: true, label: 'General', path: '.'},
+  {label: 'Connectors', path: 'connectors'},
   {label: 'Version control', path: 'version-control'},
-  {label: 'LLM', path: 'llm'},
 ]
 
 export function ConfigurationLayout() {
   return (
     <div className="mx-auto flex h-full w-full max-w-5xl">
-      <aside className="w-56 shrink-0 pt-8">
+      <aside className="border-border w-56 shrink-0 border-r pt-4 pr-8">
         <nav className="flex flex-col gap-0.5">
           {SECTIONS.map((section) => (
             <NavLink
@@ -37,8 +37,8 @@ export function ConfigurationLayout() {
           ))}
         </nav>
       </aside>
-      <main className="min-w-0 flex-1 overflow-y-auto px-8 py-8">
-        <div className="mx-auto flex w-full flex-col gap-6 md:gap-12 sm:max-w-lg md:max-w-xl lg:max-w-2xl">
+      <main className="min-w-0 flex-1 overflow-y-auto px-8 pt-4 pb-8">
+        <div className="mx-auto flex w-full flex-col gap-6 md:gap-12">
           <RestartBanner />
           <Outlet />
         </div>
