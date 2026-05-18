@@ -50,6 +50,29 @@ export function isTerminalDeliveryEvent(evt: TurnEvent): boolean {
   )
 }
 
+// Phase 10 Tier B1a (V6 run-2 evaluation §3a) — a delivery sitting in
+// `awaiting_permission` is "blocked": it can only progress when a permission
+// decision lands. For autonomous orchestrators that cannot answer
+// permission prompts, treat this as count-eligible so a multi-agent gather
+// doesn't deadlock when one delivery is permission-stalled.
+export function isBlockedDeliveryEvent(evt: TurnEvent): boolean {
+  return evt.kind === 'delivery_state_change' && evt.to === 'awaiting_permission'
+}
+
+// Active = the delivery is making progress (or will, given an in-flight
+// scheduler). Used by the `--exit-on-permission-quorum` heuristic: if NO
+// tracked delivery is in an active state AND at least one is blocked, the
+// quorum gather can't make progress without human intervention.
+const ACTIVE_DELIVERY_STATES: ReadonlySet<string> = new Set([
+  'dispatched',
+  'queued',
+  'streaming',
+])
+
+export function isActiveDeliveryState(state: string): boolean {
+  return ACTIVE_DELIVERY_STATES.has(state)
+}
+
 export function replayDedupKey(evt: TurnEvent): string {
   return `${evt.turnId}${KEY_SEP}${evt.seq}`
 }

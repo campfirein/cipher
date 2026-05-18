@@ -2,6 +2,8 @@ import type {TurnEvent} from '../../shared/types/channel.js'
 
 import {
   countDedupKey,
+  isActiveDeliveryState,
+  isBlockedDeliveryEvent,
   isTerminalDeliveryEvent,
   isTerminalTurnEvent,
   matchesFilter,
@@ -14,18 +16,33 @@ import {
 // spinning up a daemon. Codex impl-review R5 specifically asked for a
 // fake-client test covering ordering, dedup, and lastSeen monotonicity.
 
-export type TerminationReason = 'count' | 'terminal'
+// Phase 10 Tier B1 (V6 run-2) — `permission-quorum` fires when every
+// delivery the router has tracked is in `awaiting_permission` and none are
+// in an active state; the gather is structurally unable to progress
+// without a human permission decision.
+export type TerminationReason = 'count' | 'permission-quorum' | 'terminal'
 
 export type RouterOptions = {
   count?: number
+  // Phase 10 Tier B1b — terminate when no tracked delivery is making
+  // progress AND at least one is blocked on permission. Defaults off
+  // (legacy behaviour: wait indefinitely for terminal events).
+  exitOnPermissionQuorum?: boolean
   exitOnTerminal: boolean
   filter: SubscribeFilter
+  // Phase 10 Tier B1a — `awaiting_permission` deliveries count toward
+  // `--count`. Defaults off (legacy: only terminal counts).
+  includeBlocked?: boolean
   onEmit: (event: TurnEvent) => void
   onTerminate?: (reason: TerminationReason) => void
 }
 
 export class ChannelSubscribeRouter {
   private cursor: undefined | {seq: number; turnId: string}
+  // Phase 10 Tier B1b — latest known state per (turnId, memberHandle).
+  // Updated on every delivery_state_change so `checkPermissionQuorumExit`
+  // can answer "is anything still active?" without re-walking events.
+  private readonly deliveryStates = new Map<string, string>()
   // Live events that arrive while replay is in progress are buffered here and
   // drained after replay completes. Codex impl-review high-2: without the
   // buffer, a live seq=7 could be emitted before a replayed seq=4 and
@@ -82,9 +99,42 @@ export class ChannelSubscribeRouter {
     this.processEvent(event)
   }
 
+  // Phase 10 Tier B1b — fire when the gather is structurally stuck.
+  // Heuristic:
+  //   * `--count N` is set (so we know how many deliveries to expect)
+  //   * we've tracked at least N delivery states
+  //   * NO tracked delivery is in an active state (queued/dispatched/streaming)
+  //   * at least one tracked delivery is in `awaiting_permission`
+  // Under those conditions, the only way to make progress is a human
+  // permission decision. An autonomous orchestrator can exit cleanly with
+  // reason `'permission-quorum'` and surface the blocked deliveries.
+  //
+  // Coupling to --count is intentional: without it, the router cannot
+  // distinguish "premature blocked (more deliveries still in queue)" from
+  // "structurally stuck (everything that's going to arrive has arrived)."
+  // --count is the user's explicit declaration of expected fan-out.
+  private checkPermissionQuorumExit(): void {
+    if (this.opts.exitOnPermissionQuorum !== true) return
+    if (this.opts.count === undefined) return
+    if (this.deliveryStates.size < this.opts.count) return
+    let hasActive = false
+    let hasBlocked = false
+    for (const state of this.deliveryStates.values()) {
+      if (isActiveDeliveryState(state)) hasActive = true
+      if (state === 'awaiting_permission') hasBlocked = true
+    }
+
+    if (!hasActive && hasBlocked) this.terminate('permission-quorum')
+  }
+
   private checkQuorumCount(event: TurnEvent): void {
     if (this.opts.count === undefined) return
-    if (!isTerminalDeliveryEvent(event)) return
+    // Phase 10 Tier B1a — under `--include-blocked`, awaiting_permission
+    // deliveries also count toward the quorum threshold. Legacy default
+    // (terminal-only) is preserved.
+    const eligible = isTerminalDeliveryEvent(event)
+      || (this.opts.includeBlocked === true && isBlockedDeliveryEvent(event))
+    if (!eligible) return
     const key = countDedupKey(event)
     if (key === undefined) return
     const memberOk =
@@ -121,9 +171,22 @@ export class ChannelSubscribeRouter {
   // turn-exit bypasses --kinds/--roles by design (codex impl-review-2 medium)
   // but still respects --turn.
   private processEvent(event: TurnEvent): void {
+    // Phase 10 Tier B1b — track per-delivery state on EVERY delivery_state_change
+    // (regardless of filter) so `checkPermissionQuorumExit` sees a complete
+    // picture even when --kinds/--roles exclude the event from stdout emission.
+    if (
+      event.kind === 'delivery_state_change'
+      && event.memberHandle !== null
+      && event.memberHandle !== undefined
+    ) {
+      const key = countDedupKey(event)
+      if (key !== undefined) this.deliveryStates.set(key, event.to)
+    }
+
     const emitted = this.emit(event)
     if (emitted) this.checkQuorumCount(event)
     this.checkTurnTerminalExit(event)
+    this.checkPermissionQuorumExit()
   }
 
   private terminate(reason: TerminationReason): void {

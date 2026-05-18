@@ -38,7 +38,34 @@ const baseEvent = (overrides: Partial<TurnEvent> & {kind: TurnEvent['kind']}): T
   }
 }
 
-type Recorder = {emitted: TurnEvent[]; terminationReason?: 'count' | 'terminal'}
+// Phase 10 Tier B1 — direct constructor for delivery_state_change events
+// that lets the caller pass `to` and override `from` freely. The existing
+// `baseEvent` switch sets `to: 'completed'` for delivery_state_change
+// AFTER the spread, clobbering any caller-provided `to` field; B1 tests
+// need explicit `awaiting_permission` transitions.
+function deliveryEvent(overrides: {
+  channelId?: string
+  deliveryId?: string
+  from?: 'awaiting_permission' | 'dispatched' | 'queued' | 'streaming'
+  memberHandle?: string
+  seq?: number
+  to: 'awaiting_permission' | 'cancelled' | 'completed' | 'dispatched' | 'errored' | 'streaming'
+  turnId?: string
+}): TurnEvent {
+  return {
+    channelId: overrides.channelId ?? 'ch',
+    deliveryId: overrides.deliveryId ?? 'del-1',
+    emittedAt: '2026-05-15T00:00:00.000Z',
+    from: overrides.from ?? 'streaming',
+    kind: 'delivery_state_change',
+    memberHandle: overrides.memberHandle ?? '@codex',
+    seq: overrides.seq ?? 1,
+    to: overrides.to,
+    turnId: overrides.turnId ?? 'turn-1',
+  } as TurnEvent
+}
+
+type Recorder = {emitted: TurnEvent[]; terminationReason?: 'count' | 'permission-quorum' | 'terminal'}
 
 const makeRouter = (opts: Partial<ConstructorParameters<typeof ChannelSubscribeRouter>[0]> = {}): {recorder: Recorder; router: ChannelSubscribeRouter} => {
   const recorder: Recorder = {emitted: []}
@@ -225,6 +252,94 @@ describe('ChannelSubscribeRouter (Slice 8.9 codex impl-review R5)', () => {
       expect(recorder.emitted).to.have.length(0)
       router.pushLive(baseEvent({kind: 'delivery_state_change', memberHandle: '@codex', seq: 2}))
       expect(recorder.terminationReason).to.equal('count')
+    })
+  })
+
+  // Phase 10 Tier B1 (V6 run-2 §3a) — permission-gate deadlock fixes.
+  describe('B1a: --include-blocked counts awaiting_permission toward --count', () => {
+    it('default: awaiting_permission does NOT count', () => {
+      const {recorder, router} = makeRouter({count: 1})
+      router.pushLive(deliveryEvent({memberHandle: '@codex', to: 'awaiting_permission'}))
+      expect(recorder.terminationReason).to.equal(undefined)
+    })
+
+    it('with --include-blocked: awaiting_permission DOES count toward --count', () => {
+      const {recorder, router} = makeRouter({count: 1, includeBlocked: true})
+      router.pushLive(deliveryEvent({memberHandle: '@codex', to: 'awaiting_permission'}))
+      expect(recorder.terminationReason).to.equal('count')
+    })
+
+    it('--include-blocked still respects --roles filter', () => {
+      const {recorder, router} = makeRouter({
+        count: 1,
+        filter: {roles: new Set(['@kimi'])},
+        includeBlocked: true,
+      })
+      router.pushLive(deliveryEvent({memberHandle: '@codex', to: 'awaiting_permission'}))
+      expect(recorder.terminationReason).to.equal(undefined)
+    })
+  })
+
+  describe('B1b: --exit-on-permission-quorum exits when all tracked deliveries are blocked', () => {
+    it('does NOT fire when no deliveries have been seen yet', () => {
+      const {recorder} = makeRouter({count: 2, exitOnPermissionQuorum: true})
+      expect(recorder.terminationReason).to.equal(undefined)
+    })
+
+    it('does NOT fire while at least one delivery is in an active state', () => {
+      const {recorder, router} = makeRouter({count: 2, exitOnPermissionQuorum: true})
+      // @codex blocked, @kimi still streaming.
+      router.pushLive(deliveryEvent({memberHandle: '@codex', to: 'awaiting_permission'}))
+      router.pushLive(deliveryEvent({from: 'dispatched', memberHandle: '@kimi', to: 'streaming'}))
+      expect(recorder.terminationReason).to.equal(undefined)
+    })
+
+    it('fires when every tracked delivery is in awaiting_permission', () => {
+      const {recorder, router} = makeRouter({count: 2, exitOnPermissionQuorum: true})
+      router.pushLive(deliveryEvent({memberHandle: '@codex', to: 'awaiting_permission'}))
+      router.pushLive(deliveryEvent({memberHandle: '@kimi', to: 'awaiting_permission'}))
+      expect(recorder.terminationReason).to.equal('permission-quorum')
+    })
+
+    it('V6 §3a exact scenario: 2 of 3 completed + 1 awaiting_permission → fires permission-quorum', () => {
+      // @codex blocked, @pi + @kimi completed. The gather has 2/3 terminal
+      // counts but is stuck because codex can't progress without human input.
+      // Without --exit-on-permission-quorum, subscribe waits indefinitely
+      // (V6 run-2 §3a observed this at 15min timeout).
+      const {recorder, router} = makeRouter({count: 3, exitOnPermissionQuorum: true})
+      router.pushLive(deliveryEvent({memberHandle: '@pi', to: 'completed'}))
+      router.pushLive(deliveryEvent({memberHandle: '@kimi', to: 'completed'}))
+      // codex transitions to awaiting_permission AFTER the others completed.
+      router.pushLive(deliveryEvent({memberHandle: '@codex', to: 'awaiting_permission'}))
+      expect(recorder.terminationReason).to.equal('permission-quorum')
+    })
+
+    it('does NOT fire when no delivery is blocked (all terminal)', () => {
+      const {recorder, router} = makeRouter({count: 2, exitOnPermissionQuorum: true})
+      router.pushLive(deliveryEvent({memberHandle: '@codex', seq: 1, to: 'completed'}))
+      router.pushLive(deliveryEvent({memberHandle: '@kimi', seq: 2, to: 'completed'}))
+      // `count` itself fires here (both terminal). The point of this test is
+      // permission-quorum specifically does NOT — count wins.
+      expect(recorder.terminationReason).to.equal('count')
+    })
+
+    it('tracks state regardless of --roles/--kinds filter (delivery state map is filter-agnostic)', () => {
+      const {recorder, router} = makeRouter({
+        count: 2,
+        exitOnPermissionQuorum: true,
+        filter: {roles: new Set(['@codex'])},
+      })
+      // @kimi event filtered out of emission BUT still tracked.
+      router.pushLive(deliveryEvent({memberHandle: '@kimi', to: 'awaiting_permission'}))
+      router.pushLive(deliveryEvent({memberHandle: '@codex', to: 'awaiting_permission'}))
+      expect(recorder.terminationReason).to.equal('permission-quorum')
+    })
+
+    it('does NOT fire without --count (no expected fan-out signal)', () => {
+      const {recorder, router} = makeRouter({exitOnPermissionQuorum: true})
+      router.pushLive(deliveryEvent({memberHandle: '@codex', to: 'awaiting_permission'}))
+      router.pushLive(deliveryEvent({memberHandle: '@kimi', to: 'awaiting_permission'}))
+      expect(recorder.terminationReason).to.equal(undefined)
     })
   })
 })

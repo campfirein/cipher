@@ -85,9 +85,22 @@ public static flags = {
       description: 'Exit after N unique (turnId, memberHandle) terminal delivery events',
       min: 1,
     }),
+    // Phase 10 Tier B1b (V6 run-2 §3a) — exit when no tracked delivery
+    // can make progress without a permission decision. Lets autonomous
+    // orchestrators detect "human needed" without polling. Pairs well
+    // with --include-blocked.
+    'exit-on-permission-quorum': Flags.boolean({
+      default: false,
+      description: 'Exit when every tracked delivery is in `awaiting_permission` and none are active — i.e. the gather is structurally stuck waiting for human permission decisions. Pairs with --include-blocked for autonomous orchestrators.',
+    }),
     'exit-on-terminal': Flags.boolean({
       default: false,
       description: 'Exit when ANY turn reaches completed/cancelled (turn-level; ignores --roles)',
+    }),
+    // Phase 10 Tier B1a (V6 run-2 §3a) — `awaiting_permission` counts toward --count.
+    'include-blocked': Flags.boolean({
+      default: false,
+      description: 'Count `awaiting_permission` deliveries toward --count (default: only terminal completed/cancelled/errored count). Use when autonomous gather should not deadlock on permission gates.',
     }),
     json: Flags.boolean({
       allowNo: true,
@@ -135,10 +148,10 @@ public static flags = {
     // Router is shared across reconnects — Phase 10 follow-up A3 (V6 eval).
     // `count` progress, dedup state, and per-turn lastSeen carry over so a
     // mid-stream `io server disconnect` doesn't reset partial gather state.
-    let resolveDone: ((reason: 'count' | 'disconnect' | 'signal' | 'terminal' | 'timeout') => void) | undefined
+    let resolveDone: ((reason: 'count' | 'disconnect' | 'permission-quorum' | 'signal' | 'terminal' | 'timeout') => void) | undefined
     let resolved = false
-    let resolvedReason: 'count' | 'disconnect' | 'signal' | 'terminal' | 'timeout' | undefined
-    const done = new Promise<'count' | 'disconnect' | 'signal' | 'terminal' | 'timeout'>((resolve) => {
+    let resolvedReason: 'count' | 'disconnect' | 'permission-quorum' | 'signal' | 'terminal' | 'timeout' | undefined
+    const done = new Promise<'count' | 'disconnect' | 'permission-quorum' | 'signal' | 'terminal' | 'timeout'>((resolve) => {
       resolveDone = (reason) => {
         if (resolved) return
         resolved = true
@@ -150,12 +163,14 @@ public static flags = {
 
     // Per-attempt resolver that the router's onTerminate forwards to. Each
     // outer-loop iteration swaps it via the `attemptResolveDoneRef` cell.
-    const attemptResolveDoneRef: {current: ((reason: 'count' | 'disconnect' | 'signal' | 'terminal' | 'timeout') => void) | undefined} = {current: undefined}
+    const attemptResolveDoneRef: {current: ((reason: 'count' | 'disconnect' | 'permission-quorum' | 'signal' | 'terminal' | 'timeout') => void) | undefined} = {current: undefined}
 
     const router = new ChannelSubscribeRouter({
       count: flags.count,
+      exitOnPermissionQuorum: flags['exit-on-permission-quorum'],
       exitOnTerminal: flags['exit-on-terminal'],
       filter,
+      includeBlocked: flags['include-blocked'],
       onEmit: (event) => {
         if (flags.json) {
           this.log(JSON.stringify(event))
@@ -212,8 +227,8 @@ public static flags = {
         // sets resolved synchronously below; otherwise the timer or signal
         // already fired and we exit.
         let attemptResolved = false
-        let attemptResolveDone: ((reason: 'count' | 'disconnect' | 'signal' | 'terminal' | 'timeout') => void) | undefined
-        const attemptDone = new Promise<'count' | 'disconnect' | 'signal' | 'terminal' | 'timeout'>((resolve) => {
+        let attemptResolveDone: ((reason: 'count' | 'disconnect' | 'permission-quorum' | 'signal' | 'terminal' | 'timeout') => void) | undefined
+        const attemptDone = new Promise<'count' | 'disconnect' | 'permission-quorum' | 'signal' | 'terminal' | 'timeout'>((resolve) => {
           attemptResolveDone = (reason) => {
             if (attemptResolved) return
             attemptResolved = true
@@ -317,6 +332,19 @@ public static flags = {
       if (finalReason === 'timeout') {
         this.logToStderr(`[CHANNEL_SUBSCRIBE_TIMEOUT] No terminal trigger within ${flags.timeout}ms`)
         this.exit(1)
+      }
+
+      // Phase 10 Tier B1b — clean exit, but with code 2 (distinct from
+      // ok/error) so autonomous orchestrators can detect "human needed".
+      if (finalReason === 'permission-quorum') {
+        this.log(
+          JSON.stringify({
+            control: 'permission-quorum',
+            lastSeen: router.lastSeen(),
+            reason: 'all tracked deliveries are blocked on permission decisions; nothing is making progress',
+          }),
+        )
+        this.exit(2)
       }
     } catch (error) {
       this.handleError(error, flags.json)
