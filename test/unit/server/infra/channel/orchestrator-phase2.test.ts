@@ -380,6 +380,132 @@ describe('ChannelOrchestrator (Phase 2)', () => {
     })
   })
 
+  describe('Phase 10 Tier B2: auto-approve empty-oldText Edit on sandboxed project files', () => {
+    it('auto-approves empty-oldText Edit, skips awaiting_permission transition, emits permission_decision', async () => {
+      // V6 run-2/run-3 §3b — codex re-writes its own file via Edit with
+      // oldText="". Without B2 this gates the gather for 15min. With B2
+      // the orchestrator auto-approves immediately.
+      await createChannel()
+      const driver = new MockAcpDriver({
+        events: [
+          {
+            kind: 'permission_request',
+            permissionRequestId: 'p-autoapprove',
+            request: {
+              options: [
+                {kind: 'allow_once', name: 'Allow', optionId: 'opt-allow'},
+                {kind: 'reject_once', name: 'Reject', optionId: 'opt-reject'},
+              ],
+              sessionId: 's',
+              toolCall: {
+                content: [{
+                  newText: 'console.log("rewrite")\n',
+                  oldText: '',
+                  path: `${projectRoot}/engine.js`,
+                  type: 'diff',
+                }],
+                kind: 'edit',
+                toolCallId: 'tc-edit',
+              },
+            },
+          },
+          {content: 'after auto-approve', kind: 'agent_message_chunk'},
+        ],
+        handle: '@mock',
+      })
+      nextDriver = driver
+      await invite('@mock')
+
+      const accepted = await orchestrator.dispatchMention({channelId, projectRoot, prompt: '@mock rewrite engine.js'})
+      const {turnId} = accepted.turn
+
+      // Wait for completion — turn should reach 'completed' WITHOUT any
+      // permissionDecision call from the test (auto-approval handled it).
+      const treeReader = new ChannelTreeReader()
+      const deadline = Date.now() + 5000
+      let completed = false
+      while (Date.now() < deadline) {
+        // eslint-disable-next-line no-await-in-loop
+        const events = await treeReader.readEvents({channelId, projectRoot, turnId})
+        if (events.some((e) => e.kind === 'turn_state_change' && (e as Extract<TurnEvent, {kind: 'turn_state_change'}>).to === 'completed')) {
+          completed = true
+          break
+        }
+
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((r) => {
+          setTimeout(r, 20)
+        })
+      }
+
+      expect(completed, 'auto-approved turn must reach completed without external permissionDecision').to.equal(true)
+
+      const events = await treeReader.readEvents({channelId, projectRoot, turnId})
+
+
+      // Critical assertions: NO awaiting_permission transition fired, AND
+      // a permission_decision event WAS emitted (auto-approval surfaces).
+      const transitions = events.filter((e) => e.kind === 'delivery_state_change').map((e) => `${(e as Extract<TurnEvent, {kind: 'delivery_state_change'}>).from}→${(e as Extract<TurnEvent, {kind: 'delivery_state_change'}>).to}`)
+      expect(transitions, 'streaming→awaiting_permission must NOT appear on the auto-approved path').to.not.include('streaming→awaiting_permission')
+      const decision = events.find((e): e is Extract<TurnEvent, {kind: 'permission_decision'}> => e.kind === 'permission_decision')
+      expect(decision, 'permission_decision event must surface the auto-approval').to.not.equal(undefined)
+      expect(decision?.permissionRequestId).to.equal('p-autoapprove')
+    })
+
+    it('falls through to human-decision path when toolCall is NOT auto-approvable (non-empty oldText)', async () => {
+      // Same shape as above but oldText is non-empty → must gate normally.
+      await createChannel()
+      const driver = new MockAcpDriver({
+        events: [
+          {
+            kind: 'permission_request',
+            permissionRequestId: 'p-needs-human',
+            request: {
+              options: [{kind: 'allow_once', name: 'Allow', optionId: 'opt-allow'}],
+              sessionId: 's',
+              toolCall: {
+                content: [{
+                  newText: 'after',
+                  oldText: 'before',  // non-empty → not auto-approvable
+                  path: `${projectRoot}/engine.js`,
+                  type: 'diff',
+                }],
+                kind: 'edit',
+                toolCallId: 'tc-edit',
+              },
+            },
+          },
+        ],
+        handle: '@mock',
+      })
+      nextDriver = driver
+      await invite('@mock')
+
+      const accepted = await orchestrator.dispatchMention({channelId, projectRoot, prompt: '@mock partial edit'})
+      const {turnId} = accepted.turn
+
+      // Wait for awaiting_permission to land.
+      const treeReader = new ChannelTreeReader()
+      const deadline = Date.now() + 5000
+      let gotAwaitingPermission = false
+      while (Date.now() < deadline) {
+        // eslint-disable-next-line no-await-in-loop
+        const events = await treeReader.readEvents({channelId, projectRoot, turnId})
+        if (events.some(e => e.kind === 'delivery_state_change' && (e as Extract<TurnEvent, {kind: 'delivery_state_change'}>).to === 'awaiting_permission')) {
+          gotAwaitingPermission = true
+          break
+        }
+
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((r) => {
+          setTimeout(r, 20)
+        })
+      }
+
+      expect(gotAwaitingPermission, 'partial-replacement Edit must still gate behind awaiting_permission').to.equal(true)
+    })
+  })
+
   describe('cancelTurn', () => {
     it('emits §7.2 sequence in events.jsonl: permission_decision → delivery_state_change → turn_state_change', async () => {
       await createChannel()

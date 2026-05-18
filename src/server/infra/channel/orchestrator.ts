@@ -67,6 +67,7 @@ import {IPermissionBroker} from './drivers/permission-broker.js'
 import {buildLookback} from './lookback-builder.js'
 import {resolveMentions} from './member-resolver.js'
 import {parseMentions} from './mention-parser.js'
+import {decideAutoApprovalForEditAsWrite} from './permission-auto-approver.js'
 import {normalisePrompt} from './prompt-normaliser.js'
 import {channelPaths} from './storage/paths.js'
 
@@ -98,6 +99,16 @@ export type ChannelOrchestratorDeps = {
     handle: string,
   ) => IAcpDriver
   readonly idGenerator: () => string
+  // Phase 10 Tier B2 (V6 run-2/run-3 §3b) — when true, the orchestrator
+  // auto-approves `permission_request` events whose toolCall is an Edit
+  // with empty oldText on a file inside the project sandbox. Skips the
+  // human-decision wait + the `streaming → awaiting_permission` state
+  // transition for the only operation class where it's structurally
+  // safe (full-file rewrite of own-scope file = Write-equivalent).
+  //
+  // Defaults to true. Pass false to preserve the legacy behaviour of
+  // gating every permission_request regardless of shape.
+  readonly permissionAutoApproveEditAsWrite?: boolean
   readonly permissionBroker: IPermissionBroker
   readonly pool: IAcpDriverPool
   /**
@@ -201,11 +212,17 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
     handle: string,
   ) => IAcpDriver
   private readonly idGenerator: () => string
+  // Phase 10 Tier B2 — per-turn queue of pending broker.resolve()
+  // callbacks. The prompt-iteration loop drains this AFTER it advances
+  // past each yield, when the driver's permission gate is guaranteed to
+  // be registered. See `handleDriverPayload` for the auto-approval path.
+  private readonly pendingAutoApprovals = new Map<string, Array<() => Promise<void>>>()
   // Slice 8.0 — `mode: 'sync'` pending entries keyed by turnId. Populated
   // synchronously inside `dispatchMention` BEFORE any background delivery
   // task can run; settled by `finaliseTurn` / `cancelTurn` / timeout /
   // overflow / `dispose`.
   private readonly pendingSyncResponses = new Map<string, PendingSyncEntry>()
+  private readonly permissionAutoApproveEditAsWrite: boolean
   private readonly permissionBroker: IPermissionBroker
   private readonly pool: IAcpDriverPool
   private readonly profileStore: IDriverProfileStore | undefined
@@ -235,6 +252,7 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
     this.clock = deps.clock
     this.driverFactory = deps.driverFactory
     this.idGenerator = deps.idGenerator
+    this.permissionAutoApproveEditAsWrite = deps.permissionAutoApproveEditAsWrite ?? true
     this.permissionBroker = deps.permissionBroker
     this.pool = deps.pool
     this.profileStore = deps.profileStore
@@ -1268,8 +1286,23 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
     }
 
     if (payload.kind === 'permission_request') {
+      // Phase 10 Tier B2 (V6 run-2/run-3 §3b) — try the auto-approver first.
+      // If the request is an empty-oldText Edit on a file inside projectRoot,
+      // resolve it ourselves WITHOUT transitioning the delivery to
+      // awaiting_permission. This skips the human-decision gate for the only
+      // operation class where it's structurally safe (Write-equivalent on
+      // own-scope file).
+      const autoApprove = this.permissionAutoApproveEditAsWrite
+        ? decideAutoApprovalForEditAsWrite({
+            options: payload.request.options,
+            projectRoot,
+            toolCall: payload.request.toolCall,
+          })
+        : undefined
+
       // Track in the broker BEFORE writing the event so a concurrent
-      // permissionDecision finds the pending entry.
+      // permissionDecision finds the pending entry. The track also seeds
+      // the broker for auto-approval: resolve() below needs the entry.
       const driver = this.pool.acquire({channelId, memberHandle: delivery.memberHandle})
       if (driver !== undefined) {
         this.permissionBroker.track({
@@ -1283,8 +1316,54 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
         })
       }
 
-      // delivery_state_change streaming → awaiting_permission.
-      if (delivery.state === 'streaming') {
+      if (autoApprove !== undefined && driver !== undefined) {
+        // Resolve the broker with the allow-once option. The driver responds
+        // via `respondToPermission` and resumes work; the delivery stays in
+        // `streaming` so no awaiting_permission event ever lands on the
+        // wire. Emit a `permission_decision` event so observers can see what
+        // happened.
+        //
+        // Microtask deferral: the ACP driver's permission gate is set only
+        // when the prompt iterator resumes (i.e. AFTER this processPayload
+        // call returns and the next `for await` iteration runs). Calling
+        // broker.resolve synchronously here would invoke
+        // `driver.respondToPermission` before the gate exists and silently
+        // drop the response. Scheduling via setImmediate lets the
+        // generator advance, register the gate, and THEN see our resolve.
+        const outcome = {optionId: autoApprove.optionId, outcome: 'selected' as const}
+        const decisionSeq = this.seqAllocator.next({channelId, turnId})
+        await this.persistAndBroadcast(channelId, projectRoot, turnId, {
+          channelId,
+          deliveryId: delivery.deliveryId,
+          emittedAt: this.clock().toISOString(),
+          kind: 'permission_decision',
+          memberHandle: member.handle,
+          outcome,
+          permissionRequestId: payload.permissionRequestId,
+          seq: decisionSeq,
+          turnId,
+        })
+        // Queue the broker.resolve to run AFTER the prompt iterator advances
+        // past this yield. The for-await loop drains pendingAutoApprovals[turnId]
+        // post-handleDriverPayload, by which point the mock/ACP driver has
+        // registered its permission gate. Without this deferral the resolve
+        // fires too early and respondToPermission silently no-ops.
+        const requestId = payload.permissionRequestId
+        const queue = this.pendingAutoApprovals.get(turnId) ?? []
+        queue.push(() => this.permissionBroker.resolve({
+          channelId,
+          outcome,
+          permissionRequestId: requestId,
+          turnId,
+        }).then(() => {
+          // Broker resolved → driver.respondToPermission has resumed the
+          // generator. Nothing else for us to do; the loop will see the
+          // next event on the following iteration.
+        }))
+        this.pendingAutoApprovals.set(turnId, queue)
+      } else if (delivery.state === 'streaming') {
+        // Human-decision path (legacy + non-auto-approvable requests).
+        // delivery_state_change streaming → awaiting_permission.
         delivery.state = 'awaiting_permission'
         await this.persistAndBroadcast(channelId, projectRoot, turnId, {
           channelId,
@@ -1605,9 +1684,41 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
         turnId,
       })
 
-      for await (const payload of iterator) {
-         
+      // Phase 10 Tier B2 — manual iteration (instead of `for await`) so we can
+      // kick off `iterator.next()` BEFORE firing pending auto-approve resolves.
+      // Calling .next() on the async generator synchronously runs it from
+      // after the previous yield up to the next yield/await — i.e. it runs
+      // `gates.set(id, {resolve})` for permission_request events, REGISTERING
+      // the gate. Only then do we fire the queued broker.resolve, so
+      // driver.respondToPermission sees the gate.
+       
+      let iterResult = await iterator.next()
+      while (!iterResult.done) {
+        const payload = iterResult.value
+
+        // eslint-disable-next-line no-await-in-loop
         await this.handleDriverPayload(active, delivery, member, payload)
+
+        // Drain pending auto-approve resolves AFTER kicking off the next
+        // iteration. The .next() call synchronously runs the generator
+        // until its next yield/await — registering gates.set BEFORE our
+        // resolves fire.
+        const drained = this.pendingAutoApprovals.get(active.turn.turnId) ?? []
+        if (drained.length > 0) this.pendingAutoApprovals.set(active.turn.turnId, [])
+        const nextPromise = iterator.next()
+        for (const resolveFn of drained) {
+          // Fire-and-forget: queues as microtask after the generator's
+          // .next() continuation, which itself queued its gates.set as
+          // a synchronous side effect during the .next() call.
+          resolveFn().catch(() => {
+            // Broker resolve can fail if the permission was concurrently
+            // drained (e.g. cancelTurn during the deferral window). The
+            // cancel path emits its own terminal events; nothing to do.
+          })
+        }
+
+        // eslint-disable-next-line no-await-in-loop
+        iterResult = await nextPromise
       }
 
       // Driver returned normally → delivery completed.
