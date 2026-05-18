@@ -285,22 +285,18 @@ describe('html-writer', () => {
         ).to.equal(true)
       })
 
-      it('overrides any createdat/updatedat the LLM emits (system always wins)', async () => {
+      it('rejects LLM-supplied createdat/updatedat at validation (schema reserves them for the system)', async () => {
         const llmAuthored = `<bv-topic path="security/auth" title="JWT auth" createdat="1999-01-01T00:00:00.000Z" updatedat="1999-01-01T00:00:00.000Z">
   <bv-reason>x</bv-reason>
 </bv-topic>`
-        const before = new Date().toISOString()
         const result = await writeHtmlTopic({contextTreeRoot: tmpRoot, rawHtml: llmAuthored})
-        expect(result.ok).to.equal(true)
-        if (!result.ok) return
+        expect(result.ok).to.equal(false)
+        if (result.ok) return
 
-        const written = readFileSync(result.filePath, 'utf8')
-        const createdAt = extractAttribute(written, 'createdat')
-        const updatedAt = extractAttribute(written, 'updatedat')
-        expect(createdAt).to.not.equal('1999-01-01T00:00:00.000Z')
-        expect(updatedAt).to.not.equal('1999-01-01T00:00:00.000Z')
-        expect(createdAt! >= before, `createdat (${createdAt!}) should be >= before (${before})`).to.equal(true)
-        expect(updatedAt! >= before, `updatedat (${updatedAt!}) should be >= before (${before})`).to.equal(true)
+        const reservedFields = result.errors
+          .filter((e) => e.kind === 'attribute-validation' && e.tag === 'bv-topic')
+          .map((e) => (e as {field: string}).field)
+        expect(reservedFields).to.include.members(['createdat', 'updatedat'])
       })
     })
 

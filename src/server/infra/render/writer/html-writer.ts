@@ -303,7 +303,7 @@ function setBvTopicAttribute(html: string, name: string, value: string): string 
   if (!tagMatch || tagMatch.index === undefined) return html
 
   const tag = tagMatch[0]
-  const escaped = value.replaceAll('"', '&quot;')
+  const escaped = escapeHtmlAttributeValue(value)
   const attrPattern = new RegExp(`\\s${name}="[^"]*"`, 'i')
 
   const newTag = attrPattern.test(tag)
@@ -313,6 +313,20 @@ function setBvTopicAttribute(html: string, name: string, value: string): string 
       : tag.slice(0, -1) + ` ${name}="${escaped}">`
 
   return html.slice(0, tagMatch.index) + newTag + html.slice(tagMatch.index + tag.length)
+}
+
+// Full HTML attribute escape. Ordering matters: `&` first, otherwise the
+// `&lt;`/`&gt;`/`&quot;` entities we introduce below would get re-escaped
+// to `&amp;lt;` etc. Today's only callers are ISO-8601 timestamps which
+// contain none of these characters, but the helper is general-purpose by
+// shape and a future caller passing user-influenced content would
+// otherwise silently corrupt the tag.
+function escapeHtmlAttributeValue(value: string): string {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
 }
 
 /**

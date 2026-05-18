@@ -333,6 +333,8 @@ export const TransportAgentEventNames = {
  */
 export const TransportStateEventNames = {
   GET_AUTH: 'state:getAuth',
+  GET_BILLING_CONFIG: 'state:getBillingConfig',
+  GET_PAID_ORGANIZATIONS: 'state:getPaidOrganizations',
   GET_PROJECT_CONFIG: 'state:getProjectConfig',
   GET_PROVIDER_CONFIG: 'state:getProviderConfig',
 } as const
@@ -342,8 +344,27 @@ export const TransportStateEventNames = {
  * Used to notify agent child processes of global state changes.
  */
 export const TransportDaemonEventNames = {
+  BILLING_PIN_CHANGED: 'billing:pinChanged',
   PROVIDER_UPDATED: 'provider:updated',
 } as const
+
+export interface BillingStateRequest {
+  projectPath: string
+}
+
+export interface BillingStateResponse {
+  pinnedTeamId?: string
+}
+
+export interface BillingPinChangedPayload {
+  projectPath: string
+  teamId?: string
+}
+
+export interface PaidOrganizationsResponse {
+  error?: string
+  organizationIds: string[]
+}
 
 /**
  * Response payload for GET_PROVIDER_CONFIG — shared between daemon and agent process.
@@ -424,7 +445,7 @@ export const TaskExecuteSchema = z.object({
   /** Dream trigger source — how this dream was initiated */
   trigger: z.enum(['agent-idle', 'cli', 'manual']).optional(),
   /** Task type */
-  type: z.enum(['curate', 'curate-folder', 'dream', 'query', 'query-tool-mode', 'search']),
+  type: z.enum(['curate', 'curate-folder', 'curate-html-direct', 'dream', 'query', 'query-tool-mode', 'search']),
   /** Workspace root for scoped query/curate */
   worktreeRoot: z.string().optional(),
 })
@@ -521,6 +542,21 @@ export const LlmUnsupportedInputEventSchema = z.object({
 // ============================================================================
 
 /**
+ * Closed set of task types. Single source of truth — broadcast-event schemas
+ * (e.g. `TaskCreatedSchema`) and request schemas (e.g. `TaskExecuteSchema`)
+ * both reference this so a new task type only needs to be added in one place.
+ */
+export const TaskTypeSchema = z.enum([
+  'curate',
+  'curate-folder',
+  'curate-html-direct',
+  'dream',
+  'query',
+  'query-tool-mode',
+  'search',
+])
+
+/**
  * task:ack - Transport acknowledges task creation
  */
 export const TaskAckSchema = z.object({
@@ -548,8 +584,8 @@ export const TaskCreatedSchema = z.object({
   provider: z.string().optional(),
   /** Unique task identifier */
   taskId: z.string(),
-  /** Task type */
-  type: z.enum(['curate', 'curate-folder', 'query', 'search']),
+  /** Task type — closed enum kept in sync with `TaskTypeSchema`. */
+  type: TaskTypeSchema,
 })
 
 /**
@@ -730,8 +766,6 @@ export type TaskQueryResultEvent = z.infer<typeof TaskQueryResultEventSchema>
 // ============================================================================
 // Request/Response Schemas (for client → server commands)
 // ============================================================================
-
-export const TaskTypeSchema = z.enum(['curate', 'curate-folder', 'dream', 'query', 'query-tool-mode', 'search'])
 
 /**
  * Request to create a new task

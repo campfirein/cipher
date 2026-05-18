@@ -21,12 +21,17 @@
 
 import {connectToTransport, type ITransportClient} from '@campfirein/brv-transport-client'
 import {randomUUID} from 'node:crypto'
-import {appendFileSync} from 'node:fs'
-import {join} from 'node:path'
+import {appendFileSync, existsSync} from 'node:fs'
+import {join, relative, sep} from 'node:path'
 
 import type {ISearchKnowledgeService} from '../../../agent/infra/sandbox/tools-sdk.js'
 import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
-import type {ProviderConfigResponse, TaskExecute} from '../../core/domain/transport/schemas.js'
+import type {
+  BillingPinChangedPayload,
+  BillingStateResponse,
+  ProviderConfigResponse,
+  TaskExecute,
+} from '../../core/domain/transport/schemas.js'
 import type {IRuntimeSignalStore} from '../../core/interfaces/storage/i-runtime-signal-store.js'
 
 import {SESSIONS_DIR} from '../../../agent/core/domain/session/session-metadata.js'
@@ -37,11 +42,12 @@ import {SessionMetadataStore} from '../../../agent/infra/session/session-metadat
 import {FileKeyStorage} from '../../../agent/infra/storage/file-key-storage.js'
 import {runWithReviewDisabled} from '../../../agent/infra/tools/implementations/curate-tool-task-context.js'
 import {createSearchKnowledgeService} from '../../../agent/infra/tools/implementations/search-knowledge-service.js'
+import {decodeCurateHtmlContent} from '../../../shared/transport/curate-html-content.js'
 import {AuthEvents} from '../../../shared/transport/events/auth-events.js'
 import {decodeQueryToolModeContent} from '../../../shared/transport/query-tool-mode-content.js'
 import {decodeSearchContent} from '../../../shared/transport/search-content.js'
 import {getCurrentConfig} from '../../config/environment.js'
-import {BRV_DIR, DEFAULT_LLM_MODEL, PROJECT} from '../../constants.js'
+import {BRV_DIR, CONTEXT_TREE_DIR, DEFAULT_LLM_MODEL, PROJECT} from '../../constants.js'
 import {serializeTaskError, TaskError, TaskErrorCode} from '../../core/domain/errors/task-error.js'
 import {loadSources} from '../../core/domain/source/source-schema.js'
 import {
@@ -61,6 +67,8 @@ import {DreamExecutor} from '../executor/dream-executor.js'
 import {FolderPackExecutor} from '../executor/folder-pack-executor.js'
 import {QueryExecutor} from '../executor/query-executor.js'
 import {SearchExecutor} from '../executor/search-executor.js'
+import {backupContextTreeFile, buildCurateHtmlLogEntry} from '../process/curate-html-log.js'
+import {validateHtmlTopic, writeHtmlTopic} from '../render/writer/html-writer.js'
 import {FileCurateLogStore} from '../storage/file-curate-log-store.js'
 import {FileReviewBackupStore} from '../storage/file-review-backup-store.js'
 import {TaskUsageAggregator} from '../telemetry/task-usage-aggregator.js'
@@ -189,7 +197,7 @@ async function activateExistingSession(sessionId: string, providerId: string): P
  */
 let cachedSessionKey = ''
 let cachedBrvConfig: BrvConfig | undefined
-let cachedTeamId = ''
+let cachedPinnedOrgId: string | undefined
 let cachedSpaceId = ''
 let cachedActiveProvider = ''
 let cachedActiveModel = ''
@@ -255,16 +263,17 @@ async function start(): Promise<void> {
     sessionKey?: string
   }
 
-  const [configResult, authResult, providerResult] = await Promise.all([
+  const [configResult, authResult, providerResult, billingResult] = await Promise.all([
     transport.requestWithAck<ProjectConfigResponse>(TransportStateEventNames.GET_PROJECT_CONFIG, {projectPath}),
     transport.requestWithAck<AuthResponse>(TransportStateEventNames.GET_AUTH),
     transport.requestWithAck<ProviderConfigResponse>(TransportStateEventNames.GET_PROVIDER_CONFIG),
+    transport.requestWithAck<BillingStateResponse>(TransportStateEventNames.GET_BILLING_CONFIG, {projectPath}),
   ])
 
   cachedBrvConfig = configResult.brvConfig
-  cachedTeamId = configResult.teamId ?? ''
   cachedSpaceId = configResult.spaceId ?? ''
   cachedSessionKey = authResult.sessionKey ?? ''
+  cachedPinnedOrgId = billingResult.pinnedTeamId
 
   agentLog('Initial config loaded from state server')
 
@@ -274,7 +283,6 @@ async function start(): Promise<void> {
     (data) => {
       if (data.projectPath !== projectPath) return
       if (data.brvConfig) cachedBrvConfig = data.brvConfig
-      if (data.teamId !== undefined) cachedTeamId = data.teamId
       if (data.spaceId !== undefined) cachedSpaceId = data.spaceId
     },
   )
@@ -286,6 +294,11 @@ async function start(): Promise<void> {
   transport.on(TransportDaemonEventNames.PROVIDER_UPDATED, () => {
     providerConfigDirty = true
     providerFetchRetries = 0
+  })
+
+  transport.on<BillingPinChangedPayload>(TransportDaemonEventNames.BILLING_PIN_CHANGED, (data) => {
+    if (data.projectPath !== projectPath) return
+    cachedPinnedOrgId = data.teamId
   })
 
   // 4. Provider config resolved by daemon (API key, base URL, headers, etc.)
@@ -330,7 +343,7 @@ async function start(): Promise<void> {
     projectIdProvider: () => PROJECT,
     sessionKeyProvider: () => cachedSessionKey,
     spaceIdProvider: () => cachedSpaceId,
-    teamIdProvider: () => cachedTeamId,
+    teamIdProvider: () => cachedPinnedOrgId ?? '',
     transportClient: transport,
   })
 
@@ -482,10 +495,11 @@ async function executeTask(
   const {clientCwd, clientId, content, files, folderPath, force, reviewDisabled, taskId, trigger, type, worktreeRoot} = task
   if (!transport || !agent) return
 
-  // Search + tool-mode query are pure BM25 retrieval — no LLM, no
-  // provider needed. Skip provider validation so they work even
-  // without a configured provider (the headline promise of tool mode).
-  if (type !== 'search' && type !== 'query-tool-mode') {
+  // Search + tool-mode query + tool-mode curate are pure deterministic
+  // paths — no LLM, no provider needed. Skip provider validation so they
+  // work even without a configured provider (the headline promise of
+  // tool mode).
+  if (type !== 'search' && type !== 'query-tool-mode' && type !== 'curate-html-direct') {
     const freshProviderConfig = await transport.requestWithAck<ProviderConfigResponse>(
       TransportStateEventNames.GET_PROVIDER_CONFIG,
     )
@@ -518,12 +532,11 @@ async function executeTask(
       // Refresh config from state server to pick up changes from init/space-switch
       // (they write directly to disk, bypassing the agent's cached state)
       try {
-        const configResult = await transport.requestWithAck<{brvConfig?: BrvConfig; spaceId?: string; teamId?: string}>(
+        const configResult = await transport.requestWithAck<{brvConfig?: BrvConfig; spaceId?: string}>(
           TransportStateEventNames.GET_PROJECT_CONFIG,
           {projectPath},
         )
         if (configResult.brvConfig) cachedBrvConfig = configResult.brvConfig
-        if (configResult.teamId !== undefined) cachedTeamId = configResult.teamId
         if (configResult.spaceId !== undefined) cachedSpaceId = configResult.spaceId
       } catch {
         agentLog('Failed to refresh config before task execution')
@@ -642,6 +655,111 @@ async function executeTask(
           })
           result = folderResult.response
           postWork = folderResult.finalize
+
+          break
+        }
+
+        case 'curate-html-direct': {
+          // Tool-mode curate: no LLM dispatch, no provider gate, no
+          // usage aggregator. Calling agent (typically over MCP) has
+          // already authored the <bv-topic> HTML; daemon validates +
+          // writes the topic file. Single-shot, single round-trip.
+          // Mirrors the post-ENG-2815 oclif `brv curate` writer-direct
+          // flow but exposed as a daemon task type so MCP clients can
+          // hit it the same way they hit `query-tool-mode`.
+          const {confirmOverwrite, html, meta} = decodeCurateHtmlContent(content)
+          const contextTreeRoot = join(projectPath, BRV_DIR, CONTEXT_TREE_DIR)
+
+          // Pre-resolve the target path so we can report whether the
+          // write replaced an existing file. validateHtmlTopic is
+          // idempotent + cheap (parse5 only); writeHtmlTopic re-runs
+          // it internally so we don't risk drift between checks.
+          const preValidation = validateHtmlTopic(html)
+          const absoluteTopicFilePath = preValidation.ok
+            ? join(contextTreeRoot, `${preValidation.topicPath}.html`)
+            : undefined
+          const existedBefore = absoluteTopicFilePath !== undefined && existsSync(absoluteTopicFilePath)
+
+          // Seed the review-backup BEFORE the destructive write. Without this,
+          // a curate over an existing topic (confirmOverwrite=true, meta.impact=high)
+          // creates a `reviewStatus: pending` log entry but leaves nothing for
+          // `brv review reject` to restore from — review-handler.ts:152 treats
+          // a missing backup as ADD and unlinks the file, destroying the user's
+          // prior knowledge. Honors task.reviewDisabled and ENOENT gracefully.
+          if (existedBefore && absoluteTopicFilePath !== undefined) {
+            await backupContextTreeFile({
+              absoluteFilePath: absoluteTopicFilePath,
+              contextTreeRoot,
+              reviewBackupStore: new FileReviewBackupStore(join(projectPath, BRV_DIR)),
+              reviewDisabled: reviewDisabled ?? false,
+            })
+          }
+
+          const startedAt = Date.now()
+          const writeResult = await writeHtmlTopic({confirmOverwrite, contextTreeRoot, rawHtml: html})
+          const completedAt = Date.now()
+
+          // HITL log entry — restores `brv review pending` surfacing for
+          // tool-mode curates. Pre-allocate the id via getNextId() so it
+          // matches FileCurateLogStore's `cur-<timestamp>` ID_PATTERN; a
+          // random UUID would silently be invisible to list()/getById().
+          // Failed writes also get an entry (status: error) so the TUI
+          // doesn't lie about what was attempted.
+          let relativeFilePath: string | undefined
+          let topicPathResolved: string | undefined
+          if (writeResult.ok) {
+            relativeFilePath = relative(contextTreeRoot, writeResult.filePath).replaceAll(sep, '/')
+            topicPathResolved = preValidation.ok
+              ? preValidation.topicPath
+              : relativeFilePath.replace(/\.html$/, '')
+          } else if (preValidation.ok) {
+            topicPathResolved = preValidation.topicPath
+          }
+
+          try {
+            const curateLogStore = new FileCurateLogStore({baseDir: storagePath})
+            const entryId = await curateLogStore.getNextId()
+            const logEntry = buildCurateHtmlLogEntry({
+              completedAt,
+              confirmOverwrite: Boolean(confirmOverwrite),
+              existedBefore,
+              // Absolute path — the review-handler (and dream-executor) treat
+              // `op.filePath` as absolute and call `relative(contextTreeDir, ...)`
+              // to derive a display key. Storing a relative path here makes
+              // the entry unmatchable in `brv review approve`.
+              filePath: writeResult.ok ? writeResult.filePath : undefined,
+              id: entryId,
+              meta,
+              reviewDisabled: reviewDisabled ?? false,
+              startedAt,
+              taskId,
+              topicPath: topicPathResolved,
+              writeResult,
+            })
+            await curateLogStore.save(logEntry)
+            logId = entryId
+          } catch (error) {
+            // Logging must never block curate execution. Swallow + log
+            // so a transient FS error doesn't fail an otherwise-successful
+            // curate.
+            agentLog(
+              `curate-html-direct: failed to persist log entry for ${taskId}: ${error instanceof Error ? error.message : String(error)}`,
+            )
+          }
+
+          // Validation failures emit task:completed (NOT task:error) so
+          // the calling agent sees the structured errors via the normal
+          // result payload and can retry with corrected HTML. task:error
+          // would force MCP clients into an isError path that some host
+          // renderers collapse or truncate.
+          result = writeResult.ok
+            ? JSON.stringify({
+                filePath: relativeFilePath,
+                overwrote: existedBefore && Boolean(confirmOverwrite),
+                status: 'ok',
+                topicPath: topicPathResolved,
+              })
+            : JSON.stringify({errors: writeResult.errors, status: 'validation-failed'})
 
           break
         }

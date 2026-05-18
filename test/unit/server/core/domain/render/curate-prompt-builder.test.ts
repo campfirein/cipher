@@ -23,6 +23,15 @@ import {
 } from '../../../../../../src/server/core/domain/render/curate-prompt-builder.js'
 import {ELEMENT_NAMES} from '../../../../../../src/server/core/domain/render/element-types.js'
 
+/** Slice the schema prompt around a single element block for assertions. */
+function blockFor(name: string): string {
+  const idx = CURATE_SCHEMA_PROMPT.indexOf(`\n<${name}>`)
+  const startIdx = idx === -1 ? CURATE_SCHEMA_PROMPT.indexOf(`<${name}>`) : idx + 1
+  const nextIdx = CURATE_SCHEMA_PROMPT.indexOf('\n<bv-', startIdx + name.length + 2)
+  const end = nextIdx === -1 ? CURATE_SCHEMA_PROMPT.length : nextIdx
+  return CURATE_SCHEMA_PROMPT.slice(startIdx, end)
+}
+
 describe('curate-prompt-builder', () => {
   describe('CURATE_SCHEMA_PROMPT (derived from ELEMENT_REGISTRY)', () => {
     it('contains every registered element name', () => {
@@ -49,8 +58,8 @@ describe('curate-prompt-builder', () => {
       // The schema slice is loaded on every kickoff. Keeping it tight
       // matters — the calling agent's context is the bill payer.
       // Bumping this budget should be a deliberate decision, not a
-      // silent drift; current size ~3.1 KB across 19 elements with
-      // MD-rendering preamble stripped.
+      // silent drift; size grows with each element + authoring hint, so
+      // expect headroom to shrink as the registry grows.
       expect(CURATE_SCHEMA_PROMPT.length).to.be.lessThan(3584)
     })
 
@@ -100,6 +109,35 @@ describe('curate-prompt-builder', () => {
         expect(block, `${name} should declare children semantics`).to.match(/children: (any|block|inline|none)/)
       }
     })
+
+    it('emits authoring hints for structural elements', () => {
+      // The structural containers (bv-structure, bv-flow, bv-reason,
+      // bv-files, bv-fact) each gain an `authoring:` line that points
+      // the calling agent at the sectioning convention. The hint is the
+      // structural-placement signal that condenseDescription strips out
+      // of the underlying description — without it the agent flattens
+      // everything into a run of <bv-rule> siblings.
+      expect(blockFor('bv-structure'), 'bv-structure authoring hint').to.include('authoring: open with `<h3>title</h3>`')
+      // bv-flow is inline-content (registry.ts: allowedChildren === 'inline'),
+      // so its hint must NOT push the agent toward block markup. Anchor on the
+      // inline-only wording — a regression that re-introduces `<h3>`/`<ol>`
+      // guidance here would put the schema slice in contradiction with itself.
+      expect(blockFor('bv-flow'), 'bv-flow authoring hint').to.include('authoring: inline prose only')
+      expect(blockFor('bv-reason'), 'bv-reason authoring hint').to.include('authoring: put at the END')
+      expect(blockFor('bv-files'), 'bv-files authoring hint').to.include('authoring: wrap multiple `<li>`')
+      expect(blockFor('bv-fact'), 'bv-fact authoring hint').to.include('authoring: short setup/environment detail')
+    })
+
+    it('does NOT emit authoring hints for non-structural elements', () => {
+      // bv-rule / bv-decision / bv-topic / bv-pattern / etc. are
+      // self-explanatory from their name + description; an authoring
+      // hint there would be noise. Belt-and-braces: keep the schema
+      // tight so the budget test below has room.
+      const nonStructural = ['bv-rule', 'bv-decision', 'bv-topic', 'bv-pattern', 'bv-bug', 'bv-fix']
+      for (const name of nonStructural) {
+        expect(blockFor(name), `${name} has no authoring hint`).to.not.include('authoring:')
+      }
+    })
   })
 
   describe('buildGeneratePrompt', () => {
@@ -119,6 +157,24 @@ describe('curate-prompt-builder', () => {
       const prompt = buildGeneratePrompt({userIntent: 'x'})
       expect(prompt).to.include('DO NOT wrap the response in a code fence')
       expect(prompt).to.include('Exactly one `<bv-topic>`')
+    })
+
+    it('teaches the JSON envelope `{html, meta?}` output shape (M4)', () => {
+      const prompt = buildGeneratePrompt({userIntent: 'x'})
+      // The agent now emits a JSON envelope on `--response`, not raw HTML.
+      // The contract section must explain both keys and show an example.
+      expect(prompt).to.include('JSON envelope')
+      expect(prompt).to.include('"html"')
+      expect(prompt).to.include('"meta"')
+    })
+
+    it('documents the meta field semantics for review surfacing', () => {
+      const prompt = buildGeneratePrompt({userIntent: 'x'})
+      expect(prompt).to.include('impact')
+      expect(prompt).to.include('high')
+      expect(prompt).to.include('reason')
+      // Optional — explicit so the agent knows omission still curates
+      expect(prompt.toLowerCase()).to.include('optional')
     })
 
     it('includes path-format guidance', () => {
@@ -294,6 +350,20 @@ describe('curate-prompt-builder', () => {
     it('falls back to a generic instruction when given zero errors', () => {
       const prompt = buildCorrectionPrompt({errors: [], previousHtml, userIntent})
       expect(prompt).to.include('No structured errors')
+    })
+
+    it('teaches the JSON envelope on the correction step too (so agent re-emits in the right shape)', () => {
+      // The correction prompt must remind the agent of the envelope
+      // contract — otherwise after the first failure the agent might
+      // revert to raw HTML and trigger an invalid-response-format
+      // error on top of the original validation issue.
+      const prompt = buildCorrectionPrompt({
+        errors: [{kind: 'missing-path-attribute', message: 'm'}],
+        previousHtml,
+        userIntent,
+      })
+      expect(prompt).to.include('JSON envelope')
+      expect(prompt).to.include('"html"')
     })
 
     it('includes the output contract so the LLM still gets the bare-HTML rule', () => {

@@ -159,13 +159,23 @@ export function buildCorrectionPrompt(options: {
 // ── Private helpers ──────────────────────────────────────────────
 
 const OUTPUT_CONTRACT = [
-  '- Output is HTML, and only HTML.',
-  '- First character of your response must be `<`. Last characters must be `</bv-topic>`.',
-  '- DO NOT wrap the response in a code fence. No ``` html, no markdown formatting around the HTML.',
-  '- Exactly one `<bv-topic>` per output. It is the root container.',
-  '- All attribute names lowercase; all attribute values double-quoted.',
-  '- Do not invent elements or attributes outside the schema below.',
-  '- Do not emit `importance`, `maturity`, `recency`, `createdat`, or `updatedat` on `<bv-topic>` — those are system-managed sidecar signals.',
+  '- Emit a JSON envelope: `{"html": "...", "meta": {...}}`. First char `{`, last char `}`.',
+  '- DO NOT wrap the response in a code fence. No ``` json, no markdown around the envelope.',
+  '- The HTML inside `"html"`:',
+  '    - Exactly one `<bv-topic>` per output.',
+  '    - Lowercase attribute names, double-quoted values.',
+  '    - No elements/attributes outside the schema below.',
+  '    - Do not emit `importance`, `maturity`, `recency`, `createdat`, `updatedat` (system-managed).',
+  '',
+  'Optional `"meta"` (omit → curate succeeds but does NOT surface in `brv review pending`):',
+  '- `type`: "ADD" | "UPDATE" | "MERGE". Defaults from file-existed-before.',
+  '- `impact`: "high" (load-bearing decision / must-rule / architectural pattern / new domain knowledge) | "low" (refinement / clarification). Omit → no review surfacing.',
+  '- `reason`: one sentence shown to reviewers.',
+  '- `summary`: one-line summary after this operation.',
+  '- `previousSummary`: (UPDATE/MERGE) one-line summary before this operation.',
+  '- `confidence`: "high" | "low".',
+  '',
+  'Example: `{"html":"<bv-topic path=\\"security/auth\\" title=\\"JWT\\"><bv-decision severity=\\"must\\">RS256.</bv-decision></bv-topic>","meta":{"type":"ADD","impact":"high","reason":"Locks JWT alg.","summary":"JWT: RS256."}}`',
 ].join('\n')
 
 const PATH_FORMAT = [
@@ -195,7 +205,53 @@ function renderElement(name: typeof ELEMENT_NAMES[number]): string {
   }
 
   lines.push(`  children: ${entry.allowedChildren}`, `  ${condenseDescription(entry.description)}`)
+
+  const hint = authoringHint(name)
+  if (hint) {
+    lines.push(`  authoring: ${hint}`)
+  }
+
   return lines.join('\n')
+}
+
+/**
+ * Per-element authoring hint surfaced in the schema slice. Only structural
+ * containers and "support" elements get a hint — rules/decisions/facts are
+ * obvious from their name.
+ *
+ * The condenseDescription step strips the "Renders as `**X:**` inside `## Y`"
+ * prefix to save ~700 bytes. That prefix carried the structural placement
+ * signal — without it the agent flattens everything into a single run of
+ * bv-rule children. This function adds the placement signal back as a short
+ * actionable line ("place an <h3> inside…"), targeted at the elements where
+ * sectioning quality is the visible difference between rich and flat output.
+ */
+function authoringHint(name: typeof ELEMENT_NAMES[number]): string | undefined {
+  switch (name) {
+    case 'bv-fact': {
+      return 'short setup/environment detail; single-line is fine'
+    }
+
+    case 'bv-files': {
+      return 'wrap multiple `<li>` paths; no `<h3>` needed'
+    }
+
+    case 'bv-flow': {
+      return 'inline prose only; for multi-step procedures use `bv-structure` with `<ol>`'
+    }
+
+    case 'bv-reason': {
+      return 'put at the END to capture the why'
+    }
+
+    case 'bv-structure': {
+      return 'open with `<h3>title</h3>` then `<ul>` for items; use for static state'
+    }
+
+    default: {
+      return undefined
+    }
+  }
 }
 
 /**
