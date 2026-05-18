@@ -33,7 +33,7 @@ public static flags = {
         return
       }
 
-      const {driftObservations, profile} = response
+      const {driftObservations, profile, recentTurnDurations} = response
       this.log(`${profile.name} (${profile.displayName})`)
       this.log(`  driver class: ${profile.driverClass}`)
       this.log(`  invocation:   ${profile.invocation.command} ${profile.invocation.args.join(' ')}`)
@@ -49,6 +49,19 @@ public static flags = {
           const loc = obs.line === undefined ? obs.file : `${obs.file}:${obs.line}`
           this.log(`    • ${loc} — ${obs.description} (observed ${obs.observedAt})`)
         }
+      }
+
+      // Phase 10 Tier C #4 — render per-agent wall-clock variance (V6
+      // run-4 §4b). Surfaces median + min/max of recent completed
+      // turns so the orchestrator sees pi's 60s → 12min spread before
+      // dispatching the next prompt.
+      if (recentTurnDurations !== undefined && recentTurnDurations.length > 0) {
+        const sortedMs = [...recentTurnDurations].map((e) => e.durationMs).sort((a, b) => a - b)
+        const min = sortedMs[0]
+        const max = sortedMs.at(-1) ?? min
+        const median = sortedMs[Math.floor(sortedMs.length / 2)]
+        const fmt = (ms: number): string => (ms >= 60_000 ? `${(ms / 60_000).toFixed(1)}m` : `${(ms / 1000).toFixed(1)}s`)
+        this.log(`  recent turn durations (n=${recentTurnDurations.length}): median ${fmt(median)} (min ${fmt(min)}, max ${fmt(max)})`)
       }
     } catch (error) {
       this.handleError(error, flags.json)

@@ -85,7 +85,7 @@ public static flags = {
       description: 'Local-first quorum escalation trigger. "empty" = escalate when no local consensus; "empty-or-contradiction" (default) = also escalate on positions disagreeing; "low-confidence" = escalate when min self-reported confidence falls below threshold; "never" = local pool only. Ignored unless --quorum.',
       options: ['empty', 'empty-or-contradiction', 'low-confidence', 'never'],
     }),
-    'idempotency-key': Flags.string({description: 'Optional dedupe key (CHANNEL_PROTOCOL.md §12)'}),
+    'idempotency-key': Flags.string({description: 'Explicit dedupe key (CHANNEL_PROTOCOL.md §12). Omit to let the daemon auto-derive one from (channelId | prompt | mentions | 5-min bucket) — duplicate dispatches inside the same bucket collapse onto the original turn.'}),
     json: Flags.boolean({default: false, description: 'Emit JSON instead of pretty output'}),
     // Phase 10 Slice 10.3 — pool overrides for --quorum.
     'local-only': Flags.boolean({

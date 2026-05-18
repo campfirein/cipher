@@ -388,6 +388,79 @@ Three properties make a contract strong:
 constraint with reasoning.** This is the orchestrator-side equivalent
 of writing a regression test.
 
+### The 3-run contract-tightening loop (documented workflow)
+
+V6 super-mario runs 1-4 (2026-05-18) produced enough data to promote
+contract-tightening from "good practice" to a **documented workflow
+advantage** of multi-agent builds:
+
+| Run | Builder defects flagged by audit | What changed before this run |
+|---|---|---|
+| R1 | 2 (diagonal speed, cull threshold) | initial contract |
+| R2 | 4 (cull again, extra grunts, R-key preventDefault, no final score) | minor wording tweaks |
+| R3 | 3 (R1+R2 deviations prevented; NEW class: player.alive/blink) | tightened 4 named items + named constants |
+| **R4** | **0** | added the R3-surfaced spec mandate |
+
+**Mechanism.** A defect-free single-agent build requires getting the
+spec right on the first try. A multi-agent build naturally produces a
+structured **per-file, per-deviation audit log** (the auditor agent
+returns these because the contract asks for them). That log is the
+input to the next iteration's spec change. After ~3 iterations the
+spec is dense enough that all foreseeable cross-file defect classes
+are pre-empted.
+
+**This is the wedge.** Single-agent builds rarely produce a defect
+log structured precisely enough to drive iterative contract
+improvements. Multi-agent builds do, because the auditor's job IS to
+produce that log.
+
+**How to run the loop:**
+
+1. **Iteration 1 — first build.** Use the contract you have. Send a
+   `mention` to your auditor (`@kimi` is the strongest auditor across
+   V1–V6) asking for a structured per-file, per-deviation list. Expect
+   2-4 minor deviations in iteration 1.
+2. **Iteration 2 — codify each deviation.** For every deviation the
+   auditor reports, edit the contract artifact to add a negative
+   constraint with reasoning (see "Contract strength → defect
+   prevention" above). Re-run the build (clean workspace, same agents).
+   Expect prior deviations to vanish and new (typically weaker)
+   deviations to surface.
+3. **Iteration 3 — codify the iteration-2 deviations.** Same drill.
+   For class-of-task builds where iteration 3's auditor returns zero
+   blockers, you have a converged contract: this spec produces a clean
+   build with this team.
+
+**Stop conditions.** The loop terminates when (a) audit returns zero
+defects (R4 above), or (b) the remaining defects are out-of-scope for
+the spec (e.g. UX-judgement calls). Don't iterate past convergence —
+later iterations don't keep improving once the auditor has nothing
+left to flag.
+
+**Idempotency note.** The `mention` daemon collapses duplicate
+dispatches inside a 5-minute bucket (auto-derived from prompt +
+mentions). Re-issuing the same iteration's dispatch by mistake costs
+nothing — the daemon returns the original turn snapshot. To force a
+genuinely fresh dispatch in the same window, pass an explicit
+`--idempotency-key` (any unique string) or wait past the 5-min bucket
+boundary.
+
+### Per-agent variance — pre-dispatch tuning
+
+V6 surfaced that the same agent on the same prompt template can have
+8× wall-clock variance (pi: 60s run-1, 90s run-3, 12 min run-4). The
+daemon now records per-agent completed-turn durations into the
+profile metadata store. Before dispatching a heavy quorum, run:
+
+```bash
+/Users/nguyenduyanh/.nvm/versions/node/v22.12.0/bin/brv channel profile show <agent-name> --json
+```
+
+Look at `recentTurnDurations` — if the median is 10× a peer's median
+on this class of task, consider raising `--timeout`, or moving that
+member off the critical path of a sync gather. The data is local-only
+diagnostic state, not part of the wire protocol.
+
 ## Permission requests
 
 If an agent's turn includes a `permission_request` event (the agent is
@@ -419,6 +492,6 @@ to locate it if you've lost it.
 | Error code | Means | What to do |
 |---|---|---|
 | `CHANNEL_PERMISSION_LOST_ON_RESTART` | The brv daemon restarted while a delivery was awaiting a permission decision. The ACP subprocess is dead; the user's choice cannot be forwarded. The error message contains a `--after-seq` cursor pointing at the daemon-written `errored` event. | **Do NOT retry the approve** — the in-flight session is unrecoverable. Re-invite the affected member (re-spawns the ACP subprocess), then re-mention with the original context. Optionally use the supplied `brv channel subscribe <ch> --turn <id> --after-seq <n>` command to inspect the lost-permission event. |
-| `CHANNEL_DRIVER_NOT_REGISTERED` | No live ACP driver for this `(channelId, memberHandle)`. Usually fires in the brief race window after a daemon restart but BEFORE `warmDriversForProject` has finished spawning drivers from `meta.json` (Slice 8.11 auto-warm). | **Important**: a failed mention already created a turn on disk in `errored` state. Mentions are NOT deduped without an `--idempotency-key`, so naively retrying spins up a duplicate turn. **If you have not yet dispatched**: wait ~2s for auto-warm to land, then mention as usual. **If you already dispatched and the mention returned this code**: do NOT retry blindly. Re-invite the member with `{{BRV_BIN}} channel invite <ch> <handle> --profile <name>` to force-spawn a fresh subprocess, then either (a) re-mention with a fresh prompt, or (b) inspect the errored turn with `{{BRV_BIN}} channel show <ch> <turnId> --json` to decide whether the failure cost anything before deciding to re-dispatch. The code is carried on `delivery.errorCode`, `failedDeliveries[*].code`, AND the `delivery_state_change → errored` event's `errorCode` field (visible via `subscribe`/`watch`). |
+| `CHANNEL_DRIVER_NOT_REGISTERED` | No live ACP driver for this `(channelId, memberHandle)`. Usually fires in the brief race window after a daemon restart but BEFORE `warmDriversForProject` has finished spawning drivers from `meta.json` (Slice 8.11 auto-warm). | **Important**: a failed mention already created a turn on disk in `errored` state. As of Phase 10 Tier C, mentions inside the same 5-min bucket auto-dedupe on (prompt, mentions, channel), so a blind retry with the same prompt collapses onto the errored turn rather than spinning a duplicate. **If you have not yet dispatched**: wait ~2s for auto-warm to land, then mention as usual. **If you already dispatched and the mention returned this code**: re-invite the member with `{{BRV_BIN}} channel invite <ch> <handle> --profile <name>` to force-spawn a fresh subprocess, then (a) re-mention with a fresh prompt (different idempotency bucket), OR (b) pass an explicit unique `--idempotency-key` to force a parallel new turn, OR (c) inspect the errored turn with `{{BRV_BIN}} channel show <ch> <turnId> --json` to decide whether the failure cost anything before deciding to re-dispatch. The code is carried on `delivery.errorCode`, `failedDeliveries[*].code`, AND the `delivery_state_change → errored` event's `errorCode` field (visible via `subscribe`/`watch`). |
 | `CHANNEL_TURN_NOT_FOUND` | The turn id genuinely doesn't exist in this channel. | Verify the channel id and turn id; don't retry blindly. |
 

@@ -619,9 +619,18 @@ export class ChannelHandler {
         ? undefined
         : await this.profileMetadataStore.get(req.name)
       const driftObservations = metadata?.driftObservations
-      return driftObservations === undefined || driftObservations.length === 0
-        ? {profile}
-        : {driftObservations, profile}
+      const recentTurnDurations = metadata?.recentTurnDurations
+      const hasDrift = driftObservations !== undefined && driftObservations.length > 0
+      const hasDurations = recentTurnDurations !== undefined && recentTurnDurations.length > 0
+      // Build the response with only the fields that have data — keeps
+      // the no-metadata path producing the same `{profile}` shape it
+      // did before B3/C4 and lets the CLI render conditional sections
+      // off `.length` cleanly.
+      return {
+        profile,
+        ...(hasDrift ? {driftObservations} : {}),
+        ...(hasDurations ? {recentTurnDurations} : {}),
+      }
     })
 
     // channel:profile-remove — idempotent removal.

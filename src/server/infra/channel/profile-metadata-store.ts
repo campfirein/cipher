@@ -41,10 +41,28 @@ export type DriftObservation = {
   readonly observedAt: string
 }
 
+// Phase 10 Tier C #4 (V6 run-4 §4b) — per-profile wall-clock variance
+// telemetry. V6 surfaced pi running ~60s → ~90s → ~12min on the same
+// prompt template across four runs. A short ring buffer of recent
+// completed-turn durations lets `channel profile show` surface that
+// spread so the orchestrator can choose a faster member or set a
+// tighter timeout next time.
+export type TurnDurationEntry = {
+  readonly completedAt: string
+  readonly durationMs: number
+  readonly endedState: 'cancelled' | 'completed' | 'errored'
+}
+
+// Buffer ceiling — 10 entries gives a stable median + visible
+// max/min without bloating the metadata file. Tunable here only;
+// not part of the wire contract.
+export const RECENT_TURN_DURATIONS_LIMIT = 10
+
 export type ProfileMetadataRecord = {
   readonly driftObservations?: ReadonlyArray<DriftObservation>
   readonly lastProbeAt?: string
   readonly lastProbeError?: ProfileLastProbeError
+  readonly recentTurnDurations?: ReadonlyArray<TurnDurationEntry>
 }
 
 export type SetLastProbeErrorArgs = {
@@ -61,11 +79,19 @@ export type AddDriftObservationArgs = {
   readonly observedAt: string
 }
 
+export type RecordTurnDurationArgs = {
+  readonly completedAt: string
+  readonly durationMs: number
+  readonly endedState: 'cancelled' | 'completed' | 'errored'
+  readonly name: string
+}
+
 export interface IProfileMetadataStore {
   addDriftObservation(args: AddDriftObservationArgs): Promise<void>
   clearDriftObservations(name: string): Promise<void>
   clearLastProbeError(name: string): Promise<void>
   get(name: string): Promise<ProfileMetadataRecord | undefined>
+  recordTurnDuration(args: RecordTurnDurationArgs): Promise<void>
   setLastProbeError(args: SetLastProbeErrorArgs): Promise<void>
 }
 
@@ -136,6 +162,25 @@ export class FileProfileMetadataStore implements IProfileMetadataStore {
   async get(name: string): Promise<ProfileMetadataRecord | undefined> {
     const doc = await this.readDoc()
     return doc[name]
+  }
+
+  async recordTurnDuration(args: RecordTurnDurationArgs): Promise<void> {
+    const doc = await this.readDoc()
+    const existing: ProfileMetadataRecord = doc[args.name] ?? {}
+    const prior = existing.recentTurnDurations ?? []
+    const entry: TurnDurationEntry = {
+      completedAt: args.completedAt,
+      durationMs: args.durationMs,
+      endedState: args.endedState,
+    }
+    const appended = [...prior, entry]
+    // Truncate to the most recent RECENT_TURN_DURATIONS_LIMIT entries
+    // so the metadata file stays small on busy profiles.
+    const next = appended.length > RECENT_TURN_DURATIONS_LIMIT
+      ? appended.slice(appended.length - RECENT_TURN_DURATIONS_LIMIT)
+      : appended
+    doc[args.name] = {...existing, recentTurnDurations: next}
+    await this.writeAtomic(doc)
   }
 
   async setLastProbeError(args: SetLastProbeErrorArgs): Promise<void> {

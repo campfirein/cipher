@@ -193,4 +193,135 @@ describe('FileProfileMetadataStore (Slice 4.2)', () => {
       expect(await store.get('@pi'), 'empty record cleaned up').to.equal(undefined)
     })
   })
+
+  // Phase 10 Tier C #4 (V6 run-4 §4b) — per-driver wall-clock variance
+  // telemetry. Pi's 60s → 90s → 12 min spread on essentially the same
+  // prompt across runs 1-4 is worth surfacing to orchestrators ahead of
+  // the next dispatch. The store appends a small ring buffer of
+  // {durationMs, completedAt, endedState} per profile.
+  describe('recent turn durations', () => {
+    it('records a turn duration for a profile', async () => {
+      const store = new FileProfileMetadataStore({dataDir})
+      await store.recordTurnDuration({
+        completedAt: '2026-05-18T18:00:00.000Z',
+        durationMs: 60_000,
+        endedState: 'completed',
+        name: '@pi',
+      })
+      const record = await store.get('@pi')
+      expect(record?.recentTurnDurations).to.have.lengthOf(1)
+      expect(record?.recentTurnDurations?.[0]).to.deep.equal({
+        completedAt: '2026-05-18T18:00:00.000Z',
+        durationMs: 60_000,
+        endedState: 'completed',
+      })
+    })
+
+    it('appends multiple turn durations in insertion order', async () => {
+      const store = new FileProfileMetadataStore({dataDir})
+      await store.recordTurnDuration({
+        completedAt: '2026-05-18T18:00:00.000Z',
+        durationMs: 60_000,
+        endedState: 'completed',
+        name: '@pi',
+      })
+      await store.recordTurnDuration({
+        completedAt: '2026-05-18T18:01:00.000Z',
+        durationMs: 90_000,
+        endedState: 'completed',
+        name: '@pi',
+      })
+      const record = await store.get('@pi')
+      expect(record?.recentTurnDurations?.map(d => d.durationMs)).to.deep.equal([60_000, 90_000])
+    })
+
+    it('truncates the ring buffer to the most recent 10 entries', async () => {
+      const store = new FileProfileMetadataStore({dataDir})
+      // Insert 12 entries; the first two should be evicted.
+      for (let i = 0; i < 12; i += 1) {
+        // eslint-disable-next-line no-await-in-loop
+        await store.recordTurnDuration({
+          completedAt: `2026-05-18T18:0${i}:00.000Z`,
+          durationMs: 1000 * (i + 1),
+          endedState: 'completed',
+          name: '@pi',
+        })
+      }
+
+      const record = await store.get('@pi')
+      expect(record?.recentTurnDurations).to.have.lengthOf(10)
+      // First two (durationMs 1000, 2000) evicted; last entry is 12_000.
+      expect(record?.recentTurnDurations?.[0].durationMs).to.equal(3000)
+      expect(record?.recentTurnDurations?.at(-1)?.durationMs).to.equal(12_000)
+    })
+
+    it('preserves drift observations and probe state on recordTurnDuration (cross-field safety)', async () => {
+      const store = new FileProfileMetadataStore({dataDir})
+      await store.setLastProbeError({at: '2026-05-18T17:00:00.000Z', error: 'AUTH_REQUIRED', name: '@pi'})
+      await store.addDriftObservation({
+        description: 'a previous deviation',
+        file: 'x.js',
+        name: '@pi',
+        observedAt: '2026-05-18T17:30:00.000Z',
+      })
+      await store.recordTurnDuration({
+        completedAt: '2026-05-18T18:00:00.000Z',
+        durationMs: 60_000,
+        endedState: 'completed',
+        name: '@pi',
+      })
+      const record = await store.get('@pi')
+      expect(record?.lastProbeError).to.equal('AUTH_REQUIRED')
+      expect(record?.driftObservations).to.have.lengthOf(1)
+      expect(record?.recentTurnDurations).to.have.lengthOf(1)
+    })
+
+    it('setLastProbeError preserves existing turn durations', async () => {
+      const store = new FileProfileMetadataStore({dataDir})
+      await store.recordTurnDuration({
+        completedAt: '2026-05-18T18:00:00.000Z',
+        durationMs: 60_000,
+        endedState: 'completed',
+        name: '@pi',
+      })
+      await store.setLastProbeError({at: '2026-05-18T19:00:00.000Z', error: 'AUTH_REQUIRED', name: '@pi'})
+      const record = await store.get('@pi')
+      expect(record?.recentTurnDurations).to.have.lengthOf(1)
+    })
+
+    it('clearLastProbeError preserves existing turn durations', async () => {
+      const store = new FileProfileMetadataStore({dataDir})
+      await store.setLastProbeError({at: '2026-05-18T17:00:00.000Z', error: 'AUTH_REQUIRED', name: '@pi'})
+      await store.recordTurnDuration({
+        completedAt: '2026-05-18T18:00:00.000Z',
+        durationMs: 60_000,
+        endedState: 'completed',
+        name: '@pi',
+      })
+      await store.clearLastProbeError('@pi')
+      const record = await store.get('@pi')
+      expect(record?.lastProbeError).to.equal(undefined)
+      expect(record?.recentTurnDurations).to.have.lengthOf(1)
+    })
+
+    it('clearDriftObservations preserves existing turn durations', async () => {
+      const store = new FileProfileMetadataStore({dataDir})
+      await store.addDriftObservation({
+        description: 'old drift',
+        file: 'x.js',
+        name: '@pi',
+        observedAt: '2026-05-18T17:00:00.000Z',
+      })
+      await store.recordTurnDuration({
+        completedAt: '2026-05-18T18:00:00.000Z',
+        durationMs: 60_000,
+        endedState: 'completed',
+        name: '@pi',
+      })
+      await store.clearDriftObservations('@pi')
+      const record = await store.get('@pi')
+      expect(record?.driftObservations).to.equal(undefined)
+      expect(record?.recentTurnDurations).to.have.lengthOf(1)
+    })
+  })
 })

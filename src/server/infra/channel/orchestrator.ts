@@ -64,10 +64,12 @@ import {assertLegalTurnTransition} from '../../core/domain/channel/turn-state-ma
 import {type RestartLossRecord} from './channel-recovery.js'
 import {CancelCoordinator, type CancelDeliveryRef} from './drivers/cancel-coordinator.js'
 import {IPermissionBroker} from './drivers/permission-broker.js'
+import {DEFAULT_IDEMPOTENCY_TTL_MS, deriveIdempotencyKey} from './idempotency-key.js'
 import {buildLookback} from './lookback-builder.js'
 import {resolveMentions} from './member-resolver.js'
 import {parseMentions} from './mention-parser.js'
 import {decideAutoApprovalForEditAsWrite} from './permission-auto-approver.js'
+import {type IProfileMetadataStore} from './profile-metadata-store.js'
 import {normalisePrompt} from './prompt-normaliser.js'
 import {channelPaths} from './storage/paths.js'
 
@@ -111,6 +113,13 @@ export type ChannelOrchestratorDeps = {
   readonly permissionAutoApproveEditAsWrite?: boolean
   readonly permissionBroker: IPermissionBroker
   readonly pool: IAcpDriverPool
+  /**
+   * Phase 10 Tier C #4 — per-profile metadata store. Optional: when
+   * supplied, the orchestrator records each completed delivery's
+   * wall-clock duration so `channel profile show` can surface per-
+   * agent variance ahead of the next dispatch.
+   */
+  readonly profileMetadataStore?: IProfileMetadataStore
   /**
    * Phase-3 driver-profile registry. Optional so Phase-1/2 unit tests can
    * keep constructing the orchestrator without ferrying a store in.
@@ -211,6 +220,12 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
     invocation: ChannelMemberAcpAgent['invocation'],
     handle: string,
   ) => IAcpDriver
+  // Phase 10 Tier C #2 (V6 run-4 §4a) — auto-idempotency cache. Maps
+  // `${channelId}\0${idempotencyKey}` → {turnId, expiresAtMs}. A new
+  // `dispatchMention` whose key matches a still-active entry returns the
+  // cached `{turn, deliveries}` snapshot instead of starting a parallel
+  // turn. Entries are best-effort: swept on every dispatch.
+  private readonly idempotencyIndex = new Map<string, {expiresAtMs: number; turnId: string}>()
   private readonly idGenerator: () => string
   // Phase 10 Tier B2 — per-turn queue of pending broker.resolve()
   // callbacks. The prompt-iteration loop drains this AFTER it advances
@@ -225,6 +240,7 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
   private readonly permissionAutoApproveEditAsWrite: boolean
   private readonly permissionBroker: IPermissionBroker
   private readonly pool: IAcpDriverPool
+  private readonly profileMetadataStore: IProfileMetadataStore | undefined
   private readonly profileStore: IDriverProfileStore | undefined
   // Phase 10 follow-up — track project-level warm-driver passes so a mention
   // arriving during the cold-start race window awaits the warm instead of
@@ -255,6 +271,7 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
     this.permissionAutoApproveEditAsWrite = deps.permissionAutoApproveEditAsWrite ?? true
     this.permissionBroker = deps.permissionBroker
     this.pool = deps.pool
+    this.profileMetadataStore = deps.profileMetadataStore
     this.profileStore = deps.profileStore
     this.seqAllocator = deps.seqAllocator
     this.store = deps.store
@@ -446,6 +463,20 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
     // introduce a global ChannelSettings.maxParallelAgents wire surface.
     const maxParallel = meta.settings?.maxParallelAgents ?? FAN_OUT_DEFAULT_MAX_PARALLEL
 
+    // Phase 10 Tier C #2 (V6 run-4 §4a) — auto-derive an idempotency
+    // key (if not provided) and try to collapse onto an active matching
+    // turn. Returns the cached snapshot on hit; falls through to a
+    // fresh dispatch on miss.
+    const nowMs = this.clock().getTime()
+    const idempotencyLookup = this.lookupIdempotentTurn({
+      allHandles,
+      channelId: args.channelId,
+      explicitKey: args.idempotencyKey,
+      nowMs,
+      promptBlocks,
+    })
+    if (idempotencyLookup.cachedResult !== undefined) return idempotencyLookup.cachedResult
+
     const turnId = this.idGenerator()
     const startedAt = this.clock().toISOString()
     this.seqAllocator.reset({channelId: args.channelId, turnId})
@@ -479,7 +510,7 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
     const turn: Turn = {
       author: {handle: 'you', kind: 'local-user'},
       channelId: args.channelId,
-      idempotencyKey: args.idempotencyKey,
+      idempotencyKey: idempotencyLookup.effectiveKey,
       mentions: allHandles,
       promptBlocks,
       promptedBy: 'user',
@@ -517,6 +548,15 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
       turn,
     }
     this.activeTurns.set(turnId, active)
+    // Phase 10 Tier C #2 — register AFTER the turn is in `activeTurns`
+    // so a concurrent dispatch hitting the same key races to the same
+    // turnId. The 5-min TTL matches the bucket window used by
+    // `deriveIdempotencyKey` so the index window aligns with the key
+    // rollover boundary.
+    this.idempotencyIndex.set(idempotencyLookup.indexKey, {
+      expiresAtMs: nowMs + DEFAULT_IDEMPOTENCY_TTL_MS,
+      turnId,
+    })
 
     // Slice 8.0 — `mode: 'sync'` registers a pending entry BEFORE any
     // background task can emit chunks. The handler awaits
@@ -1256,6 +1296,40 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
         // intentionally swallowed — see comment above
       })
 
+    // Phase 10 Tier C #4 — record per-agent wall-clock duration into
+    // the profile metadata store so `channel profile show` surfaces
+    // variance. Fire-and-forget: telemetry failures must not fail the
+    // user-visible terminal path. Keyed by the member's `agentName`
+    // (which by convention matches the driver profile name).
+    if (this.profileMetadataStore !== undefined) {
+      const completedAtIso = this.clock().toISOString()
+      const nowMs = this.clock().getTime()
+      for (const delivery of active.deliveries) {
+        if (delivery.state !== 'completed') continue
+        const member = active.members.find((m) => m.handle === delivery.memberHandle)
+        if (member === undefined) continue
+        // Telemetry buckets are keyed by agent name (matches driver
+        // profile name by convention). Only acp-agent + local-agent
+        // members carry `agentName`; human-messaging members are
+        // intentionally skipped — they aren't driven by a profile.
+        if (member.memberKind !== 'acp-agent' && member.memberKind !== 'local-agent') continue
+        const startedAtMs = Date.parse(delivery.startedAt)
+        if (!Number.isFinite(startedAtMs)) continue
+        const durationMs = Math.max(0, nowMs - startedAtMs)
+        this.profileMetadataStore
+          .recordTurnDuration({
+            completedAt: completedAtIso,
+            durationMs,
+            endedState: 'completed',
+            name: member.agentName,
+          })
+          .catch(() => {
+            // Telemetry-only — never block the terminal path on a
+            // metadata write failure.
+          })
+      }
+    }
+
     this.seqAllocator.reset({channelId: active.channelId, turnId: active.turn.turnId})
   }
 
@@ -1392,6 +1466,54 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
    * background tasks may call this; the activeTurns Map gate ensures
    * we don't finalise twice.
    */
+  // Phase 10 Tier C #2 — auto-idempotency lookup. Returns
+  //   - `effectiveKey`: the key we'll persist on the new turn (caller-
+  //     provided OR auto-derived from prompt+mentions+5-min bucket).
+  //   - `indexKey`: the cache key used in `idempotencyIndex` (composite
+  //     of channelId + effectiveKey).
+  //   - `cachedResult`: snapshot of the matching active turn, if any.
+  //     When set, the caller MUST return this directly and skip the
+  //     rest of `dispatchMention`.
+  // Sweeps expired index entries as a side effect.
+  private lookupIdempotentTurn(args: {
+    allHandles: string[]
+    channelId: string
+    explicitKey: string | undefined
+    nowMs: number
+    promptBlocks: ContentBlock[]
+  }): {
+    cachedResult: DispatchMentionResult | undefined
+    effectiveKey: string
+    indexKey: string
+  } {
+    this.sweepIdempotencyIndex(args.nowMs)
+    const effectiveKey =
+      args.explicitKey ??
+      deriveIdempotencyKey({
+        channelId: args.channelId,
+        mentions: args.allHandles,
+        nowMs: args.nowMs,
+        promptBlocks: args.promptBlocks,
+      })
+    const indexKey = `${args.channelId}::${effectiveKey}`
+    const cached = this.idempotencyIndex.get(indexKey)
+    if (cached !== undefined) {
+      const cachedActive = this.activeTurns.get(cached.turnId)
+      if (cachedActive !== undefined) {
+        return {
+          cachedResult: {deliveries: cachedActive.deliveries, turn: cachedActive.turn},
+          effectiveKey,
+          indexKey,
+        }
+      }
+      // Original turn already terminated and dropped from activeTurns;
+      // fall through to a fresh dispatch. The stale entry will be
+      // overwritten by the new turn's registration.
+    }
+
+    return {cachedResult: undefined, effectiveKey, indexKey}
+  }
+
   private async maybeFinaliseTurn(active: ActiveTurn): Promise<void> {
     const {channelId} = active
     const {turnId} = active.turn
@@ -1854,6 +1976,16 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
       toolCalls,
       turnId: entry.turnId,
     })
+  }
+
+  // Phase 10 Tier C #2 — drop expired idempotency entries. Cheap O(N)
+  // scan called once per dispatch; N is bounded by activity in the
+  // last 5 minutes, so practical sizes stay small even on busy
+  // daemons.
+  private sweepIdempotencyIndex(nowMs: number): void {
+    for (const [k, v] of this.idempotencyIndex) {
+      if (v.expiresAtMs <= nowMs) this.idempotencyIndex.delete(k)
+    }
   }
 
   // Per-key in-flight guard: dedupe concurrent warms for the same

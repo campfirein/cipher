@@ -810,6 +810,9 @@ async function main(): Promise<void> {
       idGenerator: () => nanoid(),
       permissionBroker: channelBroker,
       pool: channelPool,
+      // Phase 10 Tier C #4 — record per-agent wall-clock duration into
+      // profile metadata so `channel profile show` surfaces variance.
+      profileMetadataStore: channelProfileMetadataStore,
       profileStore: channelProfileStore,
       seqAllocator: channelSeqAllocator,
       store: channelStore,

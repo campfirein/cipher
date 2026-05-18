@@ -575,11 +575,23 @@ const DriftObservationSchema = z.object({
   observedAt: z.string(),
 })
 
+// Phase 10 Tier C #4 — per-agent wall-clock variance entries. Mirrors
+// `TurnDurationEntry` in profile-metadata-store.
+const TurnDurationEntrySchema = z.object({
+  completedAt: z.string(),
+  durationMs: z.number().int().nonnegative(),
+  endedState: z.enum(['cancelled', 'completed', 'errored']),
+})
+
 export const ChannelProfileShowResponseSchema = z.object({
   // Phase 10 Tier B3 — recorded drift observations for this profile.
   // Empty/omitted means none recorded. Surfaced in `profile show`.
   driftObservations: z.array(DriftObservationSchema).optional(),
   profile: AgentDriverProfileSchema,
+  // Phase 10 Tier C #4 — recent completed-turn wall-clock durations,
+  // bounded ring buffer (most recent last). Omitted when no data
+  // recorded.
+  recentTurnDurations: z.array(TurnDurationEntrySchema).optional(),
 })
 export type ChannelProfileShowResponse = z.infer<typeof ChannelProfileShowResponseSchema>
 
