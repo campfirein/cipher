@@ -68,6 +68,19 @@ export function decodeCurateHtmlContent(content: string): {
   const metaResult = meta === undefined ? undefined : CurateMetaSchema.safeParse(meta)
   const validMeta = metaResult?.success ? metaResult.data : undefined
 
+  // Forward-compat downgrade safety net. The path is unreachable from MCP today
+  // (BrvCurateInputSchema is .strict() at the boundary), but it protects the
+  // wire layer against a newer client sending fields this daemon's schema doesn't
+  // know yet. Without observability, a forward-incompat field rename would look
+  // identical to a successful curate that just happens not to surface for review.
+  // shared/ can't take a logger; guard the signal on BRV_QUEUE_TRACE so production
+  // stays quiet and operators diagnosing the symptom can opt in.
+  if (meta !== undefined && metaResult && !metaResult.success && process.env.BRV_QUEUE_TRACE) {
+    process.stderr.write(
+      `decodeCurateHtmlContent: invalid meta downgraded to undefined (${metaResult.error.issues[0]?.message ?? 'unknown'})\n`,
+    )
+  }
+
   return {
     confirmOverwrite: typeof confirmOverwrite === 'boolean' ? confirmOverwrite : undefined,
     html,

@@ -752,12 +752,14 @@ async function executeTask(
           // result payload and can retry with corrected HTML. task:error
           // would force MCP clients into an isError path that some host
           // renderers collapse or truncate.
-          result = writeResult.ok ? JSON.stringify({
-              filePath: relativeFilePath,
-              overwrote: existedBefore && Boolean(confirmOverwrite),
-              status: 'ok',
-              topicPath: topicPathResolved,
-            }) : JSON.stringify({errors: writeResult.errors, status: 'validation-failed'});
+          result = writeResult.ok
+            ? JSON.stringify({
+                filePath: relativeFilePath,
+                overwrote: existedBefore && Boolean(confirmOverwrite),
+                status: 'ok',
+                topicPath: topicPathResolved,
+              })
+            : JSON.stringify({errors: writeResult.errors, status: 'validation-failed'})
 
           break
         }
