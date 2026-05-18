@@ -38,11 +38,9 @@ describe('getGlobalConfig', () => {
 
   it('rejects when the transport is not connected', async () => {
     useTransportStore.setState({apiClient: null})
-    try {
-      await getGlobalConfig()
-      expect.fail('expected promise to reject')
-    } catch (error) {
-      expect((error as Error).message).to.equal('Not connected')
-    }
+    await getGlobalConfig().then(
+      () => expect.fail('expected promise to reject'),
+      (error: Error) => expect(error.message).to.equal('Not connected'),
+    )
   })
 })

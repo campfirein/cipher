@@ -8,9 +8,9 @@ import {
 } from '../../../../shared/transport/events/global-config-events.js'
 import {useTransportStore} from '../../../stores/transport-store'
 
-export const getGlobalConfig = async (): Promise<GlobalConfigGetResponse> => {
+export const getGlobalConfig = (): Promise<GlobalConfigGetResponse> => {
   const {apiClient} = useTransportStore.getState()
-  if (!apiClient) throw new Error('Not connected')
+  if (!apiClient) return Promise.reject(new Error('Not connected'))
   return apiClient.request<GlobalConfigGetResponse, void>(GlobalConfigEvents.GET)
 }
 
@@ -18,6 +18,7 @@ export const getGlobalConfigQueryOptions = () =>
   queryOptions({
     queryFn: getGlobalConfig,
     queryKey: ['globalConfig'],
+    refetchOnWindowFocus: true,
     staleTime: 5000,
   })
 

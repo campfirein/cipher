@@ -32,11 +32,10 @@ export function AnalyticsPanel() {
     try {
       await setAnalytics.mutateAsync({analytics: next})
       toast.success(next ? 'Analytics enabled.' : 'Analytics disabled.')
-      setPendingIntent(undefined)
     } catch (error_) {
       toast.error(formatError(error_, 'Failed to update analytics setting.'))
+    } finally {
       setPendingIntent(undefined)
-      throw error_
     }
   }
 
@@ -69,7 +68,9 @@ export function AnalyticsPanel() {
         <div className="bg-card flex flex-col rounded-xl border">
           <div className="flex items-start justify-between gap-4 px-5 py-4">
             <div className="flex min-w-0 flex-col">
-              <span className="text-foreground text-sm font-medium">Share usage analytics</span>
+              <span className="text-foreground text-sm font-medium" id="analytics-switch-label">
+                Share usage analytics
+              </span>
               <span className="text-muted-foreground mt-0.5 text-[0.8125rem] leading-snug">
                 Help us build a better Byterover by sharing your usage insights securely.
               </span>
@@ -78,6 +79,7 @@ export function AnalyticsPanel() {
               <Skeleton className="h-[18.4px] w-8 rounded-full" />
             ) : (
               <Switch
+                aria-labelledby="analytics-switch-label"
                 checked={analytics}
                 disabled={setAnalytics.isPending}
                 onCheckedChange={requestToggle}
@@ -105,8 +107,8 @@ export function AnalyticsPanel() {
             rel="noopener noreferrer"
             target="_blank"
           >
-            <ExternalLink className="size-3.5 text-primary-foreground" />
-            <span className="text-primary-foreground">docs.byterover.dev/privacy</span>
+            <ExternalLink className="size-3.5 text-primary" />
+            <span className="text-primary">docs.byterover.dev/privacy</span>
           </a>
         </div>
       )}
