@@ -9,6 +9,7 @@ import {BRV_DIR, CONTEXT_TREE_DIR} from '../../../server/constants.js'
 import {ProviderConfigResponse, TransportStateEventNames} from '../../../server/core/domain/transport/index.js'
 import {extractCurateOperations} from '../../../server/utils/curate-result-parser.js'
 import {TaskEvents} from '../../../shared/transport/events/index.js'
+import {printBillingLine} from '../../lib/billing-line.js'
 import {
   type DaemonClientOptions,
   formatConnectionError,
@@ -17,6 +18,7 @@ import {
   providerMissingMessage,
   withDaemonRetry,
 } from '../../lib/daemon-client.js'
+import {ensureBillingFunds} from '../../lib/insufficient-credits.js'
 import {writeJsonResponse} from '../../lib/json-response.js'
 import {DEFAULT_TIMEOUT_SECONDS, MAX_TIMEOUT_SECONDS, MIN_TIMEOUT_SECONDS, type ToolCallRecord, waitForTaskCompletion} from '../../lib/task-client.js'
 
@@ -137,6 +139,12 @@ Bad examples:
 
           if (active.providerKeyMissing) {
             throw new Error(providerMissingMessage(active.activeProvider, active.authMethod))
+          }
+
+          const billing = await printBillingLine({client, format, log: (msg) => this.log(msg)})
+
+          if (billing) {
+            await ensureBillingFunds({billing, client})
           }
 
           await this.submitTask({client, content: resolvedContent, flags, format, projectRoot, taskType, worktreeRoot})
