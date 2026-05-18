@@ -67,7 +67,7 @@ export interface TaskCompletionResult {
   /** Documents matched by the query. Empty array on cache hits; absent for non-query tasks. */
   matchedDocs?: QueryLogMatchedDoc[]
   /** Pending review notification from the server, present when review is required after task completion. */
-  pendingReview?: {pendingCount: number; reviewUrl: string}
+  pendingReview?: {pendingCount: number; reviewUrl?: string}
   result?: string
   taskId: string
   /** Resolution tier for query tasks. Absent for non-query tasks. */
@@ -177,7 +177,7 @@ export function waitForTaskCompletion(options: WaitForTaskOptions, log: (msg: st
     let completed = false
     let disconnectTimer: NodeJS.Timeout | undefined
     const toolCalls: ToolCallRecord[] = []
-    let pendingReview: undefined | {pendingCount: number; reviewUrl: string}
+    let pendingReview: undefined | {pendingCount: number; reviewUrl?: string}
 
     const rejectRetryable = (message: string): void => {
       if (completed) return
@@ -313,7 +313,7 @@ export function waitForTaskCompletion(options: WaitForTaskOptions, log: (msg: st
         // Falls back to review:notify capture for backward compatibility.
         const resolvedPendingReview =
           payload.pendingReviewCount !== undefined && payload.pendingReviewCount > 0
-            ? {pendingCount: payload.pendingReviewCount, reviewUrl: pendingReview?.reviewUrl ?? ''}
+            ? {pendingCount: payload.pendingReviewCount, reviewUrl: pendingReview?.reviewUrl}
             : pendingReview
         onCompleted({
           durationMs: payload.durationMs,
