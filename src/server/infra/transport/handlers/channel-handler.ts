@@ -30,6 +30,7 @@ import {
   ChannelProfileRemoveRequestSchema,
   ChannelProfileShowRequestSchema,
   ChannelRotateTokenRequestSchema,
+  ChannelShowQuorumRequestSchema,
   ChannelUninviteRequestSchema,
 } from '../../../../shared/transport/events/channel-events.js'
 import {
@@ -331,6 +332,7 @@ export class ChannelHandler {
       const {dispatchParallelPools} = await import('../../channel/quorum/parallel-pools.js')
       const {LocalMatchmaker} = await import('../../channel/quorum/matchmaker.js')
       const {classifyAgent} = await import('../../channel/quorum/pools.js')
+      const {writeQuorumSnapshot} = await import('../../channel/quorum/quorum-store.js')
       const {DEFAULT_STAKE, resolveStakeGroupSize} = await import('../../channel/quorum/stake.js')
 
       // Phase 10 Slice 10.4 — derive local/remote dispatch counts from stake.
@@ -394,9 +396,10 @@ export class ChannelHandler {
           timeoutMs: req.timeout ?? 300_000,
         })
 
+         
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
         const {localPoolOutcome, localTimeoutMs, pool, remotePoolOutcome, remoteTimeoutMs, ...mergedFields} = result
-        return {
+        const response = {
           channelId: req.channelId,
           dispatchId,
           escalated: false,
@@ -408,6 +411,26 @@ export class ChannelHandler {
           remotePoolOutcome,
           remoteTimeoutMs,
         }
+        // Phase 10 Slice 10.7 Phase A — persist the quorum result so
+        // `brv channel show-quorum <ch> <dispatchId>` can surface it later.
+        await writeQuorumSnapshot({
+          channelId: req.channelId,
+          dispatchId,
+          projectRoot,
+          snapshot: {
+            channelId: req.channelId,
+            dispatchId,
+            escalated: false,
+            localPoolOutcome,
+            localTimeoutMs,
+            merged: mergedFields,
+            poolMode,
+            poolSizes: {local: localCount, remote: remoteCount},
+            remotePoolOutcome,
+            remoteTimeoutMs,
+          },
+        })
+        return response
       }
 
       // Default: Slice 10.3 sequential local-first with escalation.
@@ -428,7 +451,7 @@ export class ChannelHandler {
       })
 
       const {escalated, escalationError, escalationReason, ...mergedFields} = result
-      return {
+      const response = {
         channelId: req.channelId,
         dispatchId,
         escalated,
@@ -438,6 +461,43 @@ export class ChannelHandler {
         poolMode,
         poolSizes: {local: localCount, remote: remoteCount},
       }
+      // Phase 10 Slice 10.7 Phase A — persist the quorum result.
+      await writeQuorumSnapshot({
+        channelId: req.channelId,
+        dispatchId,
+        projectRoot,
+        snapshot: {
+          channelId: req.channelId,
+          dispatchId,
+          escalated,
+          escalationError,
+          escalationReason,
+          merged: mergedFields,
+          poolMode,
+          poolSizes: {local: localCount, remote: remoteCount},
+        },
+      })
+      return response
+    })
+
+    // channel:show-quorum (Phase 10 Slice 10.7) — read a persisted quorum
+    // snapshot by (channelId, dispatchId). Returns `{found: false}` when no
+    // file exists yet; otherwise `{found: true, snapshot, snapshottedAt}`.
+    register(ChannelEvents.SHOW_QUORUM, async (data, _clientId, ctx) => {
+      const projectRoot = projectRootFromCtx(ctx)
+      const req = parseOrThrow(ChannelShowQuorumRequestSchema, data)
+      const {readLatestQuorum} = await import('../../channel/quorum/quorum-store.js')
+      const snapshot = await readLatestQuorum({
+        channelId: req.channelId,
+        dispatchId: req.dispatchId,
+        projectRoot,
+      })
+      if (snapshot === undefined) {
+        return {found: false}
+      }
+
+      const {snapshottedAt, ...rest} = snapshot
+      return {found: true, snapshot: rest, snapshottedAt}
     })
 
     // channel:cancel

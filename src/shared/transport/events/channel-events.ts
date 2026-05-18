@@ -51,6 +51,8 @@ export const ChannelEvents = {
   MENTION: 'channel:mention',
   // Phase 10 Slice 10.2 — quorum dispatch (K-way agent fan-out + merged findings).
   MENTION_QUORUM: 'channel:mention-quorum',
+  // Phase 10 Slice 10.7 — read a persisted quorum result by dispatchId.
+  SHOW_QUORUM: 'channel:show-quorum',
   LIST_TURNS: 'channel:list-turns',
   GET_TURN: 'channel:get-turn',
   CANCEL: 'channel:cancel',
@@ -409,6 +411,26 @@ export const ChannelMentionQuorumRequestSchema = z.object({
 export type ChannelMentionQuorumRequest = z.infer<typeof ChannelMentionQuorumRequestSchema>
 
 const PoolOutcomeSchema = z.enum(['completed', 'errored', 'skipped', 'timed-out'])
+
+// channel:show-quorum (Phase 10 Slice 10.7) ────────────────────────────────
+// Read a persisted quorum result by (channelId, dispatchId). The daemon
+// looks up `.brv/channel-history/<channelId>/quorum/<dispatchId>.ndjson`
+// and returns the LAST snapshot.
+
+export const ChannelShowQuorumRequestSchema = z.object({
+  channelId: z.string(),
+  dispatchId: z.string(),
+})
+export type ChannelShowQuorumRequest = z.infer<typeof ChannelShowQuorumRequestSchema>
+
+export const ChannelShowQuorumResponseSchema = z.object({
+  found: z.boolean(),
+  // Present when found === true. Same shape as `ChannelMentionQuorumResponse`
+  // (modulo per-pool fields that are only populated under parallel mode).
+  snapshot: z.unknown().optional(),
+  snapshottedAt: z.string().optional(),
+})
+export type ChannelShowQuorumResponse = z.infer<typeof ChannelShowQuorumResponseSchema>
 
 export const ChannelMentionQuorumResponseSchema = z.object({
   channelId: z.string(),

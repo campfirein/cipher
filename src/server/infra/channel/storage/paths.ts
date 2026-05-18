@@ -95,6 +95,17 @@ export const channelPaths = {
   metaFile: (projectRoot: string, channelId: string): string =>
     join(projectRoot, ...CHANNEL_TREE_SEGMENTS, channelId, 'meta.json'),
 
+  // Phase 10 Slice 10.7 — persistent quorum store. One NDJSON file per
+  // dispatchId, append-only. Each line is a snapshot of the MergedQuorum
+  // shape at write time; the latest record wins on read. Live backfill
+  // (Slice 10.7 Phase B) will append additional records as late-arriving
+  // findings merge in.
+  quorumDir: (projectRoot: string, channelId: string): string =>
+    join(projectRoot, ...CHANNEL_HISTORY_SEGMENTS, channelId, 'quorum'),
+
+  quorumFile: (projectRoot: string, channelId: string, dispatchId: string): string =>
+    join(projectRoot, ...CHANNEL_HISTORY_SEGMENTS, channelId, 'quorum', `${dispatchId}.ndjson`),
+
   turnDir: (projectRoot: string, channelId: string, turnId: string): string =>
     join(projectRoot, ...CHANNEL_TREE_SEGMENTS, channelId, 'turns', turnId),
 

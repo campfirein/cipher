@@ -192,6 +192,8 @@ describe('ChannelHandler (Slice 1.4)', () => {
       ChannelEvents.PERMISSION_DECISION,
       // Phase 10 Slice 10.2 — quorum dispatch.
       ChannelEvents.MENTION_QUORUM,
+      // Phase 10 Slice 10.7 — read persisted quorum result.
+      ChannelEvents.SHOW_QUORUM,
       // Phase 3 — onboard / doctor / profile-* / rotate-token. Slice 3.5 will
       // add `channel:members` (deferred until then).
       ChannelEvents.ONBOARD,
