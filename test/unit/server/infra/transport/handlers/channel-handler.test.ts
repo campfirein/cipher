@@ -91,6 +91,22 @@ describe('ChannelHandler (Slice 1.4)', () => {
       orchestratorCalls.push({args, method: 'dispatchMention'})
       return {deliveries: [], turn: sampleTurn}
     },
+    async dispatchOne(args) {
+      orchestratorCalls.push({args, method: 'dispatchOne'})
+      return {
+        deliveryId: 'd-stub',
+        terminal: Promise.resolve({
+          artifactsTouched: [],
+          deliveryId: 'd-stub',
+          endedAt: '2026-05-18T00:00:00.000Z',
+          finalAnswer: 'stub',
+          memberHandle: args.memberHandle,
+          state: 'completed' as const,
+          toolCallCount: 0,
+        }),
+        turnId: 't-stub',
+      }
+    },
     async getChannel(args) {
       orchestratorCalls.push({args, method: 'getChannel'})
       return sampleChannel
@@ -174,6 +190,8 @@ describe('ChannelHandler (Slice 1.4)', () => {
       ChannelEvents.MENTION,
       ChannelEvents.CANCEL,
       ChannelEvents.PERMISSION_DECISION,
+      // Phase 10 Slice 10.2 — quorum dispatch.
+      ChannelEvents.MENTION_QUORUM,
       // Phase 3 — onboard / doctor / profile-* / rotate-token. Slice 3.5 will
       // add `channel:members` (deferred until then).
       ChannelEvents.ONBOARD,

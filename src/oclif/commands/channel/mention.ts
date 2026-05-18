@@ -1,6 +1,8 @@
 import {Args, Command, Flags} from '@oclif/core'
 
 import type {
+  ChannelMentionQuorumRequest,
+  ChannelMentionQuorumResponse,
   ChannelMentionRequest,
   ChannelMentionSyncResponse,
   ChannelTurnAcceptedResponse,
@@ -10,19 +12,90 @@ import type {TurnEvent} from '../../../shared/types/channel.js'
 import {ChannelEvents} from '../../../shared/transport/events/channel-events.js'
 import {ChannelClientError, withChannelClient} from '../../lib/channel-client.js'
 
+// Local @mention parser — duplicates server-side `parseMentions` to avoid an
+// oclif→server import edge crossing (CLAUDE.md: oclif/ must not import from
+// server/). Same regex contract as `src/server/infra/channel/mention-parser.ts`.
+function parseMentionsFromPrompt(text: string): string[] {
+  const out: string[] = []
+  const seen = new Set<string>()
+  const pattern = /(?:^|\s)(@[a-zA-Z0-9_-]+)\b/g
+  let match: null | RegExpExecArray
+  while ((match = pattern.exec(text)) !== null) {
+    const handle = match[1]
+    if (!seen.has(handle)) {
+      seen.add(handle)
+      out.push(handle)
+    }
+  }
+
+  return out
+}
+
 export default class ChannelMention extends Command {
   public static args = {
     channelId: Args.string({description: 'Channel handle', required: true}),
     text: Args.string({description: 'Prompt text (may contain @mentions)', required: true}),
   }
-public static description = 'Dispatch a mention to ACP agent members and stream the reply'
+public static description = `Dispatch a mention to ACP agent members and stream the reply.
+
+Two modes:
+
+  * SINGLE-AGENT — the default. Prompt mentions one or more agents; the
+    daemon dispatches and streams turn events (--mode stream) or blocks
+    until terminal (--mode sync). Use this when you want one agent's
+    answer.
+
+  * QUORUM (Phase 10) — pass --quorum K to fan-out the same prompt to
+    multiple agents and merge their findings via the CRDT-union policy.
+    The daemon returns a serialised MergedQuorum {agreed, pending,
+    contradicted, missingAgents, partial}. Optional escalation lets
+    local-first dispatch fall back to remote agents when the local pool
+    produces no agreement. Use this for cross-checking risky operations
+    (audits, migrations, second opinions).
+`
 public static examples = [
-    '<%= config.bin %> <%= command.id %> pi-test "@mock please review"',
-    '<%= config.bin %> <%= command.id %> pi-test "@mock ping" --no-wait --json',
+    {
+      command: '<%= config.bin %> <%= command.id %> pi-test "@mock please review"',
+      description: 'Single-agent stream',
+    },
+    {
+      command: '<%= config.bin %> <%= command.id %> pi-test "@mock ping" --no-wait --json',
+      description: 'Single-agent dispatch + immediate ack (host LLM resumes via subscribe later)',
+    },
+    {
+      command: '<%= config.bin %> <%= command.id %> review-2026 "@kimi @codex review src/auth.py" --quorum 2 --json',
+      description: 'Quorum K=2: both agents must agree for claims to land in `agreed`',
+    },
+    {
+      command: '<%= config.bin %> <%= command.id %> review-2026 "@kimi @codex @opencode audit migration" --quorum 2 --stake high --escalate-on empty-or-contradiction --json',
+      description: 'Stake=high (2 local + 1 remote); auto-escalate to remote when local consensus fails',
+    },
   ]
 public static flags = {
+    // Phase 10 Slice 10.3 — escalation policy for --quorum dispatch.
+    'escalate-on': Flags.string({
+      description: 'Local-first quorum escalation trigger. "empty" = escalate when no local consensus; "empty-or-contradiction" (default) = also escalate on positions disagreeing; "low-confidence" = escalate when min self-reported confidence falls below threshold; "never" = local pool only. Ignored unless --quorum.',
+      options: ['empty', 'empty-or-contradiction', 'low-confidence', 'never'],
+    }),
     'idempotency-key': Flags.string({description: 'Optional dedupe key (CHANNEL_PROTOCOL.md §12)'}),
     json: Flags.boolean({default: false, description: 'Emit JSON instead of pretty output'}),
+    // Phase 10 Slice 10.3 — pool overrides for --quorum.
+    'local-only': Flags.boolean({
+      default: false,
+      description: 'Quorum: skip remote agents entirely (mutually exclusive with --remote-only).',
+    }),
+    // Phase 10 Slice 10.3 — confidence threshold for --escalate-on low-confidence.
+    'low-confidence-threshold': Flags.string({
+      description: 'Minimum acceptable confidence (0..1) under --escalate-on low-confidence. Default 0.6 (server side).',
+    }),
+    // Phase 10 Slice 10.2 — `--merge-policy` selects the merge strategy.
+    // Tier 1 only ships `union`; majority + adversarial-filter are
+    // scaffolds and reject at the daemon layer.
+    'merge-policy': Flags.string({
+      default: 'union',
+      description: 'Merge policy for --quorum dispatch. Tier 1 ships only "union" (CRDT union over findings).',
+      options: ['union'],
+    }),
     // Slice 8.0 — sync mode + thought suppression. `--mode sync` makes
     // the daemon block the ack until the turn reaches a terminal state
     // and assemble `{finalAnswer, toolCalls, durationMs}` instead of
@@ -31,19 +104,41 @@ public static flags = {
     // drops `agent_thought_chunk` events on both the wire and disk.
     mode: Flags.string({
       default: 'stream',
-      description: 'Wire mode: "stream" (default, Phase 1–7 behaviour) or "sync" (block until terminal)',
+      description: 'Single-agent wire mode. "stream" (default) emits TURN_EVENT broadcasts; "sync" blocks the ack until terminal and returns the assembled answer. Ignored when --quorum is set.',
       options: ['stream', 'sync'],
     }),
     'no-wait': Flags.boolean({
       default: false,
-      description: 'Return immediately after dispatch instead of streaming until terminal',
+      description: 'Single-agent only: ack immediately after dispatch (host LLM resumes later via `brv channel subscribe --turn <id>`).',
+    }),
+    // Phase 10 Slice 10.2 — `--quorum K` fans out the prompt to mentioned
+    // channel members, awaits all terminal deliveries, and returns a
+    // MergedQuorum JSON shape.
+    quorum: Flags.integer({
+      description: 'Quorum threshold: a claim lands in `agreed` only when at least K agents emit the same canonical claim. Note: singleton claims (only one agent contributed to that bucket) ALWAYS land in `pending`, even at K=1 — the merge policy treats them as too thin to call consensus. Combine with --stake to size the dispatched pool.',
+      min: 1,
+    }),
+    'remote-only': Flags.boolean({
+      default: false,
+      description: 'Quorum: skip local agents entirely (mutually exclusive with --local-only).',
+    }),
+    // Phase 10 Slice 10.4 — stake-driven dispatch sizing.
+    stake: Flags.string({
+      description: 'Quorum dispatch sizing. low=1 local; medium (default)=2 local; high=2 local+1 remote; critical=3 local+2 remote. Operators tune via BRV_QUORUM_STAKE_<STAKE>_<LOCAL|REMOTE> env.',
+      options: ['low', 'medium', 'high', 'critical'],
     }),
     'suppress-thoughts': Flags.boolean({
       default: false,
-      description: 'Drop agent_thought_chunk events at the daemon (no broadcast, no persist)',
+      description: 'Drop agent_thought_chunk events at the daemon (no broadcast, no persist). Useful for non-interactive callers — typically ~20× bandwidth/disk savings.',
     }),
     timeout: Flags.integer({
-      description: 'Sync-mode timeout in ms (default 300_000; ignored unless --mode sync)',
+      description: 'Turn timeout in ms (default 300000). Applies to --mode sync and --quorum dispatches.',
+    }),
+    // Phase 10 Slice 10.3 — flips the missing-confidence default for
+    // --escalate-on low-confidence.
+    'treat-missing-confidence-as-high': Flags.boolean({
+      default: false,
+      description: 'For --escalate-on low-confidence: by default a Finding without a confidence value is treated as low (0); this flag treats it as high (1). Use when agents don\'t self-report confidence.',
     }),
   }
 
@@ -51,7 +146,69 @@ public static flags = {
     const {args, flags} = await this.parse(ChannelMention)
 
     try {
+      // eslint-disable-next-line complexity
       await withChannelClient(async (client) => {
+        // Phase 10 Slice 10.2 — `--quorum K` routes to the daemon's quorum
+        // dispatcher (NOT a recursive shell-out — codex Q4). Returns a
+        // serialised MergedQuorum.
+        if (flags.quorum !== undefined) {
+          const mentions = parseMentionsFromPrompt(args.text)
+          if (mentions.length === 0) {
+            throw new ChannelClientError(
+              'CHANNEL_MENTION_EMPTY',
+              '--quorum requires at least one @mention in the prompt',
+            )
+          }
+
+          if (flags['local-only'] === true && flags['remote-only'] === true) {
+            throw new ChannelClientError(
+              'CHANNEL_INVALID_REQUEST',
+              '--local-only and --remote-only are mutually exclusive.',
+            )
+          }
+
+          const lowConfidenceThreshold =
+            flags['low-confidence-threshold'] === undefined
+              ? undefined
+              : Number.parseFloat(flags['low-confidence-threshold'])
+          if (lowConfidenceThreshold !== undefined && (Number.isNaN(lowConfidenceThreshold) || lowConfidenceThreshold < 0 || lowConfidenceThreshold > 1)) {
+            throw new ChannelClientError(
+              'CHANNEL_INVALID_REQUEST',
+              '--low-confidence-threshold must be a number in [0, 1]',
+            )
+          }
+
+          const turnTimeoutMs = flags.timeout ?? 300_000
+          const transportTimeoutMs = turnTimeoutMs + 5000
+          // Kimi F3: `--idempotency-key` is intentionally NOT forwarded on the
+          // quorum path until orchestrator-side dedupe lands. Non-quorum paths
+          // below still pass it through.
+          const stake = flags.stake as 'critical' | 'high' | 'low' | 'medium' | undefined
+          const escalateOn = flags['escalate-on'] as 'empty' | 'empty-or-contradiction' | 'low-confidence' | 'never' | undefined
+          const response = await client.request<ChannelMentionQuorumRequest, ChannelMentionQuorumResponse>(
+            ChannelEvents.MENTION_QUORUM,
+            {
+              channelId: args.channelId,
+              ...(escalateOn === undefined ? {} : {escalateOn}),
+              ...(flags['local-only'] === true ? {localOnly: true} : {}),
+              ...(lowConfidenceThreshold === undefined ? {} : {lowConfidenceThreshold}),
+              mentions,
+              mergePolicy: 'union',
+              prompt: args.text,
+              quorumThreshold: flags.quorum,
+              ...(flags['remote-only'] === true ? {remoteOnly: true} : {}),
+              ...(stake === undefined ? {} : {stake}),
+              suppressThoughts: flags['suppress-thoughts'],
+              timeout: turnTimeoutMs,
+              ...(flags['treat-missing-confidence-as-high'] ? {treatMissingConfidenceAsHigh: true} : {}),
+            },
+            {timeoutMs: transportTimeoutMs},
+          )
+
+          this.log(JSON.stringify(response, undefined, flags.json ? 2 : 0))
+          return
+        }
+
         // Slice 8.0 — sync mode: the daemon buffers the turn and acks
         // with `{finalAnswer, toolCalls, ...}` when terminal. No client-side
         // stream subscription is needed.

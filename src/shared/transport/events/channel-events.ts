@@ -49,6 +49,8 @@ export const ChannelEvents = {
   // Turns (Phase 1: post/list-turns/get-turn; Phase 2: mention/cancel/permission)
   POST: 'channel:post',
   MENTION: 'channel:mention',
+  // Phase 10 Slice 10.2 — quorum dispatch (K-way agent fan-out + merged findings).
+  MENTION_QUORUM: 'channel:mention-quorum',
   LIST_TURNS: 'channel:list-turns',
   GET_TURN: 'channel:get-turn',
   CANCEL: 'channel:cancel',
@@ -309,6 +311,98 @@ export const ChannelTurnAcceptedResponseSchema = z.object({
   turn: TurnSchema,
 })
 export type ChannelTurnAcceptedResponse = z.infer<typeof ChannelTurnAcceptedResponseSchema>
+
+// channel:mention-quorum (Phase 10 Slice 10.2) ──────────────────────────────
+//
+// Daemon-side K-way quorum dispatch. The CLI sends a single request with the
+// `quorumThreshold` + `mentions` + optional `mergePolicy` name; the daemon
+// fan-outs via `QuorumDispatcher` and returns a serialised `MergedQuorum`.
+//
+// Tier 1 only accepts `mergePolicy: 'union'` (CrdtUnionMergePolicy). The
+// `majority` + `adversarial-filter` policies are Tier 2/3 scaffolds and
+// reject with CHANNEL_INVALID_REQUEST.
+
+const EvidenceSpanSchema = z.object({
+  endLine: z.number().int().optional(),
+  excerpt: z.string(),
+  source: z.string(),
+  startLine: z.number().int().optional(),
+})
+
+const FindingSchema = z.object({
+  agent: HandleSchema,
+  canonicalClaim: z.string(),
+  claim: z.string(),
+  claimHash: z.string(),
+  confidence: z.number().optional(),
+  emittedAt: z.string(),
+  evidence: z.array(EvidenceSpanSchema),
+  partitionKey: z.string().optional(),
+  role: z.string().optional(),
+  schemaVersion: z.string(),
+  sourceDeliveryId: z.string(),
+  sourceTurnId: z.string(),
+})
+
+const MergedQuorumSchema = z.object({
+  agreed: z.array(FindingSchema),
+  contradicted: z.array(z.object({
+    positions: z.array(FindingSchema),
+    summary: z.string(),
+  })),
+  coveredAgents: z.array(z.string()),
+  mergedAt: z.string(),
+  missingAgents: z.array(z.string()),
+  partial: z.boolean(),
+  pending: z.array(FindingSchema),
+})
+
+export const ChannelMentionQuorumRequestSchema = z.object({
+  channelId: z.string(),
+  // Phase 10 Slice 10.3 — escalation policy. Default `empty-or-contradiction`
+  // (escalate to remote pool when local consensus is empty OR contradicted).
+  // `never` keeps execution local-only regardless of result.
+  escalateOn: z.enum(['empty', 'empty-or-contradiction', 'low-confidence', 'never']).optional(),
+  // Phase 10 Slice 10.3 — pool overrides. `localOnly` skips remote agents
+  // entirely; `remoteOnly` skips local. Mutually exclusive with each other,
+  // and with the default local-first escalation.
+  localOnly: z.boolean().optional(),
+  // Phase 10 Slice 10.3 — confidence threshold for `--escalate-on low-confidence`.
+  // Default 0.6 (server side).
+  lowConfidenceThreshold: z.number().min(0).max(1).optional(),
+  mentions: z.array(HandleSchema).min(1),
+  // Kimi F2: `taskSchemaHash` is hardcoded on the server in Tier 1 (no caller
+  // semantics yet); F3: `idempotencyKey` is omitted from the wire surface
+  // until orchestrator-side dedupe lands. Both will return when there is a
+  // real consumer.
+  mergePolicy: z.enum(['union']).optional(),
+  prompt: z.string(),
+  quorumThreshold: z.number().int().min(1),
+  remoteOnly: z.boolean().optional(),
+  // Phase 10 Slice 10.4 — stake grade controls local/remote dispatch count
+  // via the `STAKE_GROUP_SIZE` matrix. Defaults to `medium`. Operators tune
+  // per-grade sizing via `BRV_QUORUM_STAKE_<STAKE>_<LOCAL|REMOTE>` env.
+  stake: z.enum(['critical', 'high', 'low', 'medium']).optional(),
+  suppressThoughts: z.boolean().optional(),
+  timeout: z.number().int().positive().optional(),
+  treatMissingConfidenceAsHigh: z.boolean().optional(),
+})
+export type ChannelMentionQuorumRequest = z.infer<typeof ChannelMentionQuorumRequestSchema>
+
+export const ChannelMentionQuorumResponseSchema = z.object({
+  channelId: z.string(),
+  dispatchId: z.string(),
+  // Phase 10 Slice 10.3 — escalation metadata (present when local-first
+  // escalated to remote pool, or attempted to and the remote leg failed).
+  escalated: z.boolean(),
+  escalationError: z.string().optional(),
+  escalationReason: z.enum(['contradicted', 'empty', 'low-confidence']).optional(),
+  merged: MergedQuorumSchema,
+  // Phase 10 Slice 10.4 — pool grouping resolved from the stake matrix at
+  // dispatch time. Echoed back so the caller knows what was actually used.
+  poolSizes: z.object({local: z.number().int().nonnegative(), remote: z.number().int().nonnegative()}),
+})
+export type ChannelMentionQuorumResponse = z.infer<typeof ChannelMentionQuorumResponseSchema>
 
 // channel:cancel -------------------------------------------------------------
 

@@ -28,6 +28,7 @@ const STUBBABLE_EVENTS = [
   ChannelEvents.LIST,
   ChannelEvents.LIST_TURNS,
   ChannelEvents.MENTION,
+  ChannelEvents.MENTION_QUORUM,
   ChannelEvents.ONBOARD,
   ChannelEvents.PERMISSION_DECISION,
   ChannelEvents.POST,

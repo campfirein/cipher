@@ -42,6 +42,26 @@ Set up a channel from scratch in four steps:
        brv channel show my-review <turnId-kimi> --json
        brv channel show my-review <turnId-codex> --json
 
+  6. QUORUM (Phase 10) — fan-out the same prompt to K agents and merge
+     their findings under the CRDT-union policy. Use for cross-checking
+     risky operations (audits, migrations, second opinions):
+       brv channel mention my-review "@kimi @codex review src/auth.py" \\
+         --quorum 2 --json
+       # Output: a MergedQuorum {agreed, pending, contradicted,
+       # missingAgents, partial} — claims agreed by ≥2 agents land in
+       # 'agreed'; singletons go to 'pending'.
+
+     Stake-graded sizing (--stake low|medium|high|critical) lets the
+     dispatcher size the local + remote pools automatically — override
+     per-grade with BRV_QUORUM_STAKE_<STAKE>_<LOCAL|REMOTE>:
+       brv channel mention my-review "@kimi @codex @opencode audit migration" \\
+         --quorum 2 --stake high --escalate-on empty-or-contradiction --json
+       # high = 2 local + 1 remote; auto-falls-back to remote when local
+       # consensus is empty OR positions contradict.
+
+     Pool overrides: --local-only / --remote-only bypass the local-first
+     escalation. --escalate-on never keeps execution strictly local.
+
   When an agent requests a permission mid-turn, respond with:
        brv channel approve my-review <turnId> <permissionRequestId> --json
        brv channel deny    my-review <turnId> <permissionRequestId> --json
@@ -91,6 +111,14 @@ public static examples = [
     {
       command: '<%= config.bin %> channel mention my-review "@kimi review src/auth.py" --no-wait --json && <%= config.bin %> channel subscribe my-review --roles @kimi --kinds delivery_state_change --count 1 --json',
       description: 'Fan-out + gather pattern: dispatch async, then subscribe to wait for one terminal delivery without polling',
+    },
+    {
+      command: '<%= config.bin %> channel mention review-2026 "@kimi @codex review src/auth.py" --quorum 2 --json',
+      description: 'Phase 10 quorum: K=2 — claims agreed by both kimi and codex land in `agreed`',
+    },
+    {
+      command: '<%= config.bin %> channel mention review-2026 "@kimi @codex @opencode audit migration" --quorum 2 --stake high --escalate-on empty-or-contradiction --json',
+      description: 'Stake=high (2 local + 1 remote); auto-escalate to remote when local consensus fails',
     },
   ]
 

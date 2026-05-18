@@ -108,6 +108,12 @@ export type DispatchMentionArgs = {
   readonly projectRoot: string
   readonly prompt?: string
   readonly promptBlocks?: ContentBlock[]
+  // Phase 10 D1 (V6 E2E retest) — when true, dispatchMention ignores
+  // @-handles parsed from the prompt body and dispatches ONLY to the
+  // explicit `mentions` array. Used by `dispatchOne` so single-agent
+  // intent isn't diluted by context-documenting @-mentions in the prompt.
+  // Default false preserves Phase 1–9 behaviour.
+  readonly strictMentions?: boolean
   readonly suppressThoughts?: boolean
   readonly timeout?: number
 }
@@ -136,6 +142,42 @@ export type ChannelMentionSyncResult = {
     readonly status?: string
   }>
   readonly turnId: string
+}
+
+// Phase 10 Slice 10.2 — quorum dispatch types (codex Q4 + C5).
+//
+// `TerminalDelivery` is a structured shape carrying everything the
+// `QuorumDispatcher` needs to extract findings + build a `MergeContext`.
+// The orchestrator surfaces this directly so the dispatcher never parses
+// wire events or shell-outs. Live-streaming subscription is intentionally
+// out of scope here — Tier 2's Slice 10.7 (partition-tolerant convergence)
+// gets its own event hook.
+export type TerminalDelivery = {
+  readonly artifactsTouched: ReadonlyArray<string>
+  readonly deliveryId: string
+  readonly endedAt: string
+  readonly errorCode?: string
+  readonly errorMessage?: string
+  readonly finalAnswer?: string
+  readonly memberHandle: string
+  readonly state: 'cancelled' | 'completed' | 'errored'
+  readonly toolCallCount: number
+}
+
+export type DispatchHandle = {
+  readonly deliveryId: string
+  readonly terminal: Promise<TerminalDelivery>
+  readonly turnId: string
+}
+
+export type DispatchOneArgs = {
+  readonly channelId: string
+  readonly idempotencyKey?: string
+  readonly memberHandle: string
+  readonly projectRoot: string
+  readonly prompt: string
+  readonly suppressThoughts?: boolean
+  readonly timeoutMs: number
 }
 
 export type CancelTurnArgs = {
@@ -177,6 +219,14 @@ export interface IChannelOrchestrator {
   cancelTurn(args: CancelTurnArgs): Promise<CancelTurnResult>
   createChannel(args: CreateChannelArgs): Promise<Channel>
   dispatchMention(args: DispatchMentionArgs): Promise<DispatchMentionResult>
+  /**
+   * Phase 10 Slice 10.2 — single-agent dispatch returning a `DispatchHandle`.
+   * The `terminal` Promise resolves ONLY when the orchestrator observes a
+   * `delivery_state_change` with `to ∈ {'completed', 'errored', 'cancelled'}`
+   * (codex Q8). Non-terminal intermediate state changes never resolve it.
+   * Used by `QuorumDispatcher` (and, in time, the single-agent CLI surface).
+   */
+  dispatchOne(args: DispatchOneArgs): Promise<DispatchHandle>
   getChannel(args: GetChannelArgs): Promise<Channel>
   getTurn(args: GetTurnArgs): Promise<GetTurnResult>
   inviteMember(args: InviteMemberArgs): Promise<ChannelMember>

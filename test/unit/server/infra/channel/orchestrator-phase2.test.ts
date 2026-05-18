@@ -240,6 +240,53 @@ describe('ChannelOrchestrator (Phase 2)', () => {
       })
     })
 
+    it('Phase 10 D1: strictMentions=true ignores @-handles in the prompt body', async () => {
+      // V6 super-mario E2E retest defect: dispatchOne passed
+      // `mentions: [@kimi]` but the prompt body had "@kimi @codex review …",
+      // so the orchestrator unioned both and dispatched a 2-delivery turn.
+      // With strictMentions=true the prompt @-handles MUST be ignored.
+      await createChannel()
+      await invite('@a')
+      await invite('@b')
+
+      const result = await orchestrator.dispatchMention({
+        channelId,
+        mentions: ['@a'],
+        projectRoot,
+        prompt: '@a @b please review',
+        strictMentions: true,
+      })
+
+      expect(result.deliveries, 'strictMentions must NOT union with prompt @-handles').to.have.lengthOf(1)
+      expect(result.deliveries[0].memberHandle).to.equal('@a')
+
+      // Drain background streaming so the tempdir cleanup does not race.
+      await new Promise((r) => {
+        setTimeout(r, 150)
+      })
+    })
+
+    it('Phase 10 D1: default behaviour (no strictMentions) still unions prompt + explicit mentions', async () => {
+      // Regression guard: existing Phase 1–9 callers MUST keep the
+      // union behaviour. Only the dispatchOne path opts into strict.
+      await createChannel()
+      await invite('@a')
+      await invite('@b')
+
+      const result = await orchestrator.dispatchMention({
+        channelId,
+        mentions: ['@a'],
+        projectRoot,
+        prompt: '@a @b please review',
+      })
+
+      expect(result.deliveries.map(d => d.memberHandle).sort(), 'default must union prompt @-handles with explicit list').to.deep.equal(['@a', '@b'])
+
+      await new Promise((r) => {
+        setTimeout(r, 150)
+      })
+    })
+
     it('rejects an empty mention list with CHANNEL_MENTION_EMPTY', async () => {
       await createChannel()
       await invite('@mock')

@@ -19,8 +19,10 @@ import type {
   CancelTurnResult,
   ChannelMentionSyncResult,
   CreateChannelArgs,
+  DispatchHandle,
   DispatchMentionArgs,
   DispatchMentionResult,
+  DispatchOneArgs,
   GetChannelArgs,
   GetTurnArgs,
   GetTurnResult,
@@ -31,6 +33,7 @@ import type {
   ListTurnsResult,
   PermissionDecisionArgs,
   PostTurnArgs,
+  TerminalDelivery,
   UninviteMemberArgs,
 } from '../../core/interfaces/channel/i-channel-orchestrator.js'
 import type {IChannelStore} from '../../core/interfaces/channel/i-channel-store.js'
@@ -47,6 +50,7 @@ import {
   ChannelArchivedError,
   ChannelDaemonShutdownError,
   ChannelDeliveryFailedError,
+  ChannelError,
   ChannelInvalidRequestError,
   ChannelMentionEmptyError,
   ChannelNotFoundError,
@@ -205,6 +209,11 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
   private readonly permissionBroker: IPermissionBroker
   private readonly pool: IAcpDriverPool
   private readonly profileStore: IDriverProfileStore | undefined
+  // Phase 10 follow-up — track project-level warm-driver passes so a mention
+  // arriving during the cold-start race window awaits the warm instead of
+  // erroring with CHANNEL_DRIVER_NOT_REGISTERED. Keyed by projectRoot;
+  // entries clear once the warm resolves (success or failure).
+  private readonly projectWarmInFlight = new Map<string, Promise<void>>()
   // Slice 8.10 — orphan registry for in-flight permissions lost on daemon
   // restart. Populated once at daemon startup via `seedRestartLosses()` from
   // `runChannelRecovery()` results. Consulted by `permissionDecision()` when
@@ -355,6 +364,16 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
   // ─── Phase-2 dispatch ─────────────────────────────────────────────────
 
   async dispatchMention(args: DispatchMentionArgs): Promise<DispatchMentionResult> {
+    // Phase 10 follow-up — cold-start race fix. If a project-wide warm is
+    // in flight (daemon just restarted, drivers not yet spawned from
+    // meta.json), block here until it settles. Avoids the
+    // CHANNEL_DRIVER_NOT_REGISTERED that previously fired within ~12ms of
+    // the first client connection after an idle-timeout shutdown.
+    const inFlightWarm = this.projectWarmInFlight.get(args.projectRoot)
+    if (inFlightWarm !== undefined) {
+      await inFlightWarm
+    }
+
     const meta = await this.store.readChannelMeta({
       channelId: args.channelId,
       projectRoot: args.projectRoot,
@@ -366,12 +385,20 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
 
     // Union parsed mentions + explicit mentions[]; dedupe in first-occurrence
     // order so the parser's deterministic ordering is preserved.
+    //
+    // Phase 10 D1 — when `strictMentions === true`, skip the prompt-parse
+    // step entirely and dispatch ONLY to the explicit list. This is what
+    // `dispatchOne` needs: the V6 super-mario E2E retest exposed that
+    // single-agent intent was being diluted by @-handles inside the prompt
+    // body. Default false preserves Phase 1–9 union behaviour.
     const seen = new Set<string>()
     const allHandles: string[] = []
-    for (const handle of parseMentions(promptBlocks.map((b) => collectBlockText(b)).join(' '))) {
-      if (!seen.has(handle)) {
-        seen.add(handle)
-        allHandles.push(handle)
+    if (args.strictMentions !== true) {
+      for (const handle of parseMentions(promptBlocks.map((b) => collectBlockText(b)).join(' '))) {
+        if (!seen.has(handle)) {
+          seen.add(handle)
+          allHandles.push(handle)
+        }
       }
     }
 
@@ -521,6 +548,88 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
   }
 
   /**
+   * Phase 10 Slice 10.2 — single-agent dispatch returning a `DispatchHandle`.
+   *
+   * Implementation: routes through existing `dispatchMention(mode: 'sync')`
+   * with `mentions: [memberHandle]` (no shell-out, single internal API per
+   * codex Q4). The `terminal` Promise wraps `awaitSyncMention(turnId)` and
+   * maps the assembled sync result to `TerminalDelivery`. The Q8 follow-on
+   * (terminal-state filter) is upheld here: `awaitSyncMention` only resolves
+   * on `completed`/`cancelled` (errored arrives via Promise rejection from
+   * the channel-error subclasses).
+   *
+   * Race-safety (kimi R2): `dispatchMention` synchronously populates
+   * `pendingSyncResponses` via `registerPendingSync` BEFORE the dispatch
+   * task yields. The `awaitSyncMention(turnId)` call below is therefore a
+   * Promise *lookup*, not a listener attachment, so no chunks can be missed
+   * in the window between dispatch return and await call.
+   *
+   * Architectural note (kimi R1): Slice 10.2 ships K turns per quorum
+   * dispatch (one per agent). The cleaner 1-turn / K-deliveries shape
+   * requires per-delivery sync aggregation, deferred to Tier 2 — Slice 10.7
+   * (partition-tolerant convergence) touches the same machinery.
+   */
+  async dispatchOne(args: DispatchOneArgs): Promise<DispatchHandle> {
+    const result = await this.dispatchMention({
+      channelId: args.channelId,
+      idempotencyKey: args.idempotencyKey,
+      mentions: [args.memberHandle],
+      mode: 'sync',
+      projectRoot: args.projectRoot,
+      prompt: args.prompt,
+      // Phase 10 D1 (V6 retest): without this, @-handles inside the prompt
+      // body would union with `mentions: [memberHandle]` and dispatch to
+      // multiple agents per turn, defeating the single-agent intent.
+      strictMentions: true,
+      suppressThoughts: args.suppressThoughts,
+      timeout: args.timeoutMs,
+    })
+
+    const {turn} = result
+    const delivery = result.deliveries.find(d => d.memberHandle === args.memberHandle)
+    if (delivery === undefined) {
+      throw new ChannelInvalidRequestError(
+        `dispatchOne: no delivery for ${args.memberHandle} on turn ${turn.turnId}`,
+        {memberHandle: args.memberHandle, turnId: turn.turnId},
+      )
+    }
+
+    const {memberHandle} = args
+    const {clock} = this
+    const terminal: Promise<TerminalDelivery> = this.awaitSyncMention(turn.turnId).then(
+      (sync): TerminalDelivery => ({
+        artifactsTouched: delivery.artifactsTouched ?? [],
+        deliveryId: delivery.deliveryId,
+        endedAt: clock().toISOString(),
+        finalAnswer: sync.finalAnswer,
+        memberHandle,
+        state: sync.endedState,
+        toolCallCount: sync.toolCalls.length,
+      }),
+      // Kimi R3: narrow against the ChannelError base class instead of
+      // duck-typing `code`. ChannelError-derived classes carry a typed
+      // `code: string`; everything else is unrecognised infrastructure
+      // failure and gets CHANNEL_UNKNOWN.
+      (error: unknown): TerminalDelivery => ({
+        artifactsTouched: [],
+        deliveryId: delivery.deliveryId,
+        endedAt: clock().toISOString(),
+        errorCode: error instanceof ChannelError ? error.code : 'CHANNEL_UNKNOWN',
+        errorMessage: error instanceof Error ? error.message : String(error),
+        memberHandle,
+        state: 'errored',
+        toolCallCount: 0,
+      }),
+    )
+
+    return {
+      deliveryId: delivery.deliveryId,
+      terminal,
+      turnId: turn.turnId,
+    }
+  }
+
+  /**
    * Reject every outstanding pending-sync entry with
    * `CHANNEL_DAEMON_SHUTDOWN`. Hook for daemon shutdown / orchestrator
    * disposal.
@@ -541,6 +650,17 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
   }
 
   // ─── Phase-2 invite/uninvite ──────────────────────────────────────────
+
+  /**
+   * Returns the in-flight warm promise for the project, or `undefined` if
+   * no warm is currently running. dispatchMention reads this so the
+   * cold-start race window (mention arriving before warmDriversForProject
+   * finishes spawning ACP subprocesses) blocks instead of failing fast with
+   * CHANNEL_DRIVER_NOT_REGISTERED.
+   */
+  public getInFlightProjectWarm(projectRoot: string): Promise<void> | undefined {
+    return this.projectWarmInFlight.get(projectRoot)
+  }
 
   async getTurn(args: GetTurnArgs): Promise<GetTurnResult> {
     const channel = await this.store.readChannel({
@@ -651,14 +771,14 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
     return member
   }
 
+  // ─── Phase-2 permission decision ──────────────────────────────────────
+
   async listChannels(args: ListChannelsArgs): Promise<Channel[]> {
     return this.store.listChannels({
       includeArchived: args.archived === true,
       projectRoot: args.projectRoot,
     })
   }
-
-  // ─── Phase-2 permission decision ──────────────────────────────────────
 
   async listTurns(args: ListTurnsArgs): Promise<ListTurnsResult> {
     const channel = await this.store.readChannel({
@@ -744,6 +864,8 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
     return decisionEvent
   }
 
+  // ─── private helpers ──────────────────────────────────────────────────
+
   async postTurn(args: PostTurnArgs): Promise<Turn> {
     const channel = await this.store.readChannel({
       channelId: args.channelId,
@@ -820,8 +942,6 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
     return turn
   }
 
-  // ─── private helpers ──────────────────────────────────────────────────
-
   // ─── Slice 8.10 — orphan-permission registry ────────────────────────
   // Called once at daemon startup from brv-server.ts after
   // `runChannelRecovery()` resolves. Subsequent calls overwrite per
@@ -888,36 +1008,19 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
   // V3 reproducer (2026-05-16, line 91: "Driver reinvite needed before
   // every phase") — this method eliminates the workaround.
   public async warmDriversForProject(projectRoot: string): Promise<void> {
-    // Defensive against pre-existing strict-validation bug in `tryReadMeta`
-    // (channel-store.ts re-throws Zod parse errors). `listChannels` would
-    // fail-the-whole-call on a single legacy/malformed meta.json, blocking
-    // warm for every valid channel in the same project. We bypass it: read
-    // the channel directory directly, then try-read each meta with per-
-    // channel error handling. One bad meta logs + skips, others warm.
-    // The underlying listChannels tolerance bug is tracked as a follow-up.
-    const channelsRoot = channelPaths.channelsRoot(projectRoot)
-    let entries: string[]
-    try {
-      entries = await fs.readdir(channelsRoot)
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
-      // Best-effort: log via stdout (orchestrator has no logger by design;
-      // brv-server's .catch() also logs the rejection).
-      throw error
-    }
+    // Idempotent + race-safe: if a warm is already in flight for this
+    // project, return the shared promise so concurrent callers (the brv-server
+    // onConnection hook + any in-flight dispatchMention) wait on the same
+    // pass. Entries clear once the warm settles.
+    const existing = this.projectWarmInFlight.get(projectRoot)
+    if (existing !== undefined) return existing
 
-    await Promise.allSettled(
-      entries.map(async (channelId) => {
-        const meta = await this.store.readChannelMeta({channelId, projectRoot}).catch(() => null)
-        if (meta === null || meta === undefined) return
-        if (meta.archivedAt !== undefined) return
-        await Promise.allSettled(
-          meta.members
-            .filter((m): m is ChannelMemberAcpAgent => m.memberKind === 'acp-agent')
-            .map((m) => this.warmOneDriver(meta.channelId, projectRoot, m)),
-        )
-      }),
-    )
+    const promise = this.runProjectWarm(projectRoot)
+      .finally(() => {
+        this.projectWarmInFlight.delete(projectRoot)
+      })
+    this.projectWarmInFlight.set(projectRoot, promise)
+    return promise
   }
 
   /**
@@ -1100,8 +1203,6 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
     this.seqAllocator.reset({channelId: active.channelId, turnId: active.turn.turnId})
   }
 
-  // ─── Slice 8.0 — sync-mode pending-entry lifecycle ──────────────────────
-
   private async handleDriverPayload(
     active: ActiveTurn,
     delivery: TurnDelivery,
@@ -1165,6 +1266,8 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
     const wrapped = this.wrapPayload({channelId, delivery, memberHandle: member.handle, payload, turnId})
     await this.persistAndBroadcast(channelId, projectRoot, turnId, wrapped)
   }
+
+  // ─── Slice 8.0 — sync-mode pending-entry lifecycle ──────────────────────
 
   /**
    * Emit `turn_state_change dispatched → completed` + finalise snapshots
@@ -1505,6 +1608,39 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
 
     // Try to finalise — only when every delivery is terminal.
     await this.maybeFinaliseTurn(active)
+  }
+
+  private async runProjectWarm(projectRoot: string): Promise<void> {
+    // Defensive against pre-existing strict-validation bug in `tryReadMeta`
+    // (channel-store.ts re-throws Zod parse errors). `listChannels` would
+    // fail-the-whole-call on a single legacy/malformed meta.json, blocking
+    // warm for every valid channel in the same project. We bypass it: read
+    // the channel directory directly, then try-read each meta with per-
+    // channel error handling. One bad meta logs + skips, others warm.
+    // The underlying listChannels tolerance bug is tracked as a follow-up.
+    const channelsRoot = channelPaths.channelsRoot(projectRoot)
+    let entries: string[]
+    try {
+      entries = await fs.readdir(channelsRoot)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
+      // Best-effort: log via stdout (orchestrator has no logger by design;
+      // brv-server's .catch() also logs the rejection).
+      throw error
+    }
+
+    await Promise.allSettled(
+      entries.map(async (channelId) => {
+        const meta = await this.store.readChannelMeta({channelId, projectRoot}).catch(() => null)
+        if (meta === null || meta === undefined) return
+        if (meta.archivedAt !== undefined) return
+        await Promise.allSettled(
+          meta.members
+            .filter((m): m is ChannelMemberAcpAgent => m.memberKind === 'acp-agent')
+            .map((m) => this.warmOneDriver(meta.channelId, projectRoot, m)),
+        )
+      }),
+    )
   }
 
   /**

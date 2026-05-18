@@ -21,6 +21,7 @@ import {
   ChannelInviteRequestSchema,
   ChannelListRequestSchema,
   ChannelListTurnsRequestSchema,
+  ChannelMentionQuorumRequestSchema,
   ChannelMentionRequestSchema,
   ChannelOnboardRequestSchema,
   ChannelPermissionDecisionRequestSchema,
@@ -282,6 +283,118 @@ export class ChannelHandler {
       }
 
       return {deliveries: result.deliveries, turn: result.turn}
+    })
+
+    // channel:mention-quorum (Phase 10 Slice 10.2/10.3/10.4) — daemon-side
+    // K-way fan-out via QuorumDispatcher + local-first orchestration with
+    // remote escalation. Resolves selected agents from channel membership,
+    // applies stake-driven sizing, runs the dispatcher (no shell-out — codex
+    // Q4), returns a serialised `MergedQuorum` + escalation metadata.
+    register(ChannelEvents.MENTION_QUORUM, async (data, _clientId, ctx) => {
+      const projectRoot = projectRootFromCtx(ctx)
+      const req = parseOrThrow(ChannelMentionQuorumRequestSchema, data)
+      const policyName = req.mergePolicy ?? 'union'
+      if (policyName !== 'union') {
+        throw new ChannelInvalidRequestError(
+          `Merge policy '${policyName}' is not implemented in Tier 1 (CrdtUnionMergePolicy only).`,
+          {mergePolicy: policyName},
+        )
+      }
+
+      if (req.localOnly === true && req.remoteOnly === true) {
+        throw new ChannelInvalidRequestError(
+          '--local-only and --remote-only are mutually exclusive.',
+          {localOnly: true, remoteOnly: true},
+        )
+      }
+
+      const channel = await this.orchestrator.getChannel({
+        channelId: req.channelId,
+        projectRoot,
+      })
+      const handles = new Set(req.mentions)
+      const allSelected = channel.members.filter(m => handles.has(m.handle))
+      const missing = req.mentions.filter(h => !channel.members.some(m => m.handle === h))
+      if (missing.length > 0) {
+        throw new ChannelInvalidRequestError(
+          `Unknown channel member(s): ${missing.join(', ')}`,
+          {missingHandles: missing},
+        )
+      }
+
+      // Lazy import — keeps the channel-handler module free of quorum types
+      // unless this code path runs (and avoids a circular import chain in
+      // tests that stub the orchestrator).
+      const {CrdtUnionMergePolicy} = await import('../../channel/quorum/merge-policy.js')
+      const {QuorumDispatcher} = await import('../../channel/quorum/dispatcher.js')
+      const {dispatchLocalFirst} = await import('../../channel/quorum/local-first.js')
+      const {classifyAgent} = await import('../../channel/quorum/pools.js')
+      const {DEFAULT_STAKE, resolveStakeGroupSize} = await import('../../channel/quorum/stake.js')
+
+      // Phase 10 Slice 10.4 — derive local/remote dispatch counts from stake.
+      // The stake matrix caps how many local + remote agents the dispatcher
+      // actually fan-outs to (`--quorum` is the agreement threshold within
+      // that pool).
+      const stake = req.stake ?? DEFAULT_STAKE
+      const groupSize = resolveStakeGroupSize(stake)
+
+      const localCandidates = allSelected.filter(a => classifyAgent(a) === 'local')
+      const remoteCandidates = allSelected.filter(a => classifyAgent(a) === 'remote')
+
+      const localCount = req.remoteOnly === true ? 0 : Math.min(groupSize.local, localCandidates.length)
+      const remoteCount = req.localOnly === true ? 0 : Math.min(groupSize.remote, remoteCandidates.length)
+      const dispatchAgents = [
+        ...localCandidates.slice(0, localCount),
+        ...remoteCandidates.slice(0, remoteCount),
+      ]
+
+      if (dispatchAgents.length === 0) {
+        throw new ChannelInvalidRequestError(
+          `No agents available for stake=${stake} (local=${localCount}, remote=${remoteCount}) against ${allSelected.length} mentioned member(s).`,
+          {localCount, remoteCount, stake},
+        )
+      }
+
+      // Kimi F5: fail fast when the requested quorum threshold exceeds the
+      // number of dispatched agents — otherwise every claim trivially lands
+      // in `pending` with `partial: true`, which is valid but almost always
+      // a caller error.
+      if (req.quorumThreshold > dispatchAgents.length) {
+        throw new ChannelInvalidRequestError(
+          `Quorum threshold ${req.quorumThreshold} exceeds dispatched agents ${dispatchAgents.length} for stake=${stake}.`,
+          {dispatchedAgents: dispatchAgents.length, quorumThreshold: req.quorumThreshold, stake},
+        )
+      }
+
+      const dispatchId = `quorum-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+      const dispatcher = new QuorumDispatcher({orchestrator: this.orchestrator})
+
+      const result = await dispatchLocalFirst(dispatcher, {
+        agents: dispatchAgents,
+        channelId: req.channelId,
+        dispatchId,
+        escalateOn: req.escalateOn,
+        lowConfidenceThreshold: req.lowConfidenceThreshold,
+        mergePolicy: new CrdtUnionMergePolicy(),
+        projectRoot,
+        prompt: req.prompt,
+        quorumThreshold: req.quorumThreshold,
+        suppressThoughts: req.suppressThoughts,
+        taskSchemaHash: 'tier1-default',
+        timeoutMs: req.timeout ?? 300_000,
+        treatMissingConfidenceAsHigh: req.treatMissingConfidenceAsHigh,
+      })
+
+      const {escalated, escalationError, escalationReason, ...mergedFields} = result
+      return {
+        channelId: req.channelId,
+        dispatchId,
+        escalated,
+        ...(escalationError === undefined ? {} : {escalationError}),
+        ...(escalationReason === undefined ? {} : {escalationReason}),
+        merged: mergedFields,
+        poolSizes: {local: localCount, remote: remoteCount},
+      }
     })
 
     // channel:cancel
