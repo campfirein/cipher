@@ -159,6 +159,24 @@ describe('curate-prompt-builder', () => {
       expect(prompt).to.include('Exactly one `<bv-topic>`')
     })
 
+    it('teaches the JSON envelope `{html, meta?}` output shape (M4)', () => {
+      const prompt = buildGeneratePrompt({userIntent: 'x'})
+      // The agent now emits a JSON envelope on `--response`, not raw HTML.
+      // The contract section must explain both keys and show an example.
+      expect(prompt).to.include('JSON envelope')
+      expect(prompt).to.include('"html"')
+      expect(prompt).to.include('"meta"')
+    })
+
+    it('documents the meta field semantics for review surfacing', () => {
+      const prompt = buildGeneratePrompt({userIntent: 'x'})
+      expect(prompt).to.include('impact')
+      expect(prompt).to.include('high')
+      expect(prompt).to.include('reason')
+      // Optional — explicit so the agent knows omission still curates
+      expect(prompt.toLowerCase()).to.include('optional')
+    })
+
     it('includes path-format guidance', () => {
       const prompt = buildGeneratePrompt({userIntent: 'x'})
       expect(prompt).to.include('<domain>/<topic>')
@@ -332,6 +350,20 @@ describe('curate-prompt-builder', () => {
     it('falls back to a generic instruction when given zero errors', () => {
       const prompt = buildCorrectionPrompt({errors: [], previousHtml, userIntent})
       expect(prompt).to.include('No structured errors')
+    })
+
+    it('teaches the JSON envelope on the correction step too (so agent re-emits in the right shape)', () => {
+      // The correction prompt must remind the agent of the envelope
+      // contract — otherwise after the first failure the agent might
+      // revert to raw HTML and trigger an invalid-response-format
+      // error on top of the original validation issue.
+      const prompt = buildCorrectionPrompt({
+        errors: [{kind: 'missing-path-attribute', message: 'm'}],
+        previousHtml,
+        userIntent,
+      })
+      expect(prompt).to.include('JSON envelope')
+      expect(prompt).to.include('"html"')
     })
 
     it('includes the output contract so the LLM still gets the bare-HTML rule', () => {

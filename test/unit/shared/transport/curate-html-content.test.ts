@@ -61,5 +61,36 @@ describe('curate-html-content', () => {
       expect(decoded.html).to.equal(original.html)
       expect(decoded.confirmOverwrite).to.be.undefined
     })
+
+    it('roundtrips meta field losslessly', () => {
+      const original = {
+        confirmOverwrite: false,
+        html: '<bv-topic path="security/auth"></bv-topic>',
+        meta: {
+          impact: 'high' as const,
+          reason: 'Locks JWT signing algorithm.',
+          summary: 'JWT: RS256 over HS256.',
+          type: 'ADD' as const,
+        },
+      }
+      const decoded = decodeCurateHtmlContent(encodeCurateHtmlContent(original))
+      expect(decoded.html).to.equal(original.html)
+      expect(decoded.meta).to.deep.equal(original.meta)
+    })
+
+    it('returns meta: undefined when payload omits it', () => {
+      const content = JSON.stringify({html: '<bv-topic></bv-topic>'})
+      const decoded = decodeCurateHtmlContent(content)
+      expect(decoded.meta).to.be.undefined
+    })
+
+    it('returns meta: undefined when meta is present but invalid (graceful forward-compat)', () => {
+      const content = JSON.stringify({
+        html: '<bv-topic></bv-topic>',
+        meta: {impact: 'severe'},
+      })
+      const decoded = decodeCurateHtmlContent(content)
+      expect(decoded.meta).to.be.undefined
+    })
   })
 })

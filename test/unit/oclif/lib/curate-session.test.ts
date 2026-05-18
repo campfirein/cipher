@@ -14,8 +14,8 @@
  * corrupted state handling, and the documented envelope-shape contract.
  */
 
-const VALID_TOPIC_HTML = '<bv-topic path="security/auth" title="JWT auth"><bv-reason>x</bv-reason></bv-topic>'
-const TOPIC_WITHOUT_PATH = '<bv-topic title="JWT auth"></bv-topic>'
+const VALID_TOPIC_HTML_RAW = '<bv-topic path="security/auth" title="JWT auth"><bv-reason>x</bv-reason></bv-topic>'
+const TOPIC_WITHOUT_PATH_RAW = '<bv-topic title="JWT auth"></bv-topic>'
 
 import {expect} from 'chai'
 import {existsSync} from 'node:fs'
@@ -23,14 +23,38 @@ import {mkdir, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
 
+import type {CurateMeta} from '../../../../src/shared/curate-meta.js'
+
 import {
   continueSession,
   CURATE_SESSION_PREFIX,
   CURATE_SESSIONS_DIR,
   kickoffSession,
+  parseCurateResponse,
   resolveProjectRoot,
 } from '../../../../src/oclif/lib/curate-session.js'
 import {BRV_DIR} from '../../../../src/server/constants.js'
+import {FileCurateLogStore} from '../../../../src/server/infra/storage/file-curate-log-store.js'
+import {FileReviewBackupStore} from '../../../../src/server/infra/storage/file-review-backup-store.js'
+import {getProjectDataDir} from '../../../../src/server/utils/path-utils.js'
+
+/** Build the M4 JSON envelope shape expected by the continuation protocol. */
+function envelope(html: string, meta?: CurateMeta): string {
+  return meta === undefined ? JSON.stringify({html}) : JSON.stringify({html, meta})
+}
+
+const VALID_TOPIC_HTML = envelope(VALID_TOPIC_HTML_RAW)
+const TOPIC_WITHOUT_PATH = envelope(TOPIC_WITHOUT_PATH_RAW)
+
+async function readLogEntries(root: string) {
+  const store = new FileCurateLogStore({baseDir: getProjectDataDir(root)})
+  return store.list()
+}
+
+async function readBackup(root: string, relativePath: string): Promise<null | string> {
+  const store = new FileReviewBackupStore(join(root, BRV_DIR))
+  return store.read(relativePath)
+}
 
 const UUID_RE = /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i
 
@@ -243,9 +267,9 @@ describe('curate-session placeholder', () => {
 
       // Trigger unknown-bv-element error: a tag that isn't in the registry
       const html = '<bv-topic path="x/y" title="t"><bv-not-a-real-tag/></bv-topic>'
-      const envelope = await continueSession({projectRoot, response: html, sessionId})
+      const envelopeResult = await continueSession({projectRoot, response: envelope(html), sessionId})
 
-      const unknown = envelope.errors!.find((e) => e.kind === 'unknown-element')
+      const unknown = envelopeResult.errors!.find((e) => e.kind === 'unknown-element')
       expect(unknown, 'expected unknown-element error in envelope').to.not.equal(undefined)
       expect(unknown!.tag).to.equal('bv-not-a-real-tag')
     })
@@ -557,6 +581,319 @@ describe('curate-session placeholder', () => {
         sessionId: kickoff.sessionId!,
       })
       expect(envelope.status).to.equal('done')
+    })
+  })
+
+  // ── M4: parseCurateResponse — JSON envelope parsing ─────────────────────────
+
+  describe('parseCurateResponse', () => {
+    it('parses a well-formed envelope with html only', () => {
+      const result = parseCurateResponse(envelope(VALID_TOPIC_HTML_RAW))
+      expect(result.html).to.equal(VALID_TOPIC_HTML_RAW)
+      expect(result.meta).to.be.undefined
+    })
+
+    it('parses a well-formed envelope with html and meta', () => {
+      const result = parseCurateResponse(envelope(VALID_TOPIC_HTML_RAW, {impact: 'high', type: 'ADD'}))
+      expect(result.html).to.equal(VALID_TOPIC_HTML_RAW)
+      expect(result.meta).to.deep.equal({impact: 'high', type: 'ADD'})
+    })
+
+    it('throws invalid-response-format on malformed JSON', () => {
+      let caught: unknown
+      try {
+        parseCurateResponse('not-json{')
+      } catch (error) {
+        caught = error
+      }
+
+      expect(caught).to.be.instanceOf(Error)
+      const err = caught as Error & {kind?: string}
+      expect(err.kind).to.equal('invalid-response-format')
+      expect(err.message).to.match(/json/i)
+    })
+
+    it('throws invalid-response-format when html field is missing', () => {
+      let caught: unknown
+      try {
+        parseCurateResponse(JSON.stringify({meta: {impact: 'high'}}))
+      } catch (error) {
+        caught = error
+      }
+
+      const err = caught as Error & {kind?: string}
+      expect(err.kind).to.equal('invalid-response-format')
+      expect(err.message).to.match(/html/i)
+    })
+
+    it('throws invalid-response-format when html is empty string', () => {
+      let caught: unknown
+      try {
+        parseCurateResponse(JSON.stringify({html: ''}))
+      } catch (error) {
+        caught = error
+      }
+
+      expect((caught as Error & {kind?: string}).kind).to.equal('invalid-response-format')
+    })
+
+    it('throws invalid-response-format when meta has invalid enum value', () => {
+      let caught: unknown
+      try {
+        parseCurateResponse(JSON.stringify({html: VALID_TOPIC_HTML_RAW, meta: {impact: 'severe'}}))
+      } catch (error) {
+        caught = error
+      }
+
+      expect((caught as Error & {kind?: string}).kind).to.equal('invalid-response-format')
+    })
+
+    it('throws invalid-response-format when meta has unknown keys (.strict)', () => {
+      let caught: unknown
+      try {
+        parseCurateResponse(JSON.stringify({html: VALID_TOPIC_HTML_RAW, meta: {importance: 'high'}}))
+      } catch (error) {
+        caught = error
+      }
+
+      expect((caught as Error & {kind?: string}).kind).to.equal('invalid-response-format')
+    })
+  })
+
+  // ── M4: continueSession with envelope — error path ──────────────────────────
+
+  describe('continueSession — envelope validation errors', () => {
+    it('returns invalid-response-format envelope when --response is not JSON', async () => {
+      const kickoff = await kickoffSession({content: 'x', projectRoot})
+      const result = await continueSession({
+        projectRoot,
+        response: '<bv-topic path="x/y"></bv-topic>', // raw HTML — was valid before M4
+        sessionId: kickoff.sessionId!,
+      })
+
+      expect(result.status).to.equal('failed')
+      expect(result.errors![0].kind).to.equal('invalid-response-format')
+    })
+
+    it('returns invalid-response-format when meta is invalid', async () => {
+      const kickoff = await kickoffSession({content: 'x', projectRoot})
+      const result = await continueSession({
+        projectRoot,
+        response: JSON.stringify({html: VALID_TOPIC_HTML_RAW, meta: {impact: 'severe'}}),
+        sessionId: kickoff.sessionId!,
+      })
+
+      expect(result.status).to.equal('failed')
+      expect(result.errors![0].kind).to.equal('invalid-response-format')
+    })
+  })
+
+  // ── M4: curate-log persistence ──────────────────────────────────────────────
+
+  describe('continueSession — curate-log persistence', () => {
+    it('writes a log entry with needsReview=true when meta.impact = high', async () => {
+      const kickoff = await kickoffSession({content: 'remember JWT', projectRoot})
+      const result = await continueSession({
+        projectRoot,
+        response: envelope(VALID_TOPIC_HTML_RAW, {
+          impact: 'high',
+          reason: 'Locks JWT alg.',
+          summary: 'JWT RS256.',
+          type: 'ADD',
+        }),
+        sessionId: kickoff.sessionId!,
+      })
+      expect(result.status).to.equal('done')
+
+      const entries = await readLogEntries(projectRoot)
+      expect(entries).to.have.lengthOf(1)
+      const entry = entries[0]
+      expect(entry.status).to.equal('completed')
+      expect(entry.operations).to.have.lengthOf(1)
+      const op = entry.operations[0]
+      expect(op.needsReview).to.equal(true)
+      expect(op.reviewStatus).to.equal('pending')
+      expect(op.impact).to.equal('high')
+      expect(op.type).to.equal('ADD')
+      expect(op.reason).to.equal('Locks JWT alg.')
+    })
+
+    it('writes a log entry without review surfacing when meta omitted', async () => {
+      const kickoff = await kickoffSession({content: 'x', projectRoot})
+      const result = await continueSession({
+        projectRoot,
+        response: envelope(VALID_TOPIC_HTML_RAW),
+        sessionId: kickoff.sessionId!,
+      })
+      expect(result.status).to.equal('done')
+
+      const entries = await readLogEntries(projectRoot)
+      expect(entries).to.have.lengthOf(1)
+      const op = entries[0].operations[0]
+      expect(op.needsReview).to.be.undefined
+      expect(op.reviewStatus).to.be.undefined
+      expect(op.impact).to.be.undefined
+    })
+
+    it('suppresses needsReview when project has reviewDisabled=true', async () => {
+      // Write a BrvConfig with reviewDisabled=true into .brv/config.json
+      await mkdir(join(projectRoot, BRV_DIR), {recursive: true})
+      await writeFile(
+        join(projectRoot, BRV_DIR, 'config.json'),
+        JSON.stringify({createdAt: new Date().toISOString(), reviewDisabled: true, version: '1'}),
+        'utf8',
+      )
+
+      const kickoff = await kickoffSession({content: 'x', projectRoot})
+      await continueSession({
+        projectRoot,
+        response: envelope(VALID_TOPIC_HTML_RAW, {impact: 'high', type: 'ADD'}),
+        sessionId: kickoff.sessionId!,
+      })
+
+      const entries = await readLogEntries(projectRoot)
+      const op = entries[0].operations[0]
+      expect(op.needsReview).to.equal(false)
+      expect(op.reviewStatus).to.be.undefined
+      expect(op.impact).to.equal('high') // still recorded for telemetry
+    })
+
+    it('writes an error log entry on validation failure (still auditable)', async () => {
+      const kickoff = await kickoffSession({content: 'x', projectRoot})
+      await continueSession({
+        projectRoot,
+        response: envelope(TOPIC_WITHOUT_PATH_RAW, {impact: 'high', type: 'ADD'}),
+        sessionId: kickoff.sessionId!,
+      })
+
+      const entries = await readLogEntries(projectRoot)
+      expect(entries).to.have.lengthOf(1)
+      const entry = entries[0]
+      expect(entry.status).to.equal('error')
+      const op = entry.operations[0]
+      expect(op.status).to.equal('failed')
+      expect(op.needsReview).to.equal(false)
+    })
+
+    it('does NOT write a log entry when envelope itself is unparseable', async () => {
+      // Protocol-level failures (invalid JSON) happen before we have a
+      // valid {html, meta} pair; nothing to log.
+      const kickoff = await kickoffSession({content: 'x', projectRoot})
+      await continueSession({projectRoot, response: 'not-json{', sessionId: kickoff.sessionId!})
+
+      const entries = await readLogEntries(projectRoot)
+      expect(entries).to.have.lengthOf(0)
+    })
+  })
+
+  // ── M4: review-backup before destructive write (regression for `brv review reject` data loss) ──
+
+  describe('continueSession — review backups before overwrite', () => {
+    // Without seeding the backup store before `writeHtmlTopic` clobbers an existing
+    // topic, `brv review reject` reads `backupStore.read()` → null →
+    // review-handler.ts:152 treats null backup as ADD → `unlink(absolutePath)` →
+    // user's prior knowledge is destroyed instead of restored. This contract is
+    // identical to main's `backupBeforeWrite` in `curate-tool.ts`.
+
+    it('seeds the review-backup store with prior content on UPDATE (confirmOverwrite=true over existing topic)', async () => {
+      // Seed the topic via an initial ADD.
+      const k1 = await kickoffSession({content: 'remember JWT', projectRoot})
+      await continueSession({projectRoot, response: VALID_TOPIC_HTML, sessionId: k1.sessionId!})
+      const initialContent = await readFile(
+        join(projectRoot, BRV_DIR, 'context-tree', 'security', 'auth.html'),
+        'utf8',
+      )
+
+      // UPDATE with confirmOverwrite=true. After this, the backup MUST hold the prior bytes
+      // so a subsequent `brv review reject` can restore — not delete — the topic.
+      const k2 = await kickoffSession({content: 'tighten JWT spec', projectRoot})
+      await continueSession({
+        confirmOverwrite: true,
+        projectRoot,
+        response: envelope(
+          '<bv-topic path="security/auth" title="JWT auth"><bv-rule severity="must">Rotate keys every 90 days.</bv-rule><bv-reason>updated</bv-reason></bv-topic>',
+          {impact: 'high', previousSummary: 'prior', summary: 'new', type: 'UPDATE'},
+        ),
+        sessionId: k2.sessionId!,
+      })
+
+      const backupContent = await readBackup(projectRoot, 'security/auth.html')
+      expect(backupContent, 'backup must hold the prior bytes for restore-on-reject').to.equal(initialContent)
+    })
+
+    it('does NOT create a backup on ADD (no prior file at path)', async () => {
+      // Fresh ADD — there's nothing to back up. Backup store should stay empty.
+      const k = await kickoffSession({content: 'remember JWT', projectRoot})
+      await continueSession({projectRoot, response: VALID_TOPIC_HTML, sessionId: k.sessionId!})
+
+      const backupContent = await readBackup(projectRoot, 'security/auth.html')
+      expect(backupContent).to.equal(null)
+    })
+
+    it('does NOT create a backup when project has reviewDisabled = true', async () => {
+      // Seed the topic.
+      const k1 = await kickoffSession({content: 'x', projectRoot})
+      await continueSession({projectRoot, response: VALID_TOPIC_HTML, sessionId: k1.sessionId!})
+
+      // Now turn off reviews.
+      await mkdir(join(projectRoot, BRV_DIR), {recursive: true})
+      await writeFile(
+        join(projectRoot, BRV_DIR, 'config.json'),
+        JSON.stringify({createdAt: new Date().toISOString(), reviewDisabled: true, version: '1'}),
+        'utf8',
+      )
+
+      // UPDATE under reviewDisabled. No backup should appear (review-backups/ stays empty
+      // so rejected curates aren't restorable — consistent with main's behaviour).
+      const k2 = await kickoffSession({content: 'x', projectRoot})
+      await continueSession({
+        confirmOverwrite: true,
+        projectRoot,
+        response: envelope(VALID_TOPIC_HTML_RAW, {impact: 'high', type: 'UPDATE'}),
+        sessionId: k2.sessionId!,
+      })
+
+      const backupContent = await readBackup(projectRoot, 'security/auth.html')
+      expect(backupContent).to.equal(null)
+    })
+
+    it('first-write-wins: two consecutive UPDATEs between pushes preserve the snapshot-at-last-push', async () => {
+      // Seed.
+      const k1 = await kickoffSession({content: 'x', projectRoot})
+      await continueSession({projectRoot, response: VALID_TOPIC_HTML, sessionId: k1.sessionId!})
+      const originalSnapshot = await readFile(
+        join(projectRoot, BRV_DIR, 'context-tree', 'security', 'auth.html'),
+        'utf8',
+      )
+
+      // First UPDATE — backup captures the original snapshot.
+      const k2 = await kickoffSession({content: 'update 1', projectRoot})
+      await continueSession({
+        confirmOverwrite: true,
+        projectRoot,
+        response: envelope(
+          '<bv-topic path="security/auth" title="JWT auth"><bv-rule>v2</bv-rule><bv-reason>r</bv-reason></bv-topic>',
+          {impact: 'high', type: 'UPDATE'},
+        ),
+        sessionId: k2.sessionId!,
+      })
+
+      // Second UPDATE — first-write-wins means the backup must still hold the ORIGINAL
+      // snapshot, not the intermediate v2 content. Otherwise rejecting after multiple
+      // curates would restore to a state that was never committed.
+      const k3 = await kickoffSession({content: 'update 2', projectRoot})
+      await continueSession({
+        confirmOverwrite: true,
+        projectRoot,
+        response: envelope(
+          '<bv-topic path="security/auth" title="JWT auth"><bv-rule>v3</bv-rule><bv-reason>r</bv-reason></bv-topic>',
+          {impact: 'high', type: 'UPDATE'},
+        ),
+        sessionId: k3.sessionId!,
+      })
+
+      const backupContent = await readBackup(projectRoot, 'security/auth.html')
+      expect(backupContent).to.equal(originalSnapshot)
     })
   })
 })

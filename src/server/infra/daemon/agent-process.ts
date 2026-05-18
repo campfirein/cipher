@@ -67,6 +67,7 @@ import {DreamExecutor} from '../executor/dream-executor.js'
 import {FolderPackExecutor} from '../executor/folder-pack-executor.js'
 import {QueryExecutor} from '../executor/query-executor.js'
 import {SearchExecutor} from '../executor/search-executor.js'
+import {backupContextTreeFile, buildCurateHtmlLogEntry} from '../process/curate-html-log.js'
 import {validateHtmlTopic, writeHtmlTopic} from '../render/writer/html-writer.js'
 import {FileCurateLogStore} from '../storage/file-curate-log-store.js'
 import {FileReviewBackupStore} from '../storage/file-review-backup-store.js'
@@ -666,7 +667,7 @@ async function executeTask(
           // Mirrors the post-ENG-2815 oclif `brv curate` writer-direct
           // flow but exposed as a daemon task type so MCP clients can
           // hit it the same way they hit `query-tool-mode`.
-          const {confirmOverwrite, html} = decodeCurateHtmlContent(content)
+          const {confirmOverwrite, html, meta} = decodeCurateHtmlContent(content)
           const contextTreeRoot = join(projectPath, BRV_DIR, CONTEXT_TREE_DIR)
 
           // Pre-resolve the target path so we can report whether the
@@ -674,34 +675,91 @@ async function executeTask(
           // idempotent + cheap (parse5 only); writeHtmlTopic re-runs
           // it internally so we don't risk drift between checks.
           const preValidation = validateHtmlTopic(html)
-          const existedBefore =
-            preValidation.ok && existsSync(join(contextTreeRoot, `${preValidation.topicPath}.html`))
+          const absoluteTopicFilePath = preValidation.ok
+            ? join(contextTreeRoot, `${preValidation.topicPath}.html`)
+            : undefined
+          const existedBefore = absoluteTopicFilePath !== undefined && existsSync(absoluteTopicFilePath)
 
+          // Seed the review-backup BEFORE the destructive write. Without this,
+          // a curate over an existing topic (confirmOverwrite=true, meta.impact=high)
+          // creates a `reviewStatus: pending` log entry but leaves nothing for
+          // `brv review reject` to restore from — review-handler.ts:152 treats
+          // a missing backup as ADD and unlinks the file, destroying the user's
+          // prior knowledge. Honors task.reviewDisabled and ENOENT gracefully.
+          if (existedBefore && absoluteTopicFilePath !== undefined) {
+            await backupContextTreeFile({
+              absoluteFilePath: absoluteTopicFilePath,
+              contextTreeRoot,
+              reviewBackupStore: new FileReviewBackupStore(join(projectPath, BRV_DIR)),
+              reviewDisabled: reviewDisabled ?? false,
+            })
+          }
+
+          const startedAt = Date.now()
           const writeResult = await writeHtmlTopic({confirmOverwrite, contextTreeRoot, rawHtml: html})
+          const completedAt = Date.now()
+
+          // HITL log entry — restores `brv review pending` surfacing for
+          // tool-mode curates. Pre-allocate the id via getNextId() so it
+          // matches FileCurateLogStore's `cur-<timestamp>` ID_PATTERN; a
+          // random UUID would silently be invisible to list()/getById().
+          // Failed writes also get an entry (status: error) so the TUI
+          // doesn't lie about what was attempted.
+          let relativeFilePath: string | undefined
+          let topicPathResolved: string | undefined
+          if (writeResult.ok) {
+            relativeFilePath = relative(contextTreeRoot, writeResult.filePath).replaceAll(sep, '/')
+            topicPathResolved = preValidation.ok
+              ? preValidation.topicPath
+              : relativeFilePath.replace(/\.html$/, '')
+          } else if (preValidation.ok) {
+            topicPathResolved = preValidation.topicPath
+          }
+
+          try {
+            const curateLogStore = new FileCurateLogStore({baseDir: storagePath})
+            const entryId = await curateLogStore.getNextId()
+            const logEntry = buildCurateHtmlLogEntry({
+              completedAt,
+              confirmOverwrite: Boolean(confirmOverwrite),
+              existedBefore,
+              // Absolute path — the review-handler (and dream-executor) treat
+              // `op.filePath` as absolute and call `relative(contextTreeDir, ...)`
+              // to derive a display key. Storing a relative path here makes
+              // the entry unmatchable in `brv review approve`.
+              filePath: writeResult.ok ? writeResult.filePath : undefined,
+              id: entryId,
+              meta,
+              reviewDisabled: reviewDisabled ?? false,
+              startedAt,
+              taskId,
+              topicPath: topicPathResolved,
+              writeResult,
+            })
+            await curateLogStore.save(logEntry)
+            logId = entryId
+          } catch (error) {
+            // Logging must never block curate execution. Swallow + log
+            // so a transient FS error doesn't fail an otherwise-successful
+            // curate.
+            agentLog(
+              `curate-html-direct: failed to persist log entry for ${taskId}: ${error instanceof Error ? error.message : String(error)}`,
+            )
+          }
 
           // Validation failures emit task:completed (NOT task:error) so
           // the calling agent sees the structured errors via the normal
           // result payload and can retry with corrected HTML. task:error
           // would force MCP clients into an isError path that some host
           // renderers collapse or truncate.
-          if (writeResult.ok) {
-            // Normalize to forward-slashes — the CurateHtmlDirectResult contract
-            // (i-curate-executor.ts) documents `topicPath: 'security/auth'` form, and
-            // the renderer surfaces filePath to the calling agent verbatim. On Windows,
-            // relative() would otherwise return `security\auth.html`.
-            const relativeFilePath = relative(contextTreeRoot, writeResult.filePath).replaceAll(sep, '/')
-            const topicPath = preValidation.ok
-              ? preValidation.topicPath
-              : relativeFilePath.replace(/\.html$/, '')
-            result = JSON.stringify({
-              filePath: relativeFilePath,
-              overwrote: existedBefore && Boolean(confirmOverwrite),
-              status: 'ok',
-              topicPath,
-            })
-          } else {
-            result = JSON.stringify({errors: writeResult.errors, status: 'validation-failed'})
-          }
+          result = writeResult.ok
+            ? JSON.stringify({
+                filePath: relativeFilePath,
+                overwrote: existedBefore && Boolean(confirmOverwrite),
+                status: 'ok',
+                topicPath: topicPathResolved,
+              })
+            : JSON.stringify({errors: writeResult.errors, status: 'validation-failed'})
 
           break
         }

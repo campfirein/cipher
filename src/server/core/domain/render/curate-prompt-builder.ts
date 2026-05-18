@@ -159,13 +159,23 @@ export function buildCorrectionPrompt(options: {
 // ── Private helpers ──────────────────────────────────────────────
 
 const OUTPUT_CONTRACT = [
-  '- Output is HTML, and only HTML.',
-  '- First character of your response must be `<`. Last characters must be `</bv-topic>`.',
-  '- DO NOT wrap the response in a code fence. No ``` html, no markdown formatting around the HTML.',
-  '- Exactly one `<bv-topic>` per output. It is the root container.',
-  '- All attribute names lowercase; all attribute values double-quoted.',
-  '- Do not invent elements or attributes outside the schema below.',
-  '- Do not emit `importance`, `maturity`, `recency`, `createdat`, or `updatedat` on `<bv-topic>` — those are system-managed sidecar signals.',
+  '- Emit a JSON envelope: `{"html": "...", "meta": {...}}`. First char `{`, last char `}`.',
+  '- DO NOT wrap the response in a code fence. No ``` json, no markdown around the envelope.',
+  '- The HTML inside `"html"`:',
+  '    - Exactly one `<bv-topic>` per output.',
+  '    - Lowercase attribute names, double-quoted values.',
+  '    - No elements/attributes outside the schema below.',
+  '    - Do not emit `importance`, `maturity`, `recency`, `createdat`, `updatedat` (system-managed).',
+  '',
+  'Optional `"meta"` (omit → curate succeeds but does NOT surface in `brv review pending`):',
+  '- `type`: "ADD" | "UPDATE" | "MERGE". Defaults from file-existed-before.',
+  '- `impact`: "high" (load-bearing decision / must-rule / architectural pattern / new domain knowledge) | "low" (refinement / clarification). Omit → no review surfacing.',
+  '- `reason`: one sentence shown to reviewers.',
+  '- `summary`: one-line summary after this operation.',
+  '- `previousSummary`: (UPDATE/MERGE) one-line summary before this operation.',
+  '- `confidence`: "high" | "low".',
+  '',
+  'Example: `{"html":"<bv-topic path=\\"security/auth\\" title=\\"JWT\\"><bv-decision severity=\\"must\\">RS256.</bv-decision></bv-topic>","meta":{"type":"ADD","impact":"high","reason":"Locks JWT alg.","summary":"JWT: RS256."}}`',
 ].join('\n')
 
 const PATH_FORMAT = [
