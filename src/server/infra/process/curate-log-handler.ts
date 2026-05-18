@@ -257,7 +257,7 @@ export class CurateLogHandler implements ITaskLifecycleHook {
     })
   }
 
-  onToolResult(taskId: string, payload: LlmToolResultEvent): void {
+  async onToolResult(taskId: string, payload: LlmToolResultEvent): Promise<void> {
     const state = this.tasks.get(taskId)
     if (!state) return
 

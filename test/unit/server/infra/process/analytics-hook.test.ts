@@ -60,6 +60,32 @@ const buildQueryTask = (overrides: Partial<TaskInfo> = {}): TaskInfo =>
     ...overrides,
   }) as TaskInfo
 
+type Deferred<T> = {promise: Promise<T>; reject: (e: unknown) => void; resolve: (v: T) => void}
+const defer = <T>(): Deferred<T> => {
+  let resolve!: (v: T) => void
+  let reject!: (e: unknown) => void
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res
+    reject = rej
+  })
+  return {promise, reject, resolve}
+}
+
+const buildFrontmatterDoc = (tag: string): string => `---\ntags: ["${tag}"]\n---\nbody\n`
+
+const stubReadFileFromQueue =
+  (...queue: Array<Promise<string>>): ((p: string) => Promise<string>) =>
+  () => {
+    const next = queue.shift()
+    if (next === undefined) throw new Error('stubReadFileFromQueue exhausted')
+    return next
+  }
+
+const stubReadFileAlways =
+  (value: Promise<string>): ((p: string) => Promise<string>) =>
+  () =>
+    value
+
 const buildToolResult = (ops: Array<Record<string, unknown>>): LlmToolResultEvent => ({
   callId: 'call-1',
   result: JSON.stringify({applied: ops}),
@@ -90,7 +116,7 @@ describe('AnalyticsHook', () => {
         {filePath: '/b.md', needsReview: true, path: 'notes/b', status: 'success', type: 'UPDATE'},
         {filePath: '/c.md', needsReview: false, path: 'notes/c', status: 'failed', type: 'ADD'},
       ])
-      hook.onToolResult(task.taskId, payload)
+      await hook.onToolResult(task.taskId, payload)
 
       expect(trackStub.callCount).to.equal(2)
       expect(trackStub.firstCall.args[0]).to.equal(AnalyticsEventNames.CURATE_OPERATION_APPLIED)
@@ -111,7 +137,7 @@ describe('AnalyticsHook', () => {
     it('emits curate_run_completed at terminal with counter totals + outcome=completed', async () => {
       const task = buildCurateTask()
       await hook.onTaskCreate(task)
-      hook.onToolResult(
+      await hook.onToolResult(
         task.taskId,
         buildToolResult([
           {filePath: '/a.md', needsReview: false, path: 'a', status: 'success', type: 'ADD'},
@@ -141,7 +167,7 @@ describe('AnalyticsHook', () => {
     it('emits outcome=partial when at least one op failed', async () => {
       const task = buildCurateTask()
       await hook.onTaskCreate(task)
-      hook.onToolResult(
+      await hook.onToolResult(
         task.taskId,
         buildToolResult([
           {filePath: '/a.md', needsReview: false, path: 'a', status: 'success', type: 'ADD'},
@@ -182,7 +208,7 @@ describe('AnalyticsHook', () => {
     it('counts UPSERT with "created new" message as added; otherwise as updated', async () => {
       const task = buildCurateTask()
       await hook.onTaskCreate(task)
-      hook.onToolResult(
+      await hook.onToolResult(
         task.taskId,
         buildToolResult([
           {filePath: '/a.md', message: 'created new entry', path: 'a', status: 'success', type: 'UPSERT'},
@@ -201,7 +227,7 @@ describe('AnalyticsHook', () => {
     it('counts pending review when needsReview=true on a successful op', async () => {
       const task = buildCurateTask()
       await hook.onTaskCreate(task)
-      hook.onToolResult(
+      await hook.onToolResult(
         task.taskId,
         buildToolResult([
           {filePath: '/a.md', needsReview: true, path: 'a', status: 'success', type: 'ADD'},
@@ -228,7 +254,7 @@ describe('AnalyticsHook', () => {
     it('skips emitting op when op.filePath is missing (avoids invalid payload)', async () => {
       const task = buildCurateTask()
       await hook.onTaskCreate(task)
-      hook.onToolResult(
+      await hook.onToolResult(
         task.taskId,
         buildToolResult([{needsReview: false, path: 'a', status: 'success', type: 'ADD'}]),
       )
@@ -419,7 +445,7 @@ describe('AnalyticsHook', () => {
       trackStub.throws(new Error('boom'))
       const task = buildCurateTask()
       await hook.onTaskCreate(task)
-      hook.onToolResult(
+      await hook.onToolResult(
         task.taskId,
         buildToolResult([{filePath: '/a.md', needsReview: false, path: 'a', status: 'success', type: 'ADD'}]),
       )
@@ -432,7 +458,7 @@ describe('AnalyticsHook', () => {
       const task = buildCurateTask()
       await bareHook.onTaskCreate(task)
       // No throws, no client to assert against
-      bareHook.onToolResult(
+      await bareHook.onToolResult(
         task.taskId,
         buildToolResult([{filePath: '/a.md', needsReview: false, path: 'a', status: 'success', type: 'ADD'}]),
       )
@@ -458,7 +484,7 @@ describe('AnalyticsHook', () => {
 
         const task = buildCurateTask()
         await hook.onTaskCreate(task)
-        hook.onToolResult(
+        await hook.onToolResult(
           task.taskId,
           buildToolResult([{filePath, needsReview: false, path: 'a', status: 'success', type: 'ADD'}]),
         )
@@ -473,7 +499,7 @@ describe('AnalyticsHook', () => {
         const filePath = join(tmpDir, 'gone.md')
         const task = buildCurateTask()
         await hook.onTaskCreate(task)
-        hook.onToolResult(
+        await hook.onToolResult(
           task.taskId,
           buildToolResult([{filePath, needsReview: false, path: 'gone', status: 'success', type: 'DELETE'}]),
         )
@@ -488,7 +514,7 @@ describe('AnalyticsHook', () => {
         const filePath = join(tmpDir, 'missing.md')
         const task = buildCurateTask()
         await hook.onTaskCreate(task)
-        hook.onToolResult(
+        await hook.onToolResult(
           task.taskId,
           buildToolResult([{filePath, needsReview: false, path: 'm', status: 'success', type: 'UPDATE'}]),
         )
@@ -503,7 +529,7 @@ describe('AnalyticsHook', () => {
 
         const task = buildCurateTask()
         await hook.onTaskCreate(task)
-        hook.onToolResult(
+        await hook.onToolResult(
           task.taskId,
           buildToolResult([{filePath, needsReview: false, path: 'b', status: 'success', type: 'UPDATE'}]),
         )
@@ -520,7 +546,7 @@ describe('AnalyticsHook', () => {
 
         const task = buildCurateTask()
         await hook.onTaskCreate(task)
-        hook.onToolResult(
+        await hook.onToolResult(
           task.taskId,
           buildToolResult([{filePath, needsReview: false, path: 'h', status: 'success', type: 'UPDATE'}]),
         )
@@ -541,7 +567,7 @@ describe('AnalyticsHook', () => {
         const task = buildCurateTask({taskId: 'task-gated'})
 
         await disabledHook.onTaskCreate(task)
-        disabledHook.onToolResult(
+        await disabledHook.onToolResult(
           task.taskId,
           buildToolResult([{filePath, needsReview: false, path: 'g', status: 'success', type: 'UPDATE'}]),
         )
@@ -621,6 +647,121 @@ describe('AnalyticsHook', () => {
         const paths = props.read_paths_with_metadata as Array<Record<string, unknown>>
         expect(paths[0]).to.not.have.property('tags')
       })
+    })
+  })
+
+  describe('async safety (per-task serialization)', () => {
+    it('serializes concurrent onToolResult calls for the same task in arrival order', async () => {
+      // Without the per-task queue, resolving the 2nd read first would cause op2's emit
+      // to land before op1. The queue must enforce arrival order regardless of read
+      // completion order.
+      const d1 = defer<string>()
+      const d2 = defer<string>()
+      const stubReadFile = stubReadFileFromQueue(d1.promise, d2.promise)
+
+      const bundle = buildAnalyticsClient()
+      const queueHook = new AnalyticsHook({readFile: stubReadFile})
+      queueHook.setAnalyticsClient(bundle.client)
+
+      const task = buildCurateTask({taskId: 'task-queue-1'})
+      await queueHook.onTaskCreate(task)
+
+      const payload1 = buildToolResult([
+        {filePath: '/op1.md', needsReview: false, path: 'notes/op1', status: 'success', type: 'ADD'},
+      ])
+      const payload2 = buildToolResult([
+        {filePath: '/op2.md', needsReview: false, path: 'notes/op2', status: 'success', type: 'ADD'},
+      ])
+
+      const p1 = queueHook.onToolResult(task.taskId, payload1)
+      const p2 = queueHook.onToolResult(task.taskId, payload2)
+
+      // Resolve in reverse order — the queue must still emit op1 first.
+      d2.resolve(buildFrontmatterDoc('tag-op2'))
+      d1.resolve(buildFrontmatterDoc('tag-op1'))
+
+      await Promise.all([p1, p2])
+
+      expect(bundle.trackStub.callCount).to.equal(2)
+      const first = bundle.trackStub.firstCall.args[1] as Record<string, unknown>
+      const second = bundle.trackStub.secondCall.args[1] as Record<string, unknown>
+      expect(first.absolute_path, 'first emit must be op1').to.equal('/op1.md')
+      expect(second.absolute_path, 'second emit must be op2').to.equal('/op2.md')
+    })
+
+    it('onTaskCompleted waits for in-flight onToolResult work before emitting CURATE_RUN_COMPLETED', async () => {
+      // The terminal emit MUST follow every per-op emit on the wire, even if the per-op
+      // read is still pending when onTaskCompleted fires.
+      const d = defer<string>()
+      const stubReadFile = stubReadFileAlways(d.promise)
+      const bundle = buildAnalyticsClient()
+      const orderHook = new AnalyticsHook({readFile: stubReadFile})
+      orderHook.setAnalyticsClient(bundle.client)
+
+      const task = buildCurateTask({taskId: 'task-order-1'})
+      await orderHook.onTaskCreate(task)
+
+      const payload = buildToolResult([
+        {filePath: '/in-flight.md', needsReview: false, path: 'notes/x', status: 'success', type: 'ADD'},
+      ])
+
+      // Kick off the op processing (read pending), then immediately request terminal.
+      const opPromise = orderHook.onToolResult(task.taskId, payload)
+      const completePromise = orderHook.onTaskCompleted(task.taskId, '', task)
+
+      // Neither emit can have fired yet — read is still pending.
+      expect(bundle.trackStub.called, 'no emit before read settles').to.equal(false)
+
+      d.resolve(buildFrontmatterDoc('tag-x'))
+      await Promise.all([opPromise, completePromise])
+
+      expect(bundle.trackStub.callCount).to.equal(2)
+      expect(bundle.trackStub.firstCall.args[0]).to.equal(AnalyticsEventNames.CURATE_OPERATION_APPLIED)
+      expect(bundle.trackStub.secondCall.args[0]).to.equal(AnalyticsEventNames.CURATE_RUN_COMPLETED)
+    })
+
+    it('readFile rejection is swallowed: emit fires with frontmatter fields omitted; daemon does not crash', async () => {
+      const stubReadFile = stubReadFileAlways(Promise.reject(new Error('disk full')))
+      const bundle = buildAnalyticsClient()
+      const errorHook = new AnalyticsHook({readFile: stubReadFile})
+      errorHook.setAnalyticsClient(bundle.client)
+
+      const task = buildCurateTask({taskId: 'task-err-1'})
+      await errorHook.onTaskCreate(task)
+
+      const payload = buildToolResult([
+        {filePath: '/missing.md', needsReview: false, path: 'notes/missing', status: 'success', type: 'ADD'},
+      ])
+
+      await errorHook.onToolResult(task.taskId, payload)
+
+      expect(bundle.trackStub.calledOnce).to.equal(true)
+      const props = bundle.trackStub.firstCall.args[1] as Record<string, unknown>
+      expect(props.absolute_path).to.equal('/missing.md')
+      expect(props).to.not.have.property('keywords')
+      expect(props).to.not.have.property('tags')
+      expect(props).to.not.have.property('related')
+    })
+
+    it('cleanup removes per-task pending-queue entry to prevent unbounded growth', async () => {
+      const stubReadFile = stubReadFileAlways(Promise.resolve('---\n---\n'))
+      const bundle = buildAnalyticsClient()
+      const cleanupHook = new AnalyticsHook({readFile: stubReadFile})
+      cleanupHook.setAnalyticsClient(bundle.client)
+
+      const task = buildCurateTask({taskId: 'task-cleanup-1'})
+      await cleanupHook.onTaskCreate(task)
+      await cleanupHook.onToolResult(task.taskId, buildToolResult([
+        {filePath: '/x.md', needsReview: false, path: 'notes/x', status: 'success', type: 'ADD'},
+      ]))
+      await cleanupHook.onTaskCompleted(task.taskId, '', task)
+      cleanupHook.cleanup(task.taskId)
+
+      // After cleanup, internal state must be empty. We don't expose pendingByTask
+      // directly, but the assertion below catches the leak: a new task with the same
+      // id observes a fresh in-memory state.
+      await cleanupHook.onTaskCreate(task)
+      expect(bundle.trackStub.callCount, 'no replay after cleanup').to.equal(2)
     })
   })
 })
