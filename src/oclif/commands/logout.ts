@@ -40,9 +40,9 @@ export default class Logout extends Command {
   }
 
   public async run(): Promise<void> {
-    const {flags} = await this.parse(Logout)
+    const {flags, metadata} = await this.parse(Logout)
     const format = flags.format ?? 'text'
-    const cliMetadata = buildCliMetadata(this.id ?? 'logout', flags)
+    const cliMetadata = buildCliMetadata(this.id ?? 'logout', {flags, metadata})
 
     try {
       if (format === 'text') {

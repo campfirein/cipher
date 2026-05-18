@@ -43,6 +43,12 @@ export class GlobalConfigHandler {
   private cachedAnalytics: boolean | undefined
   private readonly globalConfigStore: IGlobalConfigStore
   private readonly transport: ITransportServer
+  // Serializes SET_ANALYTICS write paths. Two concurrent enables on a
+  // fresh install would otherwise both observe `existing=undefined`, both
+  // generate a different `randomUUID()` deviceId, and both write — the
+  // persisted deviceId would be whichever lost the write race. Chain
+  // pattern mirrors `JsonlAnalyticsStore.writeChain`.
+  private writeChain: Promise<void> = Promise.resolve()
 
   constructor(deps: GlobalConfigHandlerDeps) {
     this.globalConfigStore = deps.globalConfigStore
@@ -100,6 +106,29 @@ export class GlobalConfigHandler {
     )
   }
 
+  private async doSetAnalytics(analytics: boolean): Promise<GlobalConfigSetAnalyticsResponse> {
+    const existing = await this.globalConfigStore.read()
+    const previous = existing?.analytics ?? false
+
+    // Idempotent fast path: short-circuit before generating a deviceId.
+    // If existing is undefined and the requested value matches the default
+    // (false), no file is created — the next GET will seed.
+    if (previous === analytics) {
+      this.cachedAnalytics = previous
+      return {current: previous, previous}
+    }
+
+    const current = existing ?? GlobalConfig.create(randomUUID())
+    const updated = current.withAnalytics(analytics)
+    await this.globalConfigStore.write(updated)
+    // Cache is in-process-authoritative — we trust the value just written.
+    // Cross-process changes (another daemon writing the same file, manual
+    // edits) are NOT observable until the next daemon restart. The
+    // single-daemon model makes this safe today.
+    this.cachedAnalytics = updated.analytics
+    return {current: updated.analytics, previous}
+  }
+
   private async read(): Promise<GlobalConfigGetResponse> {
     const existing = await this.globalConfigStore.read()
     if (existing) {
@@ -125,25 +154,15 @@ export class GlobalConfigHandler {
   }
 
   private async setAnalytics(analytics: boolean): Promise<GlobalConfigSetAnalyticsResponse> {
-    const existing = await this.globalConfigStore.read()
-    const previous = existing?.analytics ?? false
-
-    // Idempotent fast path: short-circuit before generating a deviceId.
-    // If existing is undefined and the requested value matches the default
-    // (false), no file is created — the next GET will seed.
-    if (previous === analytics) {
-      this.cachedAnalytics = previous
-      return {current: previous, previous}
-    }
-
-    const current = existing ?? GlobalConfig.create(randomUUID())
-    const updated = current.withAnalytics(analytics)
-    await this.globalConfigStore.write(updated)
-    // Cache is in-process-authoritative — we trust the value just written.
-    // Cross-process changes (another daemon writing the same file, manual
-    // edits) are NOT observable until the next daemon restart. The
-    // single-daemon model makes this safe today.
-    this.cachedAnalytics = updated.analytics
-    return {current: updated.analytics, previous}
+    // Serialize against any in-flight SET_ANALYTICS so concurrent enables
+    // on a fresh install do not both seed independent deviceIds.
+    const next = this.writeChain.then(async () => this.doSetAnalytics(analytics))
+    // Chain itself swallows errors so a failure in one call does NOT
+    // reject all subsequent calls; the awaiter still observes its own error.
+    this.writeChain = next.then(
+      () => {},
+      () => {},
+    )
+    return next
   }
 }

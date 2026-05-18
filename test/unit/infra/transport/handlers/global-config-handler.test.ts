@@ -178,5 +178,28 @@ describe('GlobalConfigHandler', () => {
 
       expect(handler.getCachedAnalytics()).to.be.true
     })
+
+    it('serializes concurrent enables from a fresh install: writes once, single deviceId persists', async () => {
+      // Both callers observe the same fresh-install (no config). Without
+      // serialization both would create a different deviceId and both would
+      // write — last-write wins and the loser's response carries a deviceId
+      // that no longer exists on disk. With serialization the first writes
+      // a fresh uuid and the second hits the idempotent fast-path.
+      store.read.resolves()
+      const writtenDeviceIds: string[] = []
+      store.write.callsFake(async (cfg: GlobalConfig) => {
+        // Simulate the on-disk seeding so the second serialized caller's
+        // read sees the now-written config.
+        writtenDeviceIds.push(cfg.deviceId)
+        store.read.resolves(cfg)
+      })
+
+      const [first, second] = await Promise.all([callSet(true), callSet(true)])
+
+      expect(store.write.callCount, 'concurrent enables must serialize to a single write').to.equal(1)
+      expect(writtenDeviceIds, 'exactly one deviceId persisted').to.have.lengthOf(1)
+      expect(first.current).to.be.true
+      expect(second.current).to.be.true
+    })
   })
 })

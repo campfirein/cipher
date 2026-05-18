@@ -66,12 +66,12 @@ Use "brv query" when you need a synthesized answer.`
   }
 
   public async run(): Promise<void> {
-    const {args, flags} = await this.parse(Search)
+    const {args, flags, metadata} = await this.parse(Search)
     const format: 'json' | 'text' = flags.format === 'json' ? 'json' : 'text'
 
     if (!this.validateInput(args.query, format)) return
 
-    const cliMetadata = buildCliMetadata(this.id ?? 'search', flags)
+    const cliMetadata = buildCliMetadata(this.id ?? 'search', {flags, metadata})
 
     try {
       await withDaemonRetry(

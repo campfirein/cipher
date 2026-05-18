@@ -4,6 +4,18 @@ import type {CliMetadata} from '../../shared/analytics/cli-metadata-schema.js'
 type PackageManager = 'bun' | 'npm' | 'pnpm' | 'unknown' | 'yarn'
 
 /**
+ * Shape of the oclif `Command.parse()` result fields this helper consumes.
+ * Both top-level fields are accepted defensively (test fixtures may pass
+ * a `flags`-only shape without metadata).
+ */
+export type OclifParseResultLike = {
+  flags: Record<string, unknown>
+  metadata?: {
+    flags?: Record<string, undefined | {setFromDefault?: boolean}>
+  }
+}
+
+/**
  * Detect the package manager that launched this `brv` process.
  *
  * `npm`, `yarn`, `pnpm`, and `bun` all set `npm_config_user_agent` when
@@ -54,16 +66,22 @@ function detectTerminalProgram(): string | undefined {
  * The helper is called ONCE per `run()` so a single `client_sent_at` value
  * identifies one CLI invocation across multi-request commands (per M13.3).
  *
- * `flag_names` captures the parsed-flag KEY names only (oclif's already-
- * camelCased keys, e.g. `--set-upstream` → `setUpstream`). Flag VALUES are
- * NEVER captured — they may carry paths, query text, or secrets.
+ * `flag_names` captures ONLY the flag KEY names the user actually typed
+ * on the command line. Flags whose value came from oclif's static-default
+ * machinery (i.e. `metadata.flags[name].setFromDefault === true`) are
+ * excluded — otherwise every invocation would look like the user passed
+ * every flag, since oclif fills the entire flag object regardless of argv.
+ * Flag VALUES are NEVER captured — they may carry paths, query text, or
+ * secrets.
  */
-export function buildCliMetadata(commandId: string, flags: Record<string, unknown>): CliMetadata {
+export function buildCliMetadata(commandId: string, parsed: OclifParseResultLike): CliMetadata {
+  const flagMeta = parsed.metadata?.flags ?? {}
+  const flagNames = Object.keys(parsed.flags).filter((name) => flagMeta[name]?.setFromDefault !== true)
   const terminalProgram = detectTerminalProgram()
   const metadata: CliMetadata = {
     client_sent_at: Date.now(),
     command_id: commandId,
-    flag_names: Object.keys(flags),
+    flag_names: flagNames,
     is_ci: detectIsCi(),
     is_tty: detectIsTty(),
     package_manager: detectPackageManager(),

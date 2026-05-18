@@ -399,6 +399,33 @@ describe('JsonlAnalyticsStore', () => {
       expect(store.droppedSentCount()).to.equal(1)
     })
 
+    it('should drop multiple oldest sent rows in one compaction pass (single append)', async () => {
+      // Locks in the single-pass compaction invariant: dropping N sent
+      // rows in one append must drop the N oldest ones and stop dropping
+      // as soon as the file is under cap.
+      const baseDir = await freshTempDir()
+      const store = new JsonlAnalyticsStore({baseDir, maxRows: 4})
+      await store.append(makeRecord({id: 's1', timestamp: 100}))
+      await store.append(makeRecord({id: 's2', timestamp: 200}))
+      await store.append(makeRecord({id: 's3', timestamp: 300}))
+      await store.append(makeRecord({id: 'p4', timestamp: 400})) // pending
+      await store.updateStatus(['s1', 's2', 's3'], 'sent')
+
+      // Two new pending rows pushes count to 6 — must drop two oldest sent (s1, s2).
+      await store.append(makeRecord({id: 'p5', timestamp: 500}))
+      await store.append(makeRecord({id: 'p6', timestamp: 600}))
+
+      const rows = await readJsonlRows(join(baseDir, 'analytics-queue.jsonl'))
+      const ids = rows.map((r) => r.id)
+      expect(ids).to.not.include('s1')
+      expect(ids).to.not.include('s2')
+      expect(ids).to.include('s3') // newest sent survives
+      expect(ids).to.include('p4')
+      expect(ids).to.include('p5')
+      expect(ids).to.include('p6')
+      expect(store.droppedSentCount()).to.equal(2)
+    })
+
     it('should preserve pending and failed rows during compaction', async () => {
       const baseDir = await freshTempDir()
       const store = new JsonlAnalyticsStore({baseDir, maxRows: 3})

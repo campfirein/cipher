@@ -67,7 +67,7 @@ Bad:
   }
 
   public async run(): Promise<void> {
-    const {args, flags: rawFlags} = await this.parse(Query)
+    const {args, flags: rawFlags, metadata} = await this.parse(Query)
     const flags = rawFlags as QueryFlags
     const format = (flags.format ?? 'text') as 'json' | 'text'
 
@@ -75,7 +75,7 @@ Bad:
 
     // Build once per run so a single `client_sent_at` identifies one CLI
     // invocation even on retries that may make multiple task:create calls.
-    const cliMetadata = buildCliMetadata(this.id ?? 'query', rawFlags)
+    const cliMetadata = buildCliMetadata(this.id ?? 'query', {flags: rawFlags, metadata})
 
     let providerContext: ProviderErrorContext | undefined
 

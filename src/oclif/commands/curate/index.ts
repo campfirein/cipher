@@ -102,7 +102,7 @@ Bad examples:
   }
 
   public async run(): Promise<void> {
-    const {args, flags: rawFlags} = await this.parse(Curate)
+    const {args, flags: rawFlags, metadata} = await this.parse(Curate)
     const flags: CurateFlags = {
       detach: rawFlags.detach,
       files: rawFlags.files,
@@ -123,7 +123,7 @@ Bad examples:
 
     // Build once per run so a single `client_sent_at` identifies one CLI
     // invocation even on retries that may make multiple task:create calls.
-    const cliMetadata = buildCliMetadata(this.id ?? 'curate', rawFlags)
+    const cliMetadata = buildCliMetadata(this.id ?? 'curate', {flags: rawFlags, metadata})
 
     let providerContext: ProviderErrorContext | undefined
 

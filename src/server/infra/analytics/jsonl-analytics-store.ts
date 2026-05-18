@@ -146,15 +146,35 @@ export class JsonlAnalyticsStore implements IJsonlAnalyticsStore {
    * Drop oldest `'sent'` rows (insertion order = file order = oldest-first)
    * until under cap or out of `'sent'` rows. Pending and failed are never
    * dropped. Returns the kept rows + count of sent rows actually removed.
+   *
+   * Single-pass: precompute each row's serialized size once, then walk
+   * once decrementing running totals on each drop. The earlier
+   * `while exceedsCap` + `findIndex` + `splice` loop was O(n²) — each
+   * iteration re-stringified every row and reshuffled the array.
    */
   private compactRows(rows: readonly StoredAnalyticsRecord[]): {kept: StoredAnalyticsRecord[]; sentDropped: number} {
-    const kept = [...rows]
+    const sizes: number[] = []
+    let bytes = 0
+    for (const r of rows) {
+      const size = Buffer.byteLength(JSON.stringify(r) + '\n', 'utf8')
+      sizes.push(size)
+      bytes += size
+    }
+
+    let count = rows.length
+    const isOver = (): boolean => bytes > this.maxBytes || count > this.maxRows
+
+    const kept: StoredAnalyticsRecord[] = []
     let sentDropped = 0
-    while (this.exceedsCap(kept)) {
-      const sentIdx = kept.findIndex((r) => r.status === 'sent')
-      if (sentIdx === -1) break
-      kept.splice(sentIdx, 1)
-      sentDropped++
+    for (const [i, r] of rows.entries()) {
+      if (isOver() && r.status === 'sent') {
+        bytes -= sizes[i]
+        count -= 1
+        sentDropped++
+        continue
+      }
+
+      kept.push(r)
     }
 
     return {kept, sentDropped}

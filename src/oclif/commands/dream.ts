@@ -116,7 +116,7 @@ export default class Dream extends Command {
   }
 
   public async run(): Promise<void> {
-    const {flags: rawFlags} = await this.parse(Dream)
+    const {flags: rawFlags, metadata} = await this.parse(Dream)
     const format = rawFlags.format === 'json' ? 'json' : 'text'
 
     if (rawFlags.undo) {
@@ -124,7 +124,7 @@ export default class Dream extends Command {
       return
     }
 
-    const cliMetadata = buildCliMetadata(this.id ?? 'dream', rawFlags)
+    const cliMetadata = buildCliMetadata(this.id ?? 'dream', {flags: rawFlags, metadata})
     let providerContext: ProviderErrorContext | undefined
 
     try {

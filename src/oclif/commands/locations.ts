@@ -40,9 +40,9 @@ export default class Locations extends Command {
   }
 
   public async run(): Promise<void> {
-    const {flags} = await this.parse(Locations)
+    const {flags, metadata} = await this.parse(Locations)
     const isJson = flags.format === 'json'
-    const cliMetadata = buildCliMetadata(this.id ?? 'locations', flags)
+    const cliMetadata = buildCliMetadata(this.id ?? 'locations', {flags, metadata})
 
     try {
       const locations = await this.fetchLocations(cliMetadata, {projectPath: process.cwd()})

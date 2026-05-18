@@ -119,10 +119,10 @@ export default class Login extends Command {
   }
 
   public async run(): Promise<void> {
-    const {flags} = await this.parse(Login)
+    const {flags, metadata} = await this.parse(Login)
     const apiKey = flags['api-key']
     const format: OutputFormat = flags.format === 'json' ? 'json' : 'text'
-    const cliMetadata = buildCliMetadata(this.id ?? 'login', flags)
+    const cliMetadata = buildCliMetadata(this.id ?? 'login', {flags, metadata})
 
     if (!apiKey && !this.canOpenBrowser()) {
       this.emitError(

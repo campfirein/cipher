@@ -51,10 +51,10 @@ export default class Status extends Command {
   }
 
   public async run(): Promise<void> {
-    const {flags} = await this.parse(Status)
+    const {flags, metadata} = await this.parse(Status)
     const projectRootFlag = flags['project-root']
     const isJson = flags.format === 'json'
-    const cliMetadata = buildCliMetadata(this.id ?? 'status', flags)
+    const cliMetadata = buildCliMetadata(this.id ?? 'status', {flags, metadata})
 
     try {
       const status = await this.fetchStatus(cliMetadata, {projectPath: process.cwd(), projectRootFlag})
