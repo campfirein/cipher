@@ -1,13 +1,13 @@
-import {ConnectorsPanel} from '../../features/connectors/components/connectors-panel'
 import {ConcurrencyPanel} from '../../features/settings/components/concurrency-panel'
+import {LlmPanel} from '../../features/settings/components/llm-panel'
 import {TaskHistoryPanel} from '../../features/settings/components/task-history-panel'
 
 export function GeneralSection() {
   return (
     <>
-      <ConnectorsPanel />
-      <TaskHistoryPanel />
       <ConcurrencyPanel />
+      <LlmPanel />
+      <TaskHistoryPanel />
     </>
   )
 }
