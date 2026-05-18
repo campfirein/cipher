@@ -10,6 +10,7 @@ import codex from '../../../assets/connectors/codex-connector.svg'
 import cursor from '../../../assets/connectors/cursor-connector.svg'
 import gemini from '../../../assets/connectors/gemini-connector.svg'
 import githubCopilot from '../../../assets/connectors/githubcopilot-connector.svg'
+import hermes from '../../../assets/connectors/hermes-connector.svg'
 import junie from '../../../assets/connectors/junie-connector.svg'
 import kilocode from '../../../assets/connectors/kilocode-connector.svg'
 import kiro from '../../../assets/connectors/kiro-connector.svg'
@@ -37,6 +38,7 @@ export const agentIcons: Partial<Record<Agent, string>> = {
   'Cursor': cursor,
   'Gemini CLI': gemini,
   'Github Copilot': githubCopilot,
+  'Hermes': hermes,
   'Junie': junie,
   'Kilo Code': kilocode,
   'Kiro': kiro,
