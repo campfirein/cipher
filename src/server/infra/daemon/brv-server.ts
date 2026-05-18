@@ -47,15 +47,15 @@ import {
   TransportStateEventNames,
   TransportTaskEventNames,
 } from '../../core/domain/transport/schemas.js'
+import {buildReviewUrl} from '../../utils/build-review-url.js'
 import {getGlobalDataDir} from '../../utils/global-data-path.js'
-import {getProjectDataDir} from '../../utils/path-utils.js'
 import {crashLog, processLog} from '../../utils/process-logger.js'
+import {createBillingStateHandler} from '../billing/billing-state-endpoint.js'
 import {ClientManager} from '../client/client-manager.js'
 import {ProjectConfigStore} from '../config/file-config-store.js'
 import {readContextTreeRemoteUrl} from '../context-tree/read-context-tree-remote.js'
 import {DreamStateService} from '../dream/dream-state-service.js'
 import {DreamTrigger} from '../dream/dream-trigger.js'
-import {createReviewApiRouter} from '../http/review-api-handler.js'
 import {broadcastToProjectRoom} from '../process/broadcast-utils.js'
 import {CurateLogHandler} from '../process/curate-log-handler.js'
 import {setupFeatureHandlers} from '../process/feature-handlers.js'
@@ -70,9 +70,8 @@ import {clearStaleProviderConfig, resolveProviderConfig} from '../provider/provi
 import {ProjectRouter} from '../routing/project-router.js'
 import {AuthStateStore} from '../state/auth-state-store.js'
 import {ProjectStateLoader} from '../state/project-state-loader.js'
-import {FileCurateLogStore} from '../storage/file-curate-log-store.js'
+import {FileBillingConfigStore} from '../storage/file-billing-config-store.js'
 import {FileProviderConfigStore} from '../storage/file-provider-config-store.js'
-import {FileReviewBackupStore} from '../storage/file-review-backup-store.js'
 import {createProviderKeychainStore} from '../storage/provider-keychain-store.js'
 import {createTokenStore} from '../storage/token-store.js'
 import {SocketIOTransportServer} from '../transport/socket-io-transport-server.js'
@@ -215,15 +214,7 @@ async function main(): Promise<void> {
       webuiDistDir,
     })
 
-    // Mount review API first so its responses are not subject to the
-    // web UI middleware's CSP (the review page uses inline scripts).
     const app = express()
-    app.use(
-      createReviewApiRouter({
-        curateLogStoreFactory: (projectPath) => new FileCurateLogStore({baseDir: getProjectDataDir(projectPath)}),
-        reviewBackupStoreFactory: (projectPath) => new FileReviewBackupStore(join(projectPath, BRV_DIR)),
-      }),
-    )
     app.use(webuiApp)
 
     webuiServer = new WebUiServer(app)
@@ -384,10 +375,10 @@ async function main(): Promise<void> {
     agentIdleTimeoutPolicy.start()
 
     const curateLogHandler = new CurateLogHandler(undefined, (info) => {
-      const encoded = Buffer.from(info.projectPath).toString('base64url')
-      const reviewPort = webuiServer?.getPort() ?? port
-      const reviewUrl = `http://127.0.0.1:${reviewPort}/review?project=${encoded}`
-      const payload = {pendingCount: info.pendingCount, reviewUrl, taskId: info.taskId}
+      const webuiPort = webuiServer?.getPort()
+      const payload = webuiPort
+        ? {pendingCount: info.pendingCount, reviewUrl: buildReviewUrl(webuiPort, info.projectPath), taskId: info.taskId}
+        : {pendingCount: info.pendingCount, taskId: info.taskId}
       // Send directly to the task originator (covers CLI clients not in the project room)
       transportServer!.sendTo(info.clientId, ReviewEvents.NOTIFY, payload)
       // Also broadcast to the project room so TUI and other connected clients are notified
@@ -432,6 +423,13 @@ async function main(): Promise<void> {
     // State endpoint: provider config — agents request this on startup and after provider:updated
     transportServer.onRequest<void, ProviderConfigResponse>(TransportStateEventNames.GET_PROVIDER_CONFIG, async () =>
       resolveProviderConfig({authStateStore, providerConfigStore, providerKeychainStore, tokenRefreshManager}),
+    )
+
+    const billingConfigStoreFactory = (projectPath: string) =>
+      new FileBillingConfigStore({baseDir: join(projectPath, BRV_DIR)})
+    transportServer.onRequest(
+      TransportStateEventNames.GET_BILLING_CONFIG,
+      createBillingStateHandler(billingConfigStoreFactory),
     )
 
     const transportHandlers = new TransportHandlers({
@@ -617,12 +615,6 @@ async function main(): Promise<void> {
         webuiDistDir,
       })
       const newApp = express()
-      newApp.use(
-        createReviewApiRouter({
-          curateLogStoreFactory: (projectPath) => new FileCurateLogStore({baseDir: getProjectDataDir(projectPath)}),
-          reviewBackupStoreFactory: (projectPath) => new FileReviewBackupStore(join(projectPath, BRV_DIR)),
-        }),
-      )
       newApp.use(newWebuiApp)
 
       // Start on new port
@@ -673,6 +665,7 @@ async function main(): Promise<void> {
     // without waiting for OIDC discovery (~400ms).
     await setupFeatureHandlers({
       authStateStore,
+      billingConfigStoreFactory,
       broadcastToProject(projectPath, event, data) {
         broadcastToProjectRoom(projectRegistry, projectRouter, projectPath, event, data)
       },
