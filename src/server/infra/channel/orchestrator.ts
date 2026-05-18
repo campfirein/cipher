@@ -1703,8 +1703,11 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
         // iteration. The .next() call synchronously runs the generator
         // until its next yield/await — registering gates.set BEFORE our
         // resolves fire.
+        // Codex F5: delete the map entry instead of leaving an empty array,
+        // so the map doesn't accumulate one-per-turn cruft across long-lived
+        // daemons.
         const drained = this.pendingAutoApprovals.get(active.turn.turnId) ?? []
-        if (drained.length > 0) this.pendingAutoApprovals.set(active.turn.turnId, [])
+        if (drained.length > 0) this.pendingAutoApprovals.delete(active.turn.turnId)
         const nextPromise = iterator.next()
         for (const resolveFn of drained) {
           // Fire-and-forget: queues as microtask after the generator's

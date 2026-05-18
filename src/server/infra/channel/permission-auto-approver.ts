@@ -1,4 +1,5 @@
-import {isAbsolute, relative, resolve} from 'node:path'
+import {realpathSync} from 'node:fs'
+import {dirname, isAbsolute, relative, resolve} from 'node:path'
 
 import type {PermissionOption} from '../../../shared/types/channel.js'
 
@@ -15,11 +16,19 @@ import type {PermissionOption} from '../../../shared/types/channel.js'
 //
 // Safety constraints (must ALL hold to auto-approve):
 //   1. toolCall.kind === 'edit'
-//   2. every diff edit in the request has empty `oldText`
+//   2. EVERY content entry has `type === 'diff'` (codex F2 — don't widen
+//      to arbitrary object-shaped content)
+//   3. every diff has empty `oldText`
 //      (a partial-replacement edit still gates as usual)
-//   3. every target path resolves WITHIN the project sandbox
-//      (no `..` escape, no absolute path outside projectRoot)
-//   4. the request options include an `allow_once` choice
+//   4. every target path RESOLVES + REALPATH-ESCAPES land within the
+//      project sandbox (codex F3 + F4 — anchor relative paths to
+//      projectRoot, not daemon cwd; follow symlinks to defeat
+//      symlink-escape attacks)
+//   5. the request options include an `allow_once` choice. We
+//      DELIBERATELY refuse `allow_always` even when it's the only allow
+//      flavour offered (codex F1 — auto-selecting `allow_always` would
+//      permanently broaden permissions for that toolCall class without
+//      consent)
 //
 // If any check fails → return undefined → orchestrator falls through to
 // the human-decision path. The detector is intentionally conservative:
@@ -56,16 +65,18 @@ export function decideAutoApprovalForEditAsWrite(args: AutoApprovalArgs): AutoAp
   const tc = toolCall as {content?: unknown; kind?: unknown; locations?: unknown}
   if (tc.kind !== 'edit') return undefined
 
-  // Collect every diff-shaped content entry. Drivers vary: some embed the
-  // diff fields at the top level (`{type: 'diff', oldText: '', newText: '…'}`),
-  // others nest under `.diff` (`{type: 'diff', diff: {oldText: '', newText: '…'}}`).
+  // Codex F2 — accept ONLY entries explicitly typed `diff`. Without this
+  // any object-shaped content (text blocks, image refs, etc.) that
+  // happened to carry oldText/newText/path keys would pass through.
   const content = Array.isArray(tc.content) ? tc.content : []
   if (content.length === 0) return undefined
 
   const diffs: DiffPayload[] = content.filter((c): c is DiffPayload =>
-    typeof c === 'object' && c !== null,
+    typeof c === 'object' && c !== null && (c as {type?: unknown}).type === 'diff',
   )
   if (diffs.length === 0) return undefined
+  // All-or-nothing: if ANY content entry is non-diff, decline entirely.
+  if (diffs.length !== content.length) return undefined
 
   for (const entry of diffs) {
     const oldText = entry.diff?.oldText ?? entry.oldText
@@ -90,24 +101,75 @@ export function decideAutoApprovalForEditAsWrite(args: AutoApprovalArgs): AutoAp
     }
   }
 
-  // At least one allow-flavoured option must be in the request, otherwise
-  // we can't auto-resolve.
-  const allowOption = options.find(o => o.kind === 'allow_once' || o.kind === 'allow_always')
-  if (allowOption === undefined) return undefined
+  // Codex F1 — only `allow_once`. Refusing `allow_always` keeps the
+  // auto-approval scoped to THIS request; an `allow_always` choice
+  // would permanently broaden the permission policy without consent.
+  const allowOnce = options.find(o => o.kind === 'allow_once')
+  if (allowOnce === undefined) return undefined
 
   return {
-    optionId: allowOption.optionId,
+    optionId: allowOnce.optionId,
     reason: `empty-oldText Edit on sandboxed project file(s); auto-approved as Write-equivalent`,
   }
 }
 
+// Two layers of check, both must accept:
+//
+//   1. Lexical containment — resolve(projectRoot, targetPath) (codex F3:
+//      anchor relative paths to the SANDBOX, not daemon cwd) must NOT
+//      `..`-escape projectRoot. This is necessary for synthetic paths
+//      whose ancestors don't exist (test cases, brand-new files).
+//   2. Symlink-resolved containment — the deepest EXISTING ancestor of
+//      the target must realpath INTO the realpath of projectRoot
+//      (codex F4: a symlink inside projectRoot pointing outside must
+//      NOT pass). When the projectRoot itself doesn't exist (tests),
+//      this layer is vacuously satisfied.
+//
+// Both layers run; both must accept. The previous single-layer
+// "canonicalise then relative" check could be tricked when realpath
+// fallback ascended to a shared existing ancestor between root and
+// target (caught by codex review F4 follow-on).
 function isWithinProjectRoot(targetPath: string, projectRoot: string): boolean {
-  const root = resolve(projectRoot)
-  const target = resolve(targetPath)
-  const rel = relative(root, target)
-  if (rel === '') return true
-  if (rel.startsWith('..')) return false
-  // Reject absolute drift (e.g. on Windows when paths cross drives, relative
-  // returns an absolute path).
-  return !isAbsolute(rel)
+  // Layer 1 — lexical containment.
+  const lexicalRoot = resolve(projectRoot)
+  const anchored = isAbsolute(targetPath) ? targetPath : resolve(projectRoot, targetPath)
+  const lexicalTarget = resolve(anchored)
+  const lexRel = relative(lexicalRoot, lexicalTarget)
+  if (lexRel !== '' && (lexRel.startsWith('..') || isAbsolute(lexRel))) return false
+
+  // Layer 2 — symlink-resolved containment. Skip if projectRoot doesn't
+  // exist on this filesystem (test-only scenario).
+  const realRoot = tryRealpath(lexicalRoot)
+  if (realRoot === undefined) return true
+  const realTarget = deepestRealpath(lexicalTarget)
+  if (realTarget === undefined) return true
+  const realRel = relative(realRoot, realTarget)
+  if (realRel === '') return true
+  return !realRel.startsWith('..') && !isAbsolute(realRel)
+}
+
+function tryRealpath(p: string): string | undefined {
+  try {
+    return realpathSync(p)
+  } catch {
+    return undefined
+  }
+}
+
+// `realpathSync` follows every component of an EXISTING path. For paths
+// that don't yet exist (brand-new file write), it throws ENOENT; we fall
+// back to canonicalising the deepest existing ancestor so symlinks in
+// the ancestor chain are still resolved.
+function deepestRealpath(p: string): string | undefined {
+  let current = p
+  // Bounded ascent — prevent infinite loop on root-only paths.
+  for (let depth = 0; depth < 64; depth++) {
+    const resolved = tryRealpath(current)
+    if (resolved !== undefined) return resolved
+    const parent = dirname(current)
+    if (parent === current) return undefined  // hit filesystem root with no existing ancestor
+    current = parent
+  }
+
+  return undefined
 }

@@ -1,4 +1,7 @@
 import {expect} from 'chai'
+import {mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync} from 'node:fs'
+import {tmpdir} from 'node:os'
+import {join} from 'node:path'
 
 import type {PermissionOption} from '../../../../../src/shared/types/channel.js'
 
@@ -67,7 +70,9 @@ describe('decideAutoApprovalForEditAsWrite (B2)', () => {
       expect(result?.optionId).to.equal('approved')
     })
 
-    it('prefers allow_always when only that flavour is offered', () => {
+    it('codex F1: REFUSES allow_always — only allow_once auto-approves', () => {
+      // Auto-selecting `allow_always` would permanently broaden the
+      // permission policy for that toolCall class without consent.
       const tc = inlineDiffToolCall([{newText: 'x', oldText: '', path: `${PROJECT_ROOT}/x.js`}])
       const allowAlways: PermissionOption = {kind: 'allow_always', name: 'Always', optionId: 'always-yes'}
       const result = decideAutoApprovalForEditAsWrite({
@@ -75,7 +80,18 @@ describe('decideAutoApprovalForEditAsWrite (B2)', () => {
         projectRoot: PROJECT_ROOT,
         toolCall: tc,
       })
-      expect(result?.optionId).to.equal('always-yes')
+      expect(result, 'allow_always alone must NOT trigger auto-approve').to.equal(undefined)
+    })
+
+    it('codex F1: picks allow_once even when allow_always is also offered', () => {
+      const tc = inlineDiffToolCall([{newText: 'x', oldText: '', path: `${PROJECT_ROOT}/x.js`}])
+      const allowAlways: PermissionOption = {kind: 'allow_always', name: 'Always', optionId: 'always-yes'}
+      const result = decideAutoApprovalForEditAsWrite({
+        options: [allowAlways, allowOnce, rejectOnce],
+        projectRoot: PROJECT_ROOT,
+        toolCall: tc,
+      })
+      expect(result?.optionId).to.equal('approved')
     })
   })
 
@@ -183,6 +199,38 @@ describe('decideAutoApprovalForEditAsWrite (B2)', () => {
       expect(result).to.equal(undefined)
     })
 
+    it('codex F2: object-shaped content without type: "diff" must not pass', () => {
+      // The shape happens to carry oldText/newText/path but isn't typed
+      // as a diff — could be an embedded markdown block or an unrelated
+      // tool descriptor. Refuse to auto-approve.
+      const tc = {
+        content: [{newText: 'x', oldText: '', path: `${PROJECT_ROOT}/x.js`}],
+        kind: 'edit',
+      }
+      const result = decideAutoApprovalForEditAsWrite({
+        options: [allowOnce],
+        projectRoot: PROJECT_ROOT,
+        toolCall: tc,
+      })
+      expect(result, 'untyped object content must not auto-approve').to.equal(undefined)
+    })
+
+    it('codex F2: mixed content with one non-diff entry disqualifies the whole request', () => {
+      const tc = {
+        content: [
+          {newText: 'x', oldText: '', path: `${PROJECT_ROOT}/x.js`, type: 'diff'},
+          {message: 'context', type: 'text'},
+        ],
+        kind: 'edit',
+      }
+      const result = decideAutoApprovalForEditAsWrite({
+        options: [allowOnce],
+        projectRoot: PROJECT_ROOT,
+        toolCall: tc,
+      })
+      expect(result, 'all-or-nothing on content typing').to.equal(undefined)
+    })
+
     it('diff path is missing', () => {
       const tc = {content: [{newText: 'x', oldText: '', type: 'diff'}], kind: 'edit'}
       const result = decideAutoApprovalForEditAsWrite({
@@ -191,6 +239,90 @@ describe('decideAutoApprovalForEditAsWrite (B2)', () => {
         toolCall: tc,
       })
       expect(result).to.equal(undefined)
+    })
+  })
+
+  describe('codex F3: path anchoring', () => {
+    it('relative target path resolves AGAINST projectRoot, not daemon cwd', () => {
+      // Relative path 'src/main.js' must anchor to projectRoot so the
+      // check works regardless of where the daemon process started.
+      const tc = inlineDiffToolCall([{newText: 'x', oldText: '', path: 'src/main.js'}])
+      const result = decideAutoApprovalForEditAsWrite({
+        options: [allowOnce],
+        projectRoot: PROJECT_ROOT,
+        toolCall: tc,
+      })
+      expect(result?.optionId, 'relative paths must anchor to projectRoot').to.equal('approved')
+    })
+  })
+
+  describe('codex F4: symlink escape detection (real FS)', () => {
+    let realRoot: string
+
+    beforeEach(() => {
+      realRoot = mkdtempSync(join(tmpdir(), 'b2-symlink-'))
+    })
+
+    afterEach(() => {
+      rmSync(realRoot, {force: true, recursive: true})
+    })
+
+    it('declines when a symlink inside projectRoot points OUTSIDE', () => {
+      // Layout:
+      //   <realRoot>/
+      //     escape-link  ->  <outsideDir>
+      //
+      // Auto-approve target: <realRoot>/escape-link/new-file.js
+      // Lexical check passes (`escape-link/new-file.js` is inside realRoot).
+      // Symlink-resolved check fails (`<outsideDir>/new-file.js` is outside).
+      const outsideDir = mkdtempSync(join(tmpdir(), 'b2-outside-'))
+      try {
+        symlinkSync(outsideDir, join(realRoot, 'escape-link'))
+        const tc = {
+          content: [{newText: 'leak', oldText: '', path: join(realRoot, 'escape-link', 'new-file.js'), type: 'diff'}],
+          kind: 'edit',
+        }
+        const result = decideAutoApprovalForEditAsWrite({
+          options: [allowOnce],
+          projectRoot: realRoot,
+          toolCall: tc,
+        })
+        expect(result, 'symlink escape must NOT auto-approve').to.equal(undefined)
+      } finally {
+        rmSync(outsideDir, {force: true, recursive: true})
+      }
+    })
+
+    it('approves when a symlink inside projectRoot points to ANOTHER path inside projectRoot', () => {
+      // Symlink to sibling dir within the same sandbox is fine.
+      const insideTarget = join(realRoot, 'real-sub')
+      mkdirSync(insideTarget)
+      symlinkSync(insideTarget, join(realRoot, 'link-sub'))
+      const tc = {
+        content: [{newText: 'ok', oldText: '', path: join(realRoot, 'link-sub', 'new.js'), type: 'diff'}],
+        kind: 'edit',
+      }
+      const result = decideAutoApprovalForEditAsWrite({
+        options: [allowOnce],
+        projectRoot: realRoot,
+        toolCall: tc,
+      })
+      expect(result?.optionId).to.equal('approved')
+    })
+
+    it('approves when the target path is a brand-new file directly under projectRoot (no symlinks)', () => {
+      const tc = {
+        content: [{newText: 'fresh', oldText: '', path: join(realRoot, 'new.js'), type: 'diff'}],
+        kind: 'edit',
+      }
+      // Touch a sibling to ensure realRoot is recognised as existing.
+      writeFileSync(join(realRoot, 'sentinel'), '')
+      const result = decideAutoApprovalForEditAsWrite({
+        options: [allowOnce],
+        projectRoot: realRoot,
+        toolCall: tc,
+      })
+      expect(result?.optionId).to.equal('approved')
     })
   })
 
