@@ -150,15 +150,23 @@ export class QuorumDispatcher {
     const perAgentFindings = new Map<string, Finding[]>()
     const respondedAgents: string[] = []
     for (const result of results) {
-      if (result.status === 'terminal' && result.delivery.state === 'completed' && result.delivery.finalAnswer !== undefined) {
-        const findings = extractFindings({
-          agent: result.memberHandle,
-          delivery: result.delivery,
-          turnId: result.turnId,
-        })
-        perAgentFindings.set(result.memberHandle, findings)
-        respondedAgents.push(result.memberHandle)
-      }
+      if (result.status !== 'terminal') continue
+      // Phase 10 follow-up A2 — accept partial `finalAnswer` from
+      // `errored` (e.g. CHANNEL_SYNC_TIMEOUT) deliveries as a recoverable
+      // contribution. V6 retest exposed this: kimi streamed real JSON
+      // findings but the sync-mode timeout dropped the buffered output
+      // before the dispatcher could read it.
+      const usable =
+        (result.delivery.state === 'completed' && result.delivery.finalAnswer !== undefined) ||
+        (result.delivery.state === 'errored' && result.delivery.finalAnswer !== undefined && result.delivery.finalAnswer !== '')
+      if (!usable) continue
+      const findings = extractFindings({
+        agent: result.memberHandle,
+        delivery: result.delivery,
+        turnId: result.turnId,
+      })
+      perAgentFindings.set(result.memberHandle, findings)
+      respondedAgents.push(result.memberHandle)
     }
 
     return {expectedAgents, perAgentFindings, pool, respondedAgents}

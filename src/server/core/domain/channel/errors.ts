@@ -471,18 +471,24 @@ export class AgentDriverProfileNotFoundError extends ChannelError {
  * turn produces a real terminal event on disk.
  */
 export class ChannelSyncTimeoutError extends ChannelError {
+  // Phase 10 follow-up A2 (V6 evaluation) — when sync mode times out but
+  // the agent had already streamed text into the per-delivery chunk buffer,
+  // surface it here so callers (host LLM, dispatchOne, retries) can
+  // recover the in-progress output instead of dropping it.
+  public readonly partialFinalAnswer: string | undefined
   public readonly timeoutMs: number
   public readonly turnId: string
 
-  public constructor(turnId: string, timeoutMs: number) {
+  public constructor(turnId: string, timeoutMs: number, partialFinalAnswer?: string) {
     super(
       `Sync mention for turn ${turnId} did not complete within ${timeoutMs}ms`,
       CHANNEL_ERROR_CODE.SYNC_TIMEOUT,
-      {timeoutMs, turnId},
+      {partialFinalAnswer, timeoutMs, turnId},
     )
     this.name = 'ChannelSyncTimeoutError'
     this.turnId = turnId
     this.timeoutMs = timeoutMs
+    this.partialFinalAnswer = partialFinalAnswer
   }
 }
 

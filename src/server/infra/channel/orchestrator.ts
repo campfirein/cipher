@@ -610,16 +610,27 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
       // duck-typing `code`. ChannelError-derived classes carry a typed
       // `code: string`; everything else is unrecognised infrastructure
       // failure and gets CHANNEL_UNKNOWN.
-      (error: unknown): TerminalDelivery => ({
-        artifactsTouched: [],
-        deliveryId: delivery.deliveryId,
-        endedAt: clock().toISOString(),
-        errorCode: error instanceof ChannelError ? error.code : 'CHANNEL_UNKNOWN',
-        errorMessage: error instanceof Error ? error.message : String(error),
-        memberHandle,
-        state: 'errored',
-        toolCallCount: 0,
-      }),
+      //
+      // Phase 10 follow-up A2 — promote a `ChannelSyncTimeoutError` that
+      // carries a non-empty `partialFinalAnswer` into a usable
+      // TerminalDelivery (state: 'errored' + finalAnswer populated). The
+      // QuorumDispatcher's `extractFindings` checks state === 'completed'
+      // for the happy path; we surface the partial under state: 'errored'
+      // so downstream policies can decide whether to count it.
+      (error: unknown): TerminalDelivery => {
+        const partial = error instanceof ChannelSyncTimeoutError ? error.partialFinalAnswer : undefined
+        return {
+          artifactsTouched: [],
+          deliveryId: delivery.deliveryId,
+          endedAt: clock().toISOString(),
+          errorCode: error instanceof ChannelError ? error.code : 'CHANNEL_UNKNOWN',
+          errorMessage: error instanceof Error ? error.message : String(error),
+          finalAnswer: partial,
+          memberHandle,
+          state: 'errored',
+          toolCallCount: 0,
+        }
+      },
     )
 
     return {
@@ -676,9 +687,36 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
     })
     if (result === undefined) throw new ChannelTurnNotFoundError(args.channelId, args.turnId)
 
-    return result.deliveries === undefined
-      ? {events: result.events, turn: result.turn}
-      : {deliveries: result.deliveries, events: result.events, turn: result.turn}
+    // Phase 10 follow-up A1 (V6 evaluation) — reconcile per-delivery
+    // `finalAnswer` by concatenating `agent_message_chunk.content` for the
+    // delivery. Only fills empty fields on terminal deliveries; drivers that
+    // populate the field directly are untouched. Without this, agents that
+    // streamed real text would silently produce `finalAnswer: null` on
+    // `channel show` — the V6 retest's "missing kimi findings" symptom.
+    if (result.deliveries === undefined) {
+      return {events: result.events, turn: result.turn}
+    }
+
+    const chunksByDelivery = new Map<string, string[]>()
+    for (const event of result.events) {
+      if (event.kind !== 'agent_message_chunk') continue
+      const {deliveryId} = event
+      if (deliveryId === null || deliveryId === undefined) continue
+      const list = chunksByDelivery.get(deliveryId) ?? []
+      list.push(event.content)
+      chunksByDelivery.set(deliveryId, list)
+    }
+
+    const enrichedDeliveries: TurnDelivery[] = result.deliveries.map(d => {
+      if (d.finalAnswer !== undefined && d.finalAnswer !== '') return d
+      const isTerminal = d.state === 'completed' || d.state === 'errored' || d.state === 'cancelled'
+      if (!isTerminal) return d
+      const chunks = chunksByDelivery.get(d.deliveryId)
+      if (chunks === undefined || chunks.length === 0) return d
+      return {...d, finalAnswer: chunks.join('')}
+    })
+
+    return {deliveries: enrichedDeliveries, events: result.events, turn: result.turn}
   }
 
   async inviteMember(args: InviteMemberArgs): Promise<ChannelMember> {
@@ -1438,7 +1476,19 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
     }
 
     entry.timer = setTimeout(() => {
-      this.failPendingSync(args.turnId, new ChannelSyncTimeoutError(args.turnId, timeoutMs))
+      // Phase 10 follow-up A2 — surface partial finalAnswer (assembled
+      // from buffered chunks) on the timeout error so callers can recover
+      // in-progress streaming output instead of dropping it.
+      const pending = this.pendingSyncResponses.get(args.turnId)
+      const partial = pending === undefined ? '' : this.assembleFinalAnswer(pending)
+      this.failPendingSync(
+        args.turnId,
+        new ChannelSyncTimeoutError(
+          args.turnId,
+          timeoutMs,
+          partial === '' ? undefined : partial,
+        ),
+      )
     }, timeoutMs)
     // Don't keep the daemon alive just for a timeout-driven cleanup.
     if (typeof entry.timer.unref === 'function') entry.timer.unref()

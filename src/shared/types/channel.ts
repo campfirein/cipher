@@ -240,6 +240,13 @@ export const TurnDeliverySchema = z.object({
   artifactsTouched: z.array(z.string()),
   errorCode: z.string().optional(),
   errorMessage: z.string().optional(),
+  // Phase 10 follow-up A1 (V6 evaluation) — when a delivery reaches terminal
+  // state, the orchestrator populates this from concatenated
+  // `agent_message_chunk.content` events for the delivery if the underlying
+  // driver didn't expose `finalAnswer` directly. Callers MAY rely on this
+  // field to recover an agent's full reply without manually replaying the
+  // chunk stream.
+  finalAnswer: z.string().optional(),
 })
 export type TurnDelivery = z.infer<typeof TurnDeliverySchema>
 

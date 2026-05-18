@@ -72,6 +72,15 @@ public static flags = {
     'after-seq': Flags.integer({
       description: 'Skip events with seq <= this value within --turn (exclusive crash cursor)',
     }),
+    // Phase 10 follow-up A3 (V6 evaluation) — auto-reconnect on
+    // `io server disconnect` so a daemon hiccup mid-stream doesn't abort
+    // the gather. Each retry replays from the last-seen seq under --turn,
+    // and rejoins the room under multi-turn mode.
+    'auto-reconnect': Flags.boolean({
+      allowNo: true,
+      default: true,
+      description: 'Auto-reconnect on `io server disconnect` up to --max-reconnects. --no-auto-reconnect preserves the legacy fail-on-disconnect behaviour.',
+    }),
     count: Flags.integer({
       description: 'Exit after N unique (turnId, memberHandle) terminal delivery events',
       min: 1,
@@ -88,6 +97,11 @@ public static flags = {
     kinds: Flags.string({
       description: 'Comma-separated event kinds (e.g. turn_state_change,delivery_state_change)',
     }),
+    'max-reconnects': Flags.integer({
+      default: 3,
+      description: 'Maximum reconnect attempts when --auto-reconnect is on. Each retry uses 1s exponential backoff.',
+      min: 0,
+    }),
     roles: Flags.string({
       description: 'Comma-separated member handles (e.g. @codex,@kimi); omit to receive all members',
     }),
@@ -101,6 +115,7 @@ public static flags = {
     }),
   }
 
+  // eslint-disable-next-line complexity
   public async run(): Promise<void> {
     const {args, flags} = await this.parse(ChannelSubscribe)
 
@@ -117,17 +132,25 @@ public static flags = {
     const afterSeq = flags['after-seq']
     const willReplay = flags.turn !== undefined && afterSeq !== undefined
 
-    const client = await connectChannelClient()
+    // Router is shared across reconnects — Phase 10 follow-up A3 (V6 eval).
+    // `count` progress, dedup state, and per-turn lastSeen carry over so a
+    // mid-stream `io server disconnect` doesn't reset partial gather state.
     let resolveDone: ((reason: 'count' | 'disconnect' | 'signal' | 'terminal' | 'timeout') => void) | undefined
     let resolved = false
+    let resolvedReason: 'count' | 'disconnect' | 'signal' | 'terminal' | 'timeout' | undefined
     const done = new Promise<'count' | 'disconnect' | 'signal' | 'terminal' | 'timeout'>((resolve) => {
       resolveDone = (reason) => {
         if (resolved) return
         resolved = true
+        resolvedReason = reason
         resolve(reason)
       }
     })
     let disconnectReason: string | undefined
+
+    // Per-attempt resolver that the router's onTerminate forwards to. Each
+    // outer-loop iteration swaps it via the `attemptResolveDoneRef` cell.
+    const attemptResolveDoneRef: {current: ((reason: 'count' | 'disconnect' | 'signal' | 'terminal' | 'timeout') => void) | undefined} = {current: undefined}
 
     const router = new ChannelSubscribeRouter({
       count: flags.count,
@@ -142,82 +165,159 @@ public static flags = {
           )
         }
       },
-      onTerminate: (reason) => resolveDone?.(reason),
+      onTerminate(reason) {
+        attemptResolveDoneRef.current?.(reason)
+        resolveDone?.(reason)
+      },
     })
 
+    let client = await connectChannelClient()
+    let attemptReplayTurn = willReplay ? flags.turn : undefined
+    let attemptAfterSeq = willReplay ? afterSeq : undefined
+    let reconnectsRemaining = flags['auto-reconnect'] ? flags['max-reconnects'] : 0
+
+    const sleep = (ms: number): Promise<void> => new Promise<void>(r => {
+      setTimeout(r, ms)
+    })
+
+    const onSignal = (): void => resolveDone?.('signal')
+    process.once('SIGINT', onSignal)
+    process.once('SIGTERM', onSignal)
+    const timeoutTimer = setTimeout(() => resolveDone?.('timeout'), flags.timeout)
+
     try {
-      // Step 1: register the live listener BEFORE joining the room. While
-      // the router is in `replaying` mode, the live listener pushes to its
-      // buffer; the drain in step 4 flushes the buffer deduped.
-      if (willReplay) router.beginReplay()
-      const offTurnEvent = client.on<{channelId: string; event: TurnEvent}>(
-        ChannelEvents.TURN_EVENT,
-        (data) => {
-          if (data.channelId !== args.channelId) return
-          router.pushLive(data.event)
-        },
-      )
-
-      const offDisconnect = client.on<string>('disconnect', (reason) => {
-        disconnectReason = typeof reason === 'string' ? reason : 'unknown'
-        resolveDone?.('disconnect')
-      })
-
-      // Step 2: enter the channel room. The room-join ack is the cutoff
-      // between "must replay" and "arrives live".
-      await client.subscribe(args.channelId)
-
-      // Step 3: optional historical replay scoped to --turn + --after-seq.
-      if (willReplay && afterSeq !== undefined && flags.turn !== undefined) {
-        const turn = await client.request<ChannelGetTurnRequest, ChannelGetTurnResponse>(
-          ChannelEvents.GET_TURN,
-          {channelId: args.channelId, turnId: flags.turn},
-        )
-        for (const event of turn.events) {
-          if (router.isTerminated()) break
-          if (event.seq <= afterSeq) continue
-          router.pushReplay(event)
+      // Outer reconnect loop. Each iteration registers listeners, joins the
+      // room, replays (if cursor available), and waits for a per-attempt
+      // resolution. On 'disconnect' with retries remaining, we reset
+      // `resolved`/`resolveDone` so the next attempt can wait again.
+      //
+      // `no-await-in-loop` is suppressed throughout — by design, each retry
+      // must serialise (sleep → reconnect → register → wait → on-disconnect-loop).
+      let attempt = 0
+      /* eslint-disable no-await-in-loop, max-depth */
+      while (true) {
+        if (attempt > 0) {
+          // Backoff: 1s × attempt (1s, 2s, 3s ...).
+          await sleep(1000 * attempt)
+          client = await connectChannelClient()
+          // Reset per-attempt resolution: the previous attempt's
+          // 'disconnect' resolved `done`, but we want the loop to keep
+          // running. Build a fresh resolution path.
+          resolved = false
+          resolveDone?.('disconnect')  // satisfy type-checker; immediately re-armed below
         }
+
+        // Re-arm `done` for this attempt unless already terminated.
+        // Reuse: router triggers onTerminate (count/terminal); disconnect
+        // sets resolved synchronously below; otherwise the timer or signal
+        // already fired and we exit.
+        let attemptResolved = false
+        let attemptResolveDone: ((reason: 'count' | 'disconnect' | 'signal' | 'terminal' | 'timeout') => void) | undefined
+        const attemptDone = new Promise<'count' | 'disconnect' | 'signal' | 'terminal' | 'timeout'>((resolve) => {
+          attemptResolveDone = (reason) => {
+            if (attemptResolved) return
+            attemptResolved = true
+            resolve(reason)
+          }
+        })
+        // Re-wire the shared router→attempt forwarder: this attempt's
+        // resolver is what fires when the router terminates.
+        attemptResolveDoneRef.current = attemptResolveDone
+
+        if (willReplay) router.beginReplay()
+        const offTurnEvent = client.on<{channelId: string; event: TurnEvent}>(
+          ChannelEvents.TURN_EVENT,
+          (data) => {
+            if (data.channelId !== args.channelId) return
+            router.pushLive(data.event)
+          },
+        )
+        const offDisconnect = client.on<string>('disconnect', (reason) => {
+          disconnectReason = typeof reason === 'string' ? reason : 'unknown'
+          attemptResolveDone?.('disconnect')
+        })
+
+        await client.subscribe(args.channelId)
+
+        // Replay (initial: from --after-seq; on reconnect: from lastSeen).
+        if (attemptReplayTurn !== undefined && attemptAfterSeq !== undefined) {
+          const turn = await client.request<ChannelGetTurnRequest, ChannelGetTurnResponse>(
+            ChannelEvents.GET_TURN,
+            {channelId: args.channelId, turnId: attemptReplayTurn},
+          )
+          for (const event of turn.events) {
+            if (router.isTerminated()) break
+            if (event.seq <= attemptAfterSeq) continue
+            router.pushReplay(event)
+          }
+        }
+
+        router.finishReplay()
+
+        // Wait for this attempt's resolution: terminal, disconnect,
+        // signal, or timeout. Signal/timeout resolve both `done` (final)
+        // and `attemptDone` via the shared `resolveDone` reference; we
+        // forward those.
+        // Tie signal + timeout to attemptResolveDone via the resolveDone
+        // closure — when resolveDone fires for 'signal' or 'timeout', we
+        // need attemptResolveDone to fire too so we leave this attempt.
+        const reasonForwarder = setInterval(() => {
+          if (resolvedReason === 'signal' || resolvedReason === 'timeout') {
+            attemptResolveDone?.(resolvedReason)
+          }
+        }, 50)
+
+        const attemptReason = await attemptDone
+        clearInterval(reasonForwarder)
+        offTurnEvent()
+        offDisconnect()
+        await client.unsubscribe(args.channelId).catch(() => {})
+
+        if (attemptReason === 'disconnect' && reconnectsRemaining > 0 && !router.isTerminated()) {
+          reconnectsRemaining -= 1
+          attempt += 1
+          // Seed replay cursor from router's lastSeen so the next attempt
+          // picks up where we left off (single-turn streams only — router
+          // tracks lastSeen as a single per-stream cursor).
+          const cursor = router.lastSeen()
+          if (cursor !== undefined) {
+            attemptReplayTurn = cursor.turnId
+            attemptAfterSeq = cursor.seq
+          }
+
+          // Don't disconnect the OLD client here — we may still hold a
+          // reference; the new attempt will spin up a fresh connection.
+          client.disconnect()
+          continue
+        }
+
+        // Final resolution for this run.
+        resolveDone?.(attemptReason)
+        break
       }
+      /* eslint-enable no-await-in-loop, max-depth */
 
-      // Step 4: drain the live buffer accumulated during replay, then flip
-      // out of replaying mode so subsequent live events emit directly.
-      router.finishReplay()
-
-      // Step 5: bounded wait — termination, timeout, or signal.
-      const timeoutTimer = router.isTerminated()
-        ? undefined
-        : setTimeout(() => resolveDone?.('timeout'), flags.timeout)
-      const onSignal = (): void => resolveDone?.('signal')
-      process.once('SIGINT', onSignal)
-      process.once('SIGTERM', onSignal)
-
-      const reason = await done
-      if (timeoutTimer !== undefined) clearTimeout(timeoutTimer)
+      const finalReason = await done
+      clearTimeout(timeoutTimer)
       process.off('SIGINT', onSignal)
       process.off('SIGTERM', onSignal)
-      offTurnEvent()
-      offDisconnect()
 
-      if (reason === 'disconnect') {
+      if (finalReason === 'disconnect') {
         this.log(
           JSON.stringify({
             control: 'disconnected',
             lastSeen: router.lastSeen(),
             reason: disconnectReason ?? 'unknown',
+            reconnectsExhausted: reconnectsRemaining === 0 && flags['auto-reconnect'],
           }),
         )
-        await client.unsubscribe(args.channelId).catch(() => {})
         this.exit(1)
       }
 
-      if (reason === 'timeout') {
+      if (finalReason === 'timeout') {
         this.logToStderr(`[CHANNEL_SUBSCRIBE_TIMEOUT] No terminal trigger within ${flags.timeout}ms`)
-        await client.unsubscribe(args.channelId).catch(() => {})
         this.exit(1)
       }
-
-      await client.unsubscribe(args.channelId).catch(() => {})
     } catch (error) {
       this.handleError(error, flags.json)
     } finally {
