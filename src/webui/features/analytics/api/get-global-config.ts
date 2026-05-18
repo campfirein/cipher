@@ -19,7 +19,6 @@ export const getGlobalConfigQueryOptions = () =>
     queryFn: getGlobalConfig,
     queryKey: ['globalConfig'],
     refetchOnWindowFocus: true,
-    staleTime: 5000,
   })
 
 type UseGetGlobalConfigOptions = {
