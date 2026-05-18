@@ -1,5 +1,9 @@
+import {readFile} from 'node:fs/promises'
+import {relative, sep} from 'node:path'
+
 import type {CurateMeta} from '../../../shared/curate-meta.js'
 import type {CurateLogEntry, CurateLogOperation} from '../../core/domain/entities/curate-log-entry.js'
+import type {IReviewBackupStore} from '../../core/interfaces/storage/i-review-backup-store.js'
 import type {HtmlWriteResult} from '../render/writer/html-writer.js'
 
 import {computeSummary} from './curate-log-handler.js'
@@ -39,6 +43,57 @@ type BuildInput = {
   topicPath?: string
   /** Result from `writeHtmlTopic`. */
   writeResult: HtmlWriteResult
+}
+
+/**
+ * Capture the current bytes of a context-tree file into the review-backup
+ * store BEFORE a destructive write happens. This is the contract the
+ * review-handler reject path relies on (`review-handler.ts:148-167`): on
+ * reject, it reads `backupStore.read(relPath)`; `null` is treated as
+ * "ADD — unlink the file", any non-null content as "restore via writeFile".
+ *
+ * Without this call, an UPDATE-shaped tool-mode curate writes a
+ * `reviewStatus: 'pending'` log entry but no backup — and `brv review reject`
+ * deletes the user's prior knowledge instead of restoring it.
+ *
+ * Mirrors main's `backupBeforeWrite` (`src/agent/infra/tools/implementations/
+ * curate-tool.ts:480`) — same semantics:
+ *   - Honors `reviewDisabled`: backups exist solely to support reject-restore.
+ *     With reviews off they are dead state.
+ *   - First-write-wins (delegated to `FileReviewBackupStore.save`): the backup
+ *     always reflects the snapshot-at-last-push, never an intermediate state
+ *     between two curates that haven't been pushed.
+ *   - Best-effort: ENOENT (no prior file on disk = ADD case) is swallowed —
+ *     there's nothing to back up. Other I/O failures are also swallowed so a
+ *     transient store error doesn't fail an otherwise-successful curate.
+ *
+ * Call this immediately before `writeHtmlTopic` in both the daemon's
+ * `case 'curate-html-direct'` and the CLI's `continueSession`.
+ */
+export async function backupContextTreeFile(input: {
+  /** Absolute path to the file `writeHtmlTopic` will (over)write. */
+  absoluteFilePath: string
+  /** Absolute path to the project's context-tree root (`.brv/context-tree/`). */
+  contextTreeRoot: string
+  /** Project's review-backup store (instantiate with the project's `.brv/` dir). */
+  reviewBackupStore: IReviewBackupStore
+  /** Snapshot of the project's reviewDisabled flag for this task. */
+  reviewDisabled: boolean
+}): Promise<void> {
+  if (input.reviewDisabled) return
+  try {
+    const content = await readFile(input.absoluteFilePath, 'utf8')
+    // Normalize to forward-slashes — review-handler keys backups by the relative
+    // context-tree path it derived the same way (`relative()`); on Windows the
+    // separators would otherwise disagree across surfaces.
+    const relativePath = relative(input.contextTreeRoot, input.absoluteFilePath).replaceAll(sep, '/')
+    await input.reviewBackupStore.save(relativePath, content)
+  } catch {
+    // Best-effort. ENOENT is the ADD case (no prior file to back up) and is the
+    // most common path — leaving it implicit avoids tying this helper to fs error
+    // codes. Other failures (perms, disk full) also fall through so backup
+    // failure never blocks the user's curate.
+  }
 }
 
 /**
@@ -115,6 +170,14 @@ function buildSuccessOperation(args: {
   const derivedType = existedBefore && confirmOverwrite ? 'UPDATE' : 'ADD'
   const needsReview = meta?.impact === 'high' && !reviewDisabled
 
+  // Agent-asserted `meta.type` wins over `derivedType` unconditionally —
+  // even when on-disk truth contradicts it (e.g. agent says UPDATE but
+  // existedBefore=false, possibly because of a topic-path typo on a
+  // search-first-then-update flow). We honor the agent's intent because
+  // the agent had the user context the writer doesn't have; the on-disk
+  // signal is a sanity-check, not an override. The asymmetry is the same
+  // reason `impact` has no fallback at all — semantic judgments stay with
+  // the agent.
   const op: CurateLogOperation = {
     path: topicPath ?? FALLBACK_PATH,
     status: 'success',

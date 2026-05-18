@@ -9,9 +9,10 @@ import type {CurateMeta} from '../../shared/curate-meta.js'
 import {BRV_DIR, CONTEXT_TREE_DIR} from '../../server/constants.js'
 import {buildCorrectionPrompt, buildGeneratePrompt} from '../../server/core/domain/render/curate-prompt-builder.js'
 import {ProjectConfigStore} from '../../server/infra/config/file-config-store.js'
-import {buildCurateHtmlLogEntry} from '../../server/infra/process/curate-html-log.js'
+import {backupContextTreeFile, buildCurateHtmlLogEntry} from '../../server/infra/process/curate-html-log.js'
 import {type HtmlWriteError, validateHtmlTopic, writeHtmlTopic} from '../../server/infra/render/writer/html-writer.js'
 import {FileCurateLogStore} from '../../server/infra/storage/file-curate-log-store.js'
+import {FileReviewBackupStore} from '../../server/infra/storage/file-review-backup-store.js'
 import {getProjectDataDir} from '../../server/utils/path-utils.js'
 import {CurateMetaSchema} from '../../shared/curate-meta.js'
 
@@ -327,7 +328,31 @@ export async function continueSession(options: ContinueOptions): Promise<CurateS
   // and the log entry uses the sentinel path.
   const preValidation = validateHtmlTopic(html)
   const topicPath = preValidation.ok ? preValidation.topicPath : undefined
-  const existedBefore = topicPath !== undefined && existsSync(join(contextTreeRoot, `${topicPath}.html`))
+  const absoluteTopicPath = topicPath === undefined ? undefined : join(contextTreeRoot, `${topicPath}.html`)
+  const existedBefore = absoluteTopicPath !== undefined && existsSync(absoluteTopicPath)
+
+  // Snapshot the project's reviewDisabled state once for this continuation.
+  // Reading it twice (here + in persistCurateLog) could race a mid-task
+  // `brv review --enable/--disable` toggle and produce inconsistent semantics
+  // between the backup decision and the log-entry decision.
+  const reviewDisabled = await resolveProjectReviewDisabled(projectRoot)
+
+  // Seed the review-backup BEFORE the destructive write. Without this, an
+  // UPDATE-shaped continuation (confirmOverwrite=true over an existing topic)
+  // creates a `reviewStatus: pending` log entry but leaves nothing for
+  // `brv review reject` to restore from — review-handler.ts:152 then treats
+  // the missing backup as ADD and `unlink`s the file, destroying the user's
+  // prior knowledge. backupContextTreeFile honors reviewDisabled and ENOENT
+  // gracefully, so it's safe to call on every continuation regardless of
+  // whether the file existed.
+  if (absoluteTopicPath !== undefined && existedBefore) {
+    await backupContextTreeFile({
+      absoluteFilePath: absoluteTopicPath,
+      contextTreeRoot,
+      reviewBackupStore: new FileReviewBackupStore(join(projectRoot, BRV_DIR)),
+      reviewDisabled,
+    })
+  }
 
   const startedAt = Date.now()
   const writeResult = await writeHtmlTopic({confirmOverwrite, contextTreeRoot, rawHtml: html})
@@ -344,6 +369,7 @@ export async function continueSession(options: ContinueOptions): Promise<CurateS
     intent: state.userIntent,
     meta,
     projectRoot,
+    reviewDisabled,
     startedAt,
     taskId: sessionId,
     topicPath,
@@ -461,13 +487,19 @@ async function persistCurateLog(input: {
   intent: string
   meta?: CurateMeta
   projectRoot: string
+  /**
+   * Snapshot of the project's `reviewDisabled` flag at the start of the
+   * continuation. Threaded in (rather than re-read here) so the backup
+   * decision and the log-entry decision observe the same value even if
+   * the user toggles `brv review --enable/--disable` mid-task.
+   */
+  reviewDisabled: boolean
   startedAt: number
   taskId: string
   topicPath?: string
   writeResult: Awaited<ReturnType<typeof writeHtmlTopic>>
 }): Promise<void> {
   try {
-    const reviewDisabled = await resolveProjectReviewDisabled(input.projectRoot)
     const store = new FileCurateLogStore({baseDir: getProjectDataDir(input.projectRoot)})
     const id = await store.getNextId()
     const entry = buildCurateHtmlLogEntry({
@@ -478,15 +510,21 @@ async function persistCurateLog(input: {
       id,
       intent: input.intent,
       meta: input.meta,
-      reviewDisabled,
+      reviewDisabled: input.reviewDisabled,
       startedAt: input.startedAt,
       taskId: input.taskId,
       topicPath: input.topicPath,
       writeResult: input.writeResult,
     })
     await store.save(entry)
-  } catch {
-    // Best-effort: log persistence must never fail the curate.
+  } catch (error) {
+    // Best-effort: log persistence must never fail the curate. Surface a
+    // single-line stderr signal so a user diagnosing "my curate ran but
+    // `brv review pending` is empty" has something to grep — paralleling
+    // the daemon-side agentLog at `agent-process.ts > curate-html-direct`.
+    process.stderr.write(
+      `brv curate: failed to persist review log entry: ${error instanceof Error ? error.message : String(error)}\n`,
+    )
   }
 }
 

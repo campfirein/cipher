@@ -67,7 +67,7 @@ import {DreamExecutor} from '../executor/dream-executor.js'
 import {FolderPackExecutor} from '../executor/folder-pack-executor.js'
 import {QueryExecutor} from '../executor/query-executor.js'
 import {SearchExecutor} from '../executor/search-executor.js'
-import {buildCurateHtmlLogEntry} from '../process/curate-html-log.js'
+import {backupContextTreeFile, buildCurateHtmlLogEntry} from '../process/curate-html-log.js'
 import {validateHtmlTopic, writeHtmlTopic} from '../render/writer/html-writer.js'
 import {FileCurateLogStore} from '../storage/file-curate-log-store.js'
 import {FileReviewBackupStore} from '../storage/file-review-backup-store.js'
@@ -675,8 +675,25 @@ async function executeTask(
           // idempotent + cheap (parse5 only); writeHtmlTopic re-runs
           // it internally so we don't risk drift between checks.
           const preValidation = validateHtmlTopic(html)
-          const existedBefore =
-            preValidation.ok && existsSync(join(contextTreeRoot, `${preValidation.topicPath}.html`))
+          const absoluteTopicFilePath = preValidation.ok
+            ? join(contextTreeRoot, `${preValidation.topicPath}.html`)
+            : undefined
+          const existedBefore = absoluteTopicFilePath !== undefined && existsSync(absoluteTopicFilePath)
+
+          // Seed the review-backup BEFORE the destructive write. Without this,
+          // a curate over an existing topic (confirmOverwrite=true, meta.impact=high)
+          // creates a `reviewStatus: pending` log entry but leaves nothing for
+          // `brv review reject` to restore from — review-handler.ts:152 treats
+          // a missing backup as ADD and unlinks the file, destroying the user's
+          // prior knowledge. Honors task.reviewDisabled and ENOENT gracefully.
+          if (existedBefore && absoluteTopicFilePath !== undefined) {
+            await backupContextTreeFile({
+              absoluteFilePath: absoluteTopicFilePath,
+              contextTreeRoot,
+              reviewBackupStore: new FileReviewBackupStore(join(projectPath, BRV_DIR)),
+              reviewDisabled: reviewDisabled ?? false,
+            })
+          }
 
           const startedAt = Date.now()
           const writeResult = await writeHtmlTopic({confirmOverwrite, contextTreeRoot, rawHtml: html})

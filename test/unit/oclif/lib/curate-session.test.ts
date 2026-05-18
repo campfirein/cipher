@@ -35,6 +35,7 @@ import {
 } from '../../../../src/oclif/lib/curate-session.js'
 import {BRV_DIR} from '../../../../src/server/constants.js'
 import {FileCurateLogStore} from '../../../../src/server/infra/storage/file-curate-log-store.js'
+import {FileReviewBackupStore} from '../../../../src/server/infra/storage/file-review-backup-store.js'
 import {getProjectDataDir} from '../../../../src/server/utils/path-utils.js'
 
 /** Build the M4 JSON envelope shape expected by the continuation protocol. */
@@ -48,6 +49,11 @@ const TOPIC_WITHOUT_PATH = envelope(TOPIC_WITHOUT_PATH_RAW)
 async function readLogEntries(root: string) {
   const store = new FileCurateLogStore({baseDir: getProjectDataDir(root)})
   return store.list()
+}
+
+async function readBackup(root: string, relativePath: string): Promise<null | string> {
+  const store = new FileReviewBackupStore(join(root, BRV_DIR))
+  return store.read(relativePath)
 }
 
 const UUID_RE = /^[\da-f]{8}-[\da-f]{4}-[\da-f]{4}-[\da-f]{4}-[\da-f]{12}$/i
@@ -777,6 +783,117 @@ describe('curate-session placeholder', () => {
 
       const entries = await readLogEntries(projectRoot)
       expect(entries).to.have.lengthOf(0)
+    })
+  })
+
+  // ── M4: review-backup before destructive write (regression for `brv review reject` data loss) ──
+
+  describe('continueSession — review backups before overwrite', () => {
+    // Without seeding the backup store before `writeHtmlTopic` clobbers an existing
+    // topic, `brv review reject` reads `backupStore.read()` → null →
+    // review-handler.ts:152 treats null backup as ADD → `unlink(absolutePath)` →
+    // user's prior knowledge is destroyed instead of restored. This contract is
+    // identical to main's `backupBeforeWrite` in `curate-tool.ts`.
+
+    it('seeds the review-backup store with prior content on UPDATE (confirmOverwrite=true over existing topic)', async () => {
+      // Seed the topic via an initial ADD.
+      const k1 = await kickoffSession({content: 'remember JWT', projectRoot})
+      await continueSession({projectRoot, response: VALID_TOPIC_HTML, sessionId: k1.sessionId!})
+      const initialContent = await readFile(
+        join(projectRoot, BRV_DIR, 'context-tree', 'security', 'auth.html'),
+        'utf8',
+      )
+
+      // UPDATE with confirmOverwrite=true. After this, the backup MUST hold the prior bytes
+      // so a subsequent `brv review reject` can restore — not delete — the topic.
+      const k2 = await kickoffSession({content: 'tighten JWT spec', projectRoot})
+      await continueSession({
+        confirmOverwrite: true,
+        projectRoot,
+        response: envelope(
+          '<bv-topic path="security/auth" title="JWT auth"><bv-rule severity="must">Rotate keys every 90 days.</bv-rule><bv-reason>updated</bv-reason></bv-topic>',
+          {impact: 'high', previousSummary: 'prior', summary: 'new', type: 'UPDATE'},
+        ),
+        sessionId: k2.sessionId!,
+      })
+
+      const backupContent = await readBackup(projectRoot, 'security/auth.html')
+      expect(backupContent, 'backup must hold the prior bytes for restore-on-reject').to.equal(initialContent)
+    })
+
+    it('does NOT create a backup on ADD (no prior file at path)', async () => {
+      // Fresh ADD — there's nothing to back up. Backup store should stay empty.
+      const k = await kickoffSession({content: 'remember JWT', projectRoot})
+      await continueSession({projectRoot, response: VALID_TOPIC_HTML, sessionId: k.sessionId!})
+
+      const backupContent = await readBackup(projectRoot, 'security/auth.html')
+      expect(backupContent).to.equal(null)
+    })
+
+    it('does NOT create a backup when project has reviewDisabled = true', async () => {
+      // Seed the topic.
+      const k1 = await kickoffSession({content: 'x', projectRoot})
+      await continueSession({projectRoot, response: VALID_TOPIC_HTML, sessionId: k1.sessionId!})
+
+      // Now turn off reviews.
+      await mkdir(join(projectRoot, BRV_DIR), {recursive: true})
+      await writeFile(
+        join(projectRoot, BRV_DIR, 'config.json'),
+        JSON.stringify({createdAt: new Date().toISOString(), reviewDisabled: true, version: '1'}),
+        'utf8',
+      )
+
+      // UPDATE under reviewDisabled. No backup should appear (review-backups/ stays empty
+      // so rejected curates aren't restorable — consistent with main's behaviour).
+      const k2 = await kickoffSession({content: 'x', projectRoot})
+      await continueSession({
+        confirmOverwrite: true,
+        projectRoot,
+        response: envelope(VALID_TOPIC_HTML_RAW, {impact: 'high', type: 'UPDATE'}),
+        sessionId: k2.sessionId!,
+      })
+
+      const backupContent = await readBackup(projectRoot, 'security/auth.html')
+      expect(backupContent).to.equal(null)
+    })
+
+    it('first-write-wins: two consecutive UPDATEs between pushes preserve the snapshot-at-last-push', async () => {
+      // Seed.
+      const k1 = await kickoffSession({content: 'x', projectRoot})
+      await continueSession({projectRoot, response: VALID_TOPIC_HTML, sessionId: k1.sessionId!})
+      const originalSnapshot = await readFile(
+        join(projectRoot, BRV_DIR, 'context-tree', 'security', 'auth.html'),
+        'utf8',
+      )
+
+      // First UPDATE — backup captures the original snapshot.
+      const k2 = await kickoffSession({content: 'update 1', projectRoot})
+      await continueSession({
+        confirmOverwrite: true,
+        projectRoot,
+        response: envelope(
+          '<bv-topic path="security/auth" title="JWT auth"><bv-rule>v2</bv-rule><bv-reason>r</bv-reason></bv-topic>',
+          {impact: 'high', type: 'UPDATE'},
+        ),
+        sessionId: k2.sessionId!,
+      })
+
+      // Second UPDATE — first-write-wins means the backup must still hold the ORIGINAL
+      // snapshot, not the intermediate v2 content. Otherwise rejecting after multiple
+      // curates would restore to a state that was never committed.
+      const k3 = await kickoffSession({content: 'update 2', projectRoot})
+      await continueSession({
+        confirmOverwrite: true,
+        projectRoot,
+        response: envelope(
+          '<bv-topic path="security/auth" title="JWT auth"><bv-rule>v3</bv-rule><bv-reason>r</bv-reason></bv-topic>',
+          {impact: 'high', type: 'UPDATE'},
+        ),
+        sessionId: k3.sessionId!,
+      })
+
+      const backupContent = await readBackup(projectRoot, 'security/auth.html')
+      expect(backupContent).to.equal(originalSnapshot)
     })
   })
 })

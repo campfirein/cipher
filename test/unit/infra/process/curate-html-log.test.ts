@@ -1,8 +1,12 @@
 import {expect} from 'chai'
+import {mkdir, mkdtemp, readFile, rm, writeFile} from 'node:fs/promises'
+import {tmpdir} from 'node:os'
+import {join, relative} from 'node:path'
 
 import type {HtmlWriteResult} from '../../../../src/server/infra/render/writer/html-writer.js'
 
-import {buildCurateHtmlLogEntry} from '../../../../src/server/infra/process/curate-html-log.js'
+import {backupContextTreeFile, buildCurateHtmlLogEntry} from '../../../../src/server/infra/process/curate-html-log.js'
+import {FileReviewBackupStore} from '../../../../src/server/infra/storage/file-review-backup-store.js'
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -169,6 +173,111 @@ describe('buildCurateHtmlLogEntry', () => {
       expect(op.status).to.equal('failed')
       expect(op.needsReview).to.equal(false)
       expect(op.reviewStatus).to.be.undefined
+    })
+  })
+
+  describe('backupContextTreeFile (regression for `brv review reject` restoring prior content)', () => {
+    // Mirrors main's `backupBeforeWrite` contract: before any destructive
+    // write under the context-tree root, capture the existing bytes into
+    // `<brvDir>/review-backups/<relativePath>` via the store. Without this,
+    // `brv review reject` deletes the file (review-handler treats missing
+    // backup as ADD → unlink).
+
+    let projectRoot: string
+
+    beforeEach(async () => {
+      projectRoot = await mkdtemp(join(tmpdir(), 'backup-helper-'))
+    })
+
+    afterEach(async () => {
+      await rm(projectRoot, {force: true, recursive: true})
+    })
+
+    async function seedTopic(relativePath: string, content: string): Promise<string> {
+      const absolutePath = join(projectRoot, '.brv', 'context-tree', relativePath)
+      await mkdir(join(absolutePath, '..'), {recursive: true})
+      await writeFile(absolutePath, content, 'utf8')
+      return absolutePath
+    }
+
+    function backupStoreFor(): FileReviewBackupStore {
+      return new FileReviewBackupStore(join(projectRoot, '.brv'))
+    }
+
+    it('saves prior file bytes to the backup store when the file exists', async () => {
+      const absolutePath = await seedTopic('security/auth.html', '<bv-topic path="security/auth">prior</bv-topic>')
+      const store = backupStoreFor()
+      const contextTreeRoot = join(projectRoot, '.brv', 'context-tree')
+
+      await backupContextTreeFile({absoluteFilePath: absolutePath, contextTreeRoot, reviewBackupStore: store, reviewDisabled: false})
+
+      const backupContent = await store.read(relative(contextTreeRoot, absolutePath))
+      expect(backupContent).to.equal('<bv-topic path="security/auth">prior</bv-topic>')
+    })
+
+    it('no-ops when the file does not exist (ADD case — ENOENT swallowed)', async () => {
+      const store = backupStoreFor()
+      const contextTreeRoot = join(projectRoot, '.brv', 'context-tree')
+      const absent = join(contextTreeRoot, 'never/written.html')
+
+      // Should not throw.
+      await backupContextTreeFile({absoluteFilePath: absent, contextTreeRoot, reviewBackupStore: store, reviewDisabled: false})
+
+      const backupContent = await store.read('never/written.html')
+      expect(backupContent).to.equal(null)
+    })
+
+    it('skips backup creation when reviewDisabled = true', async () => {
+      const absolutePath = await seedTopic('x/y.html', 'prior')
+      const store = backupStoreFor()
+      const contextTreeRoot = join(projectRoot, '.brv', 'context-tree')
+
+      await backupContextTreeFile({absoluteFilePath: absolutePath, contextTreeRoot, reviewBackupStore: store, reviewDisabled: true})
+
+      const backupContent = await store.read('x/y.html')
+      expect(backupContent).to.equal(null)
+    })
+
+    it('first-write-wins (delegated to the store): second call does not overwrite the snapshot', async () => {
+      const absolutePath = await seedTopic('x/y.html', 'snapshot-at-last-push')
+      const store = backupStoreFor()
+      const contextTreeRoot = join(projectRoot, '.brv', 'context-tree')
+
+      // First backup captures the snapshot.
+      await backupContextTreeFile({absoluteFilePath: absolutePath, contextTreeRoot, reviewBackupStore: store, reviewDisabled: false})
+
+      // File evolves on disk, then a second curate triggers another backup attempt.
+      await writeFile(absolutePath, 'newer-content', 'utf8')
+      await backupContextTreeFile({absoluteFilePath: absolutePath, contextTreeRoot, reviewBackupStore: store, reviewDisabled: false})
+
+      // The backup must still hold the original snapshot — multiple curates between
+      // pushes must not erode the "state at last push" guarantee.
+      const backupContent = await store.read('x/y.html')
+      expect(backupContent).to.equal('snapshot-at-last-push')
+    })
+
+    it('I/O failure does not throw (best-effort; backup must never block curate)', async () => {
+      const store = backupStoreFor()
+      const contextTreeRoot = join(projectRoot, '.brv', 'context-tree')
+      // Path that doesn't resolve under context-tree-root and isn't readable.
+      const garbage = '/proc/this-cannot-be-read-or-resolved/xxx'
+
+      await backupContextTreeFile({absoluteFilePath: garbage, contextTreeRoot, reviewBackupStore: store, reviewDisabled: false})
+
+      // No exception, no backup.
+      expect(await store.list()).to.have.lengthOf(0)
+    })
+
+    // Sanity: this is the exact bytes-as-saved snapshot the rejected `brv review reject`
+    // reads. If this round-trip breaks, the restore path breaks silently.
+    it('backup content round-trips through the store byte-for-byte', async () => {
+      const absolutePath = await seedTopic('x/y.html', '<bv-topic>\n  <bv-rule>α β γ</bv-rule>\n</bv-topic>')
+      const store = backupStoreFor()
+      const contextTreeRoot = join(projectRoot, '.brv', 'context-tree')
+
+      await backupContextTreeFile({absoluteFilePath: absolutePath, contextTreeRoot, reviewBackupStore: store, reviewDisabled: false})
+      const backupContent = await readFile(join(projectRoot, '.brv', 'review-backups', 'x/y.html'), 'utf8')
+      expect(backupContent).to.equal('<bv-topic>\n  <bv-rule>α β γ</bv-rule>\n</bv-topic>')
     })
   })
 
