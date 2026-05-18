@@ -45,6 +45,10 @@ export const ChannelEvents = {
   PROFILE_LIST: 'channel:profile-list',
   PROFILE_SHOW: 'channel:profile-show',
   PROFILE_REMOVE: 'channel:profile-remove',
+  // Phase 10 Tier B3 (V6 run-3 §4a) — record/clear per-profile drift
+  // observations (file:line + description). Surfaces in profile-show.
+  PROFILE_RECORD_DRIFT: 'channel:profile-record-drift',
+  PROFILE_CLEAR_DRIFT: 'channel:profile-clear-drift',
 
   // Turns (Phase 1: post/list-turns/get-turn; Phase 2: mention/cancel/permission)
   POST: 'channel:post',
@@ -560,7 +564,21 @@ export const ChannelProfileShowRequestSchema = z.object({
 })
 export type ChannelProfileShowRequest = z.infer<typeof ChannelProfileShowRequestSchema>
 
+// Phase 10 Tier B3 — drift observations on the wire. Mirrors the
+// `DriftObservation` shape in profile-metadata-store. Kept as a small
+// inline schema to avoid pulling server-side types into the shared
+// transport layer.
+const DriftObservationSchema = z.object({
+  description: z.string(),
+  file: z.string(),
+  line: z.number().int().nonnegative().optional(),
+  observedAt: z.string(),
+})
+
 export const ChannelProfileShowResponseSchema = z.object({
+  // Phase 10 Tier B3 — recorded drift observations for this profile.
+  // Empty/omitted means none recorded. Surfaced in `profile show`.
+  driftObservations: z.array(DriftObservationSchema).optional(),
   profile: AgentDriverProfileSchema,
 })
 export type ChannelProfileShowResponse = z.infer<typeof ChannelProfileShowResponseSchema>
@@ -576,6 +594,33 @@ export const ChannelProfileRemoveResponseSchema = z.object({
   removed: z.boolean(),
 })
 export type ChannelProfileRemoveResponse = z.infer<typeof ChannelProfileRemoveResponseSchema>
+
+// channel:profile-record-drift (Phase 10 Tier B3) ----------------------------
+
+export const ChannelProfileRecordDriftRequestSchema = z.object({
+  description: z.string().min(1),
+  file: z.string().min(1),
+  line: z.number().int().nonnegative().optional(),
+  name: z.string().min(1),
+})
+export type ChannelProfileRecordDriftRequest = z.infer<typeof ChannelProfileRecordDriftRequestSchema>
+
+export const ChannelProfileRecordDriftResponseSchema = z.object({
+  observationCount: z.number().int().nonnegative(),
+})
+export type ChannelProfileRecordDriftResponse = z.infer<typeof ChannelProfileRecordDriftResponseSchema>
+
+// channel:profile-clear-drift (Phase 10 Tier B3) -----------------------------
+
+export const ChannelProfileClearDriftRequestSchema = z.object({
+  name: z.string().min(1),
+})
+export type ChannelProfileClearDriftRequest = z.infer<typeof ChannelProfileClearDriftRequestSchema>
+
+export const ChannelProfileClearDriftResponseSchema = z.object({
+  cleared: z.boolean(),
+})
+export type ChannelProfileClearDriftResponse = z.infer<typeof ChannelProfileClearDriftResponseSchema>
 
 // Re-export the invocation sub-schema so Slice 3.2's onboard service and
 // downstream tests can import a single canonical source.

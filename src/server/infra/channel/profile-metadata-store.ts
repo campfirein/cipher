@@ -27,7 +27,22 @@ import {dirname, join} from 'node:path'
 
 export type ProfileLastProbeError = 'AUTH_REQUIRED'
 
+// Phase 10 Tier B3 (V6 run-3 §4a) — per-profile drift telemetry. When a
+// review identifies an agent reproducing the same spec deviation in the
+// same `<file>:<line>` location across runs, recording it here lets a
+// future `channel profile show <name>` surface "known drift" upfront so
+// the orchestrator can tighten the contract before re-dispatching. V6
+// run-3 specifically caught @pi reproducing the `-100` vs spec `-50`
+// cull deviation at `systems.js:159` across run-2 + run-3.
+export type DriftObservation = {
+  readonly description: string
+  readonly file: string
+  readonly line?: number
+  readonly observedAt: string
+}
+
 export type ProfileMetadataRecord = {
+  readonly driftObservations?: ReadonlyArray<DriftObservation>
   readonly lastProbeAt?: string
   readonly lastProbeError?: ProfileLastProbeError
 }
@@ -38,7 +53,17 @@ export type SetLastProbeErrorArgs = {
   readonly name: string
 }
 
+export type AddDriftObservationArgs = {
+  readonly description: string
+  readonly file: string
+  readonly line?: number
+  readonly name: string
+  readonly observedAt: string
+}
+
 export interface IProfileMetadataStore {
+  addDriftObservation(args: AddDriftObservationArgs): Promise<void>
+  clearDriftObservations(name: string): Promise<void>
   clearLastProbeError(name: string): Promise<void>
   get(name: string): Promise<ProfileMetadataRecord | undefined>
   setLastProbeError(args: SetLastProbeErrorArgs): Promise<void>
@@ -62,10 +87,49 @@ export class FileProfileMetadataStore implements IProfileMetadataStore {
     this.dataDir = options.dataDir
   }
 
+  async addDriftObservation(args: AddDriftObservationArgs): Promise<void> {
+    const doc = await this.readDoc()
+    const existing: ProfileMetadataRecord = doc[args.name] ?? {}
+    const prior = existing.driftObservations ?? []
+    const next: DriftObservation = {
+      description: args.description,
+      file: args.file,
+      observedAt: args.observedAt,
+      ...(args.line === undefined ? {} : {line: args.line}),
+    }
+    doc[args.name] = {...existing, driftObservations: [...prior, next]}
+    await this.writeAtomic(doc)
+  }
+
+  async clearDriftObservations(name: string): Promise<void> {
+    const doc = await this.readDoc()
+    const existing = doc[name]
+    if (existing === undefined || existing.driftObservations === undefined) return
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const {driftObservations, ...rest} = existing
+    if (Object.keys(rest).length === 0) {
+      delete doc[name]
+    } else {
+      doc[name] = rest
+    }
+
+    await this.writeAtomic(doc)
+  }
+
   async clearLastProbeError(name: string): Promise<void> {
     const doc = await this.readDoc()
-    if (!(name in doc)) return
-    delete doc[name]
+    const existing = doc[name]
+    if (existing === undefined) return
+    // B3: preserve driftObservations + other future fields; clear ONLY
+    // the probe-error fields.
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const {lastProbeAt, lastProbeError, ...rest} = existing
+    if (Object.keys(rest).length === 0) {
+      delete doc[name]
+    } else {
+      doc[name] = rest
+    }
+
     await this.writeAtomic(doc)
   }
 
@@ -76,7 +140,10 @@ export class FileProfileMetadataStore implements IProfileMetadataStore {
 
   async setLastProbeError(args: SetLastProbeErrorArgs): Promise<void> {
     const doc = await this.readDoc()
-    doc[args.name] = {lastProbeAt: args.at, lastProbeError: args.error}
+    // B3: preserve driftObservations (and any future sibling fields)
+    // when overwriting the probe state.
+    const existing: ProfileMetadataRecord = doc[args.name] ?? {}
+    doc[args.name] = {...existing, lastProbeAt: args.at, lastProbeError: args.error}
     await this.writeAtomic(doc)
   }
 

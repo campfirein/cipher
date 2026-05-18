@@ -33,13 +33,23 @@ public static flags = {
         return
       }
 
-      const {profile} = response
+      const {driftObservations, profile} = response
       this.log(`${profile.name} (${profile.displayName})`)
       this.log(`  driver class: ${profile.driverClass}`)
       this.log(`  invocation:   ${profile.invocation.command} ${profile.invocation.args.join(' ')}`)
       if (profile.detectedAcpVersion !== undefined) this.log(`  acpVersion:   ${profile.detectedAcpVersion}`)
       if (profile.capabilities?.length) this.log(`  capabilities: ${profile.capabilities.join(', ')}`)
       if (profile.probedAt !== undefined) this.log(`  probedAt:     ${profile.probedAt}`)
+      // Phase 10 Tier B3 — render drift observations (V6 run-3 §4a). When
+      // present, surfaces "known drift" so the orchestrator tightens the
+      // contract before re-dispatching.
+      if (driftObservations !== undefined && driftObservations.length > 0) {
+        this.log(`  drift observations:`)
+        for (const obs of driftObservations) {
+          const loc = obs.line === undefined ? obs.file : `${obs.file}:${obs.line}`
+          this.log(`    • ${loc} — ${obs.description} (observed ${obs.observedAt})`)
+        }
+      }
     } catch (error) {
       this.handleError(error, flags.json)
     }

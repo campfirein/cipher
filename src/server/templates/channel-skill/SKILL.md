@@ -345,6 +345,49 @@ integration review when parallel work completes. Kimi has been the
 strongest reviewer across V1–V4 — useful as a no-op confirmation step,
 but the shared-constants pattern above is the actual prevention.
 
+### Contract strength → defect prevention
+
+The strength of a brv channel multi-agent build is **proportional to
+the strength of the contract artifact**. V6 super-mario run-2 → run-3
+(2026-05-18) verified this empirically: four spec deviations from
+run-2 were ALL prevented in run-3 by tightening the contract on those
+four specific points. 4/4 caught pre-runtime.
+
+Three properties make a contract strong:
+
+1. **Negative constraints + reasoning, not just positive declarations.**
+   Positive: "off-screen cull at -50".
+   Stronger: "off-screen cull MUST be -50, NOT -100 — the spawner uses
+   -50 to gate entity recycling; -100 would leak entities for an extra
+   frame."
+   Agents drift on values that sound like "around X" or "approximately
+   X". They respect values with a numbered constraint AND a reason.
+
+2. **Negative constraints catch silent additions.**
+   Positive: "wave 6+ schedule is zigzags + tank."
+   Stronger: "wave 6+ schedule is zigzags + tank, **NO extra grunts**."
+   Without the explicit prohibition, agents extrapolate ("for harder
+   waves I'll add grunts"). With it, the else-branch matches the spec.
+
+3. **Reasoning makes the agent self-audit during the restate step.**
+   When the OUTPUT GATE asks the agent to restate the contract before
+   writing, an agent reading "MUST = 50 because X" will catch its own
+   "I'll use 100" drift in the restate output. Reasoning anchors
+   compliance even when the spec is long.
+
+**Run-2 → run-3 case study (4/4 deviations prevented):**
+
+| Run-2 deviation | Run-3 contract change | Result |
+|---|---|---|
+| `@pi` cull `-100` vs spec `-50` | Named constant `OFFSCREEN_MARGIN = 50` + "MUST be 50, not 100" in the spec body | ✅ pi used the named constant |
+| `@pi` added unspecified grunts to wave 6+ | "wave 6+ schedule is zigzags + tank, **NO extra grunts**" | ✅ pi's else-branch matches |
+| `@codex` R-key handler omitted `preventDefault()` | "all bound keys MUST call `event.preventDefault()`" | ✅ codex bound R with `preventDefault` |
+| `@opencode` game-over overlay omitted final score | "must include final score" in the Render.draw contract | ✅ render.js shows `final score N` |
+
+**When you spot the same deviation across runs, codify it as a negative
+constraint with reasoning.** This is the orchestrator-side equivalent
+of writing a regression test.
+
 ## Permission requests
 
 If an agent's turn includes a `permission_request` event (the agent is

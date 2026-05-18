@@ -78,4 +78,119 @@ describe('FileProfileMetadataStore (Slice 4.2)', () => {
     await store.setLastProbeError({at: '2026-05-12T00:00:00.000Z', error: 'AUTH_REQUIRED', name: 'kimi'})
     expect(await store.get('kimi')).to.not.equal(undefined)
   })
+
+  // Phase 10 Tier B3 (V6 run-3 §4a) — per-profile drift observations.
+  describe('drift observations', () => {
+    it('records a drift observation for a profile', async () => {
+      const store = new FileProfileMetadataStore({dataDir})
+      await store.addDriftObservation({
+        description: 'used -100 vs spec -50 for off-screen cull',
+        file: 'systems.js',
+        line: 159,
+        name: '@pi',
+        observedAt: '2026-05-18T18:00:00.000Z',
+      })
+      const record = await store.get('@pi')
+      expect(record?.driftObservations).to.have.lengthOf(1)
+      expect(record?.driftObservations?.[0].file).to.equal('systems.js')
+      expect(record?.driftObservations?.[0].line).to.equal(159)
+      expect(record?.driftObservations?.[0].description).to.match(/cull/)
+    })
+
+    it('appends multiple observations in insertion order', async () => {
+      const store = new FileProfileMetadataStore({dataDir})
+      await store.addDriftObservation({
+        description: 'first',
+        file: 'a.js',
+        line: 1,
+        name: '@pi',
+        observedAt: '2026-05-18T18:00:00.000Z',
+      })
+      await store.addDriftObservation({
+        description: 'second',
+        file: 'b.js',
+        line: 2,
+        name: '@pi',
+        observedAt: '2026-05-18T18:01:00.000Z',
+      })
+      const record = await store.get('@pi')
+      expect(record?.driftObservations?.map(o => o.description)).to.deep.equal(['first', 'second'])
+    })
+
+    it('omits line field when not provided', async () => {
+      const store = new FileProfileMetadataStore({dataDir})
+      await store.addDriftObservation({
+        description: 'whole-file refactor concern',
+        file: 'engine.js',
+        name: '@codex',
+        observedAt: '2026-05-18T18:00:00.000Z',
+      })
+      const obs = (await store.get('@codex'))?.driftObservations?.[0]
+      expect(obs?.line).to.equal(undefined)
+      expect(obs?.file).to.equal('engine.js')
+    })
+
+    it('clearDriftObservations removes the list but preserves probe state', async () => {
+      const store = new FileProfileMetadataStore({dataDir})
+      await store.setLastProbeError({at: '2026-05-18T18:00:00.000Z', error: 'AUTH_REQUIRED', name: '@kimi'})
+      await store.addDriftObservation({
+        description: 'finds it',
+        file: 'x.js',
+        line: 5,
+        name: '@kimi',
+        observedAt: '2026-05-18T18:00:00.000Z',
+      })
+      await store.clearDriftObservations('@kimi')
+      const record = await store.get('@kimi')
+      expect(record?.driftObservations).to.equal(undefined)
+      expect(record?.lastProbeError, 'probe state preserved on drift clear').to.equal('AUTH_REQUIRED')
+    })
+
+    it('clearLastProbeError preserves drift observations (B3 cross-field safety)', async () => {
+      const store = new FileProfileMetadataStore({dataDir})
+      await store.setLastProbeError({at: '2026-05-18T18:00:00.000Z', error: 'AUTH_REQUIRED', name: '@kimi'})
+      await store.addDriftObservation({
+        description: 'persists across probe clears',
+        file: 'x.js',
+        name: '@kimi',
+        observedAt: '2026-05-18T18:00:00.000Z',
+      })
+      await store.clearLastProbeError('@kimi')
+      const record = await store.get('@kimi')
+      expect(record?.lastProbeError).to.equal(undefined)
+      expect(record?.driftObservations, 'drift observations survive probe clear').to.have.lengthOf(1)
+    })
+
+    it('setLastProbeError preserves existing drift observations (no clobber)', async () => {
+      const store = new FileProfileMetadataStore({dataDir})
+      await store.addDriftObservation({
+        description: 'pre-existing',
+        file: 'x.js',
+        name: '@kimi',
+        observedAt: '2026-05-18T18:00:00.000Z',
+      })
+      await store.setLastProbeError({at: '2026-05-18T19:00:00.000Z', error: 'AUTH_REQUIRED', name: '@kimi'})
+      const record = await store.get('@kimi')
+      expect(record?.driftObservations, 'drift observations survive probe-error set').to.have.lengthOf(1)
+      expect(record?.lastProbeError).to.equal('AUTH_REQUIRED')
+    })
+
+    it('clearDriftObservations on an empty record is a no-op', async () => {
+      const store = new FileProfileMetadataStore({dataDir})
+      await store.clearDriftObservations('@never-seen')
+      expect(await store.get('@never-seen')).to.equal(undefined)
+    })
+
+    it('clearDriftObservations removes the whole record when no other fields remain', async () => {
+      const store = new FileProfileMetadataStore({dataDir})
+      await store.addDriftObservation({
+        description: 'sole field',
+        file: 'x.js',
+        name: '@pi',
+        observedAt: '2026-05-18T18:00:00.000Z',
+      })
+      await store.clearDriftObservations('@pi')
+      expect(await store.get('@pi'), 'empty record cleaned up').to.equal(undefined)
+    })
+  })
 })

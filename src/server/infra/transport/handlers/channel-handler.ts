@@ -9,6 +9,7 @@ import type {
 } from '../../../core/interfaces/transport/i-transport-server.js'
 import type {IChannelDoctorService} from '../../channel/doctor-service.js'
 import type {IChannelOnboardService} from '../../channel/onboard-service.js'
+import type {IProfileMetadataStore} from '../../channel/profile-metadata-store.js'
 
 import {
   ChannelArchiveRequestSchema,
@@ -26,7 +27,9 @@ import {
   ChannelOnboardRequestSchema,
   ChannelPermissionDecisionRequestSchema,
   ChannelPostRequestSchema,
+  ChannelProfileClearDriftRequestSchema,
   ChannelProfileListRequestSchema,
+  ChannelProfileRecordDriftRequestSchema,
   ChannelProfileRemoveRequestSchema,
   ChannelProfileShowRequestSchema,
   ChannelRotateTokenRequestSchema,
@@ -76,6 +79,12 @@ export type ChannelHandlerDeps = {
   /** Phase-3 onboard service. Optional so Phase-1/2 tests can omit it. */
   readonly onboardService?: IChannelOnboardService
   readonly orchestrator: IChannelOrchestrator
+  /**
+   * Phase 10 Tier B3 — local-only profile metadata store (drift
+   * observations, last-probe state). Optional so Phase-1/2 and
+   * Phase-3-without-metadata tests can omit it.
+   */
+  readonly profileMetadataStore?: IProfileMetadataStore
   /** Phase-3 driver-profile registry. Optional so Phase-1/2 tests can omit it. */
   readonly profileStore?: IDriverProfileStore
   /**
@@ -121,6 +130,7 @@ export class ChannelHandler {
   private readonly doctorService: IChannelDoctorService | undefined
   private readonly onboardService: IChannelOnboardService | undefined
   private readonly orchestrator: IChannelOrchestrator
+  private readonly profileMetadataStore: IProfileMetadataStore | undefined
   private readonly profileStore: IDriverProfileStore | undefined
   private readonly rotateTokenFn: (() => Promise<{disconnectedClients: number; tokenFingerprint: string}>) | undefined
 
@@ -129,6 +139,7 @@ export class ChannelHandler {
     this.doctorService = deps.doctorService
     this.onboardService = deps.onboardService
     this.orchestrator = deps.orchestrator
+    this.profileMetadataStore = deps.profileMetadataStore
     this.profileStore = deps.profileStore
     this.rotateTokenFn = deps.rotateToken
   }
@@ -600,7 +611,17 @@ export class ChannelHandler {
 
       const profile = await store.get(req.name)
       if (profile === undefined) throw new ChannelProfileNotFoundError(req.name)
-      return {profile}
+      // Phase 10 Tier B3 — surface drift observations alongside the
+      // profile so `channel profile show` exposes "known drift"
+      // automatically. Omitted when no metadata store wired or no
+      // observations recorded.
+      const metadata = this.profileMetadataStore === undefined
+        ? undefined
+        : await this.profileMetadataStore.get(req.name)
+      const driftObservations = metadata?.driftObservations
+      return driftObservations === undefined || driftObservations.length === 0
+        ? {profile}
+        : {driftObservations, profile}
     })
 
     // channel:profile-remove — idempotent removal.
@@ -616,6 +637,50 @@ export class ChannelHandler {
       }
 
       return {removed: await store.remove(req.name)}
+    })
+
+    // channel:profile-record-drift (Phase 10 Tier B3) — record a per-handle
+    // drift observation. Surfaces in `channel profile show <name>` so the
+    // orchestrator sees "known drift" before re-dispatching.
+    register(ChannelEvents.PROFILE_RECORD_DRIFT, async (data, _clientId, ctx) => {
+      projectRootFromCtx(ctx)
+      const req = parseOrThrow(ChannelProfileRecordDriftRequestSchema, data)
+      const metadataStore = this.profileMetadataStore
+      if (metadataStore === undefined) {
+        throw new ChannelInvalidRequestError(
+          'channel:profile-record-drift requires the profile-metadata store (Phase 3.5)',
+          {phase: 3.5},
+        )
+      }
+
+      await metadataStore.addDriftObservation({
+        description: req.description,
+        file: req.file,
+        ...(req.line === undefined ? {} : {line: req.line}),
+        name: req.name,
+        observedAt: new Date().toISOString(),
+      })
+      const record = await metadataStore.get(req.name)
+      return {observationCount: record?.driftObservations?.length ?? 0}
+    })
+
+    // channel:profile-clear-drift (Phase 10 Tier B3) — clear all drift
+    // observations for a profile.
+    register(ChannelEvents.PROFILE_CLEAR_DRIFT, async (data, _clientId, ctx) => {
+      projectRootFromCtx(ctx)
+      const req = parseOrThrow(ChannelProfileClearDriftRequestSchema, data)
+      const metadataStore = this.profileMetadataStore
+      if (metadataStore === undefined) {
+        throw new ChannelInvalidRequestError(
+          'channel:profile-clear-drift requires the profile-metadata store (Phase 3.5)',
+          {phase: 3.5},
+        )
+      }
+
+      const before = await metadataStore.get(req.name)
+      const had = (before?.driftObservations?.length ?? 0) > 0
+      await metadataStore.clearDriftObservations(req.name)
+      return {cleared: had}
     })
 
     // channel:rotate-token — regenerate the daemon-auth-token. Returns a

@@ -899,6 +899,8 @@ async function main(): Promise<void> {
         doctorService: channelDoctorService,
         onboardService: channelOnboardService,
         orchestrator: channelOrchestrator,
+        // Phase 10 Tier B3 — wire the metadata store for drift telemetry.
+        profileMetadataStore: channelProfileMetadataStore,
         profileStore: channelProfileStore,
         rotateToken: () => daemonTokenProvider.rotate(),
       }).registerOn(channelTransport)

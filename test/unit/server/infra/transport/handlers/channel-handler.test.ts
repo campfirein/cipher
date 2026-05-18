@@ -201,6 +201,9 @@ describe('ChannelHandler (Slice 1.4)', () => {
       ChannelEvents.PROFILE_LIST,
       ChannelEvents.PROFILE_SHOW,
       ChannelEvents.PROFILE_REMOVE,
+      // Phase 10 Tier B3 — drift observations.
+      ChannelEvents.PROFILE_RECORD_DRIFT,
+      ChannelEvents.PROFILE_CLEAR_DRIFT,
       ChannelEvents.ROTATE_TOKEN,
     ]
     for (const event of wireEvents) {
