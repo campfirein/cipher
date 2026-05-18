@@ -16,10 +16,7 @@ import type {
   TaskError,
 } from '@campfirein/brv-transport-client'
 
-import type {
-  QueryLogMatchedDoc,
-  QueryLogTier,
-} from '../../server/core/domain/entities/query-log-entry.js'
+import type {QueryLogMatchedDoc, QueryLogTier} from '../../server/core/domain/entities/query-log-entry.js'
 
 import {TaskErrorCode} from '../../server/core/domain/errors/task-error.js'
 import {LlmEvents, TaskEvents, type TaskHeartbeatEvent} from '../../shared/transport/events/index.js'
@@ -67,7 +64,7 @@ export interface TaskCompletionResult {
   /** Documents matched by the query. Empty array on cache hits; absent for non-query tasks. */
   matchedDocs?: QueryLogMatchedDoc[]
   /** Pending review notification from the server, present when review is required after task completion. */
-  pendingReview?: {pendingCount: number; reviewUrl: string}
+  pendingReview?: {pendingCount: number; reviewUrl?: string}
   result?: string
   taskId: string
   /** Resolution tier for query tasks. Absent for non-query tasks. */
@@ -183,7 +180,7 @@ export function waitForTaskCompletion(options: WaitForTaskOptions, log: (msg: st
     let completed = false
     let disconnectTimer: NodeJS.Timeout | undefined
     const toolCalls: ToolCallRecord[] = []
-    let pendingReview: undefined | {pendingCount: number; reviewUrl: string}
+    let pendingReview: undefined | {pendingCount: number; reviewUrl?: string}
     let lastActivityAt = Date.now()
     const markActive = (): void => {
       lastActivityAt = Date.now()
@@ -342,7 +339,7 @@ export function waitForTaskCompletion(options: WaitForTaskOptions, log: (msg: st
         // Falls back to review:notify capture for backward compatibility.
         const resolvedPendingReview =
           payload.pendingReviewCount !== undefined && payload.pendingReviewCount > 0
-            ? {pendingCount: payload.pendingReviewCount, reviewUrl: pendingReview?.reviewUrl ?? ''}
+            ? {pendingCount: payload.pendingReviewCount, reviewUrl: pendingReview?.reviewUrl}
             : pendingReview
         onCompleted({
           durationMs: payload.durationMs,
@@ -365,7 +362,9 @@ export function waitForTaskCompletion(options: WaitForTaskOptions, log: (msg: st
         cleanup()
         onError({error: payload.error, logId: payload.logId, taskId, toolCalls})
         if (isText) {
-          reject(Object.assign(new Error(payload.error.message), {code: payload.error.code ?? TaskErrorCode.TASK_EXECUTION}))
+          reject(
+            Object.assign(new Error(payload.error.message), {code: payload.error.code ?? TaskErrorCode.TASK_EXECUTION}),
+          )
         } else {
           resolve()
         }

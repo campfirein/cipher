@@ -2,6 +2,15 @@
 
 All notable user-facing changes to ByteRover CLI will be documented in this file.
 
+## [3.14.0]
+
+### Added
+- **Review pending changes from `brv webui`.** The human-in-the-loop review queue now lives inside the Changes tab, with a Configuration toggle to turn review on or off per project. Approve, reject, or inspect pending curate operations next to your other diffs. The `brv review` CLI commands still work, and dashboard links deep-link straight to the right project's Changes tab.
+
+### Fixed
+- **`brv vc checkout` works on a freshly initialized project.** Right after `brv vc init` and `brv vc fetch`, checking out a remote-only branch used to fail with a misleading "no commits yet" error. The fetched ref now resolves correctly, so the init, fetch, checkout sequence works as expected. A typoed branch name also reports "branch not found" instead of "no commits yet."
+- **MCP server no longer pegs the CPU after the daemon disconnects.** When the daemon dropped, the MCP server used by Claude Desktop, Cursor, and other MCP-aware clients could spin into a high-CPU loop and hang on shutdown. It now installs one-shot crash guards, exits cleanly within 2 seconds, and lets pending tool calls return a real error before the connection closes.
+
 ## [3.13.0]
 
 ### Added
