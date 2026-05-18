@@ -5,6 +5,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@campfirein/byterover-packages/components/dropdown-menu'
+import {Tooltip, TooltipContent, TooltipTrigger} from '@campfirein/byterover-packages/components/tooltip'
 import {ArrowUpRight, ChevronDown, LoaderCircle, Plus} from 'lucide-react'
 
 import type {ConnectorType} from '../../../../shared/types/connector-type'
@@ -71,16 +72,23 @@ export function ConnectorRow({entry, isPending, onInstall, onTypeChange}: Props)
             </DropdownMenuContent>
           </DropdownMenu>
         ) : (
-          <Button
-            aria-label={`Add ${name}`}
-            className="size-8"
-            disabled={isPending}
-            onClick={() => onInstall(entry)}
-            size="icon-sm"
-            variant="outline"
-          >
-            {isPending ? <LoaderCircle className="size-4 animate-spin" /> : <Plus className="size-4" />}
-          </Button>
+          <Tooltip>
+            <TooltipTrigger
+              render={
+                <Button
+                  aria-label={`Add ${name} via ${connectorLabels[entry.agent.defaultConnectorType]}`}
+                  className="size-8"
+                  disabled={isPending}
+                  onClick={() => onInstall(entry)}
+                  size="icon-sm"
+                  variant="outline"
+                />
+              }
+            >
+              {isPending ? <LoaderCircle className="size-4 animate-spin" /> : <Plus className="size-4" />}
+            </TooltipTrigger>
+            <TooltipContent>Add via {connectorLabels[entry.agent.defaultConnectorType]}</TooltipContent>
+          </Tooltip>
         )}
       </div>
     </div>

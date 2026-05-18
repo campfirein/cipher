@@ -14,6 +14,11 @@ import {connectorLabels} from '../lib/connector-labels'
 import {buildConnectorList, type ConnectorListEntry, entryName} from '../lib/sort-agents'
 import {ConnectorRow} from './connector-row'
 
+function buildSuccessMessage(name: string, verb: string, type: ConnectorType): string {
+  const base = `${name} ${verb} ${connectorLabels[type]}.`
+  return requiresAgentRestart(type) ? `${base} Restart the agent to apply.` : base
+}
+
 export function ConnectorsPanel() {
   const {data: connectorsData, isLoading: isLoadingConnectors} = useGetConnectors()
   const {data: agentsData, isLoading: isLoadingAgents} = useGetAgents()
@@ -32,12 +37,7 @@ export function ConnectorsPanel() {
     setPendingAgent(agent.name)
     try {
       await installMutation.mutateAsync({agentId: agent.id, connectorType: agent.defaultConnectorType})
-      const needsRestart = requiresAgentRestart(agent.defaultConnectorType)
-      toast.success(
-        needsRestart
-          ? `${agent.name} connected via ${connectorLabels[agent.defaultConnectorType]}. Restart the agent to apply.`
-          : `${agent.name} connected via ${connectorLabels[agent.defaultConnectorType]}.`,
-      )
+      toast.success(buildSuccessMessage(agent.name, 'connected via', agent.defaultConnectorType))
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to install connector')
     } finally {
@@ -54,12 +54,7 @@ export function ConnectorsPanel() {
     setPendingAgent(entry.connector.agent)
     try {
       await installMutation.mutateAsync({agentId: entry.connector.agent, connectorType: newType})
-      const needsRestart = requiresAgentRestart(newType)
-      toast.success(
-        needsRestart
-          ? `${entry.connector.agent} switched to ${connectorLabels[newType]}. Restart the agent to apply.`
-          : `${entry.connector.agent} switched to ${connectorLabels[newType]}.`,
-      )
+      toast.success(buildSuccessMessage(entry.connector.agent, 'switched to', newType))
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'Failed to switch connector type')
     } finally {
