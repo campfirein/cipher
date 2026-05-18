@@ -2,10 +2,18 @@ import {randomUUID} from 'node:crypto'
 import {existsSync} from 'node:fs'
 import {mkdir, readFile, rm, writeFile} from 'node:fs/promises'
 import {dirname, join, relative} from 'node:path'
+import {z} from 'zod'
+
+import type {CurateMeta} from '../../shared/curate-meta.js'
 
 import {BRV_DIR, CONTEXT_TREE_DIR} from '../../server/constants.js'
 import {buildCorrectionPrompt, buildGeneratePrompt} from '../../server/core/domain/render/curate-prompt-builder.js'
-import {type HtmlWriteError, writeHtmlTopic} from '../../server/infra/render/writer/html-writer.js'
+import {ProjectConfigStore} from '../../server/infra/config/file-config-store.js'
+import {buildCurateHtmlLogEntry} from '../../server/infra/process/curate-html-log.js'
+import {type HtmlWriteError, validateHtmlTopic, writeHtmlTopic} from '../../server/infra/render/writer/html-writer.js'
+import {FileCurateLogStore} from '../../server/infra/storage/file-curate-log-store.js'
+import {getProjectDataDir} from '../../server/utils/path-utils.js'
+import {CurateMetaSchema} from '../../shared/curate-meta.js'
 
 /**
  * Curate session protocol — CLI-side orchestrator for the multi-step
@@ -199,6 +207,63 @@ export async function kickoffSession(options: KickoffOptions): Promise<CurateSes
 }
 
 /**
+ * Parsed CLI envelope response. Mirrors the MCP tool's typed input but
+ * arrives as a JSON string on the `--response` flag, so we have to
+ * parse + validate here. `meta` is optional — agents that don't supply
+ * it still curate successfully (just no review surfacing for that entry).
+ */
+const CurateResponseEnvelopeSchema = z.object({
+  html: z.string().min(1),
+  meta: CurateMetaSchema.optional(),
+})
+
+/**
+ * Custom error thrown by `parseCurateResponse` when the agent's response
+ * is not a well-formed envelope. Carries `kind: 'invalid-response-format'`
+ * so the orchestrator can map it to the envelope's structured `errors[]`
+ * shape without coupling parsing to envelope construction.
+ */
+class InvalidResponseFormatError extends Error {
+  readonly kind = 'invalid-response-format'
+}
+
+/**
+ * Parse the agent's `--response` payload as a JSON envelope `{html, meta?}`.
+ *
+ * The CLI session protocol used to accept raw HTML on `--response`; M4
+ * switches to a structured envelope so the calling agent's LLM can
+ * supply operation metadata (impact, type, reason) alongside the HTML
+ * for the HITL review pipeline.
+ *
+ * Throws `InvalidResponseFormatError` with `kind: 'invalid-response-format'`
+ * on malformed JSON, missing/empty `html`, or invalid `meta`. The caller
+ * (continueSession) catches and maps to a structured envelope error so
+ * the calling agent sees a clear "your response shape was wrong" signal
+ * pointing at the envelope contract.
+ */
+export function parseCurateResponse(raw: string): {html: string; meta?: CurateMeta} {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(raw)
+  } catch {
+    throw new InvalidResponseFormatError(
+      '--response must be a JSON envelope `{"html": "<bv-topic>...</bv-topic>", "meta": {...}}`. Got non-JSON input.',
+    )
+  }
+
+  const result = CurateResponseEnvelopeSchema.safeParse(parsed)
+  if (!result.success) {
+    const issue = result.error.issues[0]
+    const field = issue?.path.join('.') || '<root>'
+    throw new InvalidResponseFormatError(
+      `--response envelope failed validation at \`${field}\`: ${issue?.message ?? 'unknown error'}. Expected \`{"html": "<bv-topic>...</bv-topic>", "meta": {...}}\`.`,
+    )
+  }
+
+  return {html: result.data.html, meta: result.data.meta}
+}
+
+/**
  * Continue an existing session. Validates the response, writes the
  * topic file on success, advances the retry loop on failure, terminates
  * with `failed` once the retry cap is exhausted.
@@ -228,11 +293,62 @@ export async function continueSession(options: ContinueOptions): Promise<CurateS
     }
   }
 
+  // Parse the JSON envelope before touching the writer. A malformed
+  // envelope is a protocol-level failure (agent didn't follow the
+  // contract) — distinct from HTML validation failure (agent followed
+  // the contract but the HTML inside is wrong). The session stays
+  // alive so the caller can retry with a corrected envelope.
+  let parsed: {html: string; meta?: CurateMeta}
+  try {
+    parsed = parseCurateResponse(response)
+  } catch (error) {
+    if (error instanceof InvalidResponseFormatError) {
+      return {
+        errors: [{kind: error.kind, message: error.message}],
+        ok: false,
+        sessionId,
+        status: 'failed',
+      }
+    }
+
+    throw error
+  }
+
+  const {html, meta} = parsed
+
   // Run the writer end-to-end: parse, validate against the registry,
   // and atomically write to `.brv/context-tree/<topic.path>.html`. On
   // validation failure no file lands on disk.
   const contextTreeRoot = join(projectRoot, BRV_DIR, CONTEXT_TREE_DIR)
-  const writeResult = await writeHtmlTopic({confirmOverwrite, contextTreeRoot, rawHtml: response})
+
+  // Pre-resolve topicPath + existedBefore for the log entry. parse5 is
+  // cheap (validateHtmlTopic re-runs internally inside writeHtmlTopic
+  // so we don't risk drift). On parse failure topicPath is undefined
+  // and the log entry uses the sentinel path.
+  const preValidation = validateHtmlTopic(html)
+  const topicPath = preValidation.ok ? preValidation.topicPath : undefined
+  const existedBefore = topicPath !== undefined && existsSync(join(contextTreeRoot, `${topicPath}.html`))
+
+  const startedAt = Date.now()
+  const writeResult = await writeHtmlTopic({confirmOverwrite, contextTreeRoot, rawHtml: html})
+  const completedAt = Date.now()
+
+  await persistCurateLog({
+    completedAt,
+    confirmOverwrite,
+    existedBefore,
+    // Absolute path — review-handler treats `op.filePath` as absolute and
+    // calls `relative(contextTreeDir, ...)` to derive its display key.
+    // Mirrors dream-executor's convention.
+    filePath: writeResult.ok ? writeResult.filePath : undefined,
+    intent: state.userIntent,
+    meta,
+    projectRoot,
+    startedAt,
+    taskId: sessionId,
+    topicPath,
+    writeResult,
+  })
 
   state.attempts += 1
   state.lastResponse = response
@@ -322,6 +438,70 @@ function mapWriterError(err: HtmlWriteError): CurateSessionError {
       // missing-bv-topic, missing-path-attribute, multiple-bv-topic, unsafe-path
       return {kind: err.kind, message: err.message}
     }
+  }
+}
+
+/**
+ * Build + persist a CurateLogEntry for an in-process CLI continuation.
+ *
+ * The CLI session runs in-process (no daemon round-trip for the write),
+ * so the log entry is written directly here. `FileCurateLogStore` uses
+ * atomic tmp+rename writes — safe to interleave with daemon writes from
+ * the same project.
+ *
+ * Logging is best-effort: errors are swallowed (just like daemon-side
+ * `curate-log-handler`) so a transient FS error doesn't fail an
+ * otherwise-successful curate. The user can still recover via re-run.
+ */
+async function persistCurateLog(input: {
+  completedAt: number
+  confirmOverwrite: boolean
+  existedBefore: boolean
+  filePath?: string
+  intent: string
+  meta?: CurateMeta
+  projectRoot: string
+  startedAt: number
+  taskId: string
+  topicPath?: string
+  writeResult: Awaited<ReturnType<typeof writeHtmlTopic>>
+}): Promise<void> {
+  try {
+    const reviewDisabled = await resolveProjectReviewDisabled(input.projectRoot)
+    const store = new FileCurateLogStore({baseDir: getProjectDataDir(input.projectRoot)})
+    const id = await store.getNextId()
+    const entry = buildCurateHtmlLogEntry({
+      completedAt: input.completedAt,
+      confirmOverwrite: input.confirmOverwrite,
+      existedBefore: input.existedBefore,
+      filePath: input.filePath,
+      id,
+      intent: input.intent,
+      meta: input.meta,
+      reviewDisabled,
+      startedAt: input.startedAt,
+      taskId: input.taskId,
+      topicPath: input.topicPath,
+      writeResult: input.writeResult,
+    })
+    await store.save(entry)
+  } catch {
+    // Best-effort: log persistence must never fail the curate.
+  }
+}
+
+/**
+ * Read the project's `reviewDisabled` flag for the CLI's in-process
+ * session continuation. Equivalent of the daemon's `resolveReviewDisabled`
+ * in `brv-server.ts`. Returns `false` when the config file is absent
+ * (fail-open: review enabled by default).
+ */
+async function resolveProjectReviewDisabled(projectRoot: string): Promise<boolean> {
+  try {
+    const config = await new ProjectConfigStore().read(projectRoot)
+    return config?.reviewDisabled === true
+  } catch {
+    return false
   }
 }
 

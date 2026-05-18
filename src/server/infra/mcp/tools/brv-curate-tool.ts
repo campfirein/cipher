@@ -5,9 +5,11 @@ import {waitForConnectedClient} from '@campfirein/brv-transport-client'
 import {randomUUID} from 'node:crypto'
 import {z} from 'zod'
 
+import type {CurateMeta} from '../../../../shared/curate-meta.js'
 import type {CurateHtmlDirectResult} from '../../../core/interfaces/executor/i-curate-executor.js'
 import type {HtmlWriteError} from '../../render/writer/html-writer.js'
 
+import {CurateMetaSchema} from '../../../../shared/curate-meta.js'
 import {encodeCurateHtmlContent} from '../../../../shared/transport/curate-html-content.js'
 import {CURATE_SCHEMA_PROMPT} from '../../../core/domain/render/curate-prompt-builder.js'
 import {TransportTaskEventNames} from '../../../core/domain/transport/schemas.js'
@@ -101,6 +103,20 @@ const TOOL_DESCRIPTION = [
   'When a topic already exists at the resolved path, the tool refuses to clobber by default and returns',
   'a structured `path-exists` error with the existing content inlined so you can merge. Pass',
   '`confirmOverwrite: true` to replace the existing topic entirely.',
+  '',
+  '# Operation metadata (optional `meta` field)',
+  'Supply `meta` alongside `html` so the curate operation surfaces in `brv review pending` for human',
+  'reviewers. Omitting `meta` still writes the topic — it just does not surface for review.',
+  '- `meta.type`: "ADD" for a fresh topic, "UPDATE" for replacing an existing one, "MERGE" when',
+  '  combining new content into an existing topic (typically after a path-exists correction).',
+  '  Optional — defaults to "ADD" when no file exists at the path, "UPDATE" otherwise.',
+  '- `meta.impact`: "high" for a load-bearing decision, must-rule, architectural pattern, or new',
+  '  domain knowledge a teammate should validate. "low" for refinements / additions / clarifications.',
+  '  Optional. Omitting it means "do not surface for review".',
+  '- `meta.reason`: one short sentence shown to human reviewers explaining why this curation matters.',
+  '- `meta.summary`: one-line semantic summary of the topic after this operation.',
+  '- `meta.previousSummary`: (UPDATE / MERGE only) one-line summary of what the topic said before.',
+  '- `meta.confidence`: "high" / "low". Optional.',
 ].join('\n')
 
 // Strict so the legacy `{context, files, folder}` shape (or any typo'd field)
@@ -122,6 +138,9 @@ export const BrvCurateInputSchema = z
       .describe(
         'Complete <bv-topic> HTML document. Must include a `path` attribute on the root <bv-topic>. See the tool description for the closed element vocabulary and output contract.',
       ),
+    meta: CurateMetaSchema.optional().describe(
+      'Operation metadata for the human-in-the-loop review pipeline. Supply when the curate is load-bearing enough to need review (impact: "high"). Omitting means the topic is written but does not surface in `brv review pending`. See the tool description for field semantics.',
+    ),
   })
   .strict()
 
@@ -158,7 +177,17 @@ export function registerBrvCurateTool(
       inputSchema: BrvCurateInputSchema,
       title: 'ByteRover Curate',
     },
-    async ({confirmOverwrite, cwd, html}: {confirmOverwrite?: boolean; cwd?: string; html: string}) => {
+    async ({
+      confirmOverwrite,
+      cwd,
+      html,
+      meta,
+    }: {
+      confirmOverwrite?: boolean
+      cwd?: string
+      html: string
+      meta?: CurateMeta
+    }) => {
       const cwdResult = resolveClientCwd(cwd, getWorkingDirectory)
       if (!cwdResult.success) {
         return {
@@ -191,7 +220,7 @@ export function registerBrvCurateTool(
 
         await client.requestWithAck(TransportTaskEventNames.CREATE, {
           clientCwd: cwdResult.clientCwd,
-          content: encodeCurateHtmlContent({confirmOverwrite, html}),
+          content: encodeCurateHtmlContent({confirmOverwrite, html, meta}),
           projectPath: taskContext.projectRoot,
           taskId,
           type: 'curate-html-direct',

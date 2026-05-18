@@ -16,7 +16,14 @@ import {decodeCurateHtmlContent} from '../../../../../src/shared/transport/curat
 const noClient = (): ITransportClient | undefined => undefined
 const noWorkingDirectory = (): string | undefined => undefined
 
-type CurateToolHandler = (input: {confirmOverwrite?: boolean; cwd?: string; html: string}) => Promise<{
+import type {CurateMeta} from '../../../../../src/shared/curate-meta.js'
+
+type CurateToolHandler = (input: {
+  confirmOverwrite?: boolean
+  cwd?: string
+  html: string
+  meta?: CurateMeta
+}) => Promise<{
   content: Array<{text: string; type: string}>
   isError?: boolean
 }>
@@ -150,6 +157,38 @@ describe('brv-curate-tool', () => {
       expect(result.success).to.be.false
     })
 
+    it('accepts a well-formed meta object', () => {
+      const result = BrvCurateInputSchema.safeParse({
+        html: VALID_HTML,
+        meta: {impact: 'high', reason: 'Locks JWT alg.', summary: 'JWT RS256.', type: 'ADD'},
+      })
+      expect(result.success).to.be.true
+    })
+
+    it('accepts meta with only a subset of fields', () => {
+      const result = BrvCurateInputSchema.safeParse({
+        html: VALID_HTML,
+        meta: {impact: 'low'},
+      })
+      expect(result.success).to.be.true
+    })
+
+    it('rejects invalid meta.impact enum', () => {
+      const result = BrvCurateInputSchema.safeParse({
+        html: VALID_HTML,
+        meta: {impact: 'severe'},
+      })
+      expect(result.success).to.be.false
+    })
+
+    it('rejects unknown keys inside meta (.strict on the meta schema)', () => {
+      const result = BrvCurateInputSchema.safeParse({
+        html: VALID_HTML,
+        meta: {impact: 'high', importance: 'high'},
+      })
+      expect(result.success).to.be.false
+    })
+
     it('rejects legacy {context, files, folder} shape', () => {
       // The old API took context/files/folder. After M3 the schema only accepts
       // {cwd, html, confirmOverwrite?} and is .strict(), so even a payload that
@@ -228,6 +267,24 @@ describe('brv-curate-tool', () => {
       expect(inlineFlowMatch, 'sectioned example contains an inline <bv-flow> block').to.exist
     })
 
+    it('documents the optional meta field for review surfacing', () => {
+      const {getDescription} = setupHandler({
+        getClient: () => createMockClient().client,
+        getWorkingDirectory: () => '/project/root',
+      })
+
+      const description = getDescription()
+      // Calling agents must see how to opt in to HITL review surfacing —
+      // the meta section explains impact / type / reason semantics so the
+      // calling agent's LLM can make a judgment call on each curate.
+      expect(description).to.include('# Operation metadata')
+      expect(description).to.include('impact')
+      expect(description).to.include('high')
+      expect(description).to.include('reason')
+      // Optional — explicit so the agent doesn't think it's required.
+      expect(description.toLowerCase()).to.include('optional')
+    })
+
     it('includes the authoring-patterns guidance for sectioning', () => {
       const {getDescription} = setupHandler({
         getClient: () => createMockClient().client,
@@ -271,6 +328,60 @@ describe('brv-curate-tool', () => {
       const decoded = decodeCurateHtmlContent(payload.content)
       expect(decoded.html).to.equal(VALID_HTML)
       expect(decoded.confirmOverwrite).to.equal(true)
+    })
+
+    it('threads meta through to the encoded payload when supplied', async () => {
+      const {client, simulateEvent} = createMockClient()
+      const requestStub = client.requestWithAck as SinonStub
+      requestStub.callsFake((event: string, data: {taskId?: string}) => {
+        if (event === 'task:create' && data.taskId) {
+          simulateEvent('task:completed', {result: JSON.stringify(okEnvelope()), taskId: data.taskId})
+        }
+
+        return Promise.resolve()
+      })
+
+      const {handler} = setupHandler({
+        getClient: () => client,
+        getWorkingDirectory: () => '/project/root',
+      })
+
+      await handler({
+        html: VALID_HTML,
+        meta: {impact: 'high', reason: 'Locks alg.', summary: 'JWT.', type: 'ADD'},
+      })
+
+      const createCall = requestStub.getCalls().find((c: {args: unknown[]}) => c.args[0] === 'task:create')
+      const decoded = decodeCurateHtmlContent((createCall!.args[1] as {content: string}).content)
+      expect(decoded.meta).to.deep.equal({
+        impact: 'high',
+        reason: 'Locks alg.',
+        summary: 'JWT.',
+        type: 'ADD',
+      })
+    })
+
+    it('omits meta from the encoded payload when not supplied', async () => {
+      const {client, simulateEvent} = createMockClient()
+      const requestStub = client.requestWithAck as SinonStub
+      requestStub.callsFake((event: string, data: {taskId?: string}) => {
+        if (event === 'task:create' && data.taskId) {
+          simulateEvent('task:completed', {result: JSON.stringify(okEnvelope()), taskId: data.taskId})
+        }
+
+        return Promise.resolve()
+      })
+
+      const {handler} = setupHandler({
+        getClient: () => client,
+        getWorkingDirectory: () => '/project/root',
+      })
+
+      await handler({html: VALID_HTML})
+
+      const createCall = requestStub.getCalls().find((c: {args: unknown[]}) => c.args[0] === 'task:create')
+      const decoded = decodeCurateHtmlContent((createCall!.args[1] as {content: string}).content)
+      expect(decoded.meta).to.be.undefined
     })
 
     it('omits confirmOverwrite when input does not include it', async () => {
