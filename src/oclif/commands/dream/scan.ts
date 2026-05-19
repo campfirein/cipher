@@ -3,12 +3,15 @@ import type {TaskAck} from '@campfirein/brv-transport-client'
 import {Command, Flags} from '@oclif/core'
 import {randomUUID} from 'node:crypto'
 
+import {ALL_DREAM_KINDS} from '../../../server/infra/dream/tool-mode/dream-session.js'
 import {TaskEvents} from '../../../shared/transport/events/index.js'
 import {type DaemonClientOptions, formatConnectionError, withDaemonRetry} from '../../lib/daemon-client.js'
 import {writeJsonResponse} from '../../lib/json-response.js'
 import {DEFAULT_TIMEOUT_SECONDS, MAX_TIMEOUT_SECONDS, MIN_TIMEOUT_SECONDS, waitForTaskCompletion} from '../../lib/task-client.js'
 
-const VALID_KINDS: readonly string[] = ['link', 'merge', 'prune', 'synthesize']
+// Canonical kinds list lives on the daemon side (dream-session.ts:ALL_DREAM_KINDS).
+// Importing it here keeps the CLI validator from drifting if a new kind is added.
+const VALID_KINDS: readonly string[] = ALL_DREAM_KINDS
 
 export default class DreamScan extends Command {
   public static description =

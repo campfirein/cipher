@@ -373,6 +373,50 @@ brv vc push -u origin main       # push and set upstream tracking
 brv vc clone https://byterover.dev/<team>/<space>.git
 ```
 
+### 7. Dream — Context Tree Cleanup
+**Overview:** `brv dream` is a three-phase deterministic pass over `.brv/context-tree/` that surfaces cleanup candidates (link / merge / prune / synthesize) for YOU (the calling agent) to act on. No LLM is invoked on the daemon side — the daemon enumerates structural candidates, you do the semantic judgment via `brv curate` writes, then `brv dream finalize` archives the loser topics. The pipeline runs without a provider configured.
+
+**Use this when:**
+- The user asks to consolidate, dedupe, prune, or organize the context tree
+- You notice the tree has accumulated near-duplicate or stale topics over time
+
+**Do NOT use this when:**
+- The tree is fresh / small (< ~10 topics) — there's nothing to clean up yet
+- The user only wants to search or query — use `brv query` / `brv search`
+
+**Three-phase workflow:**
+
+**Phase 1 — Scan:**
+```bash
+brv dream scan --format json
+```
+Returns a `sessionId` (uuid) and `candidates` keyed by kind:
+- `link`: BM25-similar topic pairs that aren't cross-linked yet. Act by calling `brv curate` UPDATE on both topics to add `<bv-related>` edges.
+- `merge`: BM25-near-duplicates. Pick a survivor, call `brv curate` UPDATE with the merged body, then archive the loser via `brv dream finalize`.
+- `prune`: Low-importance or stale-mtime topics. Decide per candidate: ARCHIVE (via `finalize`), KEEP (no action), or MERGE_INTO another topic.
+- `synthesize`: Per-domain topic groups plus existing synthesis topics. Decide whether to author a new cross-cutting `<bv-topic>` under `synthesis/<slug>` via `brv curate` ADD.
+
+Filter scope or kinds:
+```bash
+brv dream scan --kinds link,merge --scope security/ --max-candidates 20 --format json
+```
+
+**Phase 2 — Act:** invoke `brv curate` (per the Curate Context section above) for each candidate you decide to act on. Keep the `sessionId` from Phase 1 — you'll need it for finalize.
+
+**Phase 3 — Finalize:**
+```bash
+brv dream finalize --session <sessionId> --archive testing/old-notes.html,redis/cache.html --format json
+```
+Archive paths MUST match exactly what `dream scan` emitted (full relative path under `.brv/context-tree/`, with `.html` extension). Files move to `.brv/archive/<path>` and a dream-log entry is written so the operation is undoable. `--archive` and `--archive-file <path>` are mutually exclusive; exactly one is required. The archive list is capped at 200 entries per call; split into multiple finalize calls for larger batches.
+
+**Undo the most recent finalize:**
+```bash
+brv dream undo --format json
+```
+Restores archived topics to their original locations (content is byte-identical; mtime resets to current time). Curate writes from Phase 2 are NOT rolled back by undo — use `brv review reject <taskId>` for those (see Review Pending Changes section).
+
+**Stateless v1 notes:** `brv dream sessions` returns an empty list and `brv dream cancel --session <id>` is a no-op — sessions are tracked agent-side, not daemon-side. The `sessionId` from scan is for your bookkeeping between scan and finalize; the daemon doesn't enforce it.
+
 ### 8. Swarm Query
 **Overview:** Search across all active memory providers simultaneously — ByteRover context tree, Obsidian vault, Local Markdown folders, GBrain, and Memory Wiki. Results are fused via Reciprocal Rank Fusion (RRF) and ranked by provider weight and relevance. No LLM call — pure algorithmic search. When multiple memory providers are configured, run `brv swarm query` alongside `brv query` to broaden recall at near-zero token cost.
 

@@ -13,10 +13,11 @@ export default class DreamFinalize extends Command {
   public static description =
     'Phase 3 of tool-mode dream — archive the loser topics the agent chose from the merge candidates.'
 public static examples = [
-    '# Archive specific topics, closing a session',
-    '<%= config.bin %> <%= command.id %> --session drm-abc --archive testing/red_green_refactor,redis/cache_config',
+    '# Archive specific topics, closing a session.',
+    '# Paths must match exactly what `brv dream scan` emits — full relative path including the .html extension.',
+    '<%= config.bin %> <%= command.id %> --session drm-abc --archive testing/old-notes.html,redis/eviction.html',
     '',
-    '# Read archive list from a file (one path per line)',
+    '# Read archive list from a file (one path per line).',
     '<%= config.bin %> <%= command.id %> --session drm-abc --archive-file losers.txt',
   ]
 public static flags = {
@@ -40,6 +41,33 @@ public static flags = {
     const {flags: raw} = await this.parse(DreamFinalize)
     const format = raw.format === 'json' ? 'json' : 'text'
 
+    // Conflict guard: --archive and --archive-file are mutually exclusive.
+    // Without this, --archive silently wins and --archive-file is dropped.
+    if (raw.archive && raw['archive-file']) {
+      const msg = '--archive and --archive-file are mutually exclusive; pick one.'
+      if (format === 'json') {
+        writeJsonResponse({command: 'dream-finalize', data: {error: msg, status: 'error'}, success: false})
+      } else {
+        this.log(msg)
+      }
+
+      return
+    }
+
+    // Require one of --archive or --archive-file. Without this, a stray
+    // `dream finalize --session X` exits 0 with archived:[] — a silent no-op
+    // that hides a typo'd flag in scripting.
+    if (!raw.archive && !raw['archive-file']) {
+      const msg = 'Either --archive or --archive-file is required (use --archive "" to explicitly cancel).'
+      if (format === 'json') {
+        writeJsonResponse({command: 'dream-finalize', data: {error: msg, status: 'error'}, success: false})
+      } else {
+        this.log(msg)
+      }
+
+      return
+    }
+
     let archive: string[] = []
     if (raw.archive) {
       archive = raw.archive.split(',').map((s) => s.trim()).filter(Boolean)
@@ -57,6 +85,23 @@ public static flags = {
 
         return
       }
+    }
+
+    // Cap batch size to keep the daemon socket message bounded. 200 covers
+    // realistic dream sessions (10s of candidates per kind, 4 kinds) with
+    // headroom; beyond that the call would risk hitting the transport's
+    // payload limit and disconnecting the daemon. Users with very large
+    // archive lists should call finalize in multiple batches.
+    const MAX_ARCHIVE_BATCH = 200
+    if (archive.length > MAX_ARCHIVE_BATCH) {
+      const msg = `--archive list too large: ${archive.length} entries (max ${MAX_ARCHIVE_BATCH}). Split across multiple finalize calls.`
+      if (format === 'json') {
+        writeJsonResponse({command: 'dream-finalize', data: {error: msg, status: 'error'}, success: false})
+      } else {
+        this.log(msg)
+      }
+
+      return
     }
 
     try {
