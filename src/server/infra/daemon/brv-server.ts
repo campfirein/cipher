@@ -837,6 +837,12 @@ async function main(): Promise<void> {
           await host.start()
           // Register inbound handlers BEFORE returning so the host is
           // dial-ready in both directions by the time any caller uses it.
+          //
+          // TODO(9.4c): read acceptModes + tofuPolicy from a daemon-level
+          // BridgeConfig instead of hardcoding (kimi round-1 LOW). Org
+          // deployments that want `accept_modes: ['ca-issued-tree']` or
+          // `tofu_policy: 'deny'` are currently ignored by the daemon
+          // listener.
           await registerIdentityServer({host, identity: bridgeInstall})
           await registerParleyServer({
             acceptModes: ['peer-tree'],
@@ -868,9 +874,18 @@ async function main(): Promise<void> {
       const host = await ensureBridgeHost()
       const installIdentity = await bridgeInstall.loadOrGenerate()
       const l2Identity = await bridgeL2.loadOrGenerate()
+      // libp2p can briefly report no advertised addresses immediately
+      // after host.start() — retry once after 100ms so the CLI doesn't
+      // surface an empty list (kimi round-1 LOW).
+      let multiaddrs = host.getMultiaddrs()
+      if (multiaddrs.length === 0) {
+        await new Promise<void>((resolve) => { setTimeout(resolve, 100) })
+        multiaddrs = host.getMultiaddrs()
+      }
+
       return {
         l2PubKey: l2Identity.cert.public_key.key,
-        multiaddrs: host.getMultiaddrs(),
+        multiaddrs,
         peerId: installIdentity.peerId,
         treeId: l2Identity.treeId,
       }

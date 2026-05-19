@@ -5,6 +5,7 @@ import type {
   Channel,
   ChannelMember,
   ChannelMemberAcpAgent,
+  ChannelMemberRemotePeer,
   ChannelMeta,
   ContentBlock,
   Turn,
@@ -2058,7 +2059,7 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
         const meta = await this.store.readChannelMeta({channelId, projectRoot}).catch(() => null)
         if (meta === null || meta === undefined) return
         if (meta.archivedAt !== undefined) return
-        await Promise.allSettled([
+        const results = await Promise.allSettled([
           ...meta.members
             .filter((m): m is ChannelMemberAcpAgent => m.memberKind === 'acp-agent')
             .map((m) => this.warmOneDriver(meta.channelId, projectRoot, m)),
@@ -2066,12 +2067,22 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
           // from persisted meta. Without this, the daemon would have
           // a `remote-peer` member in meta.json but no driver in the
           // pool after restart, surfacing as
-          // `CHANNEL_DRIVER_NOT_REGISTERED` on the next mention
-          // (kimi round-1 HIGH).
+          // `CHANNEL_DRIVER_NOT_REGISTERED` on the next mention.
           ...meta.members
-            .filter((m) => m.memberKind === 'remote-peer')
-            .map((m) => this.warmRemotePeerDriver(meta.channelId, m as ChannelMember & {memberKind: 'remote-peer'})),
+            .filter((m): m is ChannelMemberRemotePeer => m.memberKind === 'remote-peer')
+            .map((m) => this.warmRemotePeerDriver(meta.channelId, m)),
         ])
+
+        // Surface silent warm failures (kimi round-1 MEDIUM —
+        // previously the `Promise.allSettled` swallowed them and the
+        // operator only saw `CHANNEL_DRIVER_NOT_REGISTERED` on the
+        // next mention with no upstream signal).
+        for (const r of results) {
+          if (r.status === 'rejected') {
+            const reason = r.reason instanceof Error ? r.reason.message : String(r.reason)
+            console.warn(`[channel] warm-driver failed for ${meta.channelId}: ${reason}`)
+          }
+        }
       }),
     )
   }
@@ -2194,7 +2205,7 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
    */
   private async warmRemotePeerDriver(
     channelId: string,
-    member: ChannelMember & {memberKind: 'remote-peer'},
+    member: ChannelMemberRemotePeer,
   ): Promise<void> {
     if (this.pool.acquire({channelId, memberHandle: member.handle}) !== undefined) {
       return

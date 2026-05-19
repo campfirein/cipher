@@ -74,8 +74,8 @@ describe('PeerTreeIdentityService', () => {
       const first = new PeerTreeIdentityService({install})
       const firstIdentity = await first.loadOrGenerate()
 
-      // tree.* artifacts must be on disk under the install dir.
-      const certRaw = await readFile(join(installDir, 'tree.cert.json'), 'utf8')
+      // tree-default.* artifacts must be on disk under the install dir.
+      const certRaw = await readFile(join(installDir, 'tree-default.cert.json'), 'utf8')
       const cert = JSON.parse(certRaw)
       expect(cert.cert_kind).to.equal('peer-tree')
       expect(cert.subject_id).to.equal(firstIdentity.cert.subject_id)
@@ -86,6 +86,23 @@ describe('PeerTreeIdentityService', () => {
       const secondIdentity = await second.loadOrGenerate()
       expect(secondIdentity.cert.subject_id).to.equal(firstIdentity.cert.subject_id)
       expect(secondIdentity.cert.signature).to.equal(firstIdentity.cert.signature)
+    })
+
+    it('regenerates L2 when persisted cert binds to a stale L1 pubkey (kimi round-1 HIGH)', async () => {
+      // First service persists an L2 cert bound to the current L1.
+      const first = new PeerTreeIdentityService({install})
+      const firstIdentity = await first.loadOrGenerate()
+
+      // Simulate `brv install regenerate` by rotating L1 key on disk.
+      await install.regenerate()
+
+      // Fresh service detects the parent_install fingerprint mismatch
+      // and regenerates L2 against the NEW L1. The on-disk artifacts
+      // are replaced.
+      const second = new PeerTreeIdentityService({install})
+      const secondIdentity = await second.loadOrGenerate()
+      expect(secondIdentity.cert.subject_id).not.to.equal(firstIdentity.cert.subject_id)
+      expect(secondIdentity.cert.parent_install.peer_id).to.equal((await install.loadOrGenerate()).peerId)
     })
   })
 })

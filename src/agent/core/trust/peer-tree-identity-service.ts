@@ -5,6 +5,7 @@
 import {
   createCipheriv,
   createDecipheriv,
+  createHash,
   createPrivateKey,
   createPublicKey,
   generateKeyPairSync,
@@ -12,8 +13,8 @@ import {
   randomBytes,
 } from 'node:crypto'
 import {existsSync} from 'node:fs'
-import {chmod, mkdir, readFile, rename, writeFile} from 'node:fs/promises'
-import {dirname, join} from 'node:path'
+import {chmod, mkdir, readFile, rename, unlink, writeFile} from 'node:fs/promises'
+import {join} from 'node:path'
 
 import {InstallIdentityService} from './install-identity-service.js'
 import {issuePeerTreeCertificate, type PeerTreeCertificate} from './peer-tree-signer.js'
@@ -43,9 +44,12 @@ import {generateTreeId} from './tree-id.js'
 
 const FIVE_YEARS_MS = 5 * 365 * 24 * 60 * 60 * 1000
 
-const MASTER_KEY_FILE = 'tree.master.key'
-const ENCRYPTED_KEY_FILE = 'tree.key.enc'
-const CERT_FILE = 'tree.cert.json'
+// Slice 9.4c will add per-tree L2 keys (`tree-<treeId>.*`). The
+// `-default` suffix reserves the namespace without forcing a migration
+// when that lands (kimi round-1 MEDIUM).
+const MASTER_KEY_FILE = 'tree-default.master.key'
+const ENCRYPTED_KEY_FILE = 'tree-default.key.enc'
+const CERT_FILE = 'tree-default.cert.json'
 const ALGORITHM = 'aes-256-gcm'
 const MASTER_KEY_LENGTH = 32
 const IV_LENGTH = 12
@@ -82,8 +86,21 @@ export class PeerTreeIdentityService {
 
     if (this.identityExists()) {
       const loaded = await this.loadFromDisk()
-      this.cache = loaded
-      return loaded
+      // Verify the L2 cert's `parent_install.install_pubkey_fingerprint`
+      // against the CURRENT L1 pubkey (kimi round-1 HIGH). If the
+      // operator ran `brv install regenerate` (rotating L1), the
+      // persisted L2 binds to the OLD L1 key and any remote verifier
+      // would reject with `INVALID_PARENT_BINDING`. Drop + regenerate
+      // so the daemon recovers automatically.
+      const l1PubRaw = await this.install.getRawPublicKey()
+      const expectedFingerprint = createHash('sha256').update(l1PubRaw).digest('hex')
+      if (loaded.cert.parent_install.install_pubkey_fingerprint === expectedFingerprint) {
+        this.cache = loaded
+        return loaded
+      }
+
+      await this.purgeStaleArtifacts()
+      // fall through to regenerate against the current L1
     }
 
     return this.regenerate()
@@ -136,6 +153,13 @@ export class PeerTreeIdentityService {
     await this.writeAtomic(CERT_FILE, Buffer.from(`${JSON.stringify(args.cert, null, 2)}\n`, 'utf8'))
   }
 
+  private async purgeStaleArtifacts(): Promise<void> {
+    for (const name of [MASTER_KEY_FILE, ENCRYPTED_KEY_FILE, CERT_FILE]) {
+      // eslint-disable-next-line no-await-in-loop
+      await unlink(join(this.installDir, name)).catch(() => {})
+    }
+  }
+
   private async regenerate(): Promise<PeerTreeIdentity> {
     await mkdir(this.installDir, {mode: 0o700, recursive: true})
 
@@ -171,6 +195,11 @@ export class PeerTreeIdentityService {
   }
 
   private async writeAtomic(name: string, body: Buffer): Promise<void> {
+    // Belt-and-suspenders mkdir BEFORE the temp write, in case
+    // writeAtomic is ever called outside of regenerate() (kimi round-1
+    // LOW — the late mkdir-after-write was happen-to-work because
+    // regenerate() pre-created the dir).
+    await mkdir(this.installDir, {mode: 0o700, recursive: true})
     const target = join(this.installDir, name)
     const tmp = `${target}.tmp.${process.pid}.${randomBytes(4).toString('hex')}`
     await writeFile(tmp, body, {mode: 0o600})
@@ -178,9 +207,5 @@ export class PeerTreeIdentityService {
     if (process.platform !== 'win32') {
       await chmod(target, 0o600)
     }
-
-    // mkdir of parent already happens in regenerate(); guard against
-    // racy callers by ensuring the dir exists with the correct mode.
-    await mkdir(dirname(target), {mode: 0o700, recursive: true})
   }
 }
