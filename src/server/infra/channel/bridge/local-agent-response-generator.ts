@@ -1,9 +1,8 @@
-import type {ContentBlock} from '../../../../shared/types/channel.js'
-
 import {type IAcpDriver, type TurnEventPayload} from '../../../core/interfaces/channel/i-acp-driver.js'
 import {type IDriverProfileStore} from '../../../core/interfaces/channel/i-driver-profile-store.js'
 import {
   type ParleyResponseDataChunk,
+  ParleyResponseError,
   type ParleyResponseGenerator,
 } from './parley-response-generator.js'
 
@@ -45,14 +44,22 @@ export interface LocalAgentResponseGeneratorDeps {
   readonly profileStore: IDriverProfileStore
 }
 
+// Internal handle for the bridge dispatcher's ACP driver. It is never
+// registered in any `ChannelMember` pool, so `dispatchMention` cannot
+// resolve to it from a local channel (kimi round-1 LOW — confirmed).
 const LOCAL_HANDLE = '@bridge-parley-handler'
 
 export function createLocalAgentResponseGenerator(deps: LocalAgentResponseGeneratorDeps): ParleyResponseGenerator {
+  // Each invocation spawns its own isolated driver; concurrent inbound
+  // queries on Bob's daemon are safe but spawn N subprocesses. Slice
+  // 9.4d will introduce profile-keyed pooling + a concurrency cap
+  // (TODO(9.4d) — see kimi round-1 LOW-C).
   return async function* ({envelope}) {
     const profile = await deps.profileStore.get(deps.profileName)
     if (profile === undefined) {
-      throw new Error(
-        `PARLEY_LOCAL_AGENT_ERROR: configured BRV_BRIDGE_PARLEY_PROFILE="${deps.profileName}" does not exist in the driver-profile registry`,
+      throw new ParleyResponseError(
+        'PARLEY_LOCAL_AGENT_PROFILE_MISSING',
+        `BRV_BRIDGE_PARLEY_PROFILE="${deps.profileName}" does not exist in the driver-profile registry`,
       )
     }
 
@@ -61,14 +68,14 @@ export function createLocalAgentResponseGenerator(deps: LocalAgentResponseGenera
       await driver.start()
     } catch (error) {
       const msg = error instanceof Error ? error.message : String(error)
-      throw new Error(`PARLEY_LOCAL_AGENT_START_FAILED: ${msg}`)
+      throw new ParleyResponseError('PARLEY_LOCAL_AGENT_START_FAILED', msg)
     }
 
     try {
-      const promptBlocks: ContentBlock[] = envelope.prompt.map((b) => ({
+      const promptBlocks = envelope.prompt.map((b) => ({
         text: b.text,
-        type: 'text',
-      })) as ContentBlock[]
+        type: 'text' as const,
+      }))
 
       for await (const payload of driver.prompt({prompt: promptBlocks, turnId: envelope.turn_id})) {
         const chunk = projectPayload(payload)
@@ -89,6 +96,9 @@ export function createLocalAgentResponseGenerator(deps: LocalAgentResponseGenera
  * Future slices will widen the data-chunk vocabulary to carry
  * tool-call frames + permission-request frames.
  */
+// Must stay in sync with `ParleyResponseDataChunk` — when 9.9 adds
+// tool-call / permission-request frames to the chunk vocabulary, this
+// projection widens with new branches.
 function projectPayload(payload: TurnEventPayload): ParleyResponseDataChunk | undefined {
   if (payload.kind === 'agent_message_chunk') {
     return {content: payload.content, kind: 'agent_message_chunk'}
@@ -98,5 +108,9 @@ function projectPayload(payload: TurnEventPayload): ParleyResponseDataChunk | un
     return {content: payload.content, kind: 'agent_thought_chunk'}
   }
 
+  // Surface dropped payloads at debug level so an operator debugging a
+  // silent gap on the wire can correlate (kimi round-1 MEDIUM).
+   
+  console.debug(`[parley] dropping unprojected payload kind: ${payload.kind}`)
   return undefined
 }

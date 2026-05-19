@@ -3,7 +3,7 @@
 // wire JSON and are intentionally snake_case.
 
 import * as lp from 'it-length-prefixed'
-import {createHash} from 'node:crypto'
+import {createHash, type KeyObject} from 'node:crypto'
 
 import {type PeerTreeIdentityService} from '../../../../agent/core/trust/peer-tree-identity-service.js'
 import {signResponseError, signResponseTerminal, signTranscriptSeal} from '../../../../agent/core/trust/sign.js'
@@ -19,6 +19,7 @@ import {HandshakeRateLimiter} from './parley-rate-limit.js'
 import {
   mockEchoChunks,
   type ParleyResponseDataChunk,
+  ParleyResponseError,
   type ParleyResponseGenerator,
 } from './parley-response-generator.js'
 import {type CertKind, type TofuPolicy, verifyHandshakeAndPin} from './parley-verifier.js'
@@ -158,8 +159,7 @@ export async function registerParleyServer(args: RegisterParleyServerArgs): Prom
 interface DispatchResponseStreamArgs {
   readonly envelope: ParleyQueryEnvelope
   readonly generator: ParleyResponseGenerator
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  readonly l2PrivateKey: any
+  readonly l2PrivateKey: KeyObject
   readonly requestEnvelopeHash: string
   readonly stream: Libp2pStreamLike
 }
@@ -190,15 +190,27 @@ async function dispatchResponseStream(args: DispatchResponseStreamArgs): Promise
       await sendFrame(stream, frame)
     }
   } catch (error) {
-    const code = error instanceof Error && error.message.startsWith('PARLEY_')
-      ? error.message.split(':')[0].trim()
-      : 'GENERATOR_ERROR'
-    const message = error instanceof Error ? error.message : String(error)
+    // Extract a stable code + a SAFE public message from the thrown
+    // value (kimi round-1 MEDIUMs). Generators using
+    // `ParleyResponseError` carry an authoritative code + a message
+    // they marked safe-to-expose. Anything else gets a generic code +
+    // a generic message; the original details are logged locally so
+    // the operator can still debug.
+    let code = 'GENERATOR_ERROR'
+    let publicMessage = 'Internal generator error'
+    if (error instanceof ParleyResponseError) {
+      code = error.code
+      publicMessage = error.message
+    }
+
+    const localDetails = error instanceof Error ? (error.stack ?? error.message) : String(error)
+    console.warn(`[parley] generator failed for turn ${envelope.turn_id}: ${localDetails}`)
+
     const errorFrame = buildErrorTerminalFrame({
       bound: contextFromEnvelope(envelope, requestEnvelopeHash),
       code,
       l2PrivateKey,
-      message,
+      message: publicMessage,
       seq: nextSeq(),
     })
     emittedFrames.push(errorFrame)
@@ -238,6 +250,9 @@ async function dispatchResponseStream(args: DispatchResponseStreamArgs): Promise
   )
 }
 
+// Must stay in sync with `ParleyResponseDataChunk` — when 9.9 widens
+// the chunk vocabulary with tool-call / permission-request variants,
+// this projection grows new branches.
 function projectChunkToFrame(chunk: ParleyResponseDataChunk, seq: number): ParleyResponseFrame {
   return {content: chunk.content, kind: chunk.kind, seq}
 }
@@ -263,8 +278,7 @@ function contextFromEnvelope(envelope: ParleyQueryEnvelope, requestEnvelopeHash:
 interface BuildTerminalArgs {
   readonly bound: BoundContext
   readonly endedState: 'cancelled' | 'completed'
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  readonly l2PrivateKey: any
+  readonly l2PrivateKey: KeyObject
   readonly seq: number
 }
 
@@ -289,8 +303,7 @@ function buildStreamEndTerminalFrame(args: BuildTerminalArgs): ParleyResponseFra
 interface BuildErrorTerminalArgs {
   readonly bound: BoundContext
   readonly code: string
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  readonly l2PrivateKey: any
+  readonly l2PrivateKey: KeyObject
   readonly message: string
   readonly seq: number
 }
@@ -318,8 +331,7 @@ interface BuildSealArgs {
   readonly bound: BoundContext
   readonly endedState: 'cancelled' | 'completed' | 'errored'
   readonly frames: ParleyResponseFrame[]
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  readonly l2PrivateKey: any
+  readonly l2PrivateKey: KeyObject
   readonly seq: number
 }
 

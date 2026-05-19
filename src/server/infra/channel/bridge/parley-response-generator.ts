@@ -1,6 +1,30 @@
 import {type ParleyQueryEnvelope} from '../../../core/domain/channel/parley-types.js'
 
 /**
+ * Phase 9 / Slice 9.4c — structured error for parley response
+ * generators (kimi round-1 MEDIUM — was string-prefix code parsing).
+ *
+ * Generators throw `ParleyResponseError` so the parley-server can
+ * extract a stable `code` field for the signed `error` terminal frame
+ * without parsing message strings. Untyped throws fall back to a
+ * generic `GENERATOR_ERROR` code.
+ *
+ * The `code` is what the remote dialer sees on the wire. The
+ * `message` is also signed + transmitted — call sites should make it
+ * safe to expose (no stack traces, no internal paths). The server
+ * sanitises untyped errors to avoid leaking subprocess details.
+ */
+export class ParleyResponseError extends Error {
+  public readonly code: string
+
+  public constructor(code: string, message: string) {
+    super(message)
+    this.name = 'ParleyResponseError'
+    this.code = code
+  }
+}
+
+/**
  * Phase 9 / Slice 9.4c — pluggable response-data generator for the
  * Parley server.
  *
