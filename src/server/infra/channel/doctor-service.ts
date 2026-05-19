@@ -129,30 +129,57 @@ export class ChannelDoctorService implements IChannelDoctorService {
       })
     }
 
-    // Slice 9.11 — diagnose remote-peer members in parallel before
-    // the acp-agent member loop. `await` inside the member loop would
-    // trip `no-await-in-loop`; this Promise.all batches the I/O.
+    // Slice 9.11 — diagnose remote-peer members BEFORE the acp-agent
+    // loop. kimi round-1 LOW: use Promise.allSettled instead of
+    // Promise.all so one tofu.get I/O error doesn't hide every
+    // other remote-peer diagnosis; results are reassembled in
+    // declaration order so the CLI output stays stable.
     const remotePeers = meta.members.filter(
       (m): m is import('../../../shared/types/channel.js').ChannelMemberRemotePeer =>
         m.memberKind === 'remote-peer' &&
         (args.memberHandle === undefined || m.handle === args.memberHandle),
     )
-    if (this.deps.tofu !== undefined && remotePeers.length > 0) {
-      const {tofu} = this.deps
-      await Promise.all(
-        remotePeers.map((member) =>
-          this.diagnoseRemotePeerMember({
-            diagnostics: args.diagnostics,
-            member,
-            now: args.now,
-            tofu,
-          }),
-        ),
-      )
+    if (remotePeers.length > 0) {
+      if (this.deps.tofu === undefined) {
+        // kimi round-1 MED — explicit info diagnostic so operators
+        // can see that remote-peer health is unknown rather than
+        // healthy. Common case: daemon was built without the bridge
+        // wired (no TOFU store), so doctor has no local trust state
+        // to consult.
+        for (const member of remotePeers) {
+          args.diagnostics.push({
+            code: 'DOCTOR_REMOTE_PEER_DAEMON_NO_BRIDGE',
+            details: {handle: member.handle, peerId: member.peerId},
+            message: `Remote-peer member ${member.handle} (peerId=${member.peerId}): bridge TOFU store not wired — remote-peer health cannot be diagnosed on this daemon.`,
+            severity: 'info',
+          })
+        }
+      } else {
+        const {tofu} = this.deps
+        const results = await Promise.allSettled(
+          remotePeers.map((member) =>
+            this.diagnoseRemotePeerMember({member, now: args.now, tofu}),
+          ),
+        )
+        for (const [i, result] of results.entries()) {
+          const member = remotePeers[i]
+          if (result.status === 'rejected') {
+            args.diagnostics.push({
+              code: 'DOCTOR_REMOTE_PEER_DIAGNOSE_FAILED',
+              details: {handle: member.handle, peerId: member.peerId},
+              message: `Remote-peer member ${member.handle} (peerId=${member.peerId}): diagnostic failed — ${result.reason instanceof Error ? result.reason.message : String(result.reason)}`,
+              severity: 'warning',
+            })
+            continue
+          }
+
+          for (const d of result.value) args.diagnostics.push(d)
+        }
+      }
     }
 
     for (const member of meta.members) {
-      // Remote-peer members handled above in the Promise.all batch.
+      // Remote-peer members handled above in the Promise.allSettled batch.
       if (member.memberKind === 'remote-peer') continue
       if (member.memberKind !== 'acp-agent') continue
       // Phase-3 doctor: `--member <handle>` filters diagnostics to one
@@ -253,35 +280,36 @@ export class ChannelDoctorService implements IChannelDoctorService {
 
   /**
    * Slice 9.11 — project the bridge `diagnoseRemotePeer` report onto
-   * the wire `DoctorDiagnostic` shape. One finding per CLI surface
-   * row; the `bridge/channel-doctor.ts` helper does the actual
-   * checks.
+   * the wire `DoctorDiagnostic` shape. Returns the diagnostics array
+   * (instead of mutating a shared one) so the caller can reassemble
+   * results in declaration order under Promise.allSettled (kimi
+   * round-1 LOW). Each finding carries its own per-condition code so
+   * downstream automation can match on specific failure modes
+   * (kimi round-1 MED).
    */
   private async diagnoseRemotePeerMember(args: {
-    diagnostics: DoctorDiagnostic[]
     member: import('../../../shared/types/channel.js').ChannelMemberRemotePeer
     now: Date
     tofu: TofuStore
-  }): Promise<void> {
+  }): Promise<DoctorDiagnostic[]> {
     const report = await diagnoseRemotePeer({member: args.member, now: args.now, tofu: args.tofu})
 
     if (report.findings.length === 0) {
-      args.diagnostics.push({
-        code: 'DOCTOR_REMOTE_PEER_OK',
-        details: {handle: args.member.handle, peerId: args.member.peerId},
-        message: `Remote-peer member ${args.member.handle} (peerId=${args.member.peerId}) is healthy`,
-        severity: 'info',
-      })
-      return
+      return [
+        {
+          code: 'DOCTOR_REMOTE_PEER_OK',
+          details: {handle: args.member.handle, peerId: args.member.peerId},
+          message: `Remote-peer member ${args.member.handle} (peerId=${args.member.peerId}) is healthy`,
+          severity: 'info',
+        },
+      ]
     }
 
-    for (const finding of report.findings) {
-      args.diagnostics.push({
-        code: `DOCTOR_REMOTE_PEER_${finding.level.toUpperCase()}`,
-        details: {handle: args.member.handle, peerId: args.member.peerId},
-        message: `Remote-peer member ${args.member.handle}: ${finding.message}`,
-        severity: finding.level === 'error' ? 'error' : finding.level === 'warn' ? 'warning' : 'info',
-      })
-    }
+    return report.findings.map((finding) => ({
+      code: `DOCTOR_REMOTE_PEER_${finding.code}`,
+      details: {handle: args.member.handle, peerId: args.member.peerId},
+      message: `Remote-peer member ${args.member.handle}: ${finding.message}`,
+      severity: finding.level === 'error' ? 'error' : finding.level === 'warn' ? 'warning' : 'info',
+    }))
   }
 }

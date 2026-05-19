@@ -20,7 +20,23 @@ import {isL2CertExpired} from './identity-client.js'
 
 export type PeerHealthLevel = 'error' | 'info' | 'warn'
 
+/**
+ * Phase 9 / Slice 9.11 (kimi round-1 MED) — per-condition codes
+ * so downstream automation can match specific findings (e.g.
+ * "alert me when ANY channel has UNPINNED peers") without
+ * parsing the human-readable message text.
+ */
+export type PeerHealthCode =
+  | 'AUTO_TOFU_PIN_STATE'
+  | 'L2_CERT_DRIFT'
+  | 'L2_CERT_LEGACY'
+  | 'L2_CERT_MISSING'
+  | 'L2_CERT_STALE'
+  | 'MIRROR_ONLY'
+  | 'PEER_UNPINNED'
+
 export type PeerHealthFinding = {
+  readonly code: PeerHealthCode
   readonly level: PeerHealthLevel
   readonly message: string
 }
@@ -54,14 +70,16 @@ export async function diagnoseRemotePeer(args: DiagnoseRemotePeerArgs): Promise<
 
   if (mirrorOnly) {
     findings.push({
+      code: 'MIRROR_ONLY',
       level: 'info',
       message:
-        'auto-provisioned mirror member — Bob has seen this peer inbound but has no multiaddr or L2 pubkey to dial back. Run `brv channel invite` with the peer\'s bridge multiaddr to enable reverse parley.',
+        'auto-provisioned mirror member — this install has seen the peer inbound but has no multiaddr or L2 pubkey to dial back. Run `brv channel invite` with the peer\'s bridge multiaddr to enable reverse parley.',
     })
   }
 
   if (cached === undefined) {
     findings.push({
+      code: 'PEER_UNPINNED',
       level: 'error',
       message:
         'peer is not in the local TOFU store — outbound mentions against this member will fail with PEER_UNPINNED. Run `brv bridge pin <multiaddr>` first.',
@@ -69,6 +87,7 @@ export async function diagnoseRemotePeer(args: DiagnoseRemotePeerArgs): Promise<
   } else {
     if (cached.pin_state === 'auto-tofu') {
       findings.push({
+        code: 'AUTO_TOFU_PIN_STATE',
         level: 'warn',
         message:
           'peer is in `auto-tofu` pin state — inbound parley queries against the default `pinned-only` auto-provision policy will be declined. Promote with `brv bridge verify <peer-id>` after eyeballing the fingerprint.',
@@ -77,19 +96,30 @@ export async function diagnoseRemotePeer(args: DiagnoseRemotePeerArgs): Promise<
 
     if (cached.l2_pub_key === undefined) {
       findings.push({
+        code: 'L2_CERT_MISSING',
         level: 'warn',
         message:
           'no L2 pubkey cached for this peer — initial parley will dial `/brv/identity/tree-cert/v1` to fetch one. If the dial fails, the mention will fail with no auto-retry.',
       })
     } else if (isL2CertExpired(cached, args.now)) {
-      const detail =
-        cached.l2_expires_at === undefined
-          ? 'no recorded expiry (pre-9.4h pin)'
-          : `expires_at=${cached.l2_expires_at}`
-      findings.push({
-        level: 'warn',
-        message: `cached L2 cert is stale (${detail}) — next parley dial will fetch a fresh one. If the peer is unreachable, the mention will fail.`,
-      })
+      // kimi round-1 LOW — distinguish "expired with a known
+      // expires_at" from "no expiry recorded at all" using separate
+      // codes; the latter case (legacy pin) gets operator-friendly
+      // wording rather than a slice-number reference.
+      if (cached.l2_expires_at === undefined) {
+        findings.push({
+          code: 'L2_CERT_LEGACY',
+          level: 'warn',
+          message:
+            'cached L2 cert has no recorded expiry date (pinned before expiry tracking was added) — next parley dial will re-fetch and validate. Safe to ignore unless mentions start failing.',
+        })
+      } else {
+        findings.push({
+          code: 'L2_CERT_STALE',
+          level: 'warn',
+          message: `cached L2 cert expired at ${cached.l2_expires_at} — next parley dial will fetch a fresh one. If the peer is unreachable, the mention will fail.`,
+        })
+      }
     }
   }
 
@@ -102,9 +132,10 @@ export async function diagnoseRemotePeer(args: DiagnoseRemotePeerArgs): Promise<
     args.member.remoteL2PubKey !== cached.l2_pub_key
   ) {
     findings.push({
+      code: 'L2_CERT_DRIFT',
       level: 'warn',
       message:
-        'member.remoteL2PubKey differs from the TOFU-cached pubkey for this peer_id — channel meta is out of sync with the local trust store. The warm path now refreshes the pubkey at use time (9.4i), so this is non-fatal, but `brv channel invite` would persist the fresh value.',
+        'member record\'s L2 pubkey differs from the TOFU-cached pubkey for this peer_id — channel meta is out of sync with the local trust store. The warm path refreshes the pubkey at use time so mentions still work, but `brv channel invite` would persist the fresh value.',
     })
   }
 

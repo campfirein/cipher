@@ -76,7 +76,7 @@ describe('diagnoseRemotePeer (slice 9.11)', () => {
 
     expect(report.pinned).to.equal(false)
     expect(report.overallLevel).to.equal('error')
-    expect(report.findings.some((f) => f.level === 'error' && f.message.includes('PEER_UNPINNED'))).to.equal(true)
+    expect(report.findings.some((f) => f.code === 'PEER_UNPINNED' && f.level === 'error')).to.equal(true)
   })
 
   it('reports warn when peer is in auto-tofu pin state (default pinned-only policy will reject)', async () => {
@@ -89,7 +89,7 @@ describe('diagnoseRemotePeer (slice 9.11)', () => {
 
     const report = await diagnoseRemotePeer({member: buildMember(), now: NOW, tofu})
     expect(report.overallLevel).to.equal('warn')
-    expect(report.findings.some((f) => f.message.includes('brv bridge verify'))).to.equal(true)
+    expect(report.findings.some((f) => f.code === 'AUTO_TOFU_PIN_STATE')).to.equal(true)
   })
 
   it('reports warn when cached L2 cert has expired', async () => {
@@ -100,7 +100,7 @@ describe('diagnoseRemotePeer (slice 9.11)', () => {
     }))
 
     const report = await diagnoseRemotePeer({member: buildMember(), now: NOW, tofu})
-    expect(report.findings.some((f) => f.message.includes('stale') && f.message.includes('expires_at'))).to.equal(true)
+    expect(report.findings.some((f) => f.code === 'L2_CERT_STALE')).to.equal(true)
   })
 
   it('reports warn when cached L2 entry is legacy (pubkey without expiry)', async () => {
@@ -108,7 +108,7 @@ describe('diagnoseRemotePeer (slice 9.11)', () => {
     await tofu.upsert(buildPeer({l2_pub_key: 'AA'.repeat(22)}))
 
     const report = await diagnoseRemotePeer({member: buildMember(), now: NOW, tofu})
-    expect(report.findings.some((f) => f.message.includes('pre-9.4h pin'))).to.equal(true)
+    expect(report.findings.some((f) => f.code === 'L2_CERT_LEGACY')).to.equal(true)
   })
 
   it('reports warn when peer is pinned but has no L2 pubkey cached', async () => {
@@ -116,7 +116,7 @@ describe('diagnoseRemotePeer (slice 9.11)', () => {
     await tofu.upsert(buildPeer())  // no l2_pub_key
 
     const report = await diagnoseRemotePeer({member: buildMember(), now: NOW, tofu})
-    expect(report.findings.some((f) => f.message.includes('no L2 pubkey cached'))).to.equal(true)
+    expect(report.findings.some((f) => f.code === 'L2_CERT_MISSING')).to.equal(true)
   })
 
   it('flags mirror-only members (Bob auto-provisioned, no multiaddr / no L2 pubkey)', async () => {
@@ -125,7 +125,7 @@ describe('diagnoseRemotePeer (slice 9.11)', () => {
     const mirror = buildMember({multiaddr: undefined, remoteL2PubKey: undefined})
     const report = await diagnoseRemotePeer({member: mirror, now: NOW, tofu})
     expect(report.mirrorOnly).to.equal(true)
-    expect(report.findings.some((f) => f.message.includes('auto-provisioned mirror'))).to.equal(true)
+    expect(report.findings.some((f) => f.code === 'MIRROR_ONLY')).to.equal(true)
   })
 
   it('flags drift when member.remoteL2PubKey differs from the TOFU-cached pubkey', async () => {
@@ -136,7 +136,28 @@ describe('diagnoseRemotePeer (slice 9.11)', () => {
     }))
 
     const report = await diagnoseRemotePeer({member: buildMember(), now: NOW, tofu})
-    expect(report.findings.some((f) => f.message.includes('out of sync'))).to.equal(true)
+    expect(report.findings.some((f) => f.code === 'L2_CERT_DRIFT')).to.equal(true)
+  })
+
+  it('skips auto-tofu warning when peer is ca-bound (CA log corroborates identity)', async () => {
+    const tofu = new TofuStore({storePath})
+    await tofu.upsert(buildPeer({
+      ca_binding: {
+        account_id: 'acct-1',
+        ca_cert_fingerprint: 'b'.repeat(64),
+        ca_log_entry_index: 42,
+        issued_at: '2026-05-19T00:00:00.000Z',
+        tree_id: 'tree-1',
+      },
+      l2_expires_at: '2027-05-19T00:00:00.000Z',
+      l2_pub_key: 'AA'.repeat(22),
+      pin_state: 'ca-bound',
+    }))
+
+    const report = await diagnoseRemotePeer({member: buildMember(), now: NOW, tofu})
+    expect(report.findings.some((f) => f.code === 'AUTO_TOFU_PIN_STATE')).to.equal(false)
+    expect(report.overallLevel).to.equal('info')
+    expect(report.cachedPinState).to.equal('ca-bound')
   })
 
   it('returns highest-severity overallLevel across multiple findings', async () => {
