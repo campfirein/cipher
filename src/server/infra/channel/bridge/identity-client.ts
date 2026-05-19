@@ -64,6 +64,24 @@ const KNOWN_CERT_FIELDS = new Set([
 
 const KNOWN_PUBKEY_FIELDS = new Set(['alg', 'key'])
 
+// Slice 9.4d kimi round-1 LOW — parity with KNOWN_CERT_FIELDS. Drift
+// between this set and `verifyPeerTreeCertChain`'s payload assumptions
+// is the failure mode this constant guards against.
+const KNOWN_TREE_CERT_FIELDS = new Set([
+  'cert_kind',
+  'expires_at',
+  'issued_at',
+  'parent_install',
+  'public_key',
+  'signature',
+  'subject_id',
+  'version',
+])
+
+const KNOWN_PARENT_INSTALL_FIELDS = new Set(['install_pubkey_fingerprint', 'peer_id'])
+
+const TREE_CERT_FETCH_TIMEOUT_MS = 10_000
+
 export interface FetchAndPinArgs {
   readonly clockSkewMs?: number
   readonly expectedPeerId: string
@@ -139,7 +157,18 @@ async function fetchAndVerifyTreeCert(args: {
   multiaddr: string
   now: Date
 }): Promise<string> {
-  const raw = await fetchTreeCertFrame(args.host, args.multiaddr)
+  // Hard timeout so an unresponsive peer (half-open Noise, missing
+  // protocol handler that silently sinks the dial, etc.) doesn't hang
+  // the entire invite (kimi round-1 MEDIUM).
+  const raw = await Promise.race([
+    fetchTreeCertFrame(args.host, args.multiaddr),
+    new Promise<never>((_resolve, reject) => {
+      setTimeout(
+        () => reject(new Error(`TREE_CERT_FETCH_TIMEOUT: no response within ${TREE_CERT_FETCH_TIMEOUT_MS}ms`)),
+        TREE_CERT_FETCH_TIMEOUT_MS,
+      )
+    }),
+  ])
   const cert = validateTreeCertShape(raw)
   const chain = verifyPeerTreeCertChain({
     cert,
@@ -209,8 +238,34 @@ function validateTreeCertShape(raw: unknown): PeerTreeCertificate {
   if (pk.alg !== 'ed25519') throw new TypeError('TREE_CERT_SHAPE_INVALID: public_key.alg must be "ed25519"')
   if (typeof pk.key !== 'string') throw new TypeError('TREE_CERT_SHAPE_INVALID: public_key.key missing')
 
+  // Strict allowlist on the cert + nested parent_install + public_key
+  // — matches the install-cert KNOWN_CERT_FIELDS pattern so an attacker
+  // can't smuggle malleable bytes into the signed payload (kimi
+  // round-1 LOW — drift between field set and verifier).
+  for (const k of Object.keys(c)) {
+    if (!KNOWN_TREE_CERT_FIELDS.has(k)) {
+      throw new TypeError(`TREE_CERT_SHAPE_INVALID: unknown cert field "${k}"`)
+    }
+  }
+
+  for (const k of Object.keys(parent)) {
+    if (!KNOWN_PARENT_INSTALL_FIELDS.has(k)) {
+      throw new TypeError(`TREE_CERT_SHAPE_INVALID: unknown parent_install field "${k}"`)
+    }
+  }
+
+  for (const k of Object.keys(pk)) {
+    if (!KNOWN_PUBKEY_FIELDS.has(k)) {
+      throw new TypeError(`TREE_CERT_SHAPE_INVALID: unknown public_key field "${k}"`)
+    }
+  }
+
   return raw as PeerTreeCertificate
 }
+
+// Exported for unit tests + integration tests; not part of the public
+// runtime API surface.
+export const __internal__validateTreeCertShape = validateTreeCertShape
 
 // ─── internals ──────────────────────────────────────────────────────────────
 

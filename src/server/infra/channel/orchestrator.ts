@@ -1561,7 +1561,7 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
       remoteL2PubKey = supplied
     } else if (this.resolveRemotePeerL2PubKey === undefined) {
       throw new ChannelInvalidRequestError(
-        'CHANNEL_INVITE_REMOTE_L2_UNRESOLVED: remotePeer.remoteL2PubKey is required when the daemon has no resolveRemotePeerL2PubKey dep wired in.',
+        'CHANNEL_INVITE_REMOTE_L2_UNRESOLVED: remote L2 public key is required. Either provide --l2-pub-key or upgrade the daemon to enable in-band discovery.',
         {fields: ['remotePeer.remoteL2PubKey']},
       )
     } else {

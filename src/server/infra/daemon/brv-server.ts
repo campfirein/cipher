@@ -946,6 +946,15 @@ async function main(): Promise<void> {
     // `/brv/identity/cert/v1` AND `/brv/identity/tree-cert/v1`,
     // verifies both chains, and pins the L2 pubkey to the TOFU store.
     const resolveRemotePeerL2PubKey = async (args: {multiaddr: string; peerId: string}): Promise<string> => {
+      // Fast-path: re-use a cached L2 pubkey when we've already pinned
+      // this peer with full identity (kimi round-1 LOW). Inviting the
+      // same peer to N channels otherwise re-dials the cert protocols
+      // N times.
+      const cached = await bridgeTofu.get(args.peerId)
+      if (cached?.l2_pub_key !== undefined) {
+        return cached.l2_pub_key
+      }
+
       const host = await ensureBridgeHost()
       const pinned = await fetchAndPin({
         expectedPeerId: args.peerId,
