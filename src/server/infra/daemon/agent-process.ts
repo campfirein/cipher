@@ -58,6 +58,7 @@ import {
 } from '../../core/domain/transport/schemas.js'
 import {FileContextTreeArchiveService} from '../context-tree/file-context-tree-archive-service.js'
 import {RuntimeSignalStore} from '../context-tree/runtime-signal-store.js'
+import {bumpSidecarOnCurateWrite} from '../context-tree/tool-mode-sidecar-updaters.js'
 import {DreamLockService} from '../dream/dream-lock-service.js'
 import {DreamLogStore} from '../dream/dream-log-store.js'
 import {DreamStateService} from '../dream/dream-state-service.js'
@@ -712,6 +713,24 @@ async function executeTask(
             topicPathResolved = preValidation.ok
               ? preValidation.topicPath
               : relativeFilePath.replace(/\.html$/, '')
+
+            // Mirror the curate into the runtime-signal sidecar so prune (and
+            // any future signal-driven ranking) has real data to work with.
+            // Best-effort: never blocks the write that already succeeded;
+            // pass an agentLog-backed logger so swallowed sidecar failures
+            // (corrupt key store, permission denied) leave a breadcrumb in
+            // the daemon session log instead of being silently invisible.
+            await bumpSidecarOnCurateWrite({
+              existedBefore,
+              logger: {
+                debug: (msg: string): void => agentLog(msg),
+                error: (msg: string): void => agentLog(msg),
+                info: (msg: string): void => agentLog(msg),
+                warn: (msg: string): void => agentLog(msg),
+              },
+              relPath: relativeFilePath,
+              store: runtimeSignalStore,
+            })
           } else if (preValidation.ok) {
             topicPathResolved = preValidation.topicPath
           }

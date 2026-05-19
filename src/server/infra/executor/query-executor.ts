@@ -142,90 +142,7 @@ export class QueryExecutor implements IQueryExecutor {
    * breaking for tool consumers.
    */
   public async executeToolMode(options: QueryToolModeOptions): Promise<QueryToolModeResult> {
-    const startTime = Date.now()
-    const {limit = QueryExecutor.TOOL_MODE_DEFAULT_LIMIT, query, worktreeRoot} = options
-    const workspaceScope = this.deriveWorkspaceScope(worktreeRoot)
-
-    // === Tier 0: Exact cache hit ===
-    //
-    // Cache entries always hold up to `TOOL_MODE_MAX_LIMIT` matches.
-    // We slice down to the caller's `limit` on read so calls with
-    // different `--limit` values share one cache entry — a `--limit 50`
-    // request followed by `--limit 1` returns the same top doc.
-    let fingerprint: string | undefined
-    if (this.toolModeCache && this.fileSystem) {
-      fingerprint = await this.computeContextTreeFingerprint(worktreeRoot)
-      const cached = this.toolModeCache.get(query, fingerprint)
-      if (cached) {
-        const overlaid = this.overlayCachedEnvelope(cached, 'exact', TIER_EXACT_CACHE, startTime, limit)
-        if (overlaid) return overlaid
-      }
-    }
-
-    // === Tier 1: Fuzzy cache hit ===
-    if (this.toolModeCache && fingerprint) {
-      const fuzzy = this.toolModeCache.findSimilar(query, fingerprint)
-      if (fuzzy) {
-        const overlaid = this.overlayCachedEnvelope(fuzzy, 'fuzzy', TIER_FUZZY_CACHE, startTime, limit)
-        if (overlaid) return overlaid
-      }
-    }
-
-    // === Tier 2: BM25 retrieval + supplement + render ===
-    if (!this.searchService) {
-      return this.buildEmptyToolModeEnvelope(startTime)
-    }
-
-    // Always retrieve at MAX_LIMIT so the cache entry serves smaller
-    // subsequent requests without re-fetching. Slicing happens after
-    // the cache write.
-    //
-    // searchService.search() throws on transport-level failures (index
-    // unavailable, malformed payload, etc.). DON'T swallow into an
-    // empty envelope — that would conflate "broken retrieval" with
-    // "genuinely no matches" and let the calling agent synthesise
-    // around an outage. Let the throw propagate; the daemon catches
-    // it and emits task:error, which the CLI maps to outer
-    // `success: false`.
-    let searchResult: SearchKnowledgeResult = await this.searchService.search(query, {
-      limit: QueryExecutor.TOOL_MODE_MAX_LIMIT,
-      scope: workspaceScope,
-    })
-
-    if (searchResult.totalFound < 3) {
-      searchResult = await this.supplementEntitySearches(query, searchResult, workspaceScope)
-    }
-
-    const {matchedDocs: allMatches, skippedSharedCount} = await this.buildToolModeMatches(searchResult)
-    const topScore = allMatches[0]?.score ?? 0
-    const status: QueryToolModeResult['status'] = allMatches.length === 0 ? 'no-matches' : 'ok'
-    const totalFound = searchResult.totalFound ?? allMatches.length
-
-    // Cache the FULL envelope (up to TOOL_MODE_MAX_LIMIT matches) so
-    // subsequent calls with a smaller `--limit` slice down on read.
-    // `durationMs` here is a placeholder — overlayCachedEnvelope
-    // overwrites it with the cache-read latency.
-    if (this.toolModeCache && fingerprint && status === 'ok') {
-      const fullEnvelope: QueryToolModeResult = {
-        matchedDocs: allMatches,
-        metadata: {cacheHit: null, durationMs: 0, skippedSharedCount, tier: TIER_DIRECT_SEARCH, topScore, totalFound},
-        status,
-      }
-      this.toolModeCache.set(query, JSON.stringify(fullEnvelope), fingerprint)
-    }
-
-    return {
-      matchedDocs: allMatches.slice(0, limit),
-      metadata: {
-        cacheHit: null,
-        durationMs: Date.now() - startTime,
-        skippedSharedCount,
-        tier: TIER_DIRECT_SEARCH,
-        topScore,
-        totalFound,
-      },
-      status,
-    }
+    return this.executeToolModeInternal(options)
   }
 
   public async executeWithAgent(agent: ICipherAgent, options: QueryExecuteOptions): Promise<QueryExecutorResult> {
@@ -778,6 +695,93 @@ ${responseFormat}`
     const rel = relative(this.baseDirectory, worktreeRoot)
 
     return rel || undefined
+  }
+
+  private async executeToolModeInternal(options: QueryToolModeOptions): Promise<QueryToolModeResult> {
+    const startTime = Date.now()
+    const {limit = QueryExecutor.TOOL_MODE_DEFAULT_LIMIT, query, worktreeRoot} = options
+    const workspaceScope = this.deriveWorkspaceScope(worktreeRoot)
+
+    // === Tier 0: Exact cache hit ===
+    //
+    // Cache entries always hold up to `TOOL_MODE_MAX_LIMIT` matches.
+    // We slice down to the caller's `limit` on read so calls with
+    // different `--limit` values share one cache entry — a `--limit 50`
+    // request followed by `--limit 1` returns the same top doc.
+    let fingerprint: string | undefined
+    if (this.toolModeCache && this.fileSystem) {
+      fingerprint = await this.computeContextTreeFingerprint(worktreeRoot)
+      const cached = this.toolModeCache.get(query, fingerprint)
+      if (cached) {
+        const overlaid = this.overlayCachedEnvelope(cached, 'exact', TIER_EXACT_CACHE, startTime, limit)
+        if (overlaid) return overlaid
+      }
+    }
+
+    // === Tier 1: Fuzzy cache hit ===
+    if (this.toolModeCache && fingerprint) {
+      const fuzzy = this.toolModeCache.findSimilar(query, fingerprint)
+      if (fuzzy) {
+        const overlaid = this.overlayCachedEnvelope(fuzzy, 'fuzzy', TIER_FUZZY_CACHE, startTime, limit)
+        if (overlaid) return overlaid
+      }
+    }
+
+    // === Tier 2: BM25 retrieval + supplement + render ===
+    if (!this.searchService) {
+      return this.buildEmptyToolModeEnvelope(startTime)
+    }
+
+    // Always retrieve at MAX_LIMIT so the cache entry serves smaller
+    // subsequent requests without re-fetching. Slicing happens after
+    // the cache write.
+    //
+    // searchService.search() throws on transport-level failures (index
+    // unavailable, malformed payload, etc.). DON'T swallow into an
+    // empty envelope — that would conflate "broken retrieval" with
+    // "genuinely no matches" and let the calling agent synthesise
+    // around an outage. Let the throw propagate; the daemon catches
+    // it and emits task:error, which the CLI maps to outer
+    // `success: false`.
+    let searchResult: SearchKnowledgeResult = await this.searchService.search(query, {
+      limit: QueryExecutor.TOOL_MODE_MAX_LIMIT,
+      scope: workspaceScope,
+    })
+
+    if (searchResult.totalFound < 3) {
+      searchResult = await this.supplementEntitySearches(query, searchResult, workspaceScope)
+    }
+
+    const {matchedDocs: allMatches, skippedSharedCount} = await this.buildToolModeMatches(searchResult)
+    const topScore = allMatches[0]?.score ?? 0
+    const status: QueryToolModeResult['status'] = allMatches.length === 0 ? 'no-matches' : 'ok'
+    const totalFound = searchResult.totalFound ?? allMatches.length
+
+    // Cache the FULL envelope (up to TOOL_MODE_MAX_LIMIT matches) so
+    // subsequent calls with a smaller `--limit` slice down on read.
+    // `durationMs` here is a placeholder — overlayCachedEnvelope
+    // overwrites it with the cache-read latency.
+    if (this.toolModeCache && fingerprint && status === 'ok') {
+      const fullEnvelope: QueryToolModeResult = {
+        matchedDocs: allMatches,
+        metadata: {cacheHit: null, durationMs: 0, skippedSharedCount, tier: TIER_DIRECT_SEARCH, topScore, totalFound},
+        status,
+      }
+      this.toolModeCache.set(query, JSON.stringify(fullEnvelope), fingerprint)
+    }
+
+    return {
+      matchedDocs: allMatches.slice(0, limit),
+      metadata: {
+        cacheHit: null,
+        durationMs: Date.now() - startTime,
+        skippedSharedCount,
+        tier: TIER_DIRECT_SEARCH,
+        topScore,
+        totalFound,
+      },
+      status,
+    }
   }
 
   /**

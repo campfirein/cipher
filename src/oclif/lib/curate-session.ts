@@ -1,14 +1,18 @@
 import {randomUUID} from 'node:crypto'
 import {existsSync} from 'node:fs'
 import {mkdir, readFile, rm, writeFile} from 'node:fs/promises'
-import {dirname, join, relative} from 'node:path'
+import {dirname, join, relative, sep} from 'node:path'
 import {z} from 'zod'
 
 import type {CurateMeta} from '../../shared/curate-meta.js'
 
+import {ConsoleLogger} from '../../agent/infra/logger/console-logger.js'
+import {FileKeyStorage} from '../../agent/infra/storage/file-key-storage.js'
 import {BRV_DIR, CONTEXT_TREE_DIR} from '../../server/constants.js'
 import {buildCorrectionPrompt, buildGeneratePrompt} from '../../server/core/domain/render/curate-prompt-builder.js'
 import {ProjectConfigStore} from '../../server/infra/config/file-config-store.js'
+import {RuntimeSignalStore} from '../../server/infra/context-tree/runtime-signal-store.js'
+import {bumpSidecarOnCurateWrite} from '../../server/infra/context-tree/tool-mode-sidecar-updaters.js'
 import {backupContextTreeFile, buildCurateHtmlLogEntry} from '../../server/infra/process/curate-html-log.js'
 import {type HtmlWriteError, validateHtmlTopic, writeHtmlTopic} from '../../server/infra/render/writer/html-writer.js'
 import {FileCurateLogStore} from '../../server/infra/storage/file-curate-log-store.js'
@@ -357,6 +361,32 @@ export async function continueSession(options: ContinueOptions): Promise<CurateS
   const startedAt = Date.now()
   const writeResult = await writeHtmlTopic({confirmOverwrite, contextTreeRoot, rawHtml: html})
   const completedAt = Date.now()
+
+  // Mirror the curate into the runtime-signal sidecar so prune (and any
+  // future signal-driven ranking) has real data. Best-effort: a failure
+  // here must never block the write that already succeeded — but emit a
+  // warn so an operator hitting a corrupt key store / permission denied
+  // on the project data dir has a breadcrumb (a bare catch{} hides it).
+  if (writeResult.ok) {
+    const sidecarLogger = new ConsoleLogger()
+    try {
+      const keyStorage = new FileKeyStorage({storageDir: getProjectDataDir(projectRoot)})
+      await keyStorage.initialize()
+      const runtimeSignalStore = new RuntimeSignalStore(keyStorage, sidecarLogger)
+      await bumpSidecarOnCurateWrite({
+        existedBefore,
+        logger: sidecarLogger,
+        // Forward-slash normalize so the sidecar key matches the daemon's
+        // curate-html-direct path (`agent-process.ts`) on Windows.
+        relPath: relative(contextTreeRoot, writeResult.filePath).replaceAll(sep, '/'),
+        store: runtimeSignalStore,
+      })
+    } catch (error) {
+      sidecarLogger.warn(
+        `tool-mode-curate: sidecar bump init failed for ${projectRoot}: ${error instanceof Error ? error.message : String(error)}`,
+      )
+    }
+  }
 
   await persistCurateLog({
     completedAt,
