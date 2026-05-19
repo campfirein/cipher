@@ -52,12 +52,24 @@ export const BridgeConfigSchema = z.object({
   announce_interval_hours: z.number().int().positive().max(ONE_YEAR_IN_HOURS).default(24),
   announce_to_dht: z.boolean().default(false),
   announce_to_registry: z.boolean().default(false),
+  // Slice 9.9 — delegate policy. Default `prompt` per §9 codex
+  // round-1 MAJOR-5 fix: Alice's signed `permission_response_intent`
+  // is INPUT to Bob's decision, never the decision itself. Operators
+  // can set `auto` for trusted automation or `deny` for read-only
+  // Bob installs.
+  delegate_policy: z.enum(['auto', 'deny', 'prompt']).default('prompt'),
   dht_bootstrap: z.array(multiaddrString).default([]),
   discovery_mode: DiscoveryModeSchema.default('manual-only'),
   listen_addrs: z.array(multiaddrString).default(['/ip4/127.0.0.1/tcp/0']),
   // URL validation (opencode round-3 MEDIUM) — reject malformed schemes
   // like `file:///etc/passwd` at config-parse time.
   registry_url: z.string().url().nullable().default(null),
+  // Slice 9.8 — Circuit Relay v2 fallback multiaddrs. Default empty
+  // (no relay) so a fresh `brv install` doesn't accidentally route
+  // traffic through a relay. Operators behind strict NAT add their
+  // own relay multiaddr(s) here. Real ByteRover-hosted relay
+  // bootstrap list ships in a future operator-side commit.
+  relays: z.array(multiaddrString).default([]),
 }).strict()
 
 export type BridgeConfig = z.infer<typeof BridgeConfigSchema>
