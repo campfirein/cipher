@@ -61,6 +61,7 @@ import {DaemonTokenProvider} from '../auth/daemon-token-provider.js'
 import {allowlistFromEnv, makeOriginAllowlist} from '../auth/origin-allowlist.js'
 import {createBillingStateHandler} from '../billing/billing-state-endpoint.js'
 import {DEFAULT_BRIDGE_CONFIG} from '../channel/bridge/bridge-config.js'
+import {BridgeDriverPool} from '../channel/bridge/bridge-driver-pool.js'
 import {type AutoProvisionPolicy, BridgeTranscriptService} from '../channel/bridge/bridge-transcript-service.js'
 import {fetchAndPin} from '../channel/bridge/identity-client.js'
 import {registerIdentityServer} from '../channel/bridge/identity-server.js'
@@ -174,6 +175,27 @@ function parseBridgeProjectRoot(): string {
   const raw = process.env.BRV_BRIDGE_PROJECT_ROOT
   if (raw === undefined || raw.trim() === '') return process.cwd()
   return raw.trim()
+}
+
+/**
+ * Slice 9.4f — parse `BRV_BRIDGE_MAX_CONCURRENT_PER_PROFILE` env
+ * var. Default 1 (one warm driver per profile, prompts serialised).
+ * Operators expecting concurrent fan-in raise this; excess parley
+ * queries fail-fast with `PARLEY_LOCAL_AGENT_BUSY` rather than
+ * queueing.
+ */
+function parseBridgeMaxConcurrent(): number {
+  const raw = process.env.BRV_BRIDGE_MAX_CONCURRENT_PER_PROFILE
+  if (raw === undefined || raw.trim() === '') return 1
+  const parsed = Number.parseInt(raw, 10)
+  if (Number.isNaN(parsed) || parsed < 1) {
+    processLog(
+      `[Daemon] invalid BRV_BRIDGE_MAX_CONCURRENT_PER_PROFILE="${raw}"; expected positive integer; defaulting to 1`,
+    )
+    return 1
+  }
+
+  return parsed
 }
 
 function parseChannelRetentionDays(): number {
@@ -868,6 +890,11 @@ async function main(): Promise<void> {
     const bridgeL2 = new PeerTreeIdentityService({install: bridgeInstall})
     const bridgeTofu = new TofuStore({storePath: join(bridgeIdentityDir, 'known-peers.jsonl')})
     let bridgeHostPromise: Promise<Libp2pHost> | undefined
+    // Slice 9.4f — closed-over so the shutdown hook can stop every
+    // warm parley driver. Assigned inside ensureBridgeHost when a
+    // BRV_BRIDGE_PARLEY_PROFILE is set; remains undefined for the
+    // mock-echo path.
+    let bridgeDriverPool: BridgeDriverPool | undefined
     const ensureBridgeHost = async (): Promise<Libp2pHost> => {
       if (bridgeHostPromise === undefined) {
         bridgeHostPromise = (async () => {
@@ -893,18 +920,36 @@ async function main(): Promise<void> {
           // `BRV_BRIDGE_PARLEY_PROFILE` env var. When unset, the
           // parley-server falls back to mock-echo (existing 9.4a/b
           // behaviour).
+          //
+          // Slice 9.4f — when a profile is set, also wire a profile-
+          // keyed warm driver pool so inbound parleys reuse one ACP
+          // subprocess per profile (instead of spawning per query).
+          // The cap from `BRV_BRIDGE_MAX_CONCURRENT_PER_PROFILE`
+          // bounds concurrent in-flight prompts; excess queries
+          // surface as signed `PARLEY_LOCAL_AGENT_BUSY` errors.
           const parleyProfile = process.env.BRV_BRIDGE_PARLEY_PROFILE
+          const bridgeMaxConcurrent = parseBridgeMaxConcurrent()
+          // Assigned to the outer-scoped variable so the shutdown
+          // hook can call closeAll().
+          bridgeDriverPool =
+            parleyProfile === undefined || parleyProfile.trim() === ''
+              ? undefined
+              : new BridgeDriverPool({maxPerProfile: bridgeMaxConcurrent})
           const responseGenerator = parleyProfile === undefined || parleyProfile.trim() === ''
             ? undefined
             : createLocalAgentResponseGenerator({
                 driverFactory: channelDriverFactory,
+                pool: bridgeDriverPool,
                 profileName: parleyProfile.trim(),
                 profileStore: channelProfileStore,
               })
           if (responseGenerator === undefined) {
             log('Bridge parley dispatcher: mock-echo (no BRV_BRIDGE_PARLEY_PROFILE set)')
           } else {
-            log(`Bridge parley dispatcher: local-agent profile="${parleyProfile}"`)
+            log(
+              `Bridge parley dispatcher: local-agent profile="${parleyProfile}" ` +
+                `(pool cap=${bridgeMaxConcurrent} per profile)`,
+            )
           }
 
           // Slice 9.4e — Bob-side transcript persistence + auto-
@@ -1177,6 +1222,10 @@ async function main(): Promise<void> {
     const releaseChannelResourcesOnExit = (): void => {
       channelPool.releaseAll().catch(() => {})
       channelEventsWriter.closeAll().catch(() => {})
+      // Slice 9.4f — stop every warm parley ACP subprocess so they
+      // don't outlive the daemon. closeAll swallows individual driver
+      // errors so a single misbehaving subprocess can't block exit.
+      bridgeDriverPool?.closeAll().catch(() => {})
     }
 
     process.once('beforeExit', releaseChannelResourcesOnExit)

@@ -1,5 +1,6 @@
 import {type IAcpDriver, type TurnEventPayload} from '../../../core/interfaces/channel/i-acp-driver.js'
 import {type IDriverProfileStore} from '../../../core/interfaces/channel/i-driver-profile-store.js'
+import {type BridgeDriverPool} from './bridge-driver-pool.js'
 import {
   type ParleyResponseDataChunk,
   ParleyResponseError,
@@ -23,11 +24,18 @@ import {
  *     surfaced as agent_thought_chunks (best-effort) but not
  *     auto-approved or rejected — slice 9.9 wires the cross-bridge
  *     permission flow.
- *   - One driver per envelope, no pooling. Bob's daemon pays a per-
- *     query subprocess-spawn cost. Slice 9.4d will introduce a warm
- *     driver pool keyed on profile name.
  *   - Driver errors propagate as `PARLEY_LOCAL_AGENT_ERROR` strings;
  *     parley-server projects them as signed `error` terminal frames.
+ *
+ * Slice 9.4f scope:
+ *   - Profile-keyed warm driver pool replaces the per-query spawn
+ *     from 9.4c. Pool is shared across all inbound parley queries on
+ *     the daemon; lifetime managed by `brv-server.ts` (closeAll on
+ *     graceful shutdown).
+ *   - Concurrency cap (`BRV_BRIDGE_MAX_CONCURRENT_PER_PROFILE`,
+ *     default 1) — when exceeded, the dispatcher throws
+ *     `PARLEY_LOCAL_AGENT_BUSY` which the parley-server seals as an
+ *     error terminal frame so the dialer can retry.
  */
 
 export interface LocalAgentResponseGeneratorDeps {
@@ -40,6 +48,14 @@ export interface LocalAgentResponseGeneratorDeps {
     },
     handle: string,
   ) => IAcpDriver
+  /**
+   * Slice 9.4f — optional warm driver pool. When provided, the
+   * dispatcher reuses pool-managed drivers across queries instead of
+   * spawning per envelope. When absent, the legacy 9.4c behaviour
+   * (spawn + stop per envelope) is preserved for callers that
+   * haven't wired the pool yet.
+   */
+  readonly pool?: BridgeDriverPool
   readonly profileName: string
   readonly profileStore: IDriverProfileStore
 }
@@ -50,10 +66,6 @@ export interface LocalAgentResponseGeneratorDeps {
 const LOCAL_HANDLE = '@bridge-parley-handler'
 
 export function createLocalAgentResponseGenerator(deps: LocalAgentResponseGeneratorDeps): ParleyResponseGenerator {
-  // Each invocation spawns its own isolated driver; concurrent inbound
-  // queries on Bob's daemon are safe but spawn N subprocesses. Slice
-  // 9.4d will introduce profile-keyed pooling + a concurrency cap
-  // (TODO(9.4d) — see kimi round-1 LOW-C).
   return async function* ({envelope}) {
     const profile = await deps.profileStore.get(deps.profileName)
     if (profile === undefined) {
@@ -63,6 +75,38 @@ export function createLocalAgentResponseGenerator(deps: LocalAgentResponseGenera
       )
     }
 
+    const promptBlocks = envelope.prompt.map((b) => ({
+      text: b.text,
+      type: 'text' as const,
+    }))
+
+    if (deps.pool !== undefined) {
+      let acquired
+      try {
+        acquired = await deps.pool.acquire(deps.profileName, () => deps.driverFactory(profile.invocation, LOCAL_HANDLE))
+      } catch (error) {
+        if (error instanceof ParleyResponseError) throw error
+        const msg = error instanceof Error ? error.message : String(error)
+        throw new ParleyResponseError('PARLEY_LOCAL_AGENT_START_FAILED', msg)
+      }
+
+      try {
+        for await (const payload of acquired.driver.prompt({prompt: promptBlocks, turnId: envelope.turn_id})) {
+          const chunk = projectPayload(payload)
+          if (chunk !== undefined) yield chunk
+        }
+      } finally {
+        // Release the driver back to the pool so the next inbound
+        // parley reuses the warm subprocess. The pool calls stop()
+        // on closeAll at daemon shutdown.
+        acquired.release()
+      }
+
+      return
+    }
+
+    // Pool-less fallback: spawn + start + stop per query (legacy
+    // 9.4c path, retained for callers that haven't wired the pool).
     const driver = deps.driverFactory(profile.invocation, LOCAL_HANDLE)
     try {
       await driver.start()
@@ -72,11 +116,6 @@ export function createLocalAgentResponseGenerator(deps: LocalAgentResponseGenera
     }
 
     try {
-      const promptBlocks = envelope.prompt.map((b) => ({
-        text: b.text,
-        type: 'text' as const,
-      }))
-
       for await (const payload of driver.prompt({prompt: promptBlocks, turnId: envelope.turn_id})) {
         const chunk = projectPayload(payload)
         if (chunk !== undefined) yield chunk
