@@ -140,34 +140,16 @@ export async function fetchAndPin(args: FetchAndPinArgs): Promise<KnownPeer> {
   // pre-lock snapshot (kimi round-1 MEDIUM — TOCTOU race fix).
   const fingerprint = pubkeyFingerprint(cert)
   const nowIso = now.toISOString()
-  return args.tofuStore.upsertWithMerge(cert.subject_id, (existing) => {
-    // Slice 9.4h — pubkey and expires_at travel TOGETHER. When the
-    // dialer didn't fetch this round, preserve existing pair as-is.
-    // When the dialer DID fetch, overwrite both. This keeps the two
-    // fields in sync so `isL2CertExpired` always sees a coherent pair.
-    let l2Fields: {l2_expires_at?: string; l2_pub_key?: string}
-    if (l2Material !== undefined) {
-      l2Fields = {l2_expires_at: l2Material.l2ExpiresAt, l2_pub_key: l2Material.l2PubKey}
-    } else if (existing?.l2_pub_key === undefined) {
-      l2Fields = {}
-    } else {
-      l2Fields = {
-        l2_pub_key: existing.l2_pub_key,
-        ...(existing.l2_expires_at === undefined ? {} : {l2_expires_at: existing.l2_expires_at}),
-      }
-    }
-
-    return {
-      display_handle: cert.display_handle,
-      first_seen_at: existing?.first_seen_at ?? nowIso,
-      install_cert_fingerprint: fingerprint,
-      last_seen_at: nowIso,
-      peer_id: cert.subject_id,
-      pin_state: existing?.pin_state ?? 'auto-tofu',
-      ...l2Fields,
-      ...(existing?.ca_binding ? {ca_binding: existing.ca_binding} : {}),
-    }
-  })
+  return args.tofuStore.upsertWithMerge(cert.subject_id, (existing) => ({
+    display_handle: cert.display_handle,
+    first_seen_at: existing?.first_seen_at ?? nowIso,
+    install_cert_fingerprint: fingerprint,
+    last_seen_at: nowIso,
+    peer_id: cert.subject_id,
+    pin_state: existing?.pin_state ?? 'auto-tofu',
+    ...mergeL2Fields(l2Material, existing),
+    ...(existing?.ca_binding ? {ca_binding: existing.ca_binding} : {}),
+  }))
 }
 
 async function fetchAndVerifyTreeCert(args: {
@@ -289,6 +271,43 @@ function validateTreeCertShape(raw: unknown): PeerTreeCertificate {
 // Exported for unit tests + integration tests; not part of the public
 // runtime API surface.
 export const __internal__validateTreeCertShape = validateTreeCertShape
+
+/**
+ * Phase 9 / Slice 9.4h — pure merge function for the L2 pubkey +
+ * expiry pair. Pulled out of `fetchAndPin` so it can be unit-tested
+ * in isolation (kimi round-1 LOW — direct coverage for the
+ * "pubkey and expiry travel together" invariant). The three branches
+ * are mutually exclusive:
+ *
+ *   - `fresh !== undefined` → overwrite both fields with the fresh
+ *     material from the just-verified tree cert
+ *   - `existing.l2_pub_key === undefined` → no L2 cached, no fresh
+ *     fetch → empty pair (caller's record drops the fields entirely)
+ *   - otherwise → preserve the existing pair; carry expiry forward
+ *     if and only if it was present on the existing record
+ *
+ * Importantly, NEVER returns `{l2_pub_key: 'X'}` without `l2_expires_at`
+ * if expiry was known — and never invents an expiry when it wasn't.
+ * Pre-9.4h legacy entries (pubkey-without-expiry) flow through as-is;
+ * `isL2CertExpired` separately treats those as stale.
+ */
+export function mergeL2Fields(
+  fresh: undefined | {l2ExpiresAt: string; l2PubKey: string},
+  existing: undefined | {l2_expires_at?: string; l2_pub_key?: string},
+): {l2_expires_at?: string; l2_pub_key?: string} {
+  if (fresh !== undefined) {
+    return {l2_expires_at: fresh.l2ExpiresAt, l2_pub_key: fresh.l2PubKey}
+  }
+
+  if (existing?.l2_pub_key === undefined) {
+    return {}
+  }
+
+  return {
+    l2_pub_key: existing.l2_pub_key,
+    ...(existing.l2_expires_at === undefined ? {} : {l2_expires_at: existing.l2_expires_at}),
+  }
+}
 
 /**
  * Phase 9 / Slice 9.4h — predicate the daemon's L2 fast-path uses to

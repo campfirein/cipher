@@ -5,7 +5,7 @@ import {expect} from 'chai'
 
 import type {KnownPeer} from '../../../../../../src/agent/core/trust/tofu-store.js'
 
-import {isL2CertExpired} from '../../../../../../src/server/infra/channel/bridge/identity-client.js'
+import {isL2CertExpired, mergeL2Fields} from '../../../../../../src/server/infra/channel/bridge/identity-client.js'
 
 // Phase 9 / Slice 9.4h — cached L2 cert expiry check.
 //
@@ -73,5 +73,54 @@ describe('isL2CertExpired (slice 9.4h)', () => {
       l2_pub_key: 'AA'.repeat(22),
     })
     expect(isL2CertExpired(peer, now)).to.equal(true)
+  })
+
+  describe('mergeL2Fields (kimi round-1 LOW direct coverage)', () => {
+    it('fresh material overwrites both fields', () => {
+      const result = mergeL2Fields(
+        {l2ExpiresAt: '2027-05-19T00:00:00.000Z', l2PubKey: 'NEW'.repeat(22)},
+        {l2_expires_at: '2025-01-01T00:00:00.000Z', l2_pub_key: 'OLD'.repeat(22)},
+      )
+      expect(result.l2_pub_key).to.equal('NEW'.repeat(22))
+      expect(result.l2_expires_at).to.equal('2027-05-19T00:00:00.000Z')
+    })
+
+    it('fresh material overwrites even when existing is undefined (first pin)', () => {
+      // eslint-disable-next-line unicorn/no-useless-undefined
+      const result = mergeL2Fields({l2ExpiresAt: '2027-05-19T00:00:00.000Z', l2PubKey: 'NEW'.repeat(22)}, undefined)
+      expect(result.l2_pub_key).to.equal('NEW'.repeat(22))
+      expect(result.l2_expires_at).to.equal('2027-05-19T00:00:00.000Z')
+    })
+
+    it('no fresh material + no existing pubkey → empty pair (drops both fields)', () => {
+      const result = mergeL2Fields(undefined, {})
+      expect(result.l2_pub_key).to.be.undefined
+      expect(result.l2_expires_at).to.be.undefined
+    })
+
+    it('no fresh material + no existing record → empty pair', () => {
+      // eslint-disable-next-line unicorn/no-useless-undefined
+      const result = mergeL2Fields(undefined, undefined)
+      expect(result.l2_pub_key).to.be.undefined
+      expect(result.l2_expires_at).to.be.undefined
+    })
+
+    it('preserves existing pair when no fresh material', () => {
+      const result = mergeL2Fields(undefined, {
+        l2_expires_at: '2027-05-19T00:00:00.000Z',
+        l2_pub_key: 'OLD'.repeat(22),
+      })
+      expect(result.l2_pub_key).to.equal('OLD'.repeat(22))
+      expect(result.l2_expires_at).to.equal('2027-05-19T00:00:00.000Z')
+    })
+
+    it('preserves legacy pubkey-without-expiry as-is (pre-9.4h pin)', () => {
+      // The result MUST keep the legacy pubkey AND omit the expiry
+      // (rather than invent one). isL2CertExpired later treats this
+      // shape as stale, forcing a re-fetch on next use.
+      const result = mergeL2Fields(undefined, {l2_pub_key: 'LEGACY'.repeat(11)})
+      expect(result.l2_pub_key).to.equal('LEGACY'.repeat(11))
+      expect(result.l2_expires_at).to.be.undefined
+    })
   })
 })

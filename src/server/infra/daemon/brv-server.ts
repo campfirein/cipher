@@ -1075,6 +1075,12 @@ async function main(): Promise<void> {
     // `fetchAndPin({fetchTreeCert: true})` dials the remote's
     // `/brv/identity/cert/v1` AND `/brv/identity/tree-cert/v1`,
     // verifies both chains, and pins the L2 pubkey to the TOFU store.
+    // Slice 9.4h — clock captured at startup so the daemon's
+    // expiry check is deterministic under fake-timers in tests
+    // (kimi round-1 LOW; matches the clock-threading pattern used by
+    // other 9.4* services like BridgeTranscriptService).
+    const bridgeClock = (): Date => new Date()
+
     const resolveRemotePeerL2PubKey = async (args: {multiaddr: string; peerId: string}): Promise<string> => {
       // Fast-path: re-use a cached L2 pubkey when we've already pinned
       // this peer with full identity (kimi round-1 LOW). Inviting the
@@ -1086,9 +1092,23 @@ async function main(): Promise<void> {
       // recorded expiry — treat as stale-unknown). Falling through to
       // `fetchAndPin({fetchTreeCert: true})` re-validates the chain
       // against `now`, refreshing both pubkey and expires_at.
+      //
+      // Note (kimi round-1 NIT): two concurrent invites for the same
+      // peer with a stale cache BOTH fall through here before the
+      // TOFU lock serialises their writes. The flock prevents storage
+      // races but does NOT coalesce the network dials, so the same
+      // tree cert may be fetched twice in rapid succession. Acceptable
+      // for now; a request-coalescer would be a future optimisation.
       const cached = await bridgeTofu.get(args.peerId)
-      if (cached?.l2_pub_key !== undefined && !isL2CertExpired(cached, new Date())) {
+      if (cached?.l2_pub_key !== undefined && !isL2CertExpired(cached, bridgeClock())) {
         return cached.l2_pub_key
+      }
+
+      if (cached?.l2_pub_key !== undefined) {
+        // kimi round-1 LOW — give operators a single observable
+        // signal when a previously-snappy invite suddenly does a
+        // network dial because the cached L2 cert has aged out.
+        log(`L2 cache stale for peer ${args.peerId}; re-fetching tree cert`)
       }
 
       const host = await ensureBridgeHost()
