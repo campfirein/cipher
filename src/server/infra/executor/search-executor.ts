@@ -11,15 +11,20 @@
 
 import type {ISearchKnowledgeService, SearchKnowledgeResult} from '../../../agent/infra/sandbox/tools-sdk.js'
 import type {ISearchExecutor, SearchExecuteOptions} from '../../core/interfaces/executor/i-search-executor.js'
+import type {IRuntimeSignalStore} from '../../core/interfaces/storage/i-runtime-signal-store.js'
+
+import {bumpSidecarOnQueryRead} from '../context-tree/tool-mode-sidecar-updaters.js'
 
 const DEFAULT_LIMIT = 10
 const MAX_LIMIT = 50
 
 export class SearchExecutor implements ISearchExecutor {
+  private readonly runtimeSignalStore: IRuntimeSignalStore | undefined
   private readonly searchService: ISearchKnowledgeService
 
-  constructor(searchService: ISearchKnowledgeService) {
+  constructor(searchService: ISearchKnowledgeService, runtimeSignalStore?: IRuntimeSignalStore) {
     this.searchService = searchService
+    this.runtimeSignalStore = runtimeSignalStore
   }
 
   async execute(options: SearchExecuteOptions): Promise<SearchKnowledgeResult> {
@@ -34,9 +39,21 @@ export class SearchExecutor implements ISearchExecutor {
       Math.max(1, Math.trunc(options.limit ?? DEFAULT_LIMIT)),
     )
 
-    return this.searchService.search(query, {
+    const result = await this.searchService.search(query, {
       limit,
       ...(scope ? {scope} : {}),
     })
+
+    // Bump runtime-signal accessCount per matched path so prune (and any
+    // future signal-driven ranking) has real read-side data. Best-effort:
+    // sidecar failure must never break search.
+    if (this.runtimeSignalStore && result.results.length > 0) {
+      await bumpSidecarOnQueryRead({
+        relPaths: result.results.map((r) => r.path),
+        store: this.runtimeSignalStore,
+      })
+    }
+
+    return result
   }
 }

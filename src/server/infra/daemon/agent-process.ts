@@ -58,6 +58,7 @@ import {
 } from '../../core/domain/transport/schemas.js'
 import {FileContextTreeArchiveService} from '../context-tree/file-context-tree-archive-service.js'
 import {RuntimeSignalStore} from '../context-tree/runtime-signal-store.js'
+import {bumpSidecarOnCurateWrite} from '../context-tree/tool-mode-sidecar-updaters.js'
 import {DreamLockService} from '../dream/dream-lock-service.js'
 import {DreamLogStore} from '../dream/dream-log-store.js'
 import {DreamStateService} from '../dream/dream-state-service.js'
@@ -455,9 +456,10 @@ async function start(): Promise<void> {
     baseDirectory: projectPath,
     enableCache: true,
     fileSystem: fileSystemService,
+    runtimeSignalStore: daemonRuntimeSignalStore,
     searchService,
   })
-  const searchExecutor = new SearchExecutor(searchService)
+  const searchExecutor = new SearchExecutor(searchService, daemonRuntimeSignalStore)
 
   transport.on<TaskExecute>(TransportTaskEventNames.EXECUTE, (task) => {
     agentLog(`task:execute received taskId=${task.taskId} type=${task.type} activeTaskCount=${activeTaskCount + 1}`)
@@ -712,6 +714,15 @@ async function executeTask(
             topicPathResolved = preValidation.ok
               ? preValidation.topicPath
               : relativeFilePath.replace(/\.html$/, '')
+
+            // Mirror the curate into the runtime-signal sidecar so prune (and
+            // any future signal-driven ranking) has real data to work with.
+            // Best-effort: never blocks the write that already succeeded.
+            await bumpSidecarOnCurateWrite({
+              existedBefore,
+              relPath: relativeFilePath,
+              store: runtimeSignalStore,
+            })
           } else if (preValidation.ok) {
             topicPathResolved = preValidation.topicPath
           }

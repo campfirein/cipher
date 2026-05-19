@@ -4,6 +4,7 @@ import sinon from 'sinon'
 import type {ISearchKnowledgeService, SearchKnowledgeResult} from '../../../../src/agent/infra/sandbox/tools-sdk.js'
 
 import {SearchExecutor} from '../../../../src/server/infra/executor/search-executor.js'
+import {createMockRuntimeSignalStore} from '../../../helpers/mock-factories.js'
 
 function makeSearchResult(count: number): SearchKnowledgeResult {
   return {
@@ -154,5 +155,30 @@ describe('SearchExecutor', () => {
     } catch (error) {
       expect((error as Error).message).to.equal('index corrupted')
     }
+  })
+
+  it('bumps runtime-signal accessCount for each returned result path when store is provided', async () => {
+    const result = makeSearchResult(3)
+    const service = makeMockService(result)
+    const store = createMockRuntimeSignalStore()
+    const executor = new SearchExecutor(service, store)
+
+    await executor.execute({query: 'authentication'})
+
+    const a = await store.get('domain/topic-1.md')
+    const b = await store.get('domain/topic-2.md')
+    const c = await store.get('domain/topic-3.md')
+    expect(a.accessCount).to.equal(1)
+    expect(b.accessCount).to.equal(1)
+    expect(c.accessCount).to.equal(1)
+  })
+
+  it('returns search results normally when no runtime-signal store is provided', async () => {
+    const result = makeSearchResult(2)
+    const service = makeMockService(result)
+    const executor = new SearchExecutor(service)
+
+    const actual = await executor.execute({query: 'foo'})
+    expect(actual.results).to.have.length(2)
   })
 })
