@@ -1158,6 +1158,10 @@ async function main(): Promise<void> {
       profileMetadataStore: channelProfileMetadataStore,
       profileStore: channelProfileStore,
       store: channelStore,
+      // Slice 9.11 — give the doctor access to the bridge TOFU store
+      // so it can diagnose remote-peer channel members (pin state, L2
+      // cert freshness, etc.).
+      tofu: bridgeTofu,
     })
 
     // Slice 3.5c: run recovery BEFORE any client can connect. Seeds the
