@@ -34,6 +34,8 @@ import {fileURLToPath} from 'node:url'
 import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
 import type {IChannelBroadcaster} from '../../core/interfaces/channel/i-channel-broadcaster.js'
 
+import {InstallIdentityService} from '../../../agent/core/trust/install-identity-service.js'
+import {PeerTreeIdentityService} from '../../../agent/core/trust/peer-tree-identity-service.js'
 import {ChannelEvents} from '../../../shared/transport/events/channel-events.js'
 import {ReviewEvents} from '../../../shared/transport/events/review-events.js'
 import {
@@ -56,6 +58,9 @@ import {crashLog, processLog} from '../../utils/process-logger.js'
 import {DaemonTokenProvider} from '../auth/daemon-token-provider.js'
 import {allowlistFromEnv, makeOriginAllowlist} from '../auth/origin-allowlist.js'
 import {createBillingStateHandler} from '../billing/billing-state-endpoint.js'
+import {DEFAULT_BRIDGE_CONFIG} from '../channel/bridge/bridge-config.js'
+import {Libp2pHost} from '../channel/bridge/libp2p-host.js'
+import {RemoteMemberDriver} from '../channel/bridge/remote-member-driver.js'
 import {runChannelRecovery} from '../channel/channel-recovery.js'
 import {ChannelStore} from '../channel/channel-store.js'
 import {ChannelDoctorService} from '../channel/doctor-service.js'
@@ -802,6 +807,56 @@ async function main(): Promise<void> {
     const channelProfileMetadataStore = new FileProfileMetadataStore({dataDir: getGlobalDataDir()})
     const channelDriverFactory = (invocation: import('../channel/onboard-service.js').OnboardArgs['invocation'], handle: string) =>
       new AcpDriver({handle, invocation})
+
+    // Phase 9 / Slice 9.4 — lazy-instantiated bridge primitives.
+    // The libp2p host + L1/L2 identity services are only created when
+    // the first remote-peer invite arrives, so installs that never use
+    // cross-host channels don't pay the libp2p startup cost.
+    const bridgeIdentityDir = join(getGlobalDataDir(), 'identity')
+    const bridgeInstall = new InstallIdentityService({installDir: bridgeIdentityDir})
+    const bridgeL2 = new PeerTreeIdentityService({install: bridgeInstall})
+    let bridgeHostPromise: Promise<Libp2pHost> | undefined
+    const ensureBridgeHost = async (): Promise<Libp2pHost> => {
+      if (bridgeHostPromise === undefined) {
+        bridgeHostPromise = (async () => {
+          await bridgeInstall.loadOrGenerate()
+          await bridgeL2.loadOrGenerate()
+          const host = new Libp2pHost({config: DEFAULT_BRIDGE_CONFIG, identity: bridgeInstall})
+          await host.start()
+          return host
+        })().catch((error) => {
+          bridgeHostPromise = undefined
+          throw error
+        })
+      }
+
+      return bridgeHostPromise
+    }
+
+    const remotePeerDriverFactory = async (args: {
+      channelId: string
+      handle: string
+      multiaddr: string
+      peerId: string
+      remoteL2PubKey: string
+    }) => {
+      // Reuse the shared bridge host across all remote-peer drivers in
+      // the daemon — one libp2p host per daemon process, NOT per
+      // member. The host is lazy-initialized on first invite so installs
+      // that never use cross-host channels skip the libp2p startup cost.
+      const host = await ensureBridgeHost()
+      return new RemoteMemberDriver({
+        channelId: args.channelId,
+        handle: args.handle,
+        host,
+        install: bridgeInstall,
+        l2Identity: bridgeL2,
+        multiaddr: args.multiaddr,
+        peerId: args.peerId,
+        remoteL2PubKey: args.remoteL2PubKey,
+      })
+    }
+
     const channelOrchestrator = new ChannelOrchestrator({
       broadcaster: channelBroadcaster,
       cancelCoordinator: channelCancelCoordinator,
@@ -814,6 +869,7 @@ async function main(): Promise<void> {
       // profile metadata so `channel profile show` surfaces variance.
       profileMetadataStore: channelProfileMetadataStore,
       profileStore: channelProfileStore,
+      remotePeerDriverFactory,
       seqAllocator: channelSeqAllocator,
       store: channelStore,
     })

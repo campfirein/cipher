@@ -137,6 +137,8 @@ const LocalAgentStatusSchema = z.enum([
 
 const HumanMessagingStatusSchema = z.enum(['active', 'paired', 'muted', 'left'])
 
+const RemotePeerStatusSchema = z.enum(['idle', 'thinking', 'errored', 'muted', 'left', 'unreachable'])
+
 export const ChannelMemberAcpAgentSchema = z.object({
   ...ChannelMemberBaseShape,
   memberKind: z.literal('acp-agent'),
@@ -174,10 +176,35 @@ const ChannelMemberHumanMessagingSchema = z.object({
   status: HumanMessagingStatusSchema,
 })
 
+/**
+ * Phase 9 / Slice 9.4 — a channel member that lives on a different brv
+ * install reachable over libp2p Parley. The local daemon routes
+ * `@<handle>` mentions for this member through a `RemoteMemberDriver`
+ * that opens a `/brv/parley/query/v1` stream to `multiaddr` and verifies
+ * response frames against `remoteL2PubKey`.
+ *
+ * The `multiaddr` MUST carry a `/p2p/<peerId>` suffix that matches the
+ * `peerId` field; the orchestrator double-checks this at invite time.
+ * `remoteL2PubKey` is base64 of the remote's L2 tree pubkey — a 9.3
+ * out-of-band seam. 9.4 follow-up replaces it with in-band cert discovery.
+ */
+export const ChannelMemberRemotePeerSchema = z.object({
+  ...ChannelMemberBaseShape,
+  memberKind: z.literal('remote-peer'),
+  handle: HandleSchema,
+  peerId: z.string().min(1),
+  multiaddr: z.string().min(1),
+  remoteL2PubKey: z.string().min(1),
+  displayName: z.string().optional(),
+  status: RemotePeerStatusSchema,
+})
+export type ChannelMemberRemotePeer = z.infer<typeof ChannelMemberRemotePeerSchema>
+
 export const ChannelMemberSchema = z.discriminatedUnion('memberKind', [
   ChannelMemberAcpAgentSchema,
   ChannelMemberLocalAgentSchema,
   ChannelMemberHumanMessagingSchema,
+  ChannelMemberRemotePeerSchema,
 ])
 export type ChannelMember = z.infer<typeof ChannelMemberSchema>
 
@@ -188,7 +215,7 @@ export type ChannelMember = z.infer<typeof ChannelMemberSchema>
  * `channel:members`.
  */
 export const ChannelMemberSummarySchema = z.object({
-  memberKind: z.enum(['acp-agent', 'local-agent', 'human-messaging']),
+  memberKind: z.enum(['acp-agent', 'local-agent', 'human-messaging', 'remote-peer']),
   handle: z.string(),
   displayName: z.string().optional(),
   status: z.string().optional(),

@@ -13,14 +13,25 @@ export default class ChannelInvite extends Command {
     channelId: Args.string({description: 'Channel handle', required: true}),
     handle: Args.string({description: 'Member handle (must start with @)', required: true}),
   }
-public static description = 'Invite an ACP agent into a channel and run initialize synchronously'
+public static description = 'Invite a local ACP agent OR a remote brv install into a channel'
 public static examples = [
     '<%= config.bin %> <%= command.id %> pi-test @mock -- node test/fixtures/mock-acp.js',
     '<%= config.bin %> <%= command.id %> pi-test @kimi -- kimi acp',
     '<%= config.bin %> <%= command.id %> pi-test @mock --profile mock',
+    '<%= config.bin %> <%= command.id %> review-2026 @bob --peer 12D3KooW... --multiaddr /ip4/.../tcp/4001/p2p/12D3KooW... --l2-pub-key <base64>',
   ]
 public static flags = {
+    'display-name': Flags.string({description: 'Display name to render alongside the remote-peer handle (optional)'}),
     json: Flags.boolean({default: false, description: 'Emit JSON instead of pretty output'}),
+    'l2-pub-key': Flags.string({
+      description: 'Phase 9 remote-peer: base64 of the remote\'s L2 tree pubkey (from `brv bridge listen` banner)',
+    }),
+    multiaddr: Flags.string({
+      description: 'Phase 9 remote-peer: full multiaddr with /p2p/<peer-id> suffix of the remote brv install',
+    }),
+    peer: Flags.string({
+      description: 'Phase 9 remote-peer: base58btc peer_id of the remote brv install',
+    }),
     profile: Flags.string({description: 'Use a persisted driver profile name (Phase 3) instead of an inline invocation'}),
   }
 // Accept the trailing invocation tokens (after `--`).
@@ -37,11 +48,35 @@ public static flags = {
     // separator before us, so argv[0] is the first invocation token.
     const tail = argv.slice(2).filter((v): v is string => typeof v === 'string')
 
+    const isRemotePeer = flags.peer !== undefined || flags.multiaddr !== undefined || flags['l2-pub-key'] !== undefined
+
     let payload: ChannelInviteRequest
-    if (flags.profile === undefined) {
+    if (isRemotePeer) {
+      if (flags.profile !== undefined || tail.length > 0) {
+        this.error(
+          'Remote-peer flags (--peer / --multiaddr / --l2-pub-key) cannot be combined with --profile or an inline invocation',
+          {exit: 1},
+        )
+      }
+
+      if (flags.peer === undefined || flags.multiaddr === undefined || flags['l2-pub-key'] === undefined) {
+        this.error('Remote-peer invite requires ALL of --peer, --multiaddr, --l2-pub-key', {exit: 1})
+      }
+
+      payload = {
+        channelId: args.channelId,
+        handle: args.handle,
+        remotePeer: {
+          multiaddr: flags.multiaddr,
+          peerId: flags.peer,
+          remoteL2PubKey: flags['l2-pub-key'],
+          ...(flags['display-name'] === undefined ? {} : {displayName: flags['display-name']}),
+        },
+      }
+    } else if (flags.profile === undefined) {
       if (tail.length === 0) {
         this.error(
-          'Invocation is required: `brv channel invite <ch> <@h> -- <command> [args...]` OR `--profile <name>`',
+          'Invocation is required: `brv channel invite <ch> <@h> -- <command> [args...]` OR `--profile <name>` OR `--peer <id> --multiaddr <ma> --l2-pub-key <key>`',
           {exit: 1},
         )
       }
@@ -71,6 +106,12 @@ public static flags = {
       }
 
       const {member} = response
+      if (member.memberKind === 'remote-peer') {
+        this.log(`✓ Member ${args.handle} joined #${args.channelId} (remote-peer: ${member.peerId})`)
+        this.log(`    multiaddr: ${member.multiaddr}`)
+        return
+      }
+
       if (member.memberKind !== 'acp-agent') {
         this.log(`✓ Member ${args.handle} joined #${args.channelId}`)
         return

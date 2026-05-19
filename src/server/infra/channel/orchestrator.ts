@@ -126,6 +126,22 @@ export type ChannelOrchestratorDeps = {
    * `inviteMember` consults the store when `profileName` is supplied.
    */
   readonly profileStore?: IDriverProfileStore
+  /**
+   * Phase 9 / Slice 9.4 — factory for `remote-peer` channel members.
+   * The orchestrator calls this in `inviteMember` when the invite
+   * carries `remotePeer` instead of `invocation` / `profileName`. The
+   * factory MUST return an `IAcpDriver` whose `prompt()` dials a
+   * Parley stream to the supplied multiaddr. Optional: when omitted,
+   * `inviteMember` rejects remote-peer invites with
+   * `CHANNEL_INVITE_REMOTE_UNSUPPORTED`.
+   */
+  readonly remotePeerDriverFactory?: (args: {
+    channelId: string
+    handle: string
+    multiaddr: string
+    peerId: string
+    remoteL2PubKey: string
+  }) => Promise<IAcpDriver>
   readonly seqAllocator: ITurnSequenceAllocator
   readonly store: IChannelStore
 }
@@ -247,6 +263,8 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
   // erroring with CHANNEL_DRIVER_NOT_REGISTERED. Keyed by projectRoot;
   // entries clear once the warm resolves (success or failure).
   private readonly projectWarmInFlight = new Map<string, Promise<void>>()
+  // Phase 9 / Slice 9.4 — see `ChannelOrchestratorDeps.remotePeerDriverFactory`.
+  private readonly remotePeerDriverFactory: ChannelOrchestratorDeps['remotePeerDriverFactory']
   // Slice 8.10 — orphan registry for in-flight permissions lost on daemon
   // restart. Populated once at daemon startup via `seedRestartLosses()` from
   // `runChannelRecovery()` results. Consulted by `permissionDecision()` when
@@ -273,6 +291,7 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
     this.pool = deps.pool
     this.profileMetadataStore = deps.profileMetadataStore
     this.profileStore = deps.profileStore
+    this.remotePeerDriverFactory = deps.remotePeerDriverFactory
     this.seqAllocator = deps.seqAllocator
     this.store = deps.store
   }
@@ -778,6 +797,13 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
   }
 
   async inviteMember(args: InviteMemberArgs): Promise<ChannelMember> {
+    // Phase 9 / Slice 9.4 — `remote-peer` invites bypass the entire
+    // ACP-subprocess pipeline and create a `RemoteMemberDriver` that
+    // dials a libp2p Parley stream per prompt.
+    if (args.remotePeer !== undefined) {
+      return this.inviteRemotePeerMember(args)
+    }
+
     if (args.profileName !== undefined && args.invocation !== undefined) {
       throw new ChannelInvalidRequestError(
         'channel:invite accepts profileName OR invocation, not both',
@@ -867,14 +893,14 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
     return member
   }
 
-  // ─── Phase-2 permission decision ──────────────────────────────────────
-
   async listChannels(args: ListChannelsArgs): Promise<Channel[]> {
     return this.store.listChannels({
       includeArchived: args.archived === true,
       projectRoot: args.projectRoot,
     })
   }
+
+  // ─── Phase-2 permission decision ──────────────────────────────────────
 
   async listTurns(args: ListTurnsArgs): Promise<ListTurnsResult> {
     const channel = await this.store.readChannel({
@@ -960,8 +986,6 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
     return decisionEvent
   }
 
-  // ─── private helpers ──────────────────────────────────────────────────
-
   async postTurn(args: PostTurnArgs): Promise<Turn> {
     const channel = await this.store.readChannel({
       channelId: args.channelId,
@@ -1037,6 +1061,8 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
 
     return turn
   }
+
+  // ─── private helpers ──────────────────────────────────────────────────
 
   // ─── Slice 8.10 — orphan-permission registry ────────────────────────
   // Called once at daemon startup from brv-server.ts after
@@ -1456,6 +1482,105 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
     // Wrap the payload with TurnEventBase + seq.
     const wrapped = this.wrapPayload({channelId, delivery, memberHandle: member.handle, payload, turnId})
     await this.persistAndBroadcast(channelId, projectRoot, turnId, wrapped)
+  }
+
+  /**
+   * Phase 9 / Slice 9.4 — invite a remote brv install as a channel
+   * member. Bypasses subprocess spawn + ACP `initialize` (there is no
+   * subprocess); instead asks the configured `remotePeerDriverFactory`
+   * for a driver that wraps the Parley client.
+   *
+   * Validates that `multiaddr` carries a `/p2p/<peer-id>` suffix that
+   * matches the supplied `peerId` — otherwise a typo would silently let
+   * the dialer fail with `TRANSPORT_IDENTITY_MISMATCH` on first
+   * mention.
+   */
+  private async inviteRemotePeerMember(args: InviteMemberArgs): Promise<ChannelMember> {
+    if (args.remotePeer === undefined) {
+      throw new ChannelInvalidRequestError(
+        'inviteRemotePeerMember called without remotePeer payload',
+        {fields: ['remotePeer']},
+      )
+    }
+
+    if (args.invocation !== undefined || args.profileName !== undefined) {
+      throw new ChannelInvalidRequestError(
+        'channel:invite remotePeer cannot be combined with invocation or profileName',
+        {fields: ['remotePeer', 'invocation', 'profileName']},
+      )
+    }
+
+    if (this.remotePeerDriverFactory === undefined) {
+      throw new ChannelInvalidRequestError(
+        'CHANNEL_INVITE_REMOTE_UNSUPPORTED: this daemon was started without a remotePeerDriverFactory; remote-peer invites need the Phase-9 bridge wired into orchestrator deps',
+        {phase: 9},
+      )
+    }
+
+    const {displayName, multiaddr, peerId, remoteL2PubKey} = args.remotePeer
+
+    const suffix = multiaddr.match(/\/p2p\/([1-9A-HJ-NP-Za-km-z]+)$/)
+    if (suffix === null) {
+      throw new ChannelInvalidRequestError(
+        `multiaddr ${multiaddr} is missing a /p2p/<peer-id> suffix`,
+        {fields: ['remotePeer.multiaddr']},
+      )
+    }
+
+    if (suffix[1] !== peerId) {
+      throw new ChannelInvalidRequestError(
+        `remotePeer.peerId ${peerId} does not match the /p2p/ suffix on multiaddr (${suffix[1]})`,
+        {fields: ['remotePeer.peerId', 'remotePeer.multiaddr']},
+      )
+    }
+
+    const driver = await this.remotePeerDriverFactory({
+      channelId: args.channelId,
+      handle: args.handle,
+      multiaddr,
+      peerId,
+      remoteL2PubKey,
+    })
+    await driver.start()
+
+    const now = this.clock().toISOString()
+    const member: ChannelMember = {
+      handle: args.handle,
+      joinedAt: now,
+      memberKind: 'remote-peer',
+      multiaddr,
+      peerId,
+      remoteL2PubKey,
+      status: 'idle',
+      ...(displayName === undefined ? {} : {displayName}),
+    }
+
+    try {
+      await this.store.updateChannelMeta({
+        channelId: args.channelId,
+        mutate(meta) {
+          const existing = meta.members.filter((m) => m.handle !== args.handle)
+          return {...meta, members: [...existing, member], updatedAt: now}
+        },
+        projectRoot: args.projectRoot,
+      })
+    } catch (error) {
+      await driver.stop()
+      if (error instanceof Error && /not found/i.test(error.message)) {
+        throw new ChannelNotFoundError(args.channelId)
+      }
+
+      throw error
+    }
+
+    this.pool.register({channelId: args.channelId, driver})
+    this.broadcaster.broadcastToChannel(args.channelId, ChannelEvents.MEMBER_UPDATE, {
+      channelId: args.channelId,
+      member,
+      op: 'added',
+    })
+
+    return member
   }
 
   // ─── Slice 8.0 — sync-mode pending-entry lifecycle ──────────────────────

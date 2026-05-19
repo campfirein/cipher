@@ -90,6 +90,22 @@ export type InviteMemberArgs = {
   }
   readonly profileName?: string
   readonly projectRoot: string
+  /**
+   * Phase 9 / Slice 9.4 — invite a remote brv install as a channel
+   * member. When set, `invocation` + `profileName` MUST be absent;
+   * the orchestrator constructs a `RemoteMemberDriver` instead of
+   * spawning a local ACP subprocess.
+   *
+   * `remoteL2PubKey` is base64 of the remote's L2 tree pubkey,
+   * read out-of-band from the remote's `brv bridge listen` banner.
+   * 9.4 follow-up replaces it with in-band cert discovery.
+   */
+  readonly remotePeer?: {
+    readonly displayName?: string
+    readonly multiaddr: string
+    readonly peerId: string
+    readonly remoteL2PubKey: string
+  }
 }
 
 export type UninviteMemberArgs = {

@@ -210,6 +210,20 @@ const InvocationSchema = AgentDriverProfileInvocationSchema
  * `CHANNEL_INVALID_REQUEST` because the driver-profile registry doesn't
  * land until Phase 3.
  */
+/**
+ * Phase 9 / Slice 9.4 — remote-peer invite payload. Mutually exclusive
+ * with `invocation` and `profileName`. The orchestrator validates
+ * `multiaddr` carries a `/p2p/<peerId>` suffix matching `peerId`.
+ */
+const ChannelInviteRemotePeerSchema = z
+  .object({
+    displayName: z.string().optional(),
+    multiaddr: z.string().min(1),
+    peerId: z.string().min(1),
+    remoteL2PubKey: z.string().min(1),
+  })
+  .strict()
+
 export const ChannelInviteRequestSchema = z
   .object({
     capabilities: z.array(z.string()).optional(),
@@ -217,11 +231,17 @@ export const ChannelInviteRequestSchema = z
     handle: HandleSchema,
     invocation: InvocationSchema.optional(),
     profileName: z.string().optional(),
+    remotePeer: ChannelInviteRemotePeerSchema.optional(),
   })
   .refine(
-    (data) => (data.profileName === undefined) !== (data.invocation === undefined),
+    (data) => {
+      const provided = [data.invocation, data.profileName, data.remotePeer].filter(
+        (v) => v !== undefined,
+      )
+      return provided.length === 1
+    },
     {
-      message: 'exactly one of `profileName` or `invocation` must be provided',
+      message: 'exactly one of `profileName`, `invocation`, or `remotePeer` must be provided',
       path: ['invocation'],
     },
   )

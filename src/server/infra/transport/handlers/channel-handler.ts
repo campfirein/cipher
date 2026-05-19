@@ -255,6 +255,7 @@ export class ChannelHandler {
         invocation: req.invocation,
         profileName: req.profileName,
         projectRoot,
+        remotePeer: req.remotePeer,
       })
       return {member}
     })
