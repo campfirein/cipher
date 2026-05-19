@@ -998,6 +998,28 @@ async function main(): Promise<void> {
             log(`bridge project root: ${bridgeProjectRoot}`)
           }
 
+          // Slice 9.9 — surface the configured delegate policy at
+          // startup. kimi round-1 MED-2 + MED-3:
+          //   - `auto` is a real security-relaxing setting (any
+          //     authenticated remote peer can execute mutating
+          //     tools); operators need to see they've opted in
+          //   - the policy gate is parsed but NOT yet enforced by
+          //     parley-server (the `/brv/parley/delegate/v1`
+          //     protocol handler ships in a later slice), so
+          //     operators who set `deny` must NOT assume protection
+          //     until that slice lands. The log makes the unwired
+          //     state visible.
+          const delegatePolicy = (process.env.BRV_BRIDGE_DELEGATE_POLICY ?? 'prompt') as 'auto' | 'deny' | 'prompt'
+          if (delegatePolicy === 'auto') {
+            log(
+              'Bridge delegate policy: AUTO — authenticated remote peers can request mutating tool ' +
+                'calls without operator approval per invocation. Set BRV_BRIDGE_DELEGATE_POLICY=prompt ' +
+                'to require explicit approval.',
+            )
+          } else {
+            log(`Bridge delegate policy: ${delegatePolicy} (not yet enforced by parley-server — deferred to a later slice)`)
+          }
+
           await registerParleyServer({
             acceptModes: ['peer-tree'],
             host,

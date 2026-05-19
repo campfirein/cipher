@@ -50,23 +50,49 @@ export type ParleyProtocolMode = 'delegate' | 'query'
 
 export type DelegationDecision =
   | {accepted: false; reason: DelegationRejectReason}
-  | {accepted: true; requiresInteractiveApproval: boolean}
+  | {
+      accepted: true
+      /**
+       * kimi round-1 LOW — carry the envelope's `turn_id` (or
+       * caller-supplied identifier) so the future interactive
+       * prompt UI can match the operator's decision back to the
+       * in-flight envelope without breaking the interface.
+       * Populated by the parley-server at the call site from
+       * `envelope.turn_id`. Undefined when callers haven't supplied
+       * one (most unit-test paths).
+       */
+      correlationId?: string
+      requiresInteractiveApproval: boolean
+    }
 
 export type DelegationRejectReason =
   | 'DELEGATE_POLICY_DENY'
 
-export function policyPermitsDelegation(
-  policy: DelegatePolicy,
-  mode: ParleyProtocolMode,
-): DelegationDecision {
+export interface PolicyPermitsDelegationArgs {
+  readonly correlationId?: string
+  readonly mode: ParleyProtocolMode
+  readonly policy: DelegatePolicy
+}
+
+export function policyPermitsDelegation(args: PolicyPermitsDelegationArgs): DelegationDecision {
   // Query envelopes never trigger the delegate policy — they're the
   // read-only path. Return immediately without consulting the policy
   // so a `delegate_policy: 'deny'` install still accepts queries.
-  if (mode === 'query') return {accepted: true, requiresInteractiveApproval: false}
+  if (args.mode === 'query') {
+    return {
+      accepted: true,
+      requiresInteractiveApproval: false,
+      ...(args.correlationId === undefined ? {} : {correlationId: args.correlationId}),
+    }
+  }
 
-  switch (policy) {
+  switch (args.policy) {
     case 'auto': {
-      return {accepted: true, requiresInteractiveApproval: false}
+      return {
+        accepted: true,
+        requiresInteractiveApproval: false,
+        ...(args.correlationId === undefined ? {} : {correlationId: args.correlationId}),
+      }
     }
 
     case 'deny': {
@@ -79,7 +105,11 @@ export function policyPermitsDelegation(
       // this slice) before letting Bob's agent issue any
       // mutating tool call. The flag surfaces the requirement to the
       // caller without baking the prompt UI into a pure function.
-      return {accepted: true, requiresInteractiveApproval: true}
+      return {
+        accepted: true,
+        requiresInteractiveApproval: true,
+        ...(args.correlationId === undefined ? {} : {correlationId: args.correlationId}),
+      }
     }
   }
 }

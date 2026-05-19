@@ -9,21 +9,48 @@
  * to a future operator-driven commit.
  *
  * Labels (priority order — first match wins):
- *   - `public`: at least one listen address is a public-IP TCP
- *     (NOT 127.0.0.1 / NOT 0.0.0.0). The install can accept
- *     inbound dials without relay.
- *   - `behind-nat-with-relay`: no public listen address, but at
+ *
+ *   - `public` — at least one listen address is a real public-IP
+ *     (NOT loopback, NOT RFC1918, NOT CGNAT, NOT IPv6 ULA / link-
+ *     local). The install can accept inbound dials without relay.
+ *     Trigger: ANY `listenAddrs[i]` matches `isPublicishIpv4` OR
+ *     `isPublicishIpv6`.
+ *
+ *   - `wildcard-unconfirmed` (kimi round-1 MED) — at least one
+ *     listen address is a wildcard bind (`/ip4/0.0.0.0/...` or
+ *     `/ip6/::/...`) and no relay is configured. The OS will bind
+ *     to every interface, so the daemon MAY be public, MAY be
+ *     loopback-only, depending on which interfaces actually exist.
+ *     The classifier can't tell without a real interface probe,
+ *     so it surfaces the ambiguity explicitly rather than
+ *     conservatively labelling as `loopback-only`. Operators
+ *     running `brv channel doctor` see the ambiguity and can
+ *     either narrow the listen address or run AutoNAT.
+ *     Trigger: ANY `listenAddrs[i]` is a wildcard bind AND no
+ *     `public` match above AND `relays` is empty.
+ *
+ *   - `behind-nat-with-relay` — no public listen address, but at
  *     least one relay multiaddr is configured. Inbound dials route
  *     through the relay.
- *   - `loopback-only`: only listening on 127.0.0.1 (the default).
- *     The install is reachable from other processes on the same
- *     host but NOT from the network. This is the fresh-install
+ *     Trigger: no `public` match above AND `relays.length > 0`.
+ *
+ *   - `loopback-only` — listening only on 127.0.0.1, ::1, or
+ *     RFC1918 / CGNAT / ULA / link-local addresses. The install is
+ *     reachable from other processes on the same host or LAN but
+ *     NOT from the public network. This is the fresh-install
  *     state.
- *   - `unreachable`: no listen addresses + no relays. The install
- *     cannot accept inbound dials at all.
- *   - `unknown`: the classifier could not parse any listen address
- *     (shouldn't happen given the multiaddr schema gate, but
- *     surfaced for safety).
+ *     Trigger: no `public` / `wildcard-unconfirmed` / relay match
+ *     above AND at least one parseable listen address.
+ *
+ *   - `unreachable` — no listen addresses AND no relays. The
+ *     install cannot accept inbound dials at all.
+ *     Trigger: `listenAddrs.length === 0 && relays.length === 0`.
+ *
+ *   - `unknown` — the classifier could not parse any listen
+ *     address. Shouldn't happen given the multiaddr schema gate;
+ *     surfaced for safety.
+ *     Trigger: every entry in `listenAddrs` failed to parse AND
+ *     `relays` is empty.
  */
 
 export type BridgeReachability =
@@ -32,6 +59,7 @@ export type BridgeReachability =
   | 'public'
   | 'unknown'
   | 'unreachable'
+  | 'wildcard-unconfirmed'
 
 export interface ClassifyReachabilityArgs {
   readonly listenAddrs: readonly string[]
@@ -40,9 +68,17 @@ export interface ClassifyReachabilityArgs {
 
 const LOOPBACK_HOST_PATTERNS = [
   /^\/ip4\/127\./,
-  /^\/ip4\/0\.0\.0\.0\b/,
   /^\/ip6\/::1\b/,
-  /^\/ip6\/::\b/,
+]
+
+// kimi round-1 MED — wildcard binds need their own label (can be
+// public OR loopback depending on actual interfaces) rather than
+// being lumped under loopback-only. The IPv6 pattern uses a
+// negative lookahead `(?!1)` rather than `\b` because `\b` doesn't
+// trigger between two non-word characters (`:` and `/`).
+const WILDCARD_HOST_PATTERNS = [
+  /^\/ip4\/0\.0\.0\.0\b/,
+  /^\/ip6\/::(?!1)/,
 ]
 
 const PUBLIC_IP4_PRIVATE_PATTERNS = [
@@ -55,6 +91,10 @@ const PUBLIC_IP4_PRIVATE_PATTERNS = [
 
 function isLoopback(multiaddr: string): boolean {
   return LOOPBACK_HOST_PATTERNS.some((p) => p.test(multiaddr))
+}
+
+function isWildcard(multiaddr: string): boolean {
+  return WILDCARD_HOST_PATTERNS.some((p) => p.test(multiaddr))
 }
 
 function isPrivateIpv4(multiaddr: string): boolean {
@@ -80,10 +120,16 @@ export function classifyBridgeReachability(args: ClassifyReachabilityArgs): Brid
 
   let anyParsed = false
   let anyPublic = false
+  let anyWildcard = false
   let anyLoopback = false
   for (const addr of args.listenAddrs) {
     if (!addr.startsWith('/')) continue
     anyParsed = true
+    if (isWildcard(addr)) {
+      anyWildcard = true
+      continue
+    }
+
     if (isLoopback(addr)) {
       anyLoopback = true
       continue
@@ -98,6 +144,9 @@ export function classifyBridgeReachability(args: ClassifyReachabilityArgs): Brid
 
   if (anyPublic) return 'public'
   if (args.relays.length > 0) return 'behind-nat-with-relay'
+  // kimi round-1 MED — wildcards surface as `wildcard-unconfirmed`
+  // when there's no real public IP and no relay to fall back to.
+  if (anyWildcard) return 'wildcard-unconfirmed'
   if (anyLoopback) return 'loopback-only'
   if (anyParsed) return 'loopback-only'  // private-IP listen with no relay
   return 'unknown'

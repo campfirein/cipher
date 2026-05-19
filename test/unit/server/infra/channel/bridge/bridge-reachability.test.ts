@@ -29,11 +29,35 @@ describe('classifyBridgeReachability (slice 9.8)', () => {
     })).to.equal('loopback-only')
   })
 
-  it('returns loopback-only for the libp2p 0.0.0.0 wildcard with NO public public-IP listen', () => {
+  it('returns wildcard-unconfirmed for `/ip4/0.0.0.0/...` with no relay (kimi round-1 MED)', () => {
+    // 0.0.0.0 means "listen on every interface" — the daemon MAY
+    // be public (if a real interface exists) or loopback-only.
+    // Surface the ambiguity rather than under-reporting.
     expect(classifyBridgeReachability({
       listenAddrs: ['/ip4/0.0.0.0/tcp/4001'],
       relays: [],
+    })).to.equal('wildcard-unconfirmed')
+  })
+
+  it('returns wildcard-unconfirmed for IPv6 `::` wildcard with no relay', () => {
+    expect(classifyBridgeReachability({
+      listenAddrs: ['/ip6/::/tcp/4001'],
+      relays: [],
+    })).to.equal('wildcard-unconfirmed')
+  })
+
+  it('IPv6 ::1 (loopback) is still loopback-only, NOT wildcard-unconfirmed', () => {
+    expect(classifyBridgeReachability({
+      listenAddrs: ['/ip6/::1/tcp/4001'],
+      relays: [],
     })).to.equal('loopback-only')
+  })
+
+  it('wildcard + relay → behind-nat-with-relay (relay routing takes priority over ambiguity)', () => {
+    expect(classifyBridgeReachability({
+      listenAddrs: ['/ip4/0.0.0.0/tcp/4001'],
+      relays: ['/ip4/relay.example.com/tcp/4001/p2p/12D3KooWRelay/p2p-circuit'],
+    })).to.equal('behind-nat-with-relay')
   })
 
   it('returns loopback-only for private RFC1918 IPv4 (10.0.0.0/8)', () => {
