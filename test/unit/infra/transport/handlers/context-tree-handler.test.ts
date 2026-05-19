@@ -551,7 +551,7 @@ describe('ContextTreeHandler', () => {
 
     it('should accept a mix of file and folder paths in one request', async () => {
       deps.gitService.log.callsFake(async ({filepath}: {filepath: string}) => [{
-        author: {email: 'carol@test.com', name: 'Carol'},
+        author: {email: 'carol@test.com', name: `Carol-${filepath}`},
         message: `update ${filepath}`,
         sha: 'xyz789',
         timestamp: new Date('2026-05-01T00:00:00Z'),
@@ -563,11 +563,12 @@ describe('ContextTreeHandler', () => {
       })
 
       expect(result.files).to.have.length(3)
-      const paths = result.files.map((f: {path: string}) => f.path)
-      expect(paths).to.have.members(['architecture', 'patterns.md', 'testing/integration.md'])
-      for (const file of result.files) {
-        expect(file.lastUpdatedBy).to.equal('Carol')
-      }
+      const byPath = new Map(
+        result.files.map((f: {lastUpdatedBy: string; path: string}) => [f.path, f.lastUpdatedBy]),
+      )
+      expect(byPath.get('architecture')).to.equal('Carol-architecture')
+      expect(byPath.get('patterns.md')).to.equal('Carol-patterns.md')
+      expect(byPath.get('testing/integration.md')).to.equal('Carol-testing/integration.md')
     })
   })
 })

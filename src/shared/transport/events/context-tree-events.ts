@@ -82,7 +82,7 @@ export interface ContextTreeUpdateFileResponse {
 export interface ContextTreeGetFileMetadataRequest {
   /**
    * File or folder paths to fetch metadata for. Folder paths resolve to the
-   * latest commit touching any descendant (via isomorphic-git tree-oid walk).
+   * latest commit that modified any descendant of the folder.
    */
   paths: string[]
   /** Explicit project path. When omitted, uses the client's registered project. */
