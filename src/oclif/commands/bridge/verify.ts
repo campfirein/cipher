@@ -1,5 +1,5 @@
 import {confirm} from '@inquirer/prompts'
-import {Args, Command, Flags} from '@oclif/core'
+import {Args, Command, Errors, Flags} from '@oclif/core'
 import {join} from 'node:path'
 
 import {isValidPeerIdString} from '../../../agent/core/trust/peer-id.js'
@@ -106,6 +106,11 @@ public static flags = {
       const peer = await verifyPin({peerId, tofu})
       this.renderResult(peer, flags.format)
     } catch (error) {
+      // kimi round-2 LOW — `this.exit(1)` inside the try (e.g. the
+      // prompt-decline branch) throws an `ExitError`; re-throw it so
+      // the oclif harness honours its embedded exit code instead of
+      // re-projecting it as a generic `BRIDGE_VERIFY_FAILED` here.
+      if (error instanceof Errors.ExitError) throw error
       const msg = error instanceof Error ? error.message : String(error)
       const code = error instanceof VerifyPinError ? error.code : 'BRIDGE_VERIFY_FAILED'
       if (flags.format === 'json') {

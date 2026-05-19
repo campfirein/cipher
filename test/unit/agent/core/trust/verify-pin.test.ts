@@ -10,7 +10,7 @@ import {join} from 'node:path'
 import type {KnownPeer} from '../../../../../src/agent/core/trust/tofu-store.js'
 
 import {TofuStore} from '../../../../../src/agent/core/trust/tofu-store.js'
-import {loadPinnedPeer, verifyPin, VerifyPinError} from '../../../../../src/agent/core/trust/verify-pin.js'
+import {loadPinnedPeer, verifyPin, VerifyPinError, type VerifyPinTofuStore} from '../../../../../src/agent/core/trust/verify-pin.js'
 
 // Phase 9 / Slice 9.4g — `brv bridge verify` promotes a pinned peer
 // from `auto-tofu` → `user-confirmed` so the `pinned-only` auto-
@@ -101,12 +101,15 @@ describe('verifyPin (slice 9.4g)', () => {
     // Simulate a store-level I/O error by injecting a tofu stub
     // whose upsertWithMerge rejects with a generic Error. verifyPin
     // should NOT swallow it; the caller decides how to surface
-    // "disk full" / "EACCES" etc.
-    const stubTofu = {
+    // "disk full" / "EACCES" etc. Mock structurally satisfies
+    // VerifyPinTofuStore so we don't need an `as` cast (kimi
+    // round-2 NIT).
+    const stubTofu: VerifyPinTofuStore = {
+      async get(): Promise<undefined> { return undefined },
       async upsertWithMerge(): Promise<never> {
         throw new Error('disk full')
       },
-    } as unknown as TofuStore
+    }
 
     try {
       await verifyPin({peerId: '12D3KooWAlice', tofu: stubTofu})

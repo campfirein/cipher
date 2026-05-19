@@ -41,9 +41,17 @@ export class VerifyPinError extends Error {
   }
 }
 
+/**
+ * Narrow tofu-store contract used by verifyPin + loadPinnedPeer.
+ * Production callers pass a full `TofuStore` (which satisfies this
+ * shape); tests pass a structural mock without needing an `as` cast
+ * (kimi round-2 NIT).
+ */
+export type VerifyPinTofuStore = Pick<TofuStore, 'get' | 'upsertWithMerge'>
+
 export type VerifyPinArgs = {
   readonly peerId: string
-  readonly tofu: TofuStore
+  readonly tofu: VerifyPinTofuStore
 }
 
 /**
