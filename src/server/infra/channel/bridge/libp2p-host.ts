@@ -1,0 +1,242 @@
+import {noise} from '@chainsafe/libp2p-noise'
+import {yamux} from '@chainsafe/libp2p-yamux'
+import {identify} from '@libp2p/identify'
+import {tcp} from '@libp2p/tcp'
+import {createLibp2p, type Libp2p} from 'libp2p'
+
+import {InstallIdentityService} from '../../../../agent/core/trust/install-identity-service.js'
+import {type BridgeConfig} from './bridge-config.js'
+
+/**
+ * Phase 9 / IMPLEMENTATION_PHASE_9_CLOUD_BRIDGE.md §3.2 + Slice 9.1 —
+ * Libp2pHost singleton.
+ *
+ * Wraps `createLibp2p` from the `libp2p` core package with brv-specific
+ * setup:
+ *
+ *   - Host key = L1 install Ed25519 key (AMENDMENT_TOFU §A7 "bind the
+ *     keys": same key signs libp2p Noise handshakes AND brv L1
+ *     application signatures, so the libp2p-level PeerID equals the
+ *     brv peer_id by construction).
+ *   - Transports: TCP only in 9.1b. QUIC + WSS deferred (Phase 9 plan
+ *     §8 includes them as listener options but Node-libp2p QUIC has
+ *     variable maturity; ship the minimum that round-trips reliably
+ *     and add transports in 9.7 NAT slice).
+ *   - Connection encryption: Noise.
+ *   - Stream multiplexer: Yamux.
+ *   - Service: identify (libp2p-default; enables peer to advertise its
+ *     multiaddrs + supported protocols on connection).
+ *
+ * The libp2p Node is started lazily via `start()` and disposed via
+ * `stop()`. Both are idempotent. Reading `peerId` or `getMultiaddrs`
+ * before `start()` throws.
+ */
+
+export interface Libp2pHostDeps {
+  readonly config: BridgeConfig
+  readonly identity: InstallIdentityService
+}
+
+/**
+ * Inbound stream shape exposed to brv handlers. Mirrors the subset of
+ * the libp2p Stream API we use:
+ *   - async-iterable for reading (yields Uint8ArrayList chunks)
+ *   - `send(chunk)` for writing
+ *   - `close()` for half-close on both directions
+ */
+export interface Libp2pStreamLike extends AsyncIterable<{readonly subarray: () => Uint8Array}> {
+  close(): Promise<void>
+  send(chunk: Uint8Array): Promise<void>
+}
+
+export type Libp2pStreamHandler = (stream: Libp2pStreamLike) => Promise<void>
+
+/**
+ * Minimal subset of libp2p's Stream that we depend on. Defined here
+ * (not imported from libp2p) so the adapter doesn't break on libp2p
+ * minor-version stream-API tweaks (opencode round-3 MEDIUM-3). If
+ * libp2p removes one of these methods, the adapter fails at compile
+ * time on the field access, not at runtime mid-stream.
+ */
+interface Libp2pStreamMin extends AsyncIterable<{readonly subarray: () => Uint8Array}> {
+  close(): Promise<void>
+  send(chunk: Uint8Array): Promise<void>
+}
+
+/**
+ * Adapter that wraps a libp2p Stream as the brv `Libp2pStreamLike`
+ * shape. Replaces the `as unknown as` cast (opencode round-3 MEDIUM-3
+ * fix): each method is explicitly mapped, so a libp2p API change
+ * surfaces here at compile time rather than silently at runtime.
+ */
+class Libp2pStreamAdapter implements Libp2pStreamLike {
+  private readonly stream: Libp2pStreamMin
+
+  public constructor(stream: Libp2pStreamMin) {
+    this.stream = stream
+  }
+
+  public async close(): Promise<void> {
+    await this.stream.close()
+  }
+
+  public async send(chunk: Uint8Array): Promise<void> {
+    await this.stream.send(chunk)
+  }
+
+  public [Symbol.asyncIterator](): AsyncIterator<{readonly subarray: () => Uint8Array}> {
+    return this.stream[Symbol.asyncIterator]()
+  }
+}
+
+export class Libp2pHost {
+  private readonly config: BridgeConfig
+  private readonly identity: InstallIdentityService
+  private node: Libp2p | undefined
+  private startPromise: Promise<void> | undefined
+
+  public constructor(deps: Libp2pHostDeps) {
+    this.identity = deps.identity
+    this.config = deps.config
+  }
+
+  /**
+   * The libp2p PeerID of this host as a base58btc string. Equal to
+   * the brv L1 peer_id by construction (same install Ed25519 key).
+   */
+  public get peerId(): string {
+    if (!this.node) {
+      throw new Error('Libp2pHost not started; call start() first')
+    }
+
+    return this.node.peerId.toString()
+  }
+
+  /**
+   * Dial a remote peer's multiaddr, open an outbound stream on the
+   * given protocol, write one Uint8Array frame, then close. Convenience
+   * for the in-process test fixture; Slice 9.3 will replace this with
+   * proper request/response streaming in `parley-client.ts`.
+   *
+   * @internal
+   *
+   * Do NOT build production flows on this. Marked internal per opencode
+   * round-3 MINOR-3 so API consumers can't bind to it accidentally
+   * before Slice 9.3's proper streaming surface lands.
+   */
+  public async dialAndWrite(multiaddrStr: string, protocol: string, payload: Uint8Array): Promise<void> {
+    const node = this.ensureStarted()
+    // libp2p's multiaddr is constructed from a string here.
+    const {multiaddr} = await import('@multiformats/multiaddr')
+    const ma = multiaddr(multiaddrStr)
+    const stream = await node.dialProtocol(ma, protocol)
+    try {
+      await stream.send(payload)
+    } finally {
+      await stream.close()
+    }
+  }
+
+  /**
+   * Current listening multiaddrs (libp2p p2p-suffixed form).
+   */
+  public getMultiaddrs(): string[] {
+    if (!this.node) {
+      throw new Error('Libp2pHost not started; call start() first')
+    }
+
+    return this.node.getMultiaddrs().map((m) => m.toString())
+  }
+
+  /**
+   * Register an inbound stream handler for a protocol ID.
+   * Used by Slice 9.3+ to register `/brv/parley/query/v1` etc.
+   *
+   * The libp2p `handle()` callback signature in libp2p v3 takes a
+   * Stream object directly (NOT `{stream, connection}` as some older
+   * docs show). The Stream is duplex: AsyncIterable for reads, `send`
+   * for writes.
+   */
+  public async handle(protocol: string, handler: Libp2pStreamHandler): Promise<void> {
+    const node = this.ensureStarted()
+    await node.handle(protocol, async (stream) => {
+      // Wrap in an adapter that maps libp2p's Stream → Libp2pStreamLike
+      // explicitly (opencode round-3 MEDIUM-3). Avoids `as unknown as`.
+      // The libp2p Stream IS structurally compatible with Libp2pStreamMin;
+      // the adapter pins each method so a libp2p API change surfaces at
+      // compile time.
+      const adapted = new Libp2pStreamAdapter(stream as unknown as Libp2pStreamMin)
+      await handler(adapted)
+    })
+  }
+
+  /**
+   * Start the libp2p node. Idempotent — concurrent / repeated calls
+   * resolve to the same boot.
+   */
+  public async start(): Promise<void> {
+    if (this.node) return
+    if (this.startPromise) {
+      await this.startPromise
+      return
+    }
+
+    this.startPromise = this.bootInternal().finally(() => {
+      this.startPromise = undefined
+    })
+    await this.startPromise
+  }
+
+  /**
+   * Stop the libp2p node. Idempotent.
+   *
+   * Awaits any in-flight start so a concurrent `start()` + `stop()` pair
+   * cannot leave the host running after stop() returned (opencode round-3
+   * MEDIUM-2). On the wait-for-boot path, callers see the booted node
+   * briefly via peerId/getMultiaddrs, then the stop completes.
+   */
+  public async stop(): Promise<void> {
+    if (this.startPromise) {
+      // Boot in flight — wait for it to settle so we can stop the
+      // resulting node deterministically. Don't propagate boot
+      // failures: stop() is idempotent.
+      await this.startPromise.catch(() => {})
+    }
+
+    if (!this.node) return
+    const {node} = this
+    this.node = undefined
+    await node.stop()
+  }
+
+  private async bootInternal(): Promise<void> {
+    // Load the L1 install identity. The install-identity service is
+    // lazy: first call may generate. We re-use the cache on subsequent
+    // calls.
+    await this.identity.loadOrGenerate()
+
+    // AMENDMENT_TOFU §A7 — same L1 install key drives libp2p Noise AND
+    // brv L1 application signatures. getLibp2pPrivateKey is the
+    // controlled escape hatch documented in install-identity-service.
+    const libp2pPrivateKey = await this.identity.getLibp2pPrivateKey()
+
+    this.node = await createLibp2p({
+      addresses: {listen: [...this.config.listen_addrs]},
+      connectionEncrypters: [noise()],
+      privateKey: libp2pPrivateKey,
+      services: {identify: identify()},
+      streamMuxers: [yamux()],
+      transports: [tcp()],
+    })
+
+    await this.node.start()
+  }
+
+  private ensureStarted(): Libp2p {
+    if (!this.node) {
+      throw new Error('Libp2pHost not started; call start() first')
+    }
+
+    return this.node
+  }
+}

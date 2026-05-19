@@ -2,6 +2,8 @@
 // Cert / payload field names mirror AMENDMENT_TOFU §A3.2 on-disk JSON
 // shape and are intentionally snake_case to match the wire spec.
 
+import {keys as libp2pKeys} from '@libp2p/crypto'
+import {type PrivateKey as Libp2pPrivateKey} from '@libp2p/interface'
 import {createCipheriv, createDecipheriv, createPrivateKey, createPublicKey, generateKeyPairSync, type KeyObject, randomBytes} from 'node:crypto'
 import {existsSync} from 'node:fs'
 import {chmod, mkdir, open, readFile, rename, writeFile} from 'node:fs/promises'
@@ -98,6 +100,42 @@ export class InstallIdentityService {
   public constructor(deps: InstallIdentityServiceDeps) {
     this.installDir = deps.installDir
     this.clock = deps.clock ?? (() => new Date())
+  }
+
+  /**
+   * Return the L1 install key as a libp2p PrivateKey object.
+   *
+   * NARROW CONTROLLED EXCEPTION to the "no raw private key" invariant
+   * (AMENDMENT_TOFU §A7 — same key drives libp2p Noise AND brv L1
+   * application signatures, so libp2p needs the key material to run
+   * Noise handshakes). Callers MUST use this ONLY for libp2p host
+   * setup; all brv-side signing routes through the typed `signX`
+   * helpers above which apply domain separation.
+   *
+   * Returns the libp2p PrivateKey object (NOT raw bytes). Libp2p's
+   * key abstraction holds the bytes internally; once handed to
+   * libp2p, the material lives in libp2p's memory.
+   */
+  public async getLibp2pPrivateKey(): Promise<Libp2pPrivateKey> {
+    const loaded = await this.ensureLoaded()
+    // Build libp2p's 64-byte raw form: [private_seed(32)][public(32)].
+    // JsonWebKey type already declares `d?: string` and `x?: string`,
+    // so no `as` cast is needed (opencode round-3 MINOR-4).
+    const jwk = loaded.privateKey.export({format: 'jwk'})
+    if (typeof jwk.d !== 'string' || typeof jwk.x !== 'string') {
+      throw new TypeError('Ed25519 private KeyObject JWK is missing `d` or `x` field')
+    }
+
+    const privateSeed = Buffer.from(jwk.d, 'base64url')
+    const publicBytes = Buffer.from(jwk.x, 'base64url')
+    if (privateSeed.length !== 32 || publicBytes.length !== 32) {
+      throw new TypeError(
+        `Ed25519 private/public byte lengths wrong: d=${privateSeed.length}, x=${publicBytes.length}`,
+      )
+    }
+
+    const raw = new Uint8Array(Buffer.concat([privateSeed, publicBytes]))
+    return libp2pKeys.privateKeyFromRaw(raw)
   }
 
   /**
