@@ -51,8 +51,12 @@ import {canonicalize} from './canonical.js'
 export const DOMAIN_TAGS = {
   'cert.install': 'brv.cert.install.v1\n',
   'cert.peer-tree': 'brv.cert.peer-tree.v1\n',
+  consent: 'brv.consent.v1\n',
   'parley.handshake': 'brv.parley.handshake.v1\n',
   'peer-record': 'brv.peer-record.v1\n',
+  'response.error': 'brv.response.error.v1\n',
+  'response.frame-digest': 'brv.response.v1\n',
+  'response.terminal': 'brv.response.terminal.v1\n',
 } as const satisfies Record<string, `brv.${string}.v1\n`>
 
 export type DomainTag = (typeof DOMAIN_TAGS)[keyof typeof DOMAIN_TAGS]
@@ -177,4 +181,79 @@ export function verifyPeerRecord(
   publicKey: KeyObject,
 ): boolean {
   return verifyWithDomain(payload, signature, DOMAIN_TAGS['peer-record'], publicKey)
+}
+
+// ─── Parley response-side signing helpers (Slice 9.3a) ─────────────────────
+
+/**
+ * Sign a `transcript_seal` frame payload with the responder's L2 tree
+ * key. Payload shape:
+ *   {channel_id, turn_id, delivery_id, protocol, request_envelope_hash,
+ *    ended_state, transcript_digest}
+ * See IMPLEMENTATION_PHASE_9_CLOUD_BRIDGE.md §5.2.
+ */
+export function signTranscriptSeal(payload: unknown, privateKey: KeyObject): string {
+  return signWithDomain(payload, DOMAIN_TAGS['response.frame-digest'], privateKey)
+}
+
+export function verifyTranscriptSeal(
+  payload: unknown,
+  signature: string,
+  publicKey: KeyObject,
+): boolean {
+  return verifyWithDomain(payload, signature, DOMAIN_TAGS['response.frame-digest'], publicKey)
+}
+
+/**
+ * Sign a `stream_end` terminal frame payload with the responder's L2
+ * tree key. Domain tag `brv.response.terminal.v1`. Payload binds the
+ * full request context per §5.2 codex round-3 MEDIUM-2.
+ */
+export function signResponseTerminal(payload: unknown, privateKey: KeyObject): string {
+  return signWithDomain(payload, DOMAIN_TAGS['response.terminal'], privateKey)
+}
+
+export function verifyResponseTerminal(
+  payload: unknown,
+  signature: string,
+  publicKey: KeyObject,
+): boolean {
+  return verifyWithDomain(payload, signature, DOMAIN_TAGS['response.terminal'], publicKey)
+}
+
+/**
+ * Sign an `error` terminal frame payload with the responder's L2 tree
+ * key. Domain tag `brv.response.error.v1`. Payload binds the full
+ * request context per §5.2 codex round-3 MEDIUM-2.
+ */
+export function signResponseError(payload: unknown, privateKey: KeyObject): string {
+  return signWithDomain(payload, DOMAIN_TAGS['response.error'], privateKey)
+}
+
+export function verifyResponseError(
+  payload: unknown,
+  signature: string,
+  publicKey: KeyObject,
+): boolean {
+  return verifyWithDomain(payload, signature, DOMAIN_TAGS['response.error'], publicKey)
+}
+
+/**
+ * Sign a `permission_response_intent` payload with the caller's
+ * (Alice's) L2 tree key. Domain tag `brv.consent.v1`. See §5.2 +
+ * §5.3 — Alice's INTENT, not the final permission grant.
+ */
+export function signPermissionResponseIntent(
+  payload: unknown,
+  privateKey: KeyObject,
+): string {
+  return signWithDomain(payload, DOMAIN_TAGS.consent, privateKey)
+}
+
+export function verifyPermissionResponseIntent(
+  payload: unknown,
+  signature: string,
+  publicKey: KeyObject,
+): boolean {
+  return verifyWithDomain(payload, signature, DOMAIN_TAGS.consent, publicKey)
 }

@@ -103,6 +103,17 @@ export class InstallIdentityService {
   }
 
   /**
+   * Return the L1 install private key as a Node KeyObject. Used by
+   * the peer-tree-signer to sign the L2 cert payload with the L1 key
+   * (the L1→L2 binding). Callers MUST route signing through the
+   * domain-separated `signX` helpers — there is no general `signRaw`.
+   */
+  public async getL1PrivateKey(): Promise<KeyObject> {
+    const loaded = await this.ensureLoaded()
+    return loaded.privateKey
+  }
+
+  /**
    * Return the L1 install key as a libp2p PrivateKey object.
    *
    * NARROW CONTROLLED EXCEPTION to the "no raw private key" invariant
@@ -136,6 +147,22 @@ export class InstallIdentityService {
 
     const raw = new Uint8Array(Buffer.concat([privateSeed, publicBytes]))
     return libp2pKeys.privateKeyFromRaw(raw)
+  }
+
+  /**
+   * Return the raw 32-byte Ed25519 public key bytes for the L1 install
+   * identity. Used by the peer-tree-signer to compute
+   * `parent_install.install_pubkey_fingerprint` and by verifiers that
+   * need the raw key for derivePeerId / fingerprint checks.
+   */
+  public async getRawPublicKey(): Promise<Uint8Array> {
+    const loaded = await this.ensureLoaded()
+    const jwk = loaded.publicKey.export({format: 'jwk'})
+    if (typeof jwk.x !== 'string') {
+      throw new TypeError('Ed25519 public KeyObject JWK is missing `x` field')
+    }
+
+    return new Uint8Array(Buffer.from(jwk.x, 'base64url'))
   }
 
   /**
