@@ -6,13 +6,21 @@ import * as lp from 'it-length-prefixed'
 import {createHash} from 'node:crypto'
 
 import {type PeerTreeIdentityService} from '../../../../agent/core/trust/peer-tree-identity-service.js'
-import {signResponseError, signTranscriptSeal} from '../../../../agent/core/trust/sign.js'
+import {signResponseError, signResponseTerminal, signTranscriptSeal} from '../../../../agent/core/trust/sign.js'
 import {type TofuStore} from '../../../../agent/core/trust/tofu-store.js'
-import {type ParleyResponseFrame, transcriptDigest} from '../../../core/domain/channel/parley-types.js'
+import {
+  type ParleyQueryEnvelope,
+  type ParleyResponseFrame,
+  transcriptDigest,
+} from '../../../core/domain/channel/parley-types.js'
 import {type Libp2pHost, type Libp2pStreamLike} from './libp2p-host.js'
-import {mockEchoResponse} from './mock-echo-handler.js'
 import {NonceLru} from './parley-nonce-lru.js'
 import {HandshakeRateLimiter} from './parley-rate-limit.js'
+import {
+  mockEchoChunks,
+  type ParleyResponseDataChunk,
+  type ParleyResponseGenerator,
+} from './parley-response-generator.js'
 import {type CertKind, type TofuPolicy, verifyHandshakeAndPin} from './parley-verifier.js'
 
 /**
@@ -45,6 +53,14 @@ export interface RegisterParleyServerArgs {
   readonly nonceLru?: NonceLru
   readonly now?: () => Date
   readonly rateLimiter?: HandshakeRateLimiter
+  /**
+   * Slice 9.4c — pluggable content generator. When omitted the server
+   * falls back to `mockEchoChunks` (echoes the prompt text back as a
+   * single `agent_message_chunk`). The daemon wires
+   * `localAgentResponseGenerator` here when `BRV_BRIDGE_PARLEY_PROFILE`
+   * is configured.
+   */
+  readonly responseGenerator?: ParleyResponseGenerator
   readonly tofuPolicy: TofuPolicy
   readonly tofuStore: TofuStore
 }
@@ -126,26 +142,204 @@ export async function registerParleyServer(args: RegisterParleyServerArgs): Prom
     }
 
     const l2 = await args.l2Identity.loadOrGenerate()
-    const frames = mockEchoResponse({
-      channel_id: verifyResult.envelope.channel_id,
-      delivery_id: verifyResult.envelope.delivery_id,
+    const generator = args.responseGenerator ?? mockEchoChunks
+    await dispatchResponseStream({
+      envelope: verifyResult.envelope,
+      generator,
       l2PrivateKey: l2.privateKey,
-      prompt: verifyResult.envelope.prompt,
-      protocol: verifyResult.envelope.protocol,
-      request_envelope_hash: verifyResult.requestEnvelopeHash,
-      turn_id: verifyResult.envelope.turn_id,
+      requestEnvelopeHash: verifyResult.requestEnvelopeHash,
+      stream,
     })
-
-    // Sends MUST be sequential — the receiver depends on strictly-
-    // increasing seq order, and parallel writes on a libp2p stream
-    // do not guarantee ordering.
-    for (const frame of frames) {
-      // eslint-disable-next-line no-await-in-loop
-      await sendFrame(stream, frame)
-    }
     // Do NOT close — dialer closes after reading. See file-level
     // comment.
   })
+}
+
+interface DispatchResponseStreamArgs {
+  readonly envelope: ParleyQueryEnvelope
+  readonly generator: ParleyResponseGenerator
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  readonly l2PrivateKey: any
+  readonly requestEnvelopeHash: string
+  readonly stream: Libp2pStreamLike
+}
+
+/**
+ * Drive the `responseGenerator`, project each chunk into a Parley
+ * response frame with a fresh seq, append the signed
+ * `stream_end` + `transcript_seal` once the generator returns
+ * cleanly, OR project any thrown error as a signed `error` +
+ * `transcript_seal` per §5.2 normative terminal order.
+ *
+ * Heartbeats are NOT emitted in 9.4c — slice 9.9 wires them as part
+ * of the cancellation work.
+ */
+async function dispatchResponseStream(args: DispatchResponseStreamArgs): Promise<void> {
+  const {envelope, generator, l2PrivateKey, requestEnvelopeHash, stream} = args
+  const emittedFrames: ParleyResponseFrame[] = []
+  let seq = 0
+  const nextSeq = () => {
+    seq += 1
+    return seq
+  }
+
+  try {
+    for await (const chunk of generator({envelope})) {
+      const frame = projectChunkToFrame(chunk, nextSeq())
+      emittedFrames.push(frame)
+      await sendFrame(stream, frame)
+    }
+  } catch (error) {
+    const code = error instanceof Error && error.message.startsWith('PARLEY_')
+      ? error.message.split(':')[0].trim()
+      : 'GENERATOR_ERROR'
+    const message = error instanceof Error ? error.message : String(error)
+    const errorFrame = buildErrorTerminalFrame({
+      bound: contextFromEnvelope(envelope, requestEnvelopeHash),
+      code,
+      l2PrivateKey,
+      message,
+      seq: nextSeq(),
+    })
+    emittedFrames.push(errorFrame)
+    await sendFrame(stream, errorFrame)
+    await sendFrame(
+      stream,
+      buildTranscriptSealFrame({
+        bound: contextFromEnvelope(envelope, requestEnvelopeHash),
+        endedState: 'errored',
+        frames: emittedFrames,
+        l2PrivateKey,
+        seq: nextSeq(),
+      }),
+    )
+    return
+  }
+
+  // Success path — emit signed stream_end + transcript_seal.
+  const terminal = buildStreamEndTerminalFrame({
+    bound: contextFromEnvelope(envelope, requestEnvelopeHash),
+    endedState: 'completed',
+    l2PrivateKey,
+    seq: nextSeq(),
+  })
+  emittedFrames.push(terminal)
+  await sendFrame(stream, terminal)
+
+  await sendFrame(
+    stream,
+    buildTranscriptSealFrame({
+      bound: contextFromEnvelope(envelope, requestEnvelopeHash),
+      endedState: 'completed',
+      frames: emittedFrames,
+      l2PrivateKey,
+      seq: nextSeq(),
+    }),
+  )
+}
+
+function projectChunkToFrame(chunk: ParleyResponseDataChunk, seq: number): ParleyResponseFrame {
+  return {content: chunk.content, kind: chunk.kind, seq}
+}
+
+interface BoundContext {
+  readonly channel_id: string
+  readonly delivery_id: string
+  readonly protocol: 'delegate' | 'query'
+  readonly request_envelope_hash: string
+  readonly turn_id: string
+}
+
+function contextFromEnvelope(envelope: ParleyQueryEnvelope, requestEnvelopeHash: string): BoundContext {
+  return {
+    channel_id: envelope.channel_id,
+    delivery_id: envelope.delivery_id,
+    protocol: envelope.protocol,
+    request_envelope_hash: requestEnvelopeHash,
+    turn_id: envelope.turn_id,
+  }
+}
+
+interface BuildTerminalArgs {
+  readonly bound: BoundContext
+  readonly endedState: 'cancelled' | 'completed'
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  readonly l2PrivateKey: any
+  readonly seq: number
+}
+
+function buildStreamEndTerminalFrame(args: BuildTerminalArgs): ParleyResponseFrame {
+  const payload = {
+    channel_id: args.bound.channel_id,
+    delivery_id: args.bound.delivery_id,
+    protocol: args.bound.protocol,
+    request_envelope_hash: args.bound.request_envelope_hash,
+    seq: args.seq,
+    terminal_payload: {ended_state: args.endedState, kind: 'stream_end' as const},
+    turn_id: args.bound.turn_id,
+  }
+  return {
+    ended_state: args.endedState,
+    kind: 'stream_end',
+    seq: args.seq,
+    signature: signResponseTerminal(payload, args.l2PrivateKey),
+  }
+}
+
+interface BuildErrorTerminalArgs {
+  readonly bound: BoundContext
+  readonly code: string
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  readonly l2PrivateKey: any
+  readonly message: string
+  readonly seq: number
+}
+
+function buildErrorTerminalFrame(args: BuildErrorTerminalArgs): ParleyResponseFrame {
+  const payload = {
+    channel_id: args.bound.channel_id,
+    delivery_id: args.bound.delivery_id,
+    protocol: args.bound.protocol,
+    request_envelope_hash: args.bound.request_envelope_hash,
+    seq: args.seq,
+    terminal_payload: {code: args.code, kind: 'error' as const, message: args.message},
+    turn_id: args.bound.turn_id,
+  }
+  return {
+    code: args.code,
+    kind: 'error',
+    message: args.message,
+    seq: args.seq,
+    signature: signResponseError(payload, args.l2PrivateKey),
+  }
+}
+
+interface BuildSealArgs {
+  readonly bound: BoundContext
+  readonly endedState: 'cancelled' | 'completed' | 'errored'
+  readonly frames: ParleyResponseFrame[]
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  readonly l2PrivateKey: any
+  readonly seq: number
+}
+
+function buildTranscriptSealFrame(args: BuildSealArgs): ParleyResponseFrame {
+  const digest = transcriptDigest(args.frames)
+  const payload = {
+    channel_id: args.bound.channel_id,
+    delivery_id: args.bound.delivery_id,
+    ended_state: args.endedState,
+    protocol: args.bound.protocol,
+    request_envelope_hash: args.bound.request_envelope_hash,
+    transcript_digest: digest,
+    turn_id: args.bound.turn_id,
+  }
+  return {
+    kind: 'transcript_seal',
+    seq: args.seq,
+    signature: signTranscriptSeal(payload, args.l2PrivateKey),
+    transcript_digest: digest,
+  }
 }
 
 // ─── helpers ────────────────────────────────────────────────────────────────

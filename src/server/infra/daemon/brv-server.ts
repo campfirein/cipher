@@ -63,6 +63,7 @@ import {createBillingStateHandler} from '../billing/billing-state-endpoint.js'
 import {DEFAULT_BRIDGE_CONFIG} from '../channel/bridge/bridge-config.js'
 import {registerIdentityServer} from '../channel/bridge/identity-server.js'
 import {Libp2pHost} from '../channel/bridge/libp2p-host.js'
+import {createLocalAgentResponseGenerator} from '../channel/bridge/local-agent-response-generator.js'
 import {registerParleyServer} from '../channel/bridge/parley-server.js'
 import {RemoteMemberDriver} from '../channel/bridge/remote-member-driver.js'
 import {runChannelRecovery} from '../channel/channel-recovery.js'
@@ -844,10 +845,30 @@ async function main(): Promise<void> {
           // `tofu_policy: 'deny'` are currently ignored by the daemon
           // listener.
           await registerIdentityServer({host, identity: bridgeInstall})
+
+          // Slice 9.4c — opt-in real ACP dispatch via the
+          // `BRV_BRIDGE_PARLEY_PROFILE` env var. When unset, the
+          // parley-server falls back to mock-echo (existing 9.4a/b
+          // behaviour).
+          const parleyProfile = process.env.BRV_BRIDGE_PARLEY_PROFILE
+          const responseGenerator = parleyProfile === undefined || parleyProfile.trim() === ''
+            ? undefined
+            : createLocalAgentResponseGenerator({
+                driverFactory: channelDriverFactory,
+                profileName: parleyProfile.trim(),
+                profileStore: channelProfileStore,
+              })
+          if (responseGenerator === undefined) {
+            log('Bridge parley dispatcher: mock-echo (no BRV_BRIDGE_PARLEY_PROFILE set)')
+          } else {
+            log(`Bridge parley dispatcher: local-agent profile="${parleyProfile}"`)
+          }
+
           await registerParleyServer({
             acceptModes: ['peer-tree'],
             host,
             l2Identity: bridgeL2,
+            responseGenerator,
             tofuPolicy: 'auto',
             tofuStore: bridgeTofu,
           })
