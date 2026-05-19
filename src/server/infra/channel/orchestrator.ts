@@ -1534,6 +1534,19 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
       )
     }
 
+    // Validate L2 pubkey decodes to exactly 32 bytes (raw Ed25519
+    // pubkey size) at invite time (kimi round-1 MEDIUM). A bad base64
+    // or wrong length would otherwise surface as a late
+    // `STREAM_END_SIG_INVALID` on the first mention, which is hard for
+    // an operator who pasted the wrong banner value to diagnose.
+    const decodedL2 = Buffer.from(remoteL2PubKey, 'base64')
+    if (decodedL2.length !== 32) {
+      throw new ChannelInvalidRequestError(
+        `remotePeer.remoteL2PubKey decoded to ${decodedL2.length} bytes; expected 32 (raw Ed25519 pubkey)`,
+        {fields: ['remotePeer.remoteL2PubKey']},
+      )
+    }
+
     const driver = await this.remotePeerDriverFactory({
       channelId: args.channelId,
       handle: args.handle,

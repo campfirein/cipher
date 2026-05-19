@@ -92,6 +92,9 @@ export class RemoteMemberDriver implements IAcpDriver {
     // (Parley client-frame `cancel`). Marking the driver back to idle
     // locally so the orchestrator doesn't think a turn is still
     // in-flight after the operator hits Esc.
+    // TODO(9.9): propagate cancel over Parley as a signed `cancel`
+    // client-frame so Bob's daemon can terminate the in-flight echo /
+    // ACP run.
     this.statusValue = 'idle'
   }
 
@@ -106,12 +109,24 @@ export class RemoteMemberDriver implements IAcpDriver {
     this.statusValue = 'streaming'
 
     try {
+      // Fail fast on non-text blocks rather than silently dropping
+      // them (kimi round-1 MEDIUM). ACP may add `resource_link` /
+      // `image` block types; without this guard the operator gets
+      // either an empty prompt OR a Parley reject they can't
+      // diagnose.
+      const nonText = args.prompt.find((b) => b.type !== 'text')
+      if (nonText !== undefined) {
+        throw new Error(
+          `REMOTE_PROMPT_UNSUPPORTED_BLOCK_TYPE: ${nonText.type} blocks are not yet supported by remote-peer drivers (slice 9.4 only handles text)`,
+        )
+      }
+
       const promptBlocks = args.prompt
         .filter((b): b is {text: string; type: 'text'} => b.type === 'text')
         .map((b) => ({text: b.text, type: 'text' as const}))
 
       if (promptBlocks.length === 0) {
-        throw new Error('REMOTE_PROMPT_EMPTY: no text content blocks in prompt — remote-peer members only accept text in slice 9.4')
+        throw new Error('REMOTE_PROMPT_EMPTY: no text content blocks in prompt')
       }
 
       const delivery_id = `remote-${args.turnId}`
@@ -130,6 +145,17 @@ export class RemoteMemberDriver implements IAcpDriver {
 
       if (!result.ok) {
         throw new Error(`PARLEY_REJECTED [${result.code}]: ${result.message}`)
+      }
+
+      // Surface ANY server-emitted error frame on the response stream
+      // (kimi round-1 MEDIUM — previously silently swallowed because the
+      // loop only handled `agent_message_chunk`). The seal-verify path
+      // in `sendParleyQuery` already enforces signature integrity, so
+      // an error frame here is authoritative.
+      for (const frame of result.frames) {
+        if (frame.kind === 'error') {
+          throw new Error(`PARLEY_STREAM_ERROR [${frame.code}]: ${frame.message}`)
+        }
       }
 
       // Project agent_message_chunk frames as the corresponding
