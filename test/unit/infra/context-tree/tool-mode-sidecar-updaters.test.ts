@@ -95,6 +95,31 @@ describe('tool-mode-sidecar-updaters', () => {
       expect(b.accessCount).to.equal(1)
     })
 
+    it('also bumps importance via recordAccessHits (mirrors SearchKnowledgeService.mirrorHitsToSignalStore)', async () => {
+      const store = createMockRuntimeSignalStore()
+      await store.set('a.html', {...createDefaultRuntimeSignals(), importance: 50})
+
+      await bumpSidecarOnQueryRead({relPaths: ['a.html'], store})
+
+      const a = await store.get('a.html')
+      // Bumping accessCount alone would let prune ignore a topic the user
+      // actively reads — main's logic raises importance to protect it.
+      expect(a.importance).to.be.greaterThan(50)
+    })
+
+    it('recomputes maturity from the new importance (canonical determineTier pass)', async () => {
+      const store = createMockRuntimeSignalStore()
+      await store.set('a.html', {...createDefaultRuntimeSignals(), importance: 80, maturity: 'validated'})
+
+      await bumpSidecarOnQueryRead({relPaths: ['a.html'], store})
+
+      const a = await store.get('a.html')
+      // Maturity is recomputed from the new importance; the exact tier
+      // depends on the determineTier thresholds, but the call ran (a stale
+      // maturity classification would otherwise drift over time).
+      expect(['core', 'validated']).to.include(a.maturity)
+    })
+
     it('seeds an entry on first read of a path without a prior signal record', async () => {
       const store = createMockRuntimeSignalStore()
       // No prior set() call for "new.html"

@@ -46,12 +46,22 @@ export class SearchExecutor implements ISearchExecutor {
 
     // Bump runtime-signal accessCount per matched path so prune (and any
     // future signal-driven ranking) has real read-side data. Best-effort:
-    // sidecar failure must never break search.
+    // sidecar failure must never break search. Skip shared-source results —
+    // their `path` is relative to the SHARED origin context tree, not the
+    // local sidecar's project, so writing them here would either orphan an
+    // entry or collide with a same-named local topic and corrupt ranking.
+    // Mirrors `QueryExecutor.buildToolModeMatches` which already filters
+    // shared origins out of the tool-mode envelope.
     if (this.runtimeSignalStore && result.results.length > 0) {
-      await bumpSidecarOnQueryRead({
-        relPaths: result.results.map((r) => r.path),
-        store: this.runtimeSignalStore,
-      })
+      const localPaths = result.results
+        .filter((r) => !r.origin || r.origin === 'local')
+        .map((r) => r.path)
+      if (localPaths.length > 0) {
+        await bumpSidecarOnQueryRead({
+          relPaths: localPaths,
+          store: this.runtimeSignalStore,
+        })
+      }
     }
 
     return result

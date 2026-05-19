@@ -717,9 +717,18 @@ async function executeTask(
 
             // Mirror the curate into the runtime-signal sidecar so prune (and
             // any future signal-driven ranking) has real data to work with.
-            // Best-effort: never blocks the write that already succeeded.
+            // Best-effort: never blocks the write that already succeeded;
+            // pass an agentLog-backed logger so swallowed sidecar failures
+            // (corrupt key store, permission denied) leave a breadcrumb in
+            // the daemon session log instead of being silently invisible.
             await bumpSidecarOnCurateWrite({
               existedBefore,
+              logger: {
+                debug: (msg: string): void => agentLog(msg),
+                error: (msg: string): void => agentLog(msg),
+                info: (msg: string): void => agentLog(msg),
+                warn: (msg: string): void => agentLog(msg),
+              },
               relPath: relativeFilePath,
               store: runtimeSignalStore,
             })

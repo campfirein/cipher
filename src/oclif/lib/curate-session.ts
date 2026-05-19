@@ -1,7 +1,7 @@
 import {randomUUID} from 'node:crypto'
 import {existsSync} from 'node:fs'
 import {mkdir, readFile, rm, writeFile} from 'node:fs/promises'
-import {dirname, join, relative} from 'node:path'
+import {dirname, join, relative, sep} from 'node:path'
 import {z} from 'zod'
 
 import type {CurateMeta} from '../../shared/curate-meta.js'
@@ -364,19 +364,27 @@ export async function continueSession(options: ContinueOptions): Promise<CurateS
 
   // Mirror the curate into the runtime-signal sidecar so prune (and any
   // future signal-driven ranking) has real data. Best-effort: a failure
-  // here must never block the write that already succeeded.
+  // here must never block the write that already succeeded — but emit a
+  // warn so an operator hitting a corrupt key store / permission denied
+  // on the project data dir has a breadcrumb (a bare catch{} hides it).
   if (writeResult.ok) {
+    const sidecarLogger = new ConsoleLogger()
     try {
       const keyStorage = new FileKeyStorage({storageDir: getProjectDataDir(projectRoot)})
       await keyStorage.initialize()
-      const runtimeSignalStore = new RuntimeSignalStore(keyStorage, new ConsoleLogger())
+      const runtimeSignalStore = new RuntimeSignalStore(keyStorage, sidecarLogger)
       await bumpSidecarOnCurateWrite({
         existedBefore,
-        relPath: relative(contextTreeRoot, writeResult.filePath),
+        logger: sidecarLogger,
+        // Forward-slash normalize so the sidecar key matches the daemon's
+        // curate-html-direct path (`agent-process.ts`) on Windows.
+        relPath: relative(contextTreeRoot, writeResult.filePath).replaceAll(sep, '/'),
         store: runtimeSignalStore,
       })
-    } catch {
-      // Best-effort; never surface to the agent.
+    } catch (error) {
+      sidecarLogger.warn(
+        `tool-mode-curate: sidecar bump init failed for ${projectRoot}: ${error instanceof Error ? error.message : String(error)}`,
+      )
     }
   }
 

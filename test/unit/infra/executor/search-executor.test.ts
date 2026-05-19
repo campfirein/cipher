@@ -181,4 +181,53 @@ describe('SearchExecutor', () => {
     const actual = await executor.execute({query: 'foo'})
     expect(actual.results).to.have.length(2)
   })
+
+  it('skips shared-origin results when bumping the sidecar (avoids orphans + collisions)', async () => {
+    // SearchKnowledgeResult.results carry an `origin: 'local' | 'shared'`
+    // when the project has registered knowledge sources. Shared paths are
+    // relative to the SHARED tree's context-tree root, not this project's
+    // sidecar — writing them here would either orphan an entry forever
+    // (no matching local file) or collide on a same-named local topic and
+    // corrupt its ranking signals.
+    const mixed: SearchKnowledgeResult = {
+      message: '',
+      results: [
+        {excerpt: '', origin: 'local', path: 'local/topic.md', score: 0.9, title: 'Local'},
+        {excerpt: '', origin: 'shared', path: 'auth/jwt.md', score: 0.85, title: 'Shared'},
+      ],
+      totalFound: 2,
+    }
+    const service = makeMockService(mixed)
+    const store = createMockRuntimeSignalStore()
+    const executor = new SearchExecutor(service, store)
+
+    await executor.execute({query: 'jwt'})
+
+    const local = await store.get('local/topic.md')
+    expect(local.accessCount).to.equal(1)
+
+    // Shared path must not have been touched
+    const signalsByPath = await store.list()
+    expect(signalsByPath.has('auth/jwt.md')).to.equal(false)
+  })
+
+  it('omits the helper call entirely when ALL matches are shared-origin', async () => {
+    const allShared: SearchKnowledgeResult = {
+      message: '',
+      results: [
+        {excerpt: '', origin: 'shared', path: 'shared-a.md', score: 0.9, title: 'A'},
+        {excerpt: '', origin: 'shared', path: 'shared-b.md', score: 0.85, title: 'B'},
+      ],
+      totalFound: 2,
+    }
+    const service = makeMockService(allShared)
+    const store = createMockRuntimeSignalStore()
+    const executor = new SearchExecutor(service, store)
+
+    const actual = await executor.execute({query: 'q'})
+
+    expect(actual.results).to.have.length(2) // still returns results
+    const signalsByPath = await store.list()
+    expect(signalsByPath.size).to.equal(0)
+  })
 })

@@ -3,6 +3,7 @@ import type {IRuntimeSignalStore} from '../../core/interfaces/storage/i-runtime-
 
 import {
   determineTier,
+  recordAccessHits,
   recordCurateUpdate,
 } from '../../core/domain/knowledge/memory-scoring.js'
 import {
@@ -23,7 +24,12 @@ const TOOL_MODE_QUERY_SITE = 'tool-mode-query'
  *   `mirrorCurateUpdate`.
  *
  * Best-effort: a sidecar failure must never break the write that already
- * succeeded. Errors are logged at WARN level and swallowed.
+ * succeeded. When a `logger` is passed, the outer error is logged at WARN
+ * level via `warnSidecarFailure`; without one, the helper is silent and
+ * relies on the underlying `RuntimeSignalStore` (mandatory logger) to
+ * surface storage-level failures. Write call sites should pass a logger
+ * since curate failures matter; read call sites (executors) skip it to
+ * avoid stderr noise on bulk reads.
  */
 export async function bumpSidecarOnCurateWrite(params: {
   existedBefore: boolean
@@ -62,13 +68,24 @@ export async function bumpSidecarOnCurateWrite(params: {
 
 /**
  * Bump the runtime-signal sidecar after a tool-mode query/search returns
- * matched paths. Increments `accessCount` per matched path; seeds a default
- * record if the path has no prior signals (first read).
+ * matched paths.
+ *
+ * Mirrors `SearchKnowledgeService.mirrorHitsToSignalStore`: applies the
+ * canonical access-hit scoring via `recordAccessHits` (bumps `accessCount`
+ * AND `importance`) and re-evaluates `maturity` through `determineTier`.
+ * Bumping `accessCount` alone would let prune ignore a topic the user
+ * actively reads — main's logic intentionally raises importance to keep
+ * frequently-accessed topics out of the prune set.
  *
  * Best-effort per path: if one path's update throws, the rest still get
  * processed (failures don't short-circuit the batch). Paths are processed
  * in parallel — different relPaths map to different storage keys, so
  * there's no cross-path lock contention.
+ *
+ * The `logger` param is optional and intentionally not wired by the
+ * executor call sites (search/query) — bulk reads with a flaky sidecar
+ * would spam stderr without changing behavior. The underlying store has
+ * its own mandatory logger that surfaces storage-layer failures.
  */
 export async function bumpSidecarOnQueryRead(params: {
   logger?: ILogger
@@ -81,10 +98,15 @@ export async function bumpSidecarOnQueryRead(params: {
   await Promise.all(
     relPaths.map(async (relPath) => {
       try {
-        await store.update(relPath, (current: RuntimeSignals): RuntimeSignals => ({
-          ...current,
-          accessCount: current.accessCount + 1,
-        }))
+        await store.update(relPath, (current: RuntimeSignals): RuntimeSignals => {
+          const bumped = recordAccessHits(current, 1)
+          return {
+            ...current,
+            accessCount: bumped.accessCount,
+            importance: bumped.importance,
+            maturity: determineTier(bumped.importance, current.maturity),
+          }
+        })
       } catch (error) {
         warnSidecarFailure(logger, TOOL_MODE_QUERY_SITE, 'access-bump', relPath, error)
       }
