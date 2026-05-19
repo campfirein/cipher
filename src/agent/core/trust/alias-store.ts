@@ -22,9 +22,20 @@ import {withProcessLock} from './process-lock.js'
  *
  * Invariants:
  *   - alias names are trimmed and non-empty
+ *   - alias names match `ALIAS_NAME_PATTERN` (alphanumeric + `_-.`)
+ *     so they CANNOT begin with `@` (the orchestrator strips that
+ *     sigil before lookup — see kimi round-1 MED) and won't break
+ *     CLI tabular rendering with newlines / control characters
  *   - `peer_id` MUST pass `isValidPeerIdString` at write time
  *   - lookups trim whitespace from the input
  */
+
+// kimi round-1 NIT — restrict charset + length so aliases can't
+// contain the `@` sigil, whitespace, newlines, or pathological
+// unicode that would break downstream rendering.
+export const ALIAS_NAME_PATTERN = /^[\w.-]{1,64}$/
+
+const ALIAS_NAME_MAX_LENGTH = 64
 
 const LOCK_SUFFIX = '.lock'
 
@@ -54,10 +65,15 @@ export class AliasStore {
     this.lockPath = `${deps.storePath}${LOCK_SUFFIX}`
   }
 
-  /** Reverse lookup — return the alias mapped to a peer_id, or undefined. */
+  /**
+   * Reverse lookup — return the alias mapped to a peer_id, or
+   * undefined. kimi round-1 LOW — defensively trims input so a
+   * copy-pasted peer_id with surrounding whitespace still matches.
+   */
   public async findAliasForPeerId(peerId: string): Promise<string | undefined> {
+    const trimmed = peerId.trim()
     const entries = await this.list()
-    return entries.find((e) => e.peerId === peerId)?.alias
+    return entries.find((e) => e.peerId === trimmed)?.alias
   }
 
   /** Resolve an alias to its peer_id, or undefined when unknown. */
@@ -84,11 +100,22 @@ export class AliasStore {
     if (typeof parsed !== 'object' || parsed === null) return []
     const {entries} = (parsed as {entries?: unknown})
     if (!Array.isArray(entries)) return []
+    // kimi round-1 MED — deeper structural validation: skip
+    // malformed entries (non-object, missing/empty alias, missing
+    // peerId) so a hand-edited or partially-corrupted file doesn't
+    // crash list() at runtime. Unknown extra fields are IGNORED so
+    // future schema additions are backward-compatible (kimi NIT).
     return entries
-      .filter(
-        (e): e is AliasEntry =>
-          typeof e === 'object' && e !== null && typeof e.alias === 'string' && typeof e.peerId === 'string',
-      )
+      .filter((e): e is AliasEntry => {
+        if (typeof e !== 'object' || e === null) return false
+        const candidate = e as {alias?: unknown; peerId?: unknown}
+        return (
+          typeof candidate.alias === 'string' &&
+          candidate.alias.length > 0 &&
+          typeof candidate.peerId === 'string' &&
+          candidate.peerId.length > 0
+        )
+      })
       .sort((a, b) => a.alias.localeCompare(b.alias))
   }
 
@@ -112,6 +139,22 @@ export class AliasStore {
     const trimmed = alias.trim()
     if (trimmed === '') {
       throw new Error('ALIAS_NAME_EMPTY: alias must be non-empty after trimming whitespace')
+    }
+
+    // kimi round-1 MED + NIT — reject names that contain the `@`
+    // sigil, whitespace, newlines, or unsupported unicode. The
+    // orchestrator strips a leading `@` from mentions before alias
+    // lookup, so storing `@bob` would silently miss; the charset
+    // restriction prevents the entire class of footguns.
+    if (trimmed.length > ALIAS_NAME_MAX_LENGTH) {
+      throw new Error(`ALIAS_NAME_TOO_LONG: "${trimmed}" exceeds ${ALIAS_NAME_MAX_LENGTH} chars`)
+    }
+
+    if (!ALIAS_NAME_PATTERN.test(trimmed)) {
+      throw new Error(
+        `ALIAS_NAME_INVALID: "${trimmed}" must match ${ALIAS_NAME_PATTERN.source} ` +
+          '(alphanumeric, underscore, dot, dash; no `@`, whitespace, or punctuation)',
+      )
     }
 
     if (!isValidPeerIdString(peerId)) {
