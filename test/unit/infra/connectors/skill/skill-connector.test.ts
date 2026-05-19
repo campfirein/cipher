@@ -187,6 +187,26 @@ describe('SkillConnector', () => {
       expect(curateContent).to.include('--overwrite')
     })
 
+    it('should create curate-judgement.md as a lean post-curate self-review guide', async () => {
+      const agent = 'Claude Code' as const
+      const {projectPath} = SKILL_CONNECTOR_CONFIGS[agent]
+      await skillConnector.install(agent)
+
+      const skillDir = path.join(testDir, projectPath, BRV_SKILL_NAME)
+      const judgementContent = await readFile(path.join(skillDir, 'curate-judgement.md'), 'utf8')
+
+      expect(judgementContent).to.include('## When To Judge')
+      expect(judgementContent).to.include('## Common Mistakes')
+      // References the existing Quality Bar instead of restating it (no rubric drift).
+      expect(judgementContent).to.include('Quality Bar')
+      expect(judgementContent).to.include('curate.md')
+      // Reads the stored, rendered topic for a fresh signal.
+      expect(judgementContent).to.include('brv read')
+      // One enhancement pass, hard cap — re-curate the same path via --overwrite.
+      expect(judgementContent).to.include('one enhancement pass')
+      expect(judgementContent).to.include('--overwrite')
+    })
+
     it('should create sibling guides with When-To and Common Mistakes sections', async () => {
       const agent = 'Claude Code' as const
       const {projectPath} = SKILL_CONNECTOR_CONFIGS[agent]
