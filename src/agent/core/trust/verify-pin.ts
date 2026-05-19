@@ -29,10 +29,12 @@ import type {KnownPeer, TofuStore} from './tofu-store.js'
  * the TOFU store. The caller should suggest `brv bridge pin` first.
  */
 
-export class VerifyPinError extends Error {
-  public readonly code: 'PEER_NOT_PINNED'
+export type VerifyPinErrorCode = 'INVALID_PEER_ID' | 'PEER_NOT_PINNED'
 
-  public constructor(code: 'PEER_NOT_PINNED', message: string) {
+export class VerifyPinError extends Error {
+  public readonly code: VerifyPinErrorCode
+
+  public constructor(code: VerifyPinErrorCode, message: string) {
     super(message)
     this.code = code
     this.name = 'VerifyPinError'
@@ -44,12 +46,35 @@ export type VerifyPinArgs = {
   readonly tofu: TofuStore
 }
 
+/**
+ * Look up the peer WITHOUT modifying it. Used by the CLI to render
+ * the install_cert_fingerprint before prompting the operator to
+ * confirm promotion (kimi round-1 MED-1).
+ */
+export async function loadPinnedPeer(args: VerifyPinArgs): Promise<KnownPeer> {
+  const existing = await args.tofu.get(args.peerId)
+  if (existing === undefined) {
+    throw new VerifyPinError(
+      'PEER_NOT_PINNED',
+      `peer ${args.peerId} is not in the TOFU store.\n` +
+        `If you have the peer's multiaddr, run \`brv bridge pin <multiaddr>\` first.\n` +
+        `Otherwise, obtain the multiaddr out-of-band, or temporarily set\n` +
+        `BRV_BRIDGE_AUTO_PROVISION=auto on Bob to accept first-contact peers.`,
+    )
+  }
+
+  return existing
+}
+
 export async function verifyPin(args: VerifyPinArgs): Promise<KnownPeer> {
   return args.tofu.upsertWithMerge(args.peerId, (existing) => {
     if (existing === undefined) {
       throw new VerifyPinError(
         'PEER_NOT_PINNED',
-        `peer ${args.peerId} is not in the TOFU store — run \`brv bridge pin <multiaddr>\` first`,
+        `peer ${args.peerId} is not in the TOFU store.\n` +
+          `If you have the peer's multiaddr, run \`brv bridge pin <multiaddr>\` first.\n` +
+          `Otherwise, obtain the multiaddr out-of-band, or temporarily set\n` +
+          `BRV_BRIDGE_AUTO_PROVISION=auto on Bob to accept first-contact peers.`,
       )
     }
 
