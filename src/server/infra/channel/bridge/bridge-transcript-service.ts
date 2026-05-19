@@ -223,7 +223,7 @@ export class BridgeTranscriptService {
     if (inFlight !== undefined) {
       const endedAt = this.clock().toISOString()
       const turnSnapshot: Turn = {
-        author: {handle: inFlight.mirrorHandle, kind: 'remote-peer' as never},
+        author: {handle: inFlight.mirrorHandle, kind: 'remote-peer', peerId: inFlight.senderPeerId},
         channelId: args.channelId,
         endedAt,
         mentions: [],
@@ -342,17 +342,17 @@ export class BridgeTranscriptService {
         handle: args.mirrorHandle,
         joinedAt: now,
         memberKind: 'remote-peer',
-        // The mirror member is the SENDER as seen from Bob's side.
-        // multiaddr and remoteL2PubKey are not strictly required for
-        // transcript display, but the schema requires them. We seed
-        // with the peer_id-encoded suffix and the same pubkey Bob
-        // already verified during the parley handshake. Operators
-        // who want to MENTION this mirror member back (initiating a
-        // reverse parley) need to manually `brv channel invite` with
-        // real multiaddr from Alice's `bridge whoami`.
-        multiaddr: `/p2p/${args.senderPeerId}`,
+        // Mirror member is the SENDER as seen from Bob's side. Bob
+        // ONLY observes `peerId` reliably (from the libp2p remote
+        // address) + `displayName` from the install cert. He has not
+        // observed Alice's listen multiaddr and has not fetched her
+        // L2 tree pubkey — so we omit those fields entirely rather
+        // than seed with sentinel strings (kimi round-1 MED-5).
+        // Reverse-parley dial through this mirror member is gated by
+        // the orchestrator's `warmRemotePeerDriver` which skips
+        // partial records; operators must run `brv channel invite`
+        // with real values to enable it.
         peerId: args.senderPeerId,
-        remoteL2PubKey: 'pending-discovery',
         status: 'idle',
         ...(args.senderDisplayHandle === undefined ? {} : {displayName: args.senderDisplayHandle}),
       }
@@ -383,9 +383,7 @@ export class BridgeTranscriptService {
             handle: args.mirrorHandle,
             joinedAt: this.clock().toISOString(),
             memberKind: 'remote-peer',
-            multiaddr: `/p2p/${args.senderPeerId}`,
             peerId: args.senderPeerId,
-            remoteL2PubKey: 'pending-discovery',
             status: 'idle',
             ...(args.senderDisplayHandle === undefined ? {} : {displayName: args.senderDisplayHandle}),
           } satisfies ChannelMemberRemotePeer,

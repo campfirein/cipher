@@ -141,21 +141,38 @@ function log(msg: string): void {
  */
 /**
  * Slice 9.4e — parse `BRV_BRIDGE_AUTO_PROVISION` env var. Default
- * `pinned-only`. Unrecognised values fall back to the default with
- * a warning log line.
+ * `auto` (kimi round-1 HIGH-1: `pinned-only` would block every
+ * first-contact peer because they all enter as `auto-tofu` and the
+ * promotion CLI ships later, so `auto` is the only default that
+ * keeps the feature usable out-of-the-box — a loud startup log
+ * makes the open posture visible to the operator). Unrecognised
+ * values fall back to the default with a warning log line.
  */
 function parseAutoProvisionPolicy(): AutoProvisionPolicy {
   const raw = process.env.BRV_BRIDGE_AUTO_PROVISION
-  if (raw === undefined || raw.trim() === '') return 'pinned-only'
+  if (raw === undefined || raw.trim() === '') return 'auto'
   const normalised = raw.trim()
   if (normalised === 'auto' || normalised === 'pinned-only' || normalised === 'deny') {
     return normalised
   }
 
   processLog(
-    `[Daemon] invalid BRV_BRIDGE_AUTO_PROVISION="${raw}"; expected one of {auto, pinned-only, deny}; defaulting to pinned-only`,
+    `[Daemon] invalid BRV_BRIDGE_AUTO_PROVISION="${raw}"; expected one of {auto, pinned-only, deny}; defaulting to auto`,
   )
-  return 'pinned-only'
+  return 'auto'
+}
+
+/**
+ * Slice 9.4e — resolve the bridge project root (where Bob's daemon
+ * persists inbound channels). Honours `BRV_BRIDGE_PROJECT_ROOT` for
+ * operators running the daemon from systemd/launchd where
+ * `process.cwd()` is typically `/` (kimi round-1 MED-6); falls back
+ * to `process.cwd()` for the common interactive case.
+ */
+function parseBridgeProjectRoot(): string {
+  const raw = process.env.BRV_BRIDGE_PROJECT_ROOT
+  if (raw === undefined || raw.trim() === '') return process.cwd()
+  return raw.trim()
 }
 
 function parseChannelRetentionDays(): number {
@@ -892,15 +909,15 @@ async function main(): Promise<void> {
           // Slice 9.4e — Bob-side transcript persistence + auto-
           // provision matrix. `BRV_BRIDGE_AUTO_PROVISION` env selects
           // the policy:
-          //   - `auto` — accept all authenticated peers
-          //   - `pinned-only` (default) — only user-confirmed/ca-bound
+          //   - `auto` (default) — accept all authenticated peers
+          //   - `pinned-only` — only user-confirmed/ca-bound
           //   - `deny` — Bob is read-only
           const autoProvisionPolicy = parseAutoProvisionPolicy()
-          // Bridge-inbound channels persist under `process.cwd()`'s
-          // `.brv/context-tree/channel/` directory — i.e. whichever
-          // project root the daemon was started in. Operators wanting
-          // a dedicated dir start the daemon from there.
-          const bridgeProjectRoot = process.cwd()
+          // Bridge-inbound channels persist under
+          // `<bridgeProjectRoot>/.brv/context-tree/channel/`. Honour
+          // `BRV_BRIDGE_PROJECT_ROOT` for systemd/launchd daemons,
+          // fall back to `process.cwd()` for the common case.
+          const bridgeProjectRoot = parseBridgeProjectRoot()
           const transcriptService = new BridgeTranscriptService({
             autoProvisionPolicy,
             channelStore,
@@ -909,7 +926,24 @@ async function main(): Promise<void> {
             idGenerator: () => nanoid(),
             projectRoot: bridgeProjectRoot,
           })
-          log(`Bridge auto-provision policy: ${autoProvisionPolicy} (project root: ${bridgeProjectRoot})`)
+          // kimi round-1 HIGH-1 / NIT-12 — log the auto-provision
+          // policy at INFO so operators see the open posture, but
+          // emit the resolved path only when the operator explicitly
+          // asks (BRV_BRIDGE_DEBUG=1) so we don't routinely echo the
+          // cwd into info logs.
+          if (autoProvisionPolicy === 'auto') {
+            log(
+              'Bridge auto-provision policy: OPEN (auto) — every authenticated peer can ' +
+                'auto-create a mirror channel. To restrict, set BRV_BRIDGE_AUTO_PROVISION=pinned-only ' +
+                'and promote peers via `brv trust verify` (ships in a later slice).',
+            )
+          } else {
+            log(`Bridge auto-provision policy: ${autoProvisionPolicy}`)
+          }
+
+          if (process.env.BRV_BRIDGE_DEBUG === '1') {
+            log(`bridge project root: ${bridgeProjectRoot}`)
+          }
 
           await registerParleyServer({
             acceptModes: ['peer-tree'],

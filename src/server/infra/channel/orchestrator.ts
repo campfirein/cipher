@@ -2254,19 +2254,33 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
 
     if (this.remotePeerDriverFactory === undefined) return
 
+    // Phase 9 / Slice 9.4e (kimi round-1 MED-5) — bridge-auto-
+    // provisioned mirror members on the RECEIVING side carry only
+    // `peerId` (the sender's libp2p identity). They have no observed
+    // `multiaddr` and no fetched L2 pubkey until the operator runs
+    // `brv channel invite` with real values. Skip the driver warm —
+    // any mention against such a member will surface
+    // `CHANNEL_DRIVER_NOT_REGISTERED`, prompting the operator to
+    // upgrade the member record.
+    if (member.multiaddr === undefined || member.remoteL2PubKey === undefined) {
+      return
+    }
+
+    const driverArgs = {
+      channelId,
+      handle: member.handle,
+      multiaddr: member.multiaddr,
+      peerId: member.peerId,
+      remoteL2PubKey: member.remoteL2PubKey,
+    }
+
     const key = `${channelId}\0${member.handle}`
     const existing = this.warmInFlight.get(key)
     if (existing !== undefined) return existing
 
     const promise = (async () => {
       try {
-        const driver = await this.remotePeerDriverFactory!({
-          channelId,
-          handle: member.handle,
-          multiaddr: member.multiaddr,
-          peerId: member.peerId,
-          remoteL2PubKey: member.remoteL2PubKey,
-        })
+        const driver = await this.remotePeerDriverFactory!(driverArgs)
         await driver.start()
         if (this.pool.acquire({channelId, memberHandle: member.handle}) !== undefined) {
           await driver.stop()

@@ -99,6 +99,20 @@ export const TurnAuthorSchema = z.discriminatedUnion('kind', [
     peerId: z.string(),
     displayName: z.string().optional(),
   }),
+  // Phase 9 / Slice 9.4e — Bob materialises a Turn snapshot for an
+  // inbound Parley envelope whose author lives on another brv
+  // install. `handle` is Bob's local mirror of the sender (derived
+  // deterministically from libp2p peerId; see
+  // BridgeTranscriptService.mirrorHandleForPeer).
+  z.object({
+    kind: z.literal('remote-peer'),
+    // Inlined the `^@` constraint here rather than reusing
+    // HandleSchema because HandleSchema is declared below this
+    // section and `const` bindings are not hoisted.
+    handle: z.string().regex(/^@/, 'channel member handle must start with "@"'),
+    peerId: z.string().min(1),
+    displayName: z.string().optional(),
+  }),
 ])
 export type TurnAuthor = z.infer<typeof TurnAuthorSchema>
 
@@ -193,8 +207,17 @@ export const ChannelMemberRemotePeerSchema = z.object({
   memberKind: z.literal('remote-peer'),
   handle: HandleSchema,
   peerId: z.string().min(1),
-  multiaddr: z.string().min(1),
-  remoteL2PubKey: z.string().min(1),
+  // Phase 9 / Slice 9.4e (kimi round-1 MED-5) — both `multiaddr` and
+  // `remoteL2PubKey` are optional for `auto-provisioned` mirror
+  // members written from Bob's side: Bob only knows the sender's
+  // peer_id (via the libp2p remote address) and the L1 install
+  // pubkey (via the cert chain). He hasn't observed Alice's listen
+  // multiaddr and hasn't fetched her L2 tree pubkey yet. The
+  // orchestrator's `warmRemotePeerDriver` skips members where either
+  // field is missing; operators must `brv channel invite` with real
+  // values to enable reverse parley.
+  multiaddr: z.string().min(1).optional(),
+  remoteL2PubKey: z.string().min(1).optional(),
   displayName: z.string().optional(),
   status: RemotePeerStatusSchema,
 })

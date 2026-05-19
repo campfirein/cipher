@@ -173,7 +173,12 @@ export async function registerParleyServer(args: RegisterParleyServerArgs): Prom
         turnId: verifyResult.envelope.turn_id,
       })
       if (!beginResult.accepted) {
-        rateLimiter.recordFailure(transportPeerId)
+        // kimi round-1 HIGH-2 — do NOT bump the handshake rate limiter
+        // on policy decline. The verifier already passed; rejecting on
+        // §7.3 policy is an AUTHORISATION concern, not an
+        // authentication/DoS one. Counting it here would burst-disconnect
+        // legitimate peers that simply haven't been promoted from
+        // `auto-tofu` to `user-confirmed` yet.
         await writeErrorTerminal({
           code: 'CHANNEL_AUTO_PROVISION_DECLINED',
           context: {
@@ -236,104 +241,121 @@ async function dispatchResponseStream(args: DispatchResponseStreamArgs): Promise
     return seq
   }
 
+  // kimi round-1 HIGH-3 — assume the worst (errored) so the finally
+  // path cleans up `inFlight`/`seqByTurn` even if BOTH the success
+  // path AND the catch block throw before we can update this. The
+  // success path overwrites with `completed`; the catch block
+  // overwrites with the real error code.
+  let finalState: {endedState: 'completed' | 'errored'; error?: {code: string; message: string}} = {
+    endedState: 'errored',
+    error: {code: 'GENERATOR_ERROR', message: 'Stream terminated before terminal frame'},
+  }
+
   try {
-    for await (const chunk of generator({envelope})) {
-      const frame = projectChunkToFrame(chunk, nextSeq())
-      emittedFrames.push(frame)
-      await sendFrame(stream, frame)
-      // Slice 9.4e — mirror the chunk into Bob's local transcript.
-      if (transcriptService !== undefined && transcriptContext !== undefined) {
-        await transcriptService.recordChunk({
-          channelId: envelope.channel_id,
-          chunk,
-          deliveryId: transcriptContext.deliveryId,
-          memberHandle: transcriptContext.mirrorHandle,
-          turnId: envelope.turn_id,
-        })
+    try {
+      for await (const chunk of generator({envelope})) {
+        const frame = projectChunkToFrame(chunk, nextSeq())
+        emittedFrames.push(frame)
+        // kimi round-1 MED-8 — persist BEFORE emit so a local disk
+        // error aborts the turn before Alice sees a ghost chunk. A
+        // slow `eventsWriter.append` does block frame emission; that
+        // is the intended ordering for a transcript-of-record path
+        // (we want Bob's history to be the truth, not Alice's).
+        if (transcriptService !== undefined && transcriptContext !== undefined) {
+          await transcriptService.recordChunk({
+            channelId: envelope.channel_id,
+            chunk,
+            deliveryId: transcriptContext.deliveryId,
+            memberHandle: transcriptContext.mirrorHandle,
+            turnId: envelope.turn_id,
+          })
+        }
+
+        await sendFrame(stream, frame)
       }
-    }
-  } catch (error) {
-    // Extract a stable code + a SAFE public message from the thrown
-    // value (kimi round-1 MEDIUMs). Generators using
-    // `ParleyResponseError` carry an authoritative code + a message
-    // they marked safe-to-expose. Anything else gets a generic code +
-    // a generic message; the original details are logged locally so
-    // the operator can still debug.
-    let code = 'GENERATOR_ERROR'
-    let publicMessage = 'Internal generator error'
-    if (error instanceof ParleyResponseError) {
-      code = error.code
-      publicMessage = error.message
+    } catch (error) {
+      // Extract a stable code + a SAFE public message from the thrown
+      // value (kimi round-1 MEDIUMs). Generators using
+      // `ParleyResponseError` carry an authoritative code + a message
+      // they marked safe-to-expose. Anything else gets a generic code +
+      // a generic message; the original details are logged locally so
+      // the operator can still debug.
+      let code = 'GENERATOR_ERROR'
+      let publicMessage = 'Internal generator error'
+      if (error instanceof ParleyResponseError) {
+        code = error.code
+        publicMessage = error.message
+      }
+
+      const localDetails = error instanceof Error ? (error.stack ?? error.message) : String(error)
+      console.warn(`[parley] generator failed for turn ${envelope.turn_id}: ${localDetails}`)
+      finalState = {endedState: 'errored', error: {code, message: publicMessage}}
+
+      const errorFrame = buildErrorTerminalFrame({
+        bound: contextFromEnvelope(envelope, requestEnvelopeHash),
+        code,
+        l2PrivateKey,
+        message: publicMessage,
+        seq: nextSeq(),
+      })
+      emittedFrames.push(errorFrame)
+      await sendFrame(stream, errorFrame)
+      await sendFrame(
+        stream,
+        buildTranscriptSealFrame({
+          bound: contextFromEnvelope(envelope, requestEnvelopeHash),
+          endedState: 'errored',
+          frames: emittedFrames,
+          l2PrivateKey,
+          seq: nextSeq(),
+        }),
+      )
+      return
     }
 
-    const localDetails = error instanceof Error ? (error.stack ?? error.message) : String(error)
-    console.warn(`[parley] generator failed for turn ${envelope.turn_id}: ${localDetails}`)
-
-    const errorFrame = buildErrorTerminalFrame({
+    // Success path — emit signed stream_end + transcript_seal.
+    const terminal = buildStreamEndTerminalFrame({
       bound: contextFromEnvelope(envelope, requestEnvelopeHash),
-      code,
+      endedState: 'completed',
       l2PrivateKey,
-      message: publicMessage,
       seq: nextSeq(),
     })
-    emittedFrames.push(errorFrame)
-    await sendFrame(stream, errorFrame)
+    emittedFrames.push(terminal)
+    await sendFrame(stream, terminal)
+
     await sendFrame(
       stream,
       buildTranscriptSealFrame({
         bound: contextFromEnvelope(envelope, requestEnvelopeHash),
-        endedState: 'errored',
+        endedState: 'completed',
         frames: emittedFrames,
         l2PrivateKey,
         seq: nextSeq(),
       }),
     )
-
-    // Slice 9.4e — mirror the error terminal into Bob's transcript.
+    finalState = {endedState: 'completed'}
+  } finally {
     if (transcriptService !== undefined && transcriptContext !== undefined) {
-      await transcriptService.finaliseTurn({
-        channelId: envelope.channel_id,
-        deliveryId: transcriptContext.deliveryId,
-        endedState: 'errored',
-        error: {code, message: publicMessage},
-        memberHandle: transcriptContext.mirrorHandle,
-        turnId: envelope.turn_id,
-      })
+      try {
+        await transcriptService.finaliseTurn({
+          channelId: envelope.channel_id,
+          deliveryId: transcriptContext.deliveryId,
+          endedState: finalState.endedState,
+          memberHandle: transcriptContext.mirrorHandle,
+          turnId: envelope.turn_id,
+          ...(finalState.error === undefined ? {} : {error: finalState.error}),
+        })
+      } catch (finaliseError) {
+        // Last-resort: don't let a transcript-persistence error mask
+        // the in-flight terminal frame outcome — log + swallow so the
+        // dialer still sees the seal we already emitted.
+        const details =
+          finaliseError instanceof Error
+            ? (finaliseError.stack ?? finaliseError.message)
+            : String(finaliseError)
+        console.warn(`[parley] finaliseTurn failed for turn ${envelope.turn_id}: ${details}`)
+      }
     }
-
-    return
-  }
-
-  // Success path — emit signed stream_end + transcript_seal.
-  const terminal = buildStreamEndTerminalFrame({
-    bound: contextFromEnvelope(envelope, requestEnvelopeHash),
-    endedState: 'completed',
-    l2PrivateKey,
-    seq: nextSeq(),
-  })
-  emittedFrames.push(terminal)
-  await sendFrame(stream, terminal)
-
-  await sendFrame(
-    stream,
-    buildTranscriptSealFrame({
-      bound: contextFromEnvelope(envelope, requestEnvelopeHash),
-      endedState: 'completed',
-      frames: emittedFrames,
-      l2PrivateKey,
-      seq: nextSeq(),
-    }),
-  )
-
-  // Slice 9.4e — mirror the success terminal into Bob's transcript.
-  if (transcriptService !== undefined && transcriptContext !== undefined) {
-    await transcriptService.finaliseTurn({
-      channelId: envelope.channel_id,
-      deliveryId: transcriptContext.deliveryId,
-      endedState: 'completed',
-      memberHandle: transcriptContext.mirrorHandle,
-      turnId: envelope.turn_id,
-    })
   }
 }
 
