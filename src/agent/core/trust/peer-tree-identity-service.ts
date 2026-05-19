@@ -72,6 +72,12 @@ export class PeerTreeIdentityService {
   private readonly clock: () => Date
   private readonly install: InstallIdentityService
   private readonly installDir: string
+  // In-process serialiser so concurrent `loadOrGenerate()` callers
+  // don't race the stale-purge path (kimi round-2 LOW). Without this,
+  // T2's `identityExists()` could pass before T1 unlinks the files,
+  // T2 then hits `loadFromDisk` and throws ENOENT instead of falling
+  // through to regenerate.
+  private loadPromise: Promise<PeerTreeIdentity> | undefined
 
   public constructor(deps: PeerTreeIdentityServiceDeps) {
     this.install = deps.install
@@ -83,24 +89,43 @@ export class PeerTreeIdentityService {
 
   public async loadOrGenerate(): Promise<PeerTreeIdentity> {
     if (this.cache) return this.cache
+    if (this.loadPromise) return this.loadPromise
 
+    this.loadPromise = this.doLoadOrGenerate().finally(() => {
+      this.loadPromise = undefined
+    })
+    return this.loadPromise
+  }
+
+  private async doLoadOrGenerate(): Promise<PeerTreeIdentity> {
     if (this.identityExists()) {
-      const loaded = await this.loadFromDisk()
-      // Verify the L2 cert's `parent_install.install_pubkey_fingerprint`
-      // against the CURRENT L1 pubkey (kimi round-1 HIGH). If the
-      // operator ran `brv install regenerate` (rotating L1), the
-      // persisted L2 binds to the OLD L1 key and any remote verifier
-      // would reject with `INVALID_PARENT_BINDING`. Drop + regenerate
-      // so the daemon recovers automatically.
-      const l1PubRaw = await this.install.getRawPublicKey()
-      const expectedFingerprint = createHash('sha256').update(l1PubRaw).digest('hex')
-      if (loaded.cert.parent_install.install_pubkey_fingerprint === expectedFingerprint) {
-        this.cache = loaded
-        return loaded
+      // Wrap loadFromDisk in try/catch so a concurrent purge or any
+      // other I/O race falls through to regenerate instead of throwing
+      // an opaque ENOENT (kimi round-2 LOW).
+      let loaded: PeerTreeIdentity | undefined
+      try {
+        loaded = await this.loadFromDisk()
+      } catch {
+        loaded = undefined
       }
 
-      await this.purgeStaleArtifacts()
-      // fall through to regenerate against the current L1
+      if (loaded !== undefined) {
+        // Verify the L2 cert's `parent_install.install_pubkey_fingerprint`
+        // against the CURRENT L1 pubkey (kimi round-1 HIGH). If the
+        // operator ran `brv install regenerate` (rotating L1), the
+        // persisted L2 binds to the OLD L1 key and any remote verifier
+        // would reject with `INVALID_PARENT_BINDING`. Drop + regenerate
+        // so the daemon recovers automatically.
+        const l1PubRaw = await this.install.getRawPublicKey()
+        const expectedFingerprint = createHash('sha256').update(l1PubRaw).digest('hex')
+        if (loaded.cert.parent_install.install_pubkey_fingerprint === expectedFingerprint) {
+          this.cache = loaded
+          return loaded
+        }
+
+        await this.purgeStaleArtifacts()
+        // fall through to regenerate against the current L1
+      }
     }
 
     return this.regenerate()
@@ -117,12 +142,12 @@ export class PeerTreeIdentityService {
   private async loadFromDisk(): Promise<PeerTreeIdentity> {
     const masterKey = await readFile(join(this.installDir, MASTER_KEY_FILE))
     if (masterKey.length !== MASTER_KEY_LENGTH) {
-      throw new Error(`tree.master.key has unexpected length ${masterKey.length}; expected ${MASTER_KEY_LENGTH}`)
+      throw new Error(`${MASTER_KEY_FILE} has unexpected length ${masterKey.length}; expected ${MASTER_KEY_LENGTH}`)
     }
 
     const encrypted = await readFile(join(this.installDir, ENCRYPTED_KEY_FILE))
     if (encrypted.length < IV_LENGTH + AUTH_TAG_LENGTH) {
-      throw new Error('tree.key.enc is too short to be a valid AES-256-GCM ciphertext')
+      throw new Error(`${ENCRYPTED_KEY_FILE} is too short to be a valid AES-256-GCM ciphertext`)
     }
 
     const iv = encrypted.subarray(0, IV_LENGTH)
