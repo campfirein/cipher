@@ -98,6 +98,70 @@ describe('CompositePeerMultiaddrResolver (slice 9.6)', () => {
     expect(await composite.resolve('12D3KooWAlice')).to.deep.equal([])
   })
 
+  it('re-throws the FIRST error when every backend throws (kimi round-1 MED — no silent empty)', async () => {
+    const angryA: IPeerMultiaddrResolver = {
+      async close() {},
+      async publish() {},
+      async resolve() { throw new Error('A broken') },
+    }
+    const angryB: IPeerMultiaddrResolver = {
+      async close() {},
+      async publish() {},
+      async resolve() { throw new Error('B broken') },
+    }
+    const composite = new CompositePeerMultiaddrResolver([angryA, angryB])
+    try {
+      await composite.resolve('12D3KooWAlice')
+      expect.fail('expected all-throw to re-throw the first error')
+    } catch (error) {
+      expect((error as Error).message).to.equal('A broken')
+    }
+  })
+
+  it('does NOT re-throw when at least one backend returns successfully (empty)', async () => {
+    const angry: IPeerMultiaddrResolver = {
+      async close() {},
+      async publish() {},
+      async resolve() { throw new Error('boom') },
+    }
+    const ok = new FakeResolver()
+    const composite = new CompositePeerMultiaddrResolver([angry, ok])
+    expect(await composite.resolve('12D3KooWAlice')).to.deep.equal([])
+  })
+
+  it('publishWithResults returns per-backend success/error (kimi round-1 MED)', async () => {
+    const ok = new FakeResolver()
+    const broken: IPeerMultiaddrResolver = {
+      async close() {},
+      async publish() { throw new Error('registry down') },
+      async resolve() { return [] },
+    }
+    const composite = new CompositePeerMultiaddrResolver([ok, broken])
+    const results = await composite.publishWithResults(['/ip4/1.2.3.4/tcp/4001'])
+    expect(results).to.have.length(2)
+    expect(results[0].ok).to.equal(true)
+    expect(results[1].ok).to.equal(false)
+    expect((results[1].error as Error).message).to.equal('registry down')
+  })
+
+  it('close is idempotent — second call does not explode even when a backend close is strict', async () => {
+    let strictCalls = 0
+    const strict: IPeerMultiaddrResolver = {
+      async close() {
+        strictCalls += 1
+        if (strictCalls > 1) throw new Error('STRICT_DOUBLE_CLOSE')
+      },
+      async publish() {},
+      async resolve() { return [] },
+    }
+    const composite = new CompositePeerMultiaddrResolver([strict])
+    await composite.close()
+    // Second composite.close: strict backend throws, but Promise.allSettled
+    // swallows it — composite.close still resolves cleanly.
+    await composite.close()
+    expect(strictCalls).to.equal(2)
+  })
+
   it('publish fans out to every resolver and swallows individual failures', async () => {
     const ok = new FakeResolver()
     const broken: IPeerMultiaddrResolver = {

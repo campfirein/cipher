@@ -34,6 +34,20 @@ export type RegistryRecord = {
 export interface RegistryClient {
   close(): Promise<void>
   lookupByHandle(displayHandle: string): Promise<RegistryRecord | undefined>
+  /**
+   * Look up the record bound to `peerId`.
+   *
+   * **Self-consistency requirement (kimi round-1 LOW):**
+   * implementations MUST verify that the returned
+   * `record.peerId === peerId` before returning, AND that
+   * `record.displayHandle` belongs to the same peer_id by the
+   * registry's own signature scheme. A buggy or malicious server
+   * could otherwise return a record with a different `peerId`
+   * field — without this check, downstream resolvers would
+   * propagate the wrong multiaddrs as if they belonged to the
+   * queried peer, breaking parley's `peer_id ↔ multiaddr`
+   * authentication invariant at the libp2p Noise layer.
+   */
   lookupByPeerId(peerId: string): Promise<RegistryRecord | undefined>
   /**
    * Push a record for the local install. Throws `REGISTRY_NOT_CONFIGURED`
