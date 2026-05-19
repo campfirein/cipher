@@ -8,7 +8,7 @@ import {type DaemonClientOptions, formatConnectionError, withDaemonRetry} from '
 import {writeJsonResponse} from '../../lib/json-response.js'
 import {DEFAULT_TIMEOUT_SECONDS, MAX_TIMEOUT_SECONDS, MIN_TIMEOUT_SECONDS, waitForTaskCompletion} from '../../lib/task-client.js'
 
-const VALID_KINDS = ['link', 'merge', 'prune', 'synthesize'] as const
+const VALID_KINDS: readonly string[] = ['link', 'merge', 'prune', 'synthesize']
 
 export default class DreamScan extends Command {
   public static description =
@@ -51,7 +51,7 @@ public static flags = {
 
     const kinds = raw.kinds ? raw.kinds.split(',').map((s) => s.trim()).filter(Boolean) : undefined
     if (kinds) {
-      const invalid = kinds.filter((k) => !VALID_KINDS.includes(k as (typeof VALID_KINDS)[number]))
+      const invalid = kinds.filter((k) => !VALID_KINDS.includes(k))
       if (invalid.length > 0) {
         const msg = `Invalid --kinds values: ${invalid.join(', ')}. Allowed: ${VALID_KINDS.join(', ')}`
         if (format === 'json') {

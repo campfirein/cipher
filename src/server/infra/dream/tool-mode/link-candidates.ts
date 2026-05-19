@@ -1,23 +1,16 @@
 /**
  * Link candidate generator for tool-mode dream.
  *
- * Deterministic — no LLM. The daemon enumerates topics, BM25-searches each
- * one's title+summary to discover related topics, filters out self-matches
- * and existing links, and dedup'es symmetric pairs. The calling agent then
- * decides per pair whether to actually link by emitting UPDATE HTML through
- * `brv curate`.
- *
- * The generator does NOT touch the existing `operations/consolidate.ts` —
- * tool-mode runs alongside the legacy daemon-LLM dream and reuses only the
- * BM25 search service.
+ * Deterministic — no LLM. Reuses the shared BM25 pair-discovery helper and
+ * adds one filter: already-linked pairs are dropped, since link's purpose
+ * is to surface *new* complementary relationships. Merge does NOT apply
+ * that filter — see `merge-candidates.ts` for the higher-threshold counterpart.
  */
 
 import type {ISearchKnowledgeService} from '../../../../agent/infra/sandbox/tools-sdk.js'
 
-/**
- * Pre-parsed topic input. The session manager reads each topic's HTML
- * once upstream so the generator can stay pure and fast.
- */
+import {type BM25Pair, findBM25Pairs} from './bm25-pair-discovery.js'
+
 export type LinkCandidateTopic = {
   /** Parsed `related=` attribute on <bv-topic>, lowercase paths. Empty if no related attr. */
   alreadyLinkedTo: string[]
@@ -31,16 +24,7 @@ export type LinkCandidateTopic = {
   title: string
 }
 
-export type LinkCandidate = {
-  /** Full HTML of the lex-smaller path's topic. */
-  htmlA: string
-  /** Full HTML of the lex-larger path's topic. */
-  htmlB: string
-  /** [pathA, pathB], lex-sorted. */
-  pair: [string, string]
-  /** BM25 score — max of the two symmetric search hits between the pair. */
-  score: number
-}
+export type LinkCandidate = BM25Pair
 
 export type FindLinkCandidatesOptions = {
   /** Default 20. Cap on returned candidates after sorting by score desc. */
@@ -56,69 +40,28 @@ const DEFAULT_SCORE_THRESHOLD = 0.5
 /** BM25 limit per source-topic search. Generous so we don't miss high-score hits. */
 const SEARCH_LIMIT_PER_TOPIC = 10
 
-/**
- * Find link candidates across the supplied topics.
- *
- * For each in-scope topic, search using `title + " " + summary` as the
- * BM25 query and consider every hit above the score threshold. Symmetric
- * pairs (A→B and B→A) are dedup'ed and keep the higher of the two scores.
- *
- * Returns at most `maxCandidates` pairs, sorted by score descending.
- */
 export async function findLinkCandidates(params: {
   options?: FindLinkCandidatesOptions
   searchService: ISearchKnowledgeService
   topics: LinkCandidateTopic[]
 }): Promise<LinkCandidate[]> {
   const {options, searchService, topics} = params
-  const maxCandidates = options?.maxCandidates ?? DEFAULT_MAX_CANDIDATES
-  const scoreThreshold = options?.scoreThreshold ?? DEFAULT_SCORE_THRESHOLD
-  const scope = options?.scope
 
-  const inScope = scope ? topics.filter((t) => t.path.startsWith(scope)) : topics
-  if (inScope.length < 2) return []
-
-  const byPath = new Map<string, LinkCandidateTopic>(inScope.map((t) => [t.path, t]))
-
-  // Search all topics in parallel. Each per-topic search is independent;
-  // sequencing them would just add wall-clock latency without correctness benefit.
-  const perTopicHits = await Promise.all(
-    inScope.map(async (source) => {
-      const query = `${source.title} ${source.summary}`.trim()
-      if (!query) return {hits: [], source}
-      const result = await searchService.search(query, {limit: SEARCH_LIMIT_PER_TOPIC})
-      return {hits: result.results, source}
-    }),
+  const linksByPath = new Map<string, Set<string>>(
+    topics.map((t) => [t.path, new Set(t.alreadyLinkedTo)]),
   )
 
-  // Accumulate symmetric pairs keyed by the lex-canonical "a|b" form.
-  const pairs = new Map<string, {pair: [string, string]; score: number}>()
-  for (const {hits, source} of perTopicHits) {
-    for (const hit of hits) {
-      if (hit.score < scoreThreshold) continue
-      if (hit.path === source.path) continue
-      if (!byPath.has(hit.path)) continue // out-of-scope target
-      if (source.alreadyLinkedTo.includes(hit.path)) continue
-      const target = byPath.get(hit.path)
-      if (target?.alreadyLinkedTo.includes(source.path)) continue
-
-      const [a, b] = source.path < hit.path ? [source.path, hit.path] : [hit.path, source.path]
-      const key = `${a}|${b}`
-      const existing = pairs.get(key)
-      if (!existing || hit.score > existing.score) {
-        pairs.set(key, {pair: [a, b], score: hit.score})
-      }
-    }
-  }
-
-  return [...pairs.values()]
-    .sort((x, y) => y.score - x.score)
-    .slice(0, maxCandidates)
-    .map(({pair, score}): LinkCandidate => {
-      const topicA = byPath.get(pair[0])
-      const topicB = byPath.get(pair[1])
-      // Map guard — both must exist since we sourced both from the same map.
-      if (!topicA || !topicB) throw new Error(`link-candidates: pair lookup failed for ${pair[0]} or ${pair[1]}`)
-      return {htmlA: topicA.html, htmlB: topicB.html, pair, score}
-    })
+  return findBM25Pairs({
+    maxCandidates: options?.maxCandidates ?? DEFAULT_MAX_CANDIDATES,
+    scope: options?.scope,
+    scoreThreshold: options?.scoreThreshold ?? DEFAULT_SCORE_THRESHOLD,
+    searchLimitPerTopic: SEARCH_LIMIT_PER_TOPIC,
+    searchService,
+    skipPair(sourcePath, hitPath) {
+      // Drop pairs where either side already lists the other in its
+      // `related=` edges. Link is for *new* connections only.
+      return Boolean(linksByPath.get(sourcePath)?.has(hitPath)) || Boolean(linksByPath.get(hitPath)?.has(sourcePath))
+    },
+    topics: topics.map((t) => ({html: t.html, path: t.path, summary: t.summary, title: t.title})),
+  })
 }

@@ -67,8 +67,8 @@ describe('scanDreamCandidates', () => {
       options: {kinds: ['link']},
       runtimeSignalStore: createMockRuntimeSignalStore(),
       searchService: searchStubReturning({
-        'JWT auth': [{path: 'b.html', score: 0.8}],
-        'OAuth auth': [{path: 'a.html', score: 0.8}],
+        JWT: [{path: 'b.html', score: 0.8}],
+        OAuth: [{path: 'a.html', score: 0.8}],
       }),
     })
 
@@ -205,6 +205,65 @@ describe('finalizeDreamSession', () => {
 
     const signals = await store.list()
     expect(signals.has('foo.html')).to.equal(false)
+  })
+
+  it('captures original content as previousTexts so undo can restore archives', async () => {
+    const ctRoot = join(dir, '.brv', 'context-tree')
+    const fooHtml = '<bv-topic path="foo" title="F">precious content here</bv-topic>'
+    const barHtml = '<bv-topic path="bar" title="B">other content</bv-topic>'
+    await writeFile(join(ctRoot, 'foo.html'), fooHtml, 'utf8')
+    await writeFile(join(ctRoot, 'bar.html'), barHtml, 'utf8')
+
+    const result = await finalizeDreamSession({
+      archive: ['foo.html', 'bar.html'],
+      brvDir: join(dir, '.brv'),
+      contextTreeRoot: ctRoot,
+      runtimeSignalStore: createMockRuntimeSignalStore(),
+      sessionId: 'sess-test',
+    })
+
+    expect(result.previousTexts).to.have.keys('foo.html', 'bar.html')
+    expect(result.previousTexts['foo.html']).to.equal(fooHtml)
+    expect(result.previousTexts['bar.html']).to.equal(barHtml)
+  })
+
+  it('omits previousTexts entries for paths that were skipped', async () => {
+    const ctRoot = join(dir, '.brv', 'context-tree')
+
+    const result = await finalizeDreamSession({
+      archive: ['ghost.html'],
+      brvDir: join(dir, '.brv'),
+      contextTreeRoot: ctRoot,
+      runtimeSignalStore: createMockRuntimeSignalStore(),
+      sessionId: 'sess-test',
+    })
+
+    expect(result.archived).to.deep.equal([])
+    expect(result.previousTexts).to.deep.equal({})
+  })
+
+  it('rejects archive paths that escape the context tree with reason="unsafe-path"', async () => {
+    const ctRoot = join(dir, '.brv', 'context-tree')
+    // Place a sentinel file outside the context tree that an attacker would target.
+    const sentinel = join(dir, 'outside.html')
+    await writeFile(sentinel, '<bv-topic path="outside" title="O"/>', 'utf8')
+
+    const result = await finalizeDreamSession({
+      archive: ['../../outside.html', 'foo/../../escape.html'],
+      brvDir: join(dir, '.brv'),
+      contextTreeRoot: ctRoot,
+      runtimeSignalStore: createMockRuntimeSignalStore(),
+      sessionId: 'sess-test',
+    })
+
+    expect(result.archived).to.deep.equal([])
+    expect(result.skipped).to.have.length(2)
+    for (const s of result.skipped) {
+      expect(s.reason).to.equal('unsafe-path')
+    }
+
+    // Sentinel must remain untouched.
+    expect(existsSync(sentinel)).to.equal(true)
   })
 
   it('returns empty summary for an empty archive list', async () => {

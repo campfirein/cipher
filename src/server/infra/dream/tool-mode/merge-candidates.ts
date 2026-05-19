@@ -13,6 +13,8 @@
 
 import type {ISearchKnowledgeService} from '../../../../agent/infra/sandbox/tools-sdk.js'
 
+import {type BM25Pair, findBM25Pairs} from './bm25-pair-discovery.js'
+
 export type MergeCandidateTopic = {
   /** Full raw HTML — supplied to the agent so it can author the merge body without a second fetch. */
   html: string
@@ -24,13 +26,7 @@ export type MergeCandidateTopic = {
   title: string
 }
 
-export type MergeCandidate = {
-  htmlA: string
-  htmlB: string
-  /** [pathA, pathB], lex-sorted. */
-  pair: [string, string]
-  score: number
-}
+export type MergeCandidate = BM25Pair
 
 export type FindMergeCandidatesOptions = {
   maxCandidates?: number
@@ -49,47 +45,13 @@ export async function findMergeCandidates(params: {
   topics: MergeCandidateTopic[]
 }): Promise<MergeCandidate[]> {
   const {options, searchService, topics} = params
-  const maxCandidates = options?.maxCandidates ?? DEFAULT_MAX_CANDIDATES
-  const scoreThreshold = options?.scoreThreshold ?? DEFAULT_SCORE_THRESHOLD
-  const scope = options?.scope
 
-  const inScope = scope ? topics.filter((t) => t.path.startsWith(scope)) : topics
-  if (inScope.length < 2) return []
-
-  const byPath = new Map<string, MergeCandidateTopic>(inScope.map((t) => [t.path, t]))
-
-  const perTopicHits = await Promise.all(
-    inScope.map(async (source) => {
-      const query = `${source.title} ${source.summary}`.trim()
-      if (!query) return {hits: [], source}
-      const result = await searchService.search(query, {limit: SEARCH_LIMIT_PER_TOPIC})
-      return {hits: result.results, source}
-    }),
-  )
-
-  const pairs = new Map<string, {pair: [string, string]; score: number}>()
-  for (const {hits, source} of perTopicHits) {
-    for (const hit of hits) {
-      if (hit.score < scoreThreshold) continue
-      if (hit.path === source.path) continue
-      if (!byPath.has(hit.path)) continue
-
-      const [a, b] = source.path < hit.path ? [source.path, hit.path] : [hit.path, source.path]
-      const key = `${a}|${b}`
-      const existing = pairs.get(key)
-      if (!existing || hit.score > existing.score) {
-        pairs.set(key, {pair: [a, b], score: hit.score})
-      }
-    }
-  }
-
-  return [...pairs.values()]
-    .sort((x, y) => y.score - x.score)
-    .slice(0, maxCandidates)
-    .map(({pair, score}): MergeCandidate => {
-      const topicA = byPath.get(pair[0])
-      const topicB = byPath.get(pair[1])
-      if (!topicA || !topicB) throw new Error(`merge-candidates: pair lookup failed for ${pair[0]} or ${pair[1]}`)
-      return {htmlA: topicA.html, htmlB: topicB.html, pair, score}
-    })
+  return findBM25Pairs({
+    maxCandidates: options?.maxCandidates ?? DEFAULT_MAX_CANDIDATES,
+    scope: options?.scope,
+    scoreThreshold: options?.scoreThreshold ?? DEFAULT_SCORE_THRESHOLD,
+    searchLimitPerTopic: SEARCH_LIMIT_PER_TOPIC,
+    searchService,
+    topics,
+  })
 }

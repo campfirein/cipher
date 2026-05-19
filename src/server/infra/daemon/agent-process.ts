@@ -837,7 +837,7 @@ async function executeTask(
         case 'dream-finalize': {
           // Archive the loser topics the agent picked. Stateless on
           // daemon side — `sessionId` is opaque; we don't track sessions
-          // in v1.
+          // in v1. Writes a DreamLogEntry so `brv dream undo` can restore.
           const brvDir = join(projectPath, BRV_DIR)
           const contextTreeRoot = join(brvDir, CONTEXT_TREE_DIR)
           let parsed: {archive?: string[]; sessionId?: string}
@@ -848,6 +848,7 @@ async function executeTask(
             break
           }
 
+          const startedAt = Date.now()
           try {
             const finalizeResult = await finalizeDreamSession({
               archive: parsed.archive ?? [],
@@ -856,7 +857,57 @@ async function executeTask(
               runtimeSignalStore,
               sessionId: parsed.sessionId ?? '',
             })
-            result = JSON.stringify({...finalizeResult, status: 'ok'})
+
+            // Write a dream-log entry so `brv dream undo` can revert. Skipped
+            // when nothing was actually archived — no-op finalizes shouldn't
+            // pollute the undo history.
+            if (finalizeResult.archived.length > 0) {
+              const dreamLogStore = new DreamLogStore({baseDir: brvDir})
+              const dreamStateService = new DreamStateService({baseDir: brvDir})
+              const logId = await dreamLogStore.getNextId()
+              const completedAt = Date.now()
+              await dreamLogStore.save({
+                completedAt,
+                id: logId,
+                operations: finalizeResult.archived.map((path) => ({
+                  action: 'ARCHIVE',
+                  file: path,
+                  needsReview: false,
+                  previousTexts: {[path]: finalizeResult.previousTexts[path] ?? ''},
+                  reason: 'tool-mode dream finalize',
+                  type: 'PRUNE',
+                })),
+                startedAt,
+                status: 'completed',
+                summary: {
+                  consolidated: 0,
+                  errors: 0,
+                  flaggedForReview: 0,
+                  pruned: finalizeResult.archived.length,
+                  synthesized: 0,
+                },
+                taskId,
+                trigger: 'cli',
+              })
+              await dreamStateService.update((state) => ({
+                ...state,
+                lastDreamAt: new Date().toISOString(),
+                lastDreamLogId: logId,
+                totalDreams: state.totalDreams + 1,
+              }))
+              result = JSON.stringify({
+                archived: finalizeResult.archived,
+                logId,
+                skipped: finalizeResult.skipped,
+                status: 'ok',
+              })
+            } else {
+              result = JSON.stringify({
+                archived: finalizeResult.archived,
+                skipped: finalizeResult.skipped,
+                status: 'ok',
+              })
+            }
           } catch (error) {
             result = JSON.stringify({
               error: error instanceof Error ? error.message : String(error),

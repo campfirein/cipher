@@ -46,9 +46,12 @@ describe('findLinkCandidates', () => {
       topic({path: 'a.html', summary: 'auth', title: 'A'}),
       topic({path: 'b.html', summary: 'auth', title: 'B'}),
     ]
+    // Search keys are title-only — summary is intentionally NOT appended
+    // to the BM25 query, because doing so makes the query so specific
+    // that BM25 ranks only the source topic itself.
     const search = searchStubReturning({
-      'A auth': [{path: 'b.html', score: 0.72}],
-      'B auth': [{path: 'a.html', score: 0.72}],
+      A: [{path: 'b.html', score: 0.72}],
+      B: [{path: 'a.html', score: 0.72}],
     })
 
     const result = await findLinkCandidates({searchService: search, topics})
@@ -56,6 +59,30 @@ describe('findLinkCandidates', () => {
     expect(result).to.have.length(1)
     expect(result[0].pair).to.deep.equal(['a.html', 'b.html'])
     expect(result[0].score).to.be.closeTo(0.72, 0.001)
+  })
+
+  it('uses title only (not title+summary) as the BM25 query — regression for over-specific query bug', async () => {
+    const topics = [
+      topic({path: 'a.html', summary: 'this whole long summary would over-specify the query', title: 'JWT'}),
+      topic({path: 'b.html', summary: 'unrelated summary text', title: 'OAuth'}),
+    ]
+    const stub = sinon.stub<[string, ...unknown[]], Promise<SearchKnowledgeResult>>()
+    stub.callsFake(async (): Promise<SearchKnowledgeResult> => ({
+      message: '',
+      results: [{excerpt: '', path: 'b.html', score: 0.8, title: 'b'}],
+      totalFound: 1,
+    }))
+    const search: ISearchKnowledgeService = {search: stub}
+
+    await findLinkCandidates({searchService: search, topics})
+
+    // Each topic's search call should pass title only, no summary tokens.
+    const calledQueries = stub.getCalls().map((c) => c.args[0])
+    expect(calledQueries).to.include('JWT')
+    expect(calledQueries).to.include('OAuth')
+    for (const q of calledQueries) {
+      expect(q).to.not.match(/summary/i, `query "${q}" should not contain summary tokens`)
+    }
   })
 
   it('drops pairs whose score is below the threshold', async () => {

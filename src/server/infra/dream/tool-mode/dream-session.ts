@@ -16,12 +16,13 @@
 
 import {randomUUID} from 'node:crypto'
 import {existsSync} from 'node:fs'
-import {mkdir, rename} from 'node:fs/promises'
+import {mkdir, readFile, rename} from 'node:fs/promises'
 import {dirname, join} from 'node:path'
 
 import type {ISearchKnowledgeService} from '../../../../agent/infra/sandbox/tools-sdk.js'
 import type {IRuntimeSignalStore} from '../../../core/interfaces/storage/i-runtime-signal-store.js'
 
+import {isDescendantOf} from '../../../utils/path-utils.js'
 import {findLinkCandidates, type LinkCandidate} from './link-candidates.js'
 import {findMergeCandidates, type MergeCandidate} from './merge-candidates.js'
 import {findPruneCandidates, type PruneCandidate} from './prune-candidates.js'
@@ -128,11 +129,18 @@ export type DreamFinalizeInput = {
 
 export type DreamFinalizeSkipped = {
   path: string
-  reason: 'not-found' | 'rename-failed'
+  reason: 'not-found' | 'rename-failed' | 'unsafe-path'
 }
 
 export type DreamFinalizeResult = {
   archived: string[]
+  /**
+   * Original file content keyed by relative path, captured before the rename.
+   * Empty entries are not included (skipped files have no previous content
+   * to restore). Consumed by `undoPrune` for tool-mode undo without needing
+   * an archive service.
+   */
+  previousTexts: Record<string, string>
   /** Files that weren't archived, with a coarse reason for each. */
   skipped: DreamFinalizeSkipped[]
 }
@@ -148,12 +156,30 @@ export async function finalizeDreamSession(input: DreamFinalizeInput): Promise<D
   const {archive, brvDir, contextTreeRoot, runtimeSignalStore} = input
   const archiveRoot = join(brvDir, ARCHIVE_SUBDIR)
 
+  type ArchivedOutcome = {content: string; path: string; result: 'archived'}
+  type SkippedOutcome = {path: string; reason: DreamFinalizeSkipped['reason']; result: 'skipped'}
+
   const outcomes = await Promise.all(
-    archive.map(async (relPath): Promise<{path: string; reason: DreamFinalizeSkipped['reason']; result: 'skipped'} | {path: string; result: 'archived'}> => {
+    archive.map(async (relPath): Promise<ArchivedOutcome | SkippedOutcome> => {
       const source = join(contextTreeRoot, relPath)
+      const target = join(archiveRoot, relPath)
+      // Guard against agent-supplied path traversal (e.g. relPath = "../../etc/passwd").
+      // Both source and target must resolve inside their respective roots.
+      if (!isDescendantOf(source, contextTreeRoot) || !isDescendantOf(target, archiveRoot)) {
+        return {path: relPath, reason: 'unsafe-path', result: 'skipped'}
+      }
+
       if (!existsSync(source)) return {path: relPath, reason: 'not-found', result: 'skipped'}
 
-      const target = join(archiveRoot, relPath)
+      // Read content before the rename so undo can restore it from the log
+      // alone. If we read after the rename, the source path no longer exists.
+      let content: string
+      try {
+        content = await readFile(source, 'utf8')
+      } catch {
+        return {path: relPath, reason: 'rename-failed', result: 'skipped'}
+      }
+
       try {
         await mkdir(dirname(target), {recursive: true})
         await rename(source, target)
@@ -167,16 +193,21 @@ export async function finalizeDreamSession(input: DreamFinalizeInput): Promise<D
         // best-effort sidecar cleanup; the topic is already archived
       }
 
-      return {path: relPath, result: 'archived'}
+      return {content, path: relPath, result: 'archived'}
     }),
   )
 
   const archived: string[] = []
+  const previousTexts: Record<string, string> = {}
   const skipped: DreamFinalizeSkipped[] = []
   for (const outcome of outcomes) {
-    if (outcome.result === 'archived') archived.push(outcome.path)
-    else skipped.push({path: outcome.path, reason: outcome.reason})
+    if (outcome.result === 'archived') {
+      archived.push(outcome.path)
+      previousTexts[outcome.path] = outcome.content
+    } else {
+      skipped.push({path: outcome.path, reason: outcome.reason})
+    }
   }
 
-  return {archived, skipped}
+  return {archived, previousTexts, skipped}
 }
