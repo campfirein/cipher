@@ -119,10 +119,14 @@ export async function fetchAndPin(args: FetchAndPinArgs): Promise<KnownPeer> {
   // chain to the L1 we just authenticated. Done BEFORE the TOFU
   // upsert so a malformed/forged tree cert prevents pinning entirely
   // rather than half-pinning with stale L2 state.
-  let l2PubKey: string | undefined
+  //
+  // Slice 9.4h — also capture the L2 cert's `expires_at` so the
+  // daemon's fast-path can detect a stale cached pubkey instead of
+  // reusing it indefinitely.
+  let l2Material: undefined | {l2ExpiresAt: string; l2PubKey: string}
   if (args.fetchTreeCert === true) {
     const l1PubRaw = Buffer.from(cert.public_key.key, 'base64')
-    l2PubKey = await fetchAndVerifyTreeCert({
+    l2Material = await fetchAndVerifyTreeCert({
       host: args.host,
       l1PubRaw: new Uint8Array(l1PubRaw),
       multiaddr: args.multiaddr,
@@ -136,19 +140,34 @@ export async function fetchAndPin(args: FetchAndPinArgs): Promise<KnownPeer> {
   // pre-lock snapshot (kimi round-1 MEDIUM — TOCTOU race fix).
   const fingerprint = pubkeyFingerprint(cert)
   const nowIso = now.toISOString()
-  return args.tofuStore.upsertWithMerge(cert.subject_id, (existing) => ({
-    display_handle: cert.display_handle,
-    first_seen_at: existing?.first_seen_at ?? nowIso,
-    install_cert_fingerprint: fingerprint,
-    last_seen_at: nowIso,
-    peer_id: cert.subject_id,
-    pin_state: existing?.pin_state ?? 'auto-tofu',
-    // Preserve a pre-existing L2 pubkey if the dialer didn't fetch one
-    // this round; overwrite ONLY when we actively pulled it. Re-pins
-    // for L2 rotation will need to pass `fetchTreeCert: true`.
-    ...(l2PubKey === undefined ? existing?.l2_pub_key === undefined ? {} : {l2_pub_key: existing.l2_pub_key} : {l2_pub_key: l2PubKey}),
-    ...(existing?.ca_binding ? {ca_binding: existing.ca_binding} : {}),
-  }))
+  return args.tofuStore.upsertWithMerge(cert.subject_id, (existing) => {
+    // Slice 9.4h — pubkey and expires_at travel TOGETHER. When the
+    // dialer didn't fetch this round, preserve existing pair as-is.
+    // When the dialer DID fetch, overwrite both. This keeps the two
+    // fields in sync so `isL2CertExpired` always sees a coherent pair.
+    let l2Fields: {l2_expires_at?: string; l2_pub_key?: string}
+    if (l2Material !== undefined) {
+      l2Fields = {l2_expires_at: l2Material.l2ExpiresAt, l2_pub_key: l2Material.l2PubKey}
+    } else if (existing?.l2_pub_key === undefined) {
+      l2Fields = {}
+    } else {
+      l2Fields = {
+        l2_pub_key: existing.l2_pub_key,
+        ...(existing.l2_expires_at === undefined ? {} : {l2_expires_at: existing.l2_expires_at}),
+      }
+    }
+
+    return {
+      display_handle: cert.display_handle,
+      first_seen_at: existing?.first_seen_at ?? nowIso,
+      install_cert_fingerprint: fingerprint,
+      last_seen_at: nowIso,
+      peer_id: cert.subject_id,
+      pin_state: existing?.pin_state ?? 'auto-tofu',
+      ...l2Fields,
+      ...(existing?.ca_binding ? {ca_binding: existing.ca_binding} : {}),
+    }
+  })
 }
 
 async function fetchAndVerifyTreeCert(args: {
@@ -156,7 +175,7 @@ async function fetchAndVerifyTreeCert(args: {
   l1PubRaw: Uint8Array
   multiaddr: string
   now: Date
-}): Promise<string> {
+}): Promise<{l2ExpiresAt: string; l2PubKey: string}> {
   // Hard timeout so an unresponsive peer (half-open Noise, missing
   // protocol handler that silently sinks the dial, etc.) doesn't hang
   // the entire invite (kimi round-1 MEDIUM).
@@ -179,7 +198,11 @@ async function fetchAndVerifyTreeCert(args: {
     throw new Error(`TREE_CERT_CHAIN_INVALID: ${chain.reason}`)
   }
 
-  return cert.public_key.key
+  // Slice 9.4h — surface the cert's `expires_at` so `fetchAndPin`
+  // can persist it alongside `l2_pub_key`. Downstream callers use
+  // it via `isL2CertExpired` to decide whether to reuse the cached
+  // pubkey or re-fetch.
+  return {l2ExpiresAt: cert.expires_at, l2PubKey: cert.public_key.key}
 }
 
 async function fetchTreeCertFrame(host: Libp2pHost, multiaddrStr: string): Promise<unknown> {
@@ -266,6 +289,35 @@ function validateTreeCertShape(raw: unknown): PeerTreeCertificate {
 // Exported for unit tests + integration tests; not part of the public
 // runtime API surface.
 export const __internal__validateTreeCertShape = validateTreeCertShape
+
+/**
+ * Phase 9 / Slice 9.4h — predicate the daemon's L2 fast-path uses to
+ * decide whether to reuse the cached `l2_pub_key` or fall through to
+ * a fresh `fetchAndPin({fetchTreeCert: true})`.
+ *
+ * Returns `true` when the cached cert is stale (and a re-fetch is
+ * required):
+ *   - `l2_pub_key` is present BUT `l2_expires_at` is missing (pre-
+ *     9.4h legacy pin — treat as stale-unknown to force fresh
+ *     validation).
+ *   - `l2_expires_at` is set but unparseable.
+ *   - `l2_expires_at` is at-or-before `now`.
+ *
+ * Returns `false` (cached is still valid) when:
+ *   - `l2_pub_key` is absent (nothing to mark stale — caller will
+ *     dial fresh anyway).
+ *   - `l2_expires_at` parses to a time strictly after `now`.
+ */
+export function isL2CertExpired(
+  peer: {readonly l2_expires_at?: string; readonly l2_pub_key?: string},
+  now: Date,
+): boolean {
+  if (peer.l2_pub_key === undefined) return false
+  if (peer.l2_expires_at === undefined) return true
+  const expiresAt = Date.parse(peer.l2_expires_at)
+  if (!Number.isFinite(expiresAt)) return true
+  return expiresAt <= now.getTime()
+}
 
 // ─── internals ──────────────────────────────────────────────────────────────
 

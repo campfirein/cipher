@@ -54,6 +54,15 @@ export interface KnownPeer {
   readonly first_seen_at: string
   readonly install_cert_fingerprint: string
   /**
+   * Phase 9 / Slice 9.4h — ISO datetime captured from the verified
+   * L2 cert's `expires_at` field at pin time. Stored alongside
+   * `l2_pub_key` so the daemon's L2 fast-path can reject a stale
+   * cached pubkey instead of using it for years past its cert
+   * expiry. Absent on pre-9.4h entries — `isL2CertExpired` treats
+   * absent-but-pubkey-present as stale (force re-fetch).
+   */
+  readonly l2_expires_at?: string
+  /**
    * Phase 9 / Slice 9.4d — base64 of the remote's L2 peer-tree
    * pubkey, captured during `fetchAndPin` when `fetchTreeCert: true`.
    * Used by the channel orchestrator's `inviteRemotePeerMember` to

@@ -63,7 +63,7 @@ import {createBillingStateHandler} from '../billing/billing-state-endpoint.js'
 import {DEFAULT_BRIDGE_CONFIG} from '../channel/bridge/bridge-config.js'
 import {BridgeDriverPool} from '../channel/bridge/bridge-driver-pool.js'
 import {type AutoProvisionPolicy, BridgeTranscriptService} from '../channel/bridge/bridge-transcript-service.js'
-import {fetchAndPin} from '../channel/bridge/identity-client.js'
+import {fetchAndPin, isL2CertExpired} from '../channel/bridge/identity-client.js'
 import {registerIdentityServer} from '../channel/bridge/identity-server.js'
 import {Libp2pHost} from '../channel/bridge/libp2p-host.js'
 import {createLocalAgentResponseGenerator} from '../channel/bridge/local-agent-response-generator.js'
@@ -1080,8 +1080,14 @@ async function main(): Promise<void> {
       // this peer with full identity (kimi round-1 LOW). Inviting the
       // same peer to N channels otherwise re-dials the cert protocols
       // N times.
+      //
+      // Slice 9.4h — skip the fast-path when the cached L2 cert has
+      // expired (or when the cache predates 9.4h and therefore has no
+      // recorded expiry — treat as stale-unknown). Falling through to
+      // `fetchAndPin({fetchTreeCert: true})` re-validates the chain
+      // against `now`, refreshing both pubkey and expires_at.
       const cached = await bridgeTofu.get(args.peerId)
-      if (cached?.l2_pub_key !== undefined) {
+      if (cached?.l2_pub_key !== undefined && !isL2CertExpired(cached, new Date())) {
         return cached.l2_pub_key
       }
 
