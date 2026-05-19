@@ -72,6 +72,7 @@ import {parseMentions} from './mention-parser.js'
 import {decideAutoApprovalForEditAsWrite} from './permission-auto-approver.js'
 import {type IProfileMetadataStore} from './profile-metadata-store.js'
 import {normalisePrompt} from './prompt-normaliser.js'
+import {refreshRemotePeerL2PubKey} from './refresh-remote-peer-l2.js'
 import {channelPaths} from './storage/paths.js'
 
 /**
@@ -2266,12 +2267,26 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
       return
     }
 
+    // Phase 9 / Slice 9.4i — re-resolve the L2 pubkey at warm time
+    // so a long-running Alice daemon doesn't keep using a pubkey that
+    // expired (or whose cert was rotated) after the invite landed.
+    // The daemon's `resolveRemotePeerL2PubKey` already implements
+    // expiry-aware caching (9.4h), so reuse it via the pure helper.
+    const remoteL2PubKey = (await refreshRemotePeerL2PubKey({
+      member: {
+        multiaddr: member.multiaddr,
+        peerId: member.peerId,
+        remoteL2PubKey: member.remoteL2PubKey,
+      },
+      resolve: this.resolveRemotePeerL2PubKey,
+    })) ?? member.remoteL2PubKey
+
     const driverArgs = {
       channelId,
       handle: member.handle,
       multiaddr: member.multiaddr,
       peerId: member.peerId,
-      remoteL2PubKey: member.remoteL2PubKey,
+      remoteL2PubKey,
     }
 
     const key = `${channelId}\0${member.handle}`
