@@ -13,9 +13,8 @@ import {auditParleySeal} from '../../../../../../src/server/infra/channel/bridge
 
 // Phase 9 / Slice 9.10 — extract-and-harden the transcript-seal
 // verification helper so it can be re-run AFTER frames have been
-// persisted. Receive-time verification keeps working unchanged; this
-// helper is the building block for any future audit path
-// (`brv channel verify`, daemon integrity sweep, etc.).
+// persisted. Round-1 hardenings: TRAILING_FRAMES_AFTER_SEAL,
+// STRUCTURE_INVALID, errored-path sig-verify.
 
 const keypair = generateKeyPairSync('ed25519')
 const remoteL2PubKey = keypair.publicKey
@@ -64,13 +63,14 @@ const buildSignedTranscript = (
 }
 
 describe('auditParleySeal (slice 9.10)', () => {
+  const validPreSeal: ParleyResponseFrame[] = [
+    {content: 'hello', kind: 'agent_message_chunk', seq: 1},
+    {ended_state: 'completed', kind: 'stream_end', seq: 2, signature: 'AA'.repeat(32) + '=='},
+  ]
+
   it('returns ok=true for a faithfully-persisted transcript', () => {
     const bound = buildBound()
-    const preSeal: ParleyResponseFrame[] = [
-      {content: 'hello', kind: 'agent_message_chunk', seq: 1},
-      {ended_state: 'completed', kind: 'stream_end', seq: 2, signature: 'AA'.repeat(32) + '=='},
-    ]
-    const frames = buildSignedTranscript(preSeal, bound)
+    const frames = buildSignedTranscript(validPreSeal, bound)
     const result = auditParleySeal({bound, frames, remoteL2PubKey})
     expect(result.ok).to.equal(true)
   })
@@ -85,15 +85,84 @@ describe('auditParleySeal (slice 9.10)', () => {
     if (!result.ok) expect(result.reason).to.equal('MISSING_SEAL')
   })
 
-  it('returns TRANSCRIPT_DIGEST_MISMATCH when a pre-seal frame was tampered', () => {
+  it('returns TRAILING_FRAMES_AFTER_SEAL when bytes are appended after a valid seal (kimi round-1 MED)', () => {
+    const bound = buildBound()
+    const frames = buildSignedTranscript(validPreSeal, bound)
+    // Attacker appends a garbage frame AFTER the signed seal.
+    const tampered: ParleyResponseFrame[] = [
+      ...frames,
+      {content: 'EVIL', kind: 'agent_message_chunk', seq: 99},
+    ]
+    const result = auditParleySeal({bound, frames: tampered, remoteL2PubKey})
+    expect(result.ok).to.equal(false)
+    if (!result.ok) expect(result.reason).to.equal('TRAILING_FRAMES_AFTER_SEAL')
+  })
+
+  it('returns TRAILING_FRAMES_AFTER_SEAL when two seals appear and the FIRST one is valid (rejects the structure entirely)', () => {
+    const bound = buildBound()
+    const frames = buildSignedTranscript(validPreSeal, bound)
+    // Append a second seal (with arbitrary content) — even if the
+    // first seal is valid, the structure is rejected.
+    const twoSeals: ParleyResponseFrame[] = [
+      ...frames,
+      {
+        kind: 'transcript_seal',
+        seq: 99,
+        signature: 'AA'.repeat(43) + '=',
+        transcript_digest: 'f'.repeat(64),
+      },
+    ]
+    const result = auditParleySeal({bound, frames: twoSeals, remoteL2PubKey})
+    expect(result.ok).to.equal(false)
+    if (!result.ok) expect(result.reason).to.equal('TRAILING_FRAMES_AFTER_SEAL')
+  })
+
+  it('returns STRUCTURE_INVALID when pre-seal has no terminal frame (truncated transcript)', () => {
+    const bound = buildBound()
+    // Only a chunk, no stream_end / error before the seal.
+    const preSeal: ParleyResponseFrame[] = [
+      {content: 'hello', kind: 'agent_message_chunk', seq: 1},
+    ]
+    const frames = buildSignedTranscript(preSeal, bound)
+    const result = auditParleySeal({bound, frames, remoteL2PubKey})
+    expect(result.ok).to.equal(false)
+    if (!result.ok) expect(result.reason).to.equal('STRUCTURE_INVALID')
+  })
+
+  it('returns STRUCTURE_INVALID on heartbeat-only pre-seal', () => {
+    const bound = buildBound()
+    const preSeal: ParleyResponseFrame[] = [
+      {kind: 'heartbeat_ping', seq: 1},
+    ]
+    const frames = buildSignedTranscript(preSeal, bound)
+    const result = auditParleySeal({bound, frames, remoteL2PubKey})
+    expect(result.ok).to.equal(false)
+    if (!result.ok) expect(result.reason).to.equal('STRUCTURE_INVALID')
+  })
+
+  it('returns MISSING_SEAL when frames is empty', () => {
+    const bound = buildBound()
+    const result = auditParleySeal({bound, frames: [], remoteL2PubKey})
+    expect(result.ok).to.equal(false)
+    if (!result.ok) expect(result.reason).to.equal('MISSING_SEAL')
+  })
+
+  it('accepts heartbeats interleaved before a terminal frame (heartbeats skipped in digest, structure check uses last NON-heartbeat)', () => {
     const bound = buildBound()
     const preSeal: ParleyResponseFrame[] = [
       {content: 'hello', kind: 'agent_message_chunk', seq: 1},
-      {ended_state: 'completed', kind: 'stream_end', seq: 2, signature: 'AA'.repeat(32) + '=='},
+      {kind: 'heartbeat_ping', seq: 2},
+      {ended_state: 'completed', kind: 'stream_end', seq: 3, signature: 'AA'.repeat(32) + '=='},
+      {kind: 'heartbeat_ping', seq: 4},
     ]
     const frames = buildSignedTranscript(preSeal, bound)
+    const result = auditParleySeal({bound, frames, remoteL2PubKey})
+    expect(result.ok).to.equal(true)
+  })
 
-    // Tamper the persisted chunk AFTER the seal was signed.
+  it('returns TRANSCRIPT_DIGEST_MISMATCH when a pre-seal frame was tampered after signing', () => {
+    const bound = buildBound()
+    const frames = buildSignedTranscript(validPreSeal, bound)
     const tampered: ParleyResponseFrame[] = [
       {content: 'TAMPERED', kind: 'agent_message_chunk', seq: 1},
       frames[1],
@@ -106,72 +175,36 @@ describe('auditParleySeal (slice 9.10)', () => {
 
   it('returns TRANSCRIPT_SEAL_SIG_INVALID when the seal signature does not verify', () => {
     const bound = buildBound()
-    const preSeal: ParleyResponseFrame[] = [
-      {content: 'hello', kind: 'agent_message_chunk', seq: 1},
-      {ended_state: 'completed', kind: 'stream_end', seq: 2, signature: 'AA'.repeat(32) + '=='},
-    ]
-    const frames = buildSignedTranscript(preSeal, bound)
-
-    // Verify with the WRONG pubkey — same shape but different key.
+    const frames = buildSignedTranscript(validPreSeal, bound)
     const otherKey = generateKeyPairSync('ed25519').publicKey
     const result = auditParleySeal({bound, frames, remoteL2PubKey: otherKey})
     expect(result.ok).to.equal(false)
     if (!result.ok) expect(result.reason).to.equal('TRANSCRIPT_SEAL_SIG_INVALID')
   })
 
-  it('returns TRANSCRIPT_SEAL_SIG_INVALID when the bound context was tampered (binds to a different turn)', () => {
+  it('returns TRANSCRIPT_SEAL_SIG_INVALID when the bound context was tampered', () => {
     const bound = buildBound()
-    const preSeal: ParleyResponseFrame[] = [
-      {content: 'hello', kind: 'agent_message_chunk', seq: 1},
-      {ended_state: 'completed', kind: 'stream_end', seq: 2, signature: 'AA'.repeat(32) + '=='},
-    ]
-    const frames = buildSignedTranscript(preSeal, bound)
-
-    // Auditor passes a DIFFERENT delivery_id — the digest still matches
-    // but the seal's bound context no longer matches, so signature
-    // verification must fail.
+    const frames = buildSignedTranscript(validPreSeal, bound)
     const tamperedBound = {...bound, delivery_id: 'd-other'}
     const result = auditParleySeal({bound: tamperedBound, frames, remoteL2PubKey})
     expect(result.ok).to.equal(false)
     if (!result.ok) expect(result.reason).to.equal('TRANSCRIPT_SEAL_SIG_INVALID')
   })
 
-  it('skips signature verification when ended_state is errored (server uses sentinel payload)', () => {
+  it('audits errored seals with FULL signature verification (kimi round-1 LOW — no errored bypass)', () => {
     const bound = buildBound({ended_state: 'errored'})
     const preSeal: ParleyResponseFrame[] = [
       {code: 'BOOM', kind: 'error', message: 'reject', seq: 1, signature: 'AA'.repeat(32) + '=='},
     ]
-    // Even though we sign the seal here for ergonomics, the auditor
-    // MUST accept any digest-matching errored seal regardless of
-    // signature — mirroring the receive-time semantics.
+    // Sign with the correct key — audit accepts.
     const frames = buildSignedTranscript(preSeal, bound)
+    const okResult = auditParleySeal({bound, frames, remoteL2PubKey})
+    expect(okResult.ok).to.equal(true)
 
+    // Sign with a different key — audit MUST reject (no errored bypass).
     const otherKey = generateKeyPairSync('ed25519').publicKey
-    const result = auditParleySeal({bound, frames, remoteL2PubKey: otherKey})
-    expect(result.ok).to.equal(true)
-  })
-
-  it('returns TRANSCRIPT_DIGEST_MISMATCH even on errored path (the digest check IS still enforced)', () => {
-    const bound = buildBound({ended_state: 'errored'})
-    const preSeal: ParleyResponseFrame[] = [
-      {code: 'BOOM', kind: 'error', message: 'reject', seq: 1, signature: 'AA'.repeat(32) + '=='},
-    ]
-    const frames = buildSignedTranscript(preSeal, bound)
-
-    // Tamper the pre-seal error message — digest no longer matches.
-    const tampered: ParleyResponseFrame[] = [
-      {...preSeal[0], message: 'tampered'} as ParleyResponseFrame,
-      frames[1],
-    ]
-    const result = auditParleySeal({bound, frames: tampered, remoteL2PubKey})
-    expect(result.ok).to.equal(false)
-    if (!result.ok) expect(result.reason).to.equal('TRANSCRIPT_DIGEST_MISMATCH')
-  })
-
-  it('returns MISSING_SEAL when the input frames array is empty', () => {
-    const bound = buildBound()
-    const result = auditParleySeal({bound, frames: [], remoteL2PubKey})
-    expect(result.ok).to.equal(false)
-    if (!result.ok) expect(result.reason).to.equal('MISSING_SEAL')
+    const badResult = auditParleySeal({bound, frames, remoteL2PubKey: otherKey})
+    expect(badResult.ok).to.equal(false)
+    if (!badResult.ok) expect(badResult.reason).to.equal('TRANSCRIPT_SEAL_SIG_INVALID')
   })
 })

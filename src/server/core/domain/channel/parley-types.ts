@@ -157,6 +157,15 @@ export const ParleyQueryEnvelopeSchema = z
 
 export type ParleyQueryEnvelope = z.infer<typeof ParleyQueryEnvelopeSchema>
 
+/**
+ * Phase 9 / Slice 9.10 (kimi round-1 LOW) — single source of truth
+ * for the parley protocol enum. Helpers that need to type a
+ * `bound.protocol` field import this rather than inlining the
+ * literal union, so adding a future `'task'` protocol is a
+ * one-place change.
+ */
+export type ParleyProtocol = ParleyQueryEnvelope['protocol']
+
 // ─── server-side response frames (§5.2) ────────────────────────────────────
 
 const AgentMessageChunkSchema = z
