@@ -54,7 +54,12 @@ public static flags = {
       options: ['text', 'json'],
     }),
     'l2-pub-key': Flags.string({
-      description: 'Base64 of the remote peer\'s L2 tree pubkey (from `brv bridge listen` banner)',
+      description:
+        'Base64 of the remote peer\'s L2 tree pubkey (from `brv bridge listen` banner). ' +
+        'This is an OUT-OF-BAND trust step for slice 9.3: response-frame integrity is ' +
+        'only as good as this value. Passing the wrong key causes verification failure; ' +
+        'a man-in-the-middle who can swap it can fool you about the responder\'s identity. ' +
+        'Slice 9.4 replaces this with in-band L2 cert discovery.',
       required: true,
     }),
   }
@@ -77,7 +82,9 @@ public static flags = {
     const host = new Libp2pHost({config: DEFAULT_BRIDGE_CONFIG, identity: install})
     await host.start()
 
-    const turn_id = `cli-${Date.now()}`
+    // Append entropy so two pings issued in the same millisecond don't
+    // collide on turn_id (kimi round-1 NIT).
+    const turn_id = `cli-${Date.now()}-${randomBytes(2).toString('hex')}`
     const delivery_id = `cli-${randomBytes(4).toString('hex')}`
 
     try {
@@ -110,7 +117,9 @@ public static flags = {
         this.error(msg, {exit: 1})
       }
     } finally {
-      await host.stop()
+      // Swallow stop errors so a stuck libp2p teardown doesn't mask
+      // the real failure (kimi round-1 LOW).
+      await host.stop().catch(() => {})
     }
   }
 }

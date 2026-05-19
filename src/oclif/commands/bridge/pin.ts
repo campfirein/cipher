@@ -94,7 +94,9 @@ public static flags = {
         this.error(msg, {exit: 1})
       }
     } finally {
-      await host.stop()
+      // Swallow stop errors so a stuck libp2p teardown doesn't mask
+      // the real failure (kimi round-1 LOW).
+      await host.stop().catch(() => {})
     }
   }
 }
@@ -104,6 +106,9 @@ public static flags = {
  * multiaddr. Returns `undefined` if the suffix is missing.
  */
 function extractPeerIdFromMultiaddr(multiaddr: string): string | undefined {
-  const match = multiaddr.match(/\/p2p\/([\dA-Za-z]+)$/)
+  // Restrict to the base58btc alphabet libp2p uses for PeerIDs
+  // (kimi round-1 LOW — defense-in-depth before the verifier's
+  // canonical guard 4 catches a wrong peer_id).
+  const match = multiaddr.match(/\/p2p\/([1-9A-HJ-NP-Za-km-z]+)$/)
   return match ? match[1] : undefined
 }

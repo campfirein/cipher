@@ -72,9 +72,15 @@ public static flags = {
     const l2Identity = await l2.loadOrGenerate()
     const tofu = new TofuStore({storePath: tofuPath})
 
+    // Apply --port to the --listen multiaddr WITHOUT silently widening the
+    // bind address (kimi round-1 HIGH — `/ip4/0.0.0.0` exposes the
+    // listener to the LAN, which the operator did not opt into). We
+    // splice the port in-place; the host (default 127.0.0.1) is
+    // preserved. Use `--listen /ip4/0.0.0.0/tcp/<p>` explicitly to bind
+    // all interfaces.
     const listenAddr = flags.port === undefined
       ? flags.listen
-      : `/ip4/0.0.0.0/tcp/${flags.port}`
+      : flags.listen.replace(/\/tcp\/\d+/, `/tcp/${flags.port}`)
     const config: BridgeConfig = {
       ...DEFAULT_BRIDGE_CONFIG,
       listen_addrs: [listenAddr],
@@ -84,10 +90,19 @@ public static flags = {
     await host.start()
 
     await registerIdentityServer({host, identity: install})
-    const acceptModes = flags['accept-modes']
-      .split(',')
-      .map((s) => s.trim())
+    const rawAcceptModes = flags['accept-modes'].split(',').map((s) => s.trim()).filter((s) => s.length > 0)
+    const acceptModes = rawAcceptModes
       .filter((s): s is 'ca-issued-tree' | 'peer-tree' => s === 'peer-tree' || s === 'ca-issued-tree')
+    if (acceptModes.length !== rawAcceptModes.length) {
+      // Surface invalid tokens loudly instead of silently dropping them
+      // (kimi round-1 MEDIUM).
+      const dropped = rawAcceptModes.filter((s) => !acceptModes.includes(s as 'ca-issued-tree' | 'peer-tree'))
+      this.error(
+        `--accept-modes: unknown value(s) ${JSON.stringify(dropped)}; expected comma-separated from {peer-tree, ca-issued-tree}`,
+        {exit: 2},
+      )
+    }
+
     await registerParleyServer({
       acceptModes,
       host,
@@ -118,12 +133,21 @@ public static flags = {
       if (stopping) return
       stopping = true
       this.log('\nshutting down…')
-      await host.stop()
+      // Race a hard timeout against libp2p's stop — TCP teardown can
+      // hang on a stuck connection (kimi round-1 MEDIUM). We swallow
+      // errors here; exit unconditionally.
+      const timeout = new Promise<void>((resolve) => {
+        setTimeout(() => resolve(), 5000)
+      })
+      await Promise.race([host.stop().catch(() => {}), timeout])
       this.exit(0)
     }
 
-    process.once('SIGINT', stop)
-    process.once('SIGTERM', stop)
+    // process.on, not once — the `stopping` guard handles re-entry; a
+    // rapid double-SIGINT shouldn't be allowed to fall through to
+    // Node's default handler (kimi round-1 LOW).
+    process.on('SIGINT', stop)
+    process.on('SIGTERM', stop)
     await new Promise(() => { /* run forever — SIGINT/SIGTERM exits the process */ })
   }
 }
