@@ -49,6 +49,22 @@ from typing import Optional, Tuple
 import yaml
 
 
+class FrontmatterLoader(yaml.SafeLoader):
+    pass
+
+
+FrontmatterLoader.yaml_implicit_resolvers = {
+    key: list(value)
+    for key, value in yaml.SafeLoader.yaml_implicit_resolvers.items()
+}
+for ch, resolvers in list(FrontmatterLoader.yaml_implicit_resolvers.items()):
+    FrontmatterLoader.yaml_implicit_resolvers[ch] = [
+        (tag, regexp)
+        for tag, regexp in resolvers
+        if tag != "tag:yaml.org,2002:timestamp"
+    ]
+
+
 # =============================================================================
 # Constants — mirrored from byterover-cli's TypeScript constants.ts
 # =============================================================================
@@ -259,7 +275,7 @@ def _parse_frontmatter(content: str) -> Tuple[Optional[dict], str]:
     body = content[end + delim :]
 
     try:
-        parsed = yaml.safe_load(yaml_block)
+        parsed = yaml.load(yaml_block, Loader=FrontmatterLoader)
     except yaml.YAMLError:
         return None, content
     if not isinstance(parsed, dict):
@@ -268,11 +284,20 @@ def _parse_frontmatter(content: str) -> Tuple[Optional[dict], str]:
 
 
 def _str_list(value) -> list[str]:
+    if isinstance(value, str):
+        return [part.strip() for part in value.split(",") if part.strip()]
     return [v for v in (value or []) if isinstance(v, str)]
 
 
 def _opt_str(value) -> Optional[str]:
     return value if isinstance(value, str) else None
+
+
+def _html_related_paths(values: list[str]) -> list[str]:
+    return [
+        f"{value[:-3]}.html" if value.endswith(".md") else value
+        for value in values
+    ]
 
 
 def _parse_section(body: str, heading: str) -> Optional[str]:
@@ -466,10 +491,12 @@ def convert_markdown_topic_to_html(
     frontmatter, body = _parse_frontmatter(normalized)
 
     title = _opt_str((frontmatter or {}).get("title")) or topic_path.split("/")[-1] or topic_path
-    summary = _opt_str((frontmatter or {}).get("summary")) or ""
+    summary = _opt_str((frontmatter or {}).get("summary")) or _opt_str((frontmatter or {}).get("short_description")) or ""
     tags = _str_list((frontmatter or {}).get("tags"))
     keywords = _str_list((frontmatter or {}).get("keywords"))
-    related = _str_list((frontmatter or {}).get("related"))
+    related = _html_related_paths(
+        _str_list((frontmatter or {}).get("related")) or _str_list((frontmatter or {}).get("relateds"))
+    )
 
     created_at = _opt_str((frontmatter or {}).get("createdAt"))
     updated_at = _opt_str((frontmatter or {}).get("updatedAt"))
