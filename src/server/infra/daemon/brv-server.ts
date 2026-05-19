@@ -61,6 +61,7 @@ import {DaemonTokenProvider} from '../auth/daemon-token-provider.js'
 import {allowlistFromEnv, makeOriginAllowlist} from '../auth/origin-allowlist.js'
 import {createBillingStateHandler} from '../billing/billing-state-endpoint.js'
 import {DEFAULT_BRIDGE_CONFIG} from '../channel/bridge/bridge-config.js'
+import {type AutoProvisionPolicy, BridgeTranscriptService} from '../channel/bridge/bridge-transcript-service.js'
 import {fetchAndPin} from '../channel/bridge/identity-client.js'
 import {registerIdentityServer} from '../channel/bridge/identity-server.js'
 import {Libp2pHost} from '../channel/bridge/libp2p-host.js'
@@ -138,6 +139,25 @@ function log(msg: string): void {
  * the broader codebase). 0 disables the GC sweep entirely. Negative or
  * unparseable values fall back to the default with a warning log line.
  */
+/**
+ * Slice 9.4e — parse `BRV_BRIDGE_AUTO_PROVISION` env var. Default
+ * `pinned-only`. Unrecognised values fall back to the default with
+ * a warning log line.
+ */
+function parseAutoProvisionPolicy(): AutoProvisionPolicy {
+  const raw = process.env.BRV_BRIDGE_AUTO_PROVISION
+  if (raw === undefined || raw.trim() === '') return 'pinned-only'
+  const normalised = raw.trim()
+  if (normalised === 'auto' || normalised === 'pinned-only' || normalised === 'deny') {
+    return normalised
+  }
+
+  processLog(
+    `[Daemon] invalid BRV_BRIDGE_AUTO_PROVISION="${raw}"; expected one of {auto, pinned-only, deny}; defaulting to pinned-only`,
+  )
+  return 'pinned-only'
+}
+
 function parseChannelRetentionDays(): number {
   const raw = process.env.BRV_CHANNEL_TRANSCRIPT_RETENTION_DAYS
   if (raw === undefined || raw.trim() === '') return 30
@@ -869,6 +889,28 @@ async function main(): Promise<void> {
             log(`Bridge parley dispatcher: local-agent profile="${parleyProfile}"`)
           }
 
+          // Slice 9.4e — Bob-side transcript persistence + auto-
+          // provision matrix. `BRV_BRIDGE_AUTO_PROVISION` env selects
+          // the policy:
+          //   - `auto` — accept all authenticated peers
+          //   - `pinned-only` (default) — only user-confirmed/ca-bound
+          //   - `deny` — Bob is read-only
+          const autoProvisionPolicy = parseAutoProvisionPolicy()
+          // Bridge-inbound channels persist under `process.cwd()`'s
+          // `.brv/context-tree/channel/` directory — i.e. whichever
+          // project root the daemon was started in. Operators wanting
+          // a dedicated dir start the daemon from there.
+          const bridgeProjectRoot = process.cwd()
+          const transcriptService = new BridgeTranscriptService({
+            autoProvisionPolicy,
+            channelStore,
+            clock: () => new Date(),
+            eventsWriter: channelEventsWriter,
+            idGenerator: () => nanoid(),
+            projectRoot: bridgeProjectRoot,
+          })
+          log(`Bridge auto-provision policy: ${autoProvisionPolicy} (project root: ${bridgeProjectRoot})`)
+
           await registerParleyServer({
             acceptModes: ['peer-tree'],
             host,
@@ -876,6 +918,7 @@ async function main(): Promise<void> {
             responseGenerator,
             tofuPolicy: 'auto',
             tofuStore: bridgeTofu,
+            transcriptService,
           })
           log(`Bridge host started — peer_id=${bridgeInstall ? (await bridgeInstall.loadOrGenerate()).peerId : '?'}`)
           for (const ma of host.getMultiaddrs()) {

@@ -13,6 +13,7 @@ import {
   type ParleyResponseFrame,
   transcriptDigest,
 } from '../../../core/domain/channel/parley-types.js'
+import {type BridgeTranscriptService} from './bridge-transcript-service.js'
 import {type Libp2pHost, type Libp2pStreamLike} from './libp2p-host.js'
 import {NonceLru} from './parley-nonce-lru.js'
 import {HandshakeRateLimiter} from './parley-rate-limit.js'
@@ -64,6 +65,16 @@ export interface RegisterParleyServerArgs {
   readonly responseGenerator?: ParleyResponseGenerator
   readonly tofuPolicy: TofuPolicy
   readonly tofuStore: TofuStore
+  /**
+   * Slice 9.4e — optional. When provided, the server runs the
+   * auto-provision policy gate per §7.3 BEFORE dispatching to the
+   * response generator, and persists the inbound prompt + response
+   * chunks + terminal events to Bob's local channel store. Rejected
+   * envelopes return `CHANNEL_AUTO_PROVISION_DECLINED` to the dialer.
+   * When absent, the server runs the legacy (9.4c) path without any
+   * Bob-side persistence.
+   */
+  readonly transcriptService?: BridgeTranscriptService
 }
 
 const DEFAULT_CLOCK_SKEW_MS = 5 * 60 * 1000
@@ -144,12 +155,52 @@ export async function registerParleyServer(args: RegisterParleyServerArgs): Prom
 
     const l2 = await args.l2Identity.loadOrGenerate()
     const generator = args.responseGenerator ?? mockEchoChunks
+
+    // Slice 9.4e — auto-provision policy gate. When the transcript
+    // service is wired, ask it to decide whether to accept this
+    // envelope BEFORE dispatching to the local agent. Rejected
+    // envelopes throw `CHANNEL_AUTO_PROVISION_DECLINED` via the
+    // generator-error path so the dialer sees a signed `error`
+    // terminal with the bound context.
+    let transcriptContext: undefined | {deliveryId: string; mirrorHandle: string}
+    if (args.transcriptService !== undefined) {
+      const beginResult = await args.transcriptService.beginTurn({
+        channelId: verifyResult.envelope.channel_id,
+        prompt: verifyResult.envelope.prompt,
+        senderDisplayHandle: verifyResult.envelope.handshake.install_cert.display_handle,
+        senderPeerId: transportPeerId,
+        senderPinState: verifyResult.pinned.pin_state,
+        turnId: verifyResult.envelope.turn_id,
+      })
+      if (!beginResult.accepted) {
+        rateLimiter.recordFailure(transportPeerId)
+        await writeErrorTerminal({
+          code: 'CHANNEL_AUTO_PROVISION_DECLINED',
+          context: {
+            channel_id: verifyResult.envelope.channel_id,
+            delivery_id: verifyResult.envelope.delivery_id,
+            protocol: verifyResult.envelope.protocol,
+            request_envelope_hash: verifyResult.requestEnvelopeHash,
+            turn_id: verifyResult.envelope.turn_id,
+          },
+          l2Identity: args.l2Identity,
+          message: beginResult.reason,
+          stream,
+        })
+        return
+      }
+
+      transcriptContext = {deliveryId: beginResult.deliveryId, mirrorHandle: beginResult.mirrorHandle}
+    }
+
     await dispatchResponseStream({
       envelope: verifyResult.envelope,
       generator,
       l2PrivateKey: l2.privateKey,
       requestEnvelopeHash: verifyResult.requestEnvelopeHash,
       stream,
+      transcriptContext,
+      transcriptService: args.transcriptService,
     })
     // Do NOT close — dialer closes after reading. See file-level
     // comment.
@@ -162,6 +213,8 @@ interface DispatchResponseStreamArgs {
   readonly l2PrivateKey: KeyObject
   readonly requestEnvelopeHash: string
   readonly stream: Libp2pStreamLike
+  readonly transcriptContext?: {deliveryId: string; mirrorHandle: string}
+  readonly transcriptService?: BridgeTranscriptService
 }
 
 /**
@@ -175,7 +228,7 @@ interface DispatchResponseStreamArgs {
  * of the cancellation work.
  */
 async function dispatchResponseStream(args: DispatchResponseStreamArgs): Promise<void> {
-  const {envelope, generator, l2PrivateKey, requestEnvelopeHash, stream} = args
+  const {envelope, generator, l2PrivateKey, requestEnvelopeHash, stream, transcriptContext, transcriptService} = args
   const emittedFrames: ParleyResponseFrame[] = []
   let seq = 0
   const nextSeq = () => {
@@ -188,6 +241,16 @@ async function dispatchResponseStream(args: DispatchResponseStreamArgs): Promise
       const frame = projectChunkToFrame(chunk, nextSeq())
       emittedFrames.push(frame)
       await sendFrame(stream, frame)
+      // Slice 9.4e — mirror the chunk into Bob's local transcript.
+      if (transcriptService !== undefined && transcriptContext !== undefined) {
+        await transcriptService.recordChunk({
+          channelId: envelope.channel_id,
+          chunk,
+          deliveryId: transcriptContext.deliveryId,
+          memberHandle: transcriptContext.mirrorHandle,
+          turnId: envelope.turn_id,
+        })
+      }
     }
   } catch (error) {
     // Extract a stable code + a SAFE public message from the thrown
@@ -225,6 +288,19 @@ async function dispatchResponseStream(args: DispatchResponseStreamArgs): Promise
         seq: nextSeq(),
       }),
     )
+
+    // Slice 9.4e — mirror the error terminal into Bob's transcript.
+    if (transcriptService !== undefined && transcriptContext !== undefined) {
+      await transcriptService.finaliseTurn({
+        channelId: envelope.channel_id,
+        deliveryId: transcriptContext.deliveryId,
+        endedState: 'errored',
+        error: {code, message: publicMessage},
+        memberHandle: transcriptContext.mirrorHandle,
+        turnId: envelope.turn_id,
+      })
+    }
+
     return
   }
 
@@ -248,6 +324,17 @@ async function dispatchResponseStream(args: DispatchResponseStreamArgs): Promise
       seq: nextSeq(),
     }),
   )
+
+  // Slice 9.4e — mirror the success terminal into Bob's transcript.
+  if (transcriptService !== undefined && transcriptContext !== undefined) {
+    await transcriptService.finaliseTurn({
+      channelId: envelope.channel_id,
+      deliveryId: transcriptContext.deliveryId,
+      endedState: 'completed',
+      memberHandle: transcriptContext.mirrorHandle,
+      turnId: envelope.turn_id,
+    })
+  }
 }
 
 // Must stay in sync with `ParleyResponseDataChunk` — when 9.9 widens
