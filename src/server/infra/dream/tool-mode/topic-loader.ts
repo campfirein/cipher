@@ -149,10 +149,24 @@ function parseAttributes(rawAttrs: string): Record<string, string> {
   return result
 }
 
-/** Parse a comma-separated `related=` attribute into a trimmed list. */
+/**
+ * Parse a comma-separated `related=` attribute into a list of filesystem-style
+ * paths. The bv-topic convention is `@domain/topic` (no `.html`), but byPath /
+ * searchService both emit `domain/topic.html`. Normalizing here keeps
+ * link-candidates' alreadyLinkedTo filter functional — without this step,
+ * already-linked pairs would keep resurfacing across scans.
+ */
 function parseRelated(raw: string): string[] {
   return raw
     .split(',')
     .map((s) => s.trim())
     .filter((s) => s.length > 0)
+    .map((s) => normalizeRelatedRef(s))
+}
+
+function normalizeRelatedRef(ref: string): string {
+  // Strip the topic-ref `@` prefix used by bv-topic frontmatter.
+  const stripped = ref.startsWith('@') ? ref.slice(1) : ref
+  // Append `.html` when missing so the ref matches search-service hit paths.
+  return stripped.endsWith('.html') ? stripped : `${stripped}.html`
 }

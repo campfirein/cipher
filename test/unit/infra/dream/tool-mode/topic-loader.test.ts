@@ -43,7 +43,61 @@ describe('loadToolModeTopics', () => {
     expect(result[0].path).to.equal('jwt.html')
     expect(result[0].title).to.equal('JWT signing')
     expect(result[0].summary).to.equal('RS256 over HS256')
-    expect(result[0].related).to.deep.equal(['security/oauth', 'billing/stripe'])
+    // Normalized to filesystem-style paths (matches what byPath / searchService
+    // emit) so link-candidates' alreadyLinkedTo filter actually works.
+    expect(result[0].related).to.deep.equal(['security/oauth.html', 'billing/stripe.html'])
+  })
+
+  it('normalizes canonical @-prefixed related refs to filesystem paths', async () => {
+    // bv-topic convention is `related="@domain/topic"` (no .html). Topic-loader
+    // must canonicalize to `domain/topic.html` so link/merge filtering can
+    // compare against search hit paths. Regression for ENG-2858 review.
+    await writeFile(
+      join(dir, 'jwt.html'),
+      '<bv-topic path="security/jwt" title="JWT" related="@security/oauth,@security/cookies">x</bv-topic>',
+      'utf8',
+    )
+
+    const result = await loadToolModeTopics({
+      contextTreeRoot: dir,
+      runtimeSignalStore: createMockRuntimeSignalStore(),
+    })
+
+    expect(result[0].related).to.deep.equal(['security/oauth.html', 'security/cookies.html'])
+  })
+
+  it('tolerates mixed canonical and bare related refs in one attribute', async () => {
+    await writeFile(
+      join(dir, 'jwt.html'),
+      '<bv-topic path="security/jwt" title="JWT" related="@security/oauth,billing/stripe,@deploy/k8s">x</bv-topic>',
+      'utf8',
+    )
+
+    const result = await loadToolModeTopics({
+      contextTreeRoot: dir,
+      runtimeSignalStore: createMockRuntimeSignalStore(),
+    })
+
+    expect(result[0].related).to.deep.equal([
+      'security/oauth.html',
+      'billing/stripe.html',
+      'deploy/k8s.html',
+    ])
+  })
+
+  it('preserves explicit .html extensions when already present', async () => {
+    await writeFile(
+      join(dir, 'jwt.html'),
+      '<bv-topic path="security/jwt" title="JWT" related="security/oauth.html,@billing/stripe.html">x</bv-topic>',
+      'utf8',
+    )
+
+    const result = await loadToolModeTopics({
+      contextTreeRoot: dir,
+      runtimeSignalStore: createMockRuntimeSignalStore(),
+    })
+
+    expect(result[0].related).to.deep.equal(['security/oauth.html', 'billing/stripe.html'])
   })
 
   it('treats missing optional attrs as empty / undefined', async () => {
