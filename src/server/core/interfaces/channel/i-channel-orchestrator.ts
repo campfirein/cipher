@@ -96,15 +96,16 @@ export type InviteMemberArgs = {
    * the orchestrator constructs a `RemoteMemberDriver` instead of
    * spawning a local ACP subprocess.
    *
-   * `remoteL2PubKey` is base64 of the remote's L2 tree pubkey,
-   * read out-of-band from the remote's `brv bridge listen` banner.
-   * 9.4 follow-up replaces it with in-band cert discovery.
+   * `remoteL2PubKey` is base64 of the remote's L2 tree pubkey. As of
+   * slice 9.4d it is OPTIONAL — when absent, the orchestrator
+   * auto-pins the peer via `/brv/identity/cert/v1` +
+   * `/brv/identity/tree-cert/v1` to learn the L2 pubkey in-band.
    */
   readonly remotePeer?: {
     readonly displayName?: string
     readonly multiaddr: string
     readonly peerId: string
-    readonly remoteL2PubKey: string
+    readonly remoteL2PubKey?: string
   }
 }
 

@@ -1,6 +1,7 @@
 import * as lp from 'it-length-prefixed'
 
 import {InstallIdentityService} from '../../../../agent/core/trust/install-identity-service.js'
+import {type PeerTreeIdentityService} from '../../../../agent/core/trust/peer-tree-identity-service.js'
 import {type Libp2pHost} from './libp2p-host.js'
 
 /**
@@ -37,15 +38,38 @@ import {type Libp2pHost} from './libp2p-host.js'
 
 export const IDENTITY_PROTOCOL = '/brv/identity/cert/v1'
 
+/**
+ * Phase 9 / Slice 9.4d — sister protocol that streams the L2
+ * `PeerTreeCertificate` for in-band L2 cert discovery. Replaces the
+ * 9.3-era out-of-band `--l2-pub-key` flag on `brv channel invite`:
+ * the dialer fetches the install cert via `/brv/identity/cert/v1`,
+ * then the L2 cert via this protocol, and pins both in one shot.
+ *
+ * Wire shape: identical framing as `/brv/identity/cert/v1` — one
+ * length-prefixed JSON frame, server returns without closing. Dialer
+ * MUST validate the L2 cert chains to the install cert it just
+ * fetched (parent_install.install_pubkey_fingerprint match).
+ */
+export const TREE_CERT_PROTOCOL = '/brv/identity/tree-cert/v1'
+
 export interface RegisterIdentityServerDeps {
   readonly host: Libp2pHost
   readonly identity: InstallIdentityService
+  /**
+   * Phase 9 / Slice 9.4d — when supplied, also registers
+   * `/brv/identity/tree-cert/v1` to publish the L2 PeerTreeCertificate
+   * for in-band discovery. Optional so the slice-9.2 standalone
+   * `brv bridge listen` path (which doesn't always carry an L2
+   * service) remains backward-compatible.
+   */
+  readonly l2Identity?: PeerTreeIdentityService
 }
 
 /**
  * Register the `/brv/identity/cert/v1` stream handler on the given
  * Libp2pHost. Call this once during daemon startup AFTER the host
- * has started.
+ * has started. When `l2Identity` is supplied, ALSO registers
+ * `/brv/identity/tree-cert/v1` (slice 9.4d in-band L2 discovery).
  */
 export async function registerIdentityServer(deps: RegisterIdentityServerDeps): Promise<void> {
   await deps.host.handle(IDENTITY_PROTOCOL, async (stream) => {
@@ -59,6 +83,18 @@ export async function registerIdentityServer(deps: RegisterIdentityServerDeps): 
     await stream.send(framed)
     // Intentionally do NOT call stream.close() — see file-level comment.
   })
+
+  if (deps.l2Identity !== undefined) {
+    const l2 = deps.l2Identity
+    await deps.host.handle(TREE_CERT_PROTOCOL, async (stream) => {
+      const treeIdentity = await l2.loadOrGenerate()
+      const json = JSON.stringify(treeIdentity.cert)
+      const payload = new TextEncoder().encode(json)
+      const framed = await encodeLengthPrefixed(payload)
+      await stream.send(framed)
+      // Same don't-close pattern.
+    })
+  }
 }
 
 /** Encode a Uint8Array as a single varint-length-prefixed frame. */

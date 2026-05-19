@@ -61,6 +61,7 @@ import {DaemonTokenProvider} from '../auth/daemon-token-provider.js'
 import {allowlistFromEnv, makeOriginAllowlist} from '../auth/origin-allowlist.js'
 import {createBillingStateHandler} from '../billing/billing-state-endpoint.js'
 import {DEFAULT_BRIDGE_CONFIG} from '../channel/bridge/bridge-config.js'
+import {fetchAndPin} from '../channel/bridge/identity-client.js'
 import {registerIdentityServer} from '../channel/bridge/identity-server.js'
 import {Libp2pHost} from '../channel/bridge/libp2p-host.js'
 import {createLocalAgentResponseGenerator} from '../channel/bridge/local-agent-response-generator.js'
@@ -844,7 +845,11 @@ async function main(): Promise<void> {
           // deployments that want `accept_modes: ['ca-issued-tree']` or
           // `tofu_policy: 'deny'` are currently ignored by the daemon
           // listener.
-          await registerIdentityServer({host, identity: bridgeInstall})
+          // Slice 9.4d — pass `l2Identity` so the identity-server also
+          // publishes the L2 tree cert via `/brv/identity/tree-cert/v1`
+          // for in-band L2 discovery (operators no longer paste
+          // `--l2-pub-key` on every invite).
+          await registerIdentityServer({host, identity: bridgeInstall, l2Identity: bridgeL2})
 
           // Slice 9.4c — opt-in real ACP dispatch via the
           // `BRV_BRIDGE_PARLEY_PROFILE` env var. When unset, the
@@ -936,6 +941,26 @@ async function main(): Promise<void> {
       })
     }
 
+    // Slice 9.4d — in-band L2 cert discovery for remote-peer invites.
+    // `fetchAndPin({fetchTreeCert: true})` dials the remote's
+    // `/brv/identity/cert/v1` AND `/brv/identity/tree-cert/v1`,
+    // verifies both chains, and pins the L2 pubkey to the TOFU store.
+    const resolveRemotePeerL2PubKey = async (args: {multiaddr: string; peerId: string}): Promise<string> => {
+      const host = await ensureBridgeHost()
+      const pinned = await fetchAndPin({
+        expectedPeerId: args.peerId,
+        fetchTreeCert: true,
+        host,
+        multiaddr: args.multiaddr,
+        tofuStore: bridgeTofu,
+      })
+      if (pinned.l2_pub_key === undefined) {
+        throw new Error('remote did not publish an L2 tree cert on /brv/identity/tree-cert/v1')
+      }
+
+      return pinned.l2_pub_key
+    }
+
     const channelOrchestrator = new ChannelOrchestrator({
       broadcaster: channelBroadcaster,
       cancelCoordinator: channelCancelCoordinator,
@@ -949,6 +974,7 @@ async function main(): Promise<void> {
       profileMetadataStore: channelProfileMetadataStore,
       profileStore: channelProfileStore,
       remotePeerDriverFactory,
+      resolveRemotePeerL2PubKey,
       seqAllocator: channelSeqAllocator,
       store: channelStore,
     })

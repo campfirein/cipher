@@ -53,6 +53,15 @@ export interface KnownPeer {
   readonly display_handle?: string
   readonly first_seen_at: string
   readonly install_cert_fingerprint: string
+  /**
+   * Phase 9 / Slice 9.4d — base64 of the remote's L2 peer-tree
+   * pubkey, captured during `fetchAndPin` when `fetchTreeCert: true`.
+   * Used by the channel orchestrator's `inviteRemotePeerMember` to
+   * skip the operator-supplied `--l2-pub-key` flag when the peer is
+   * already pinned with full identity. Absent on legacy entries
+   * (slice 9.2/9.3) that pinned via the install-cert-only path.
+   */
+  readonly l2_pub_key?: string
   readonly last_seen_at: string
   readonly peer_id: string
   readonly pin_state: PinState

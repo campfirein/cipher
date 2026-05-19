@@ -18,13 +18,17 @@ public static examples = [
     '<%= config.bin %> <%= command.id %> pi-test @mock -- node test/fixtures/mock-acp.js',
     '<%= config.bin %> <%= command.id %> pi-test @kimi -- kimi acp',
     '<%= config.bin %> <%= command.id %> pi-test @mock --profile mock',
-    '<%= config.bin %> <%= command.id %> review-2026 @bob --peer 12D3KooW... --multiaddr /ip4/.../tcp/4001/p2p/12D3KooW... --l2-pub-key <base64>',
+    '<%= config.bin %> <%= command.id %> review-2026 @bob --peer 12D3KooW... --multiaddr /ip4/.../tcp/4001/p2p/12D3KooW...',
   ]
 public static flags = {
     'display-name': Flags.string({description: 'Display name to render alongside the remote-peer handle (optional)'}),
     json: Flags.boolean({default: false, description: 'Emit JSON instead of pretty output'}),
     'l2-pub-key': Flags.string({
-      description: 'Phase 9 remote-peer: base64 of the remote\'s L2 tree pubkey (from `brv bridge listen` banner)',
+      description:
+        'Phase 9 remote-peer OPTIONAL fallback: base64 of the remote\'s L2 tree pubkey. ' +
+        'Slice 9.4d makes this optional — the daemon auto-discovers it via the remote\'s ' +
+        '`/brv/identity/tree-cert/v1` protocol when omitted. Supply this flag to override ' +
+        'in-band discovery or to invite legacy peers that don\'t serve the sister protocol.',
     }),
     multiaddr: Flags.string({
       description: 'Phase 9 remote-peer: full multiaddr with /p2p/<peer-id> suffix of the remote brv install',
@@ -59,8 +63,11 @@ public static flags = {
         )
       }
 
-      if (flags.peer === undefined || flags.multiaddr === undefined || flags['l2-pub-key'] === undefined) {
-        this.error('Remote-peer invite requires ALL of --peer, --multiaddr, --l2-pub-key', {exit: 1})
+      // Slice 9.4d — `--l2-pub-key` is now OPTIONAL. The daemon
+      // auto-discovers it via the remote's `/brv/identity/tree-cert/v1`
+      // protocol. `--peer` + `--multiaddr` remain required.
+      if (flags.peer === undefined || flags.multiaddr === undefined) {
+        this.error('Remote-peer invite requires --peer and --multiaddr (--l2-pub-key optional; daemon auto-discovers)', {exit: 1})
       }
 
       payload = {
@@ -69,14 +76,14 @@ public static flags = {
         remotePeer: {
           multiaddr: flags.multiaddr,
           peerId: flags.peer,
-          remoteL2PubKey: flags['l2-pub-key'],
+          ...(flags['l2-pub-key'] === undefined ? {} : {remoteL2PubKey: flags['l2-pub-key']}),
           ...(flags['display-name'] === undefined ? {} : {displayName: flags['display-name']}),
         },
       }
     } else if (flags.profile === undefined) {
       if (tail.length === 0) {
         this.error(
-          'Invocation is required: `brv channel invite <ch> <@h> -- <command> [args...]` OR `--profile <name>` OR `--peer <id> --multiaddr <ma> --l2-pub-key <key>`',
+          'Invocation is required: `brv channel invite <ch> <@h> -- <command> [args...]` OR `--profile <name>` OR `--peer <id> --multiaddr <ma>` (--l2-pub-key optional in 9.4d+)',
           {exit: 1},
         )
       }

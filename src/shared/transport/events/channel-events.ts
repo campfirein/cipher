@@ -220,7 +220,14 @@ const ChannelInviteRemotePeerSchema = z
     displayName: z.string().optional(),
     multiaddr: z.string().min(1),
     peerId: z.string().min(1),
-    remoteL2PubKey: z.string().min(1),
+    /**
+     * Slice 9.4d — optional. When absent, the daemon resolves it
+     * in-band via `fetchAndPin({fetchTreeCert: true})` against
+     * `/brv/identity/tree-cert/v1`. The CLI `--l2-pub-key` flag is
+     * now an OPTIONAL override / fallback for legacy peers that
+     * don't yet expose the sister identity protocol.
+     */
+    remoteL2PubKey: z.string().min(1).optional(),
   })
   .strict()
 

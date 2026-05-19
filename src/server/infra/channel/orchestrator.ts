@@ -143,6 +143,19 @@ export type ChannelOrchestratorDeps = {
     peerId: string
     remoteL2PubKey: string
   }) => Promise<IAcpDriver>
+  /**
+   * Phase 9 / Slice 9.4d — resolve a remote peer's L2 tree pubkey
+   * in-band when `inviteMember.remotePeer.remoteL2PubKey` is absent.
+   * Implementations typically call `fetchAndPin({fetchTreeCert: true})`
+   * against the libp2p bridge host + TOFU store. When omitted (or
+   * resolution fails), the orchestrator rejects the invite with
+   * `CHANNEL_INVITE_REMOTE_L2_UNRESOLVED` and the operator must
+   * re-issue with an explicit `--l2-pub-key`.
+   */
+  readonly resolveRemotePeerL2PubKey?: (args: {
+    multiaddr: string
+    peerId: string
+  }) => Promise<string>
   readonly seqAllocator: ITurnSequenceAllocator
   readonly store: IChannelStore
 }
@@ -266,6 +279,7 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
   private readonly projectWarmInFlight = new Map<string, Promise<void>>()
   // Phase 9 / Slice 9.4 — see `ChannelOrchestratorDeps.remotePeerDriverFactory`.
   private readonly remotePeerDriverFactory: ChannelOrchestratorDeps['remotePeerDriverFactory']
+  private readonly resolveRemotePeerL2PubKey: ChannelOrchestratorDeps['resolveRemotePeerL2PubKey']
   // Slice 8.10 — orphan registry for in-flight permissions lost on daemon
   // restart. Populated once at daemon startup via `seedRestartLosses()` from
   // `runChannelRecovery()` results. Consulted by `permissionDecision()` when
@@ -293,6 +307,7 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
     this.profileMetadataStore = deps.profileMetadataStore
     this.profileStore = deps.profileStore
     this.remotePeerDriverFactory = deps.remotePeerDriverFactory
+    this.resolveRemotePeerL2PubKey = deps.resolveRemotePeerL2PubKey
     this.seqAllocator = deps.seqAllocator
     this.store = deps.store
   }
@@ -1518,7 +1533,7 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
       )
     }
 
-    const {displayName, multiaddr, peerId, remoteL2PubKey} = args.remotePeer
+    const {displayName, multiaddr, peerId, remoteL2PubKey: supplied} = args.remotePeer
 
     const suffix = multiaddr.match(/\/p2p\/([1-9A-HJ-NP-Za-km-z]+)$/)
     if (suffix === null) {
@@ -1533,6 +1548,32 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
         `remotePeer.peerId ${peerId} does not match the /p2p/ suffix on multiaddr (${suffix[1]})`,
         {fields: ['remotePeer.peerId', 'remotePeer.multiaddr']},
       )
+    }
+
+    // Slice 9.4d — resolve the L2 pubkey in-band when not supplied.
+    // The dep (typically backed by `fetchAndPin({fetchTreeCert: true})`
+    // in the daemon) dials the remote's `/brv/identity/tree-cert/v1`
+    // protocol, validates the chain, and persists the L2 pubkey to the
+    // TOFU store. Operators no longer paste `--l2-pub-key` on every
+    // invite as of 9.4d.
+    let remoteL2PubKey: string
+    if (supplied !== undefined) {
+      remoteL2PubKey = supplied
+    } else if (this.resolveRemotePeerL2PubKey === undefined) {
+      throw new ChannelInvalidRequestError(
+        'CHANNEL_INVITE_REMOTE_L2_UNRESOLVED: remotePeer.remoteL2PubKey is required when the daemon has no resolveRemotePeerL2PubKey dep wired in.',
+        {fields: ['remotePeer.remoteL2PubKey']},
+      )
+    } else {
+      try {
+        remoteL2PubKey = await this.resolveRemotePeerL2PubKey({multiaddr, peerId})
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : String(error)
+        throw new ChannelInvalidRequestError(
+          `CHANNEL_INVITE_REMOTE_L2_UNRESOLVED: in-band L2 cert discovery failed: ${msg}. Re-run with --l2-pub-key <base64> from the remote's \`bridge whoami\` banner.`,
+          {fields: ['remotePeer.remoteL2PubKey']},
+        )
+      }
     }
 
     // Validate L2 pubkey decodes to exactly 32 bytes (raw Ed25519

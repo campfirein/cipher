@@ -5,9 +5,13 @@ import * as lp from 'it-length-prefixed'
 import {createHash, createPublicKey} from 'node:crypto'
 
 import {derivePeerIdFromRawPublicKey, isValidPeerIdString} from '../../../../agent/core/trust/peer-id.js'
+import {
+  type PeerTreeCertificate,
+  verifyPeerTreeCertChain,
+} from '../../../../agent/core/trust/peer-tree-signer.js'
 import {verifyInstallCert} from '../../../../agent/core/trust/sign.js'
 import {type KnownPeer, type TofuStore} from '../../../../agent/core/trust/tofu-store.js'
-import {IDENTITY_PROTOCOL} from './identity-server.js'
+import {IDENTITY_PROTOCOL, TREE_CERT_PROTOCOL} from './identity-server.js'
 import {type Libp2pHost} from './libp2p-host.js'
 
 /**
@@ -63,6 +67,15 @@ const KNOWN_PUBKEY_FIELDS = new Set(['alg', 'key'])
 export interface FetchAndPinArgs {
   readonly clockSkewMs?: number
   readonly expectedPeerId: string
+  /**
+   * Phase 9 / Slice 9.4d — when `true`, also dial the
+   * `/brv/identity/tree-cert/v1` sister protocol, validate the
+   * returned L2 PeerTreeCertificate chains to the freshly-pinned L1,
+   * and store its base64 pubkey on the `KnownPeer.l2_pub_key` field.
+   * Default `false` so the existing slice-9.2 callers (which only
+   * want L1 pinning) are unaffected.
+   */
+  readonly fetchTreeCert?: boolean
   readonly host: Libp2pHost
   readonly multiaddr: string
   readonly now?: () => Date
@@ -84,6 +97,21 @@ export async function fetchAndPin(args: FetchAndPinArgs): Promise<KnownPeer> {
   await validateCertGuards(cert, args.expectedPeerId, now, clockSkewMs)
   await assertNoHandleCollision(args.tofuStore, cert)
 
+  // Slice 9.4d — optionally fetch the L2 tree cert + verify its
+  // chain to the L1 we just authenticated. Done BEFORE the TOFU
+  // upsert so a malformed/forged tree cert prevents pinning entirely
+  // rather than half-pinning with stale L2 state.
+  let l2PubKey: string | undefined
+  if (args.fetchTreeCert === true) {
+    const l1PubRaw = Buffer.from(cert.public_key.key, 'base64')
+    l2PubKey = await fetchAndVerifyTreeCert({
+      host: args.host,
+      l1PubRaw: new Uint8Array(l1PubRaw),
+      multiaddr: args.multiaddr,
+      now,
+    })
+  }
+
   // All guards passed — pin under the store's exclusive lock so that
   // pin_state / first_seen_at / ca_binding from a concurrent
   // user-confirmation upgrade cannot be silently overwritten by our
@@ -97,8 +125,91 @@ export async function fetchAndPin(args: FetchAndPinArgs): Promise<KnownPeer> {
     last_seen_at: nowIso,
     peer_id: cert.subject_id,
     pin_state: existing?.pin_state ?? 'auto-tofu',
+    // Preserve a pre-existing L2 pubkey if the dialer didn't fetch one
+    // this round; overwrite ONLY when we actively pulled it. Re-pins
+    // for L2 rotation will need to pass `fetchTreeCert: true`.
+    ...(l2PubKey === undefined ? existing?.l2_pub_key === undefined ? {} : {l2_pub_key: existing.l2_pub_key} : {l2_pub_key: l2PubKey}),
     ...(existing?.ca_binding ? {ca_binding: existing.ca_binding} : {}),
   }))
+}
+
+async function fetchAndVerifyTreeCert(args: {
+  host: Libp2pHost
+  l1PubRaw: Uint8Array
+  multiaddr: string
+  now: Date
+}): Promise<string> {
+  const raw = await fetchTreeCertFrame(args.host, args.multiaddr)
+  const cert = validateTreeCertShape(raw)
+  const chain = verifyPeerTreeCertChain({
+    cert,
+    l1PubRaw: args.l1PubRaw,
+    now: args.now,
+  })
+  if (!chain.ok) {
+    throw new Error(`TREE_CERT_CHAIN_INVALID: ${chain.reason}`)
+  }
+
+  return cert.public_key.key
+}
+
+async function fetchTreeCertFrame(host: Libp2pHost, multiaddrStr: string): Promise<unknown> {
+  return host.dialAndConsume(multiaddrStr, TREE_CERT_PROTOCOL, async (source) => {
+    const asyncSource = source as AsyncIterable<Uint8Array>
+    const iter = lp.decode(asyncSource)[Symbol.asyncIterator]()
+    const first = await iter.next()
+    if (first.done) {
+      throw new Error('TREE_CERT_FETCH_EMPTY: server closed stream without sending a cert')
+    }
+
+    const bytes = first.value.subarray()
+    const json = new TextDecoder('utf8').decode(bytes)
+    try {
+      return JSON.parse(json)
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error)
+      throw new Error(`TREE_CERT_PARSE_FAILED: ${msg}`)
+    }
+  })
+}
+
+/**
+ * Validate the tree-cert wire shape. Mirrors the strict-allowlist
+ * pattern used for install certs — unknown fields are rejected so an
+ * attacker can't smuggle protocol-malleable data into the signed
+ * payload that `verifyPeerTreeCertChain` will hash.
+ */
+function validateTreeCertShape(raw: unknown): PeerTreeCertificate {
+  if (typeof raw !== 'object' || raw === null) {
+    throw new TypeError('TREE_CERT_SHAPE_INVALID: not an object')
+  }
+
+  const c = raw as Record<string, unknown>
+  if (c.cert_kind !== 'peer-tree') throw new TypeError('TREE_CERT_SHAPE_INVALID: cert_kind must be "peer-tree"')
+  if (c.version !== 1) throw new TypeError('TREE_CERT_SHAPE_INVALID: version must be 1')
+  if (typeof c.subject_id !== 'string') throw new TypeError('TREE_CERT_SHAPE_INVALID: subject_id missing')
+  if (typeof c.issued_at !== 'string') throw new TypeError('TREE_CERT_SHAPE_INVALID: issued_at missing')
+  if (typeof c.expires_at !== 'string') throw new TypeError('TREE_CERT_SHAPE_INVALID: expires_at missing')
+  if (typeof c.signature !== 'string') throw new TypeError('TREE_CERT_SHAPE_INVALID: signature missing')
+  if (typeof c.parent_install !== 'object' || c.parent_install === null) {
+    throw new TypeError('TREE_CERT_SHAPE_INVALID: parent_install missing')
+  }
+
+  const parent = c.parent_install as Record<string, unknown>
+  if (typeof parent.peer_id !== 'string') throw new TypeError('TREE_CERT_SHAPE_INVALID: parent_install.peer_id missing')
+  if (typeof parent.install_pubkey_fingerprint !== 'string') {
+    throw new TypeError('TREE_CERT_SHAPE_INVALID: parent_install.install_pubkey_fingerprint missing')
+  }
+
+  if (typeof c.public_key !== 'object' || c.public_key === null) {
+    throw new TypeError('TREE_CERT_SHAPE_INVALID: public_key missing')
+  }
+
+  const pk = c.public_key as Record<string, unknown>
+  if (pk.alg !== 'ed25519') throw new TypeError('TREE_CERT_SHAPE_INVALID: public_key.alg must be "ed25519"')
+  if (typeof pk.key !== 'string') throw new TypeError('TREE_CERT_SHAPE_INVALID: public_key.key missing')
+
+  return raw as PeerTreeCertificate
 }
 
 // ─── internals ──────────────────────────────────────────────────────────────

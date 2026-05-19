@@ -55,14 +55,15 @@ public static flags = {
       this.log(`  l2_pub_key:  ${response.l2PubKey}`)
       this.log(`  tree_id:     ${response.treeId}`)
       this.log('')
-      this.log('Share these with a remote install:')
+      this.log('Share peer_id + multiaddr with a remote install; L2 cert is auto-discovered:')
       this.log(`  brv channel invite <channel> @<handle> \\`)
       this.log(`    --peer ${response.peerId} \\`)
       if (response.multiaddrs.length > 0) {
-        this.log(`    --multiaddr ${response.multiaddrs[0]} \\`)
+        this.log(`    --multiaddr ${response.multiaddrs[0]}`)
       }
 
-      this.log(`    --l2-pub-key ${response.l2PubKey}`)
+      this.log('')
+      this.log(`  (Override in-band L2 discovery with --l2-pub-key ${response.l2PubKey})`)
     } catch (error) {
       if (flags.format === 'json') {
         writeJsonResponse({command: 'bridge:whoami', data: {error: formatConnectionError(error)}, success: false})
