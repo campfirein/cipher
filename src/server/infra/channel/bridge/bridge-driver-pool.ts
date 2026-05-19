@@ -44,6 +44,12 @@ export type AcquiredDriver = {
 }
 
 export class BridgeDriverPool {
+  // kimi round-1 MED — set true at the top of `closeAll` so any
+  // in-flight `acquire` reservation that finishes AFTER closeAll
+  // started can stop its driver instead of leaking it back into the
+  // pool, and so any pending `release` is a no-op rather than
+  // repopulating `idleSlots` with a stopped driver.
+  private closed = false
   private readonly idleSlots = new Map<string, IAcpDriver[]>()
   private readonly maxPerProfile: number
   private readonly slots = new Map<string, IAcpDriver[]>()
@@ -60,9 +66,17 @@ export class BridgeDriverPool {
   /**
    * Acquire an idle driver for the profile, spawning a new one if
    * the cap allows. Throws `PARLEY_LOCAL_AGENT_BUSY` when the per-
-   * profile cap is reached.
+   * profile cap is reached. Throws `BRIDGE_DRIVER_POOL_CLOSED` if
+   * the pool has already started shutdown.
    */
   public async acquire(profileName: string, factory: DriverFactory): Promise<AcquiredDriver> {
+    if (this.closed) {
+      throw new ParleyResponseError(
+        'BRIDGE_DRIVER_POOL_CLOSED',
+        'bridge driver pool is shutting down; reject inbound parley',
+      )
+    }
+
     // Synchronous prelude — runs to completion before any await, so
     // concurrent acquires can't race past the cap check.
     const idle = this.idleSlots.get(profileName)
@@ -82,26 +96,50 @@ export class BridgeDriverPool {
 
     this.startingCount.set(profileName, pendingStarts + 1)
 
-    // From here on the slot is reserved. Roll it back on any failure
-    // so a flaky start() doesn't permanently shrink the pool.
+    let driver: IAcpDriver | undefined
     try {
-      const driver = factory()
+      driver = factory()
       await driver.start()
-      const list = this.slots.get(profileName) ?? []
-      list.push(driver)
-      this.slots.set(profileName, list)
-      return this.wrap(profileName, driver)
+    } catch (error) {
+      // kimi round-1 MED — half-started subprocess might still be
+      // alive; best-effort stop so it doesn't leak when start()
+      // throws.
+      if (driver !== undefined) {
+        await driver.stop().catch(() => {})
+      }
+
+      throw error
     } finally {
-      this.startingCount.set(profileName, (this.startingCount.get(profileName) ?? 1) - 1)
+      const next = (this.startingCount.get(profileName) ?? 1) - 1
+      if (next <= 0) this.startingCount.delete(profileName)
+      else this.startingCount.set(profileName, next)
     }
+
+    // kimi round-1 MED — closeAll may have fired during the
+    // `await driver.start()` window. If so, stop the newly-started
+    // driver immediately rather than leaking it into a closed pool.
+    if (this.closed) {
+      await driver.stop().catch(() => {})
+      throw new ParleyResponseError(
+        'BRIDGE_DRIVER_POOL_CLOSED',
+        'bridge driver pool closed while starting; rejecting',
+      )
+    }
+
+    const list = this.slots.get(profileName) ?? []
+    list.push(driver)
+    this.slots.set(profileName, list)
+    return this.wrap(profileName, driver)
   }
 
   /**
    * Daemon shutdown hook — stop every warm driver and forget the
    * pool. Errors from `driver.stop()` are swallowed so a single
    * misbehaving subprocess does not block daemon shutdown.
+   * Idempotent: a second call is a no-op.
    */
   public async closeAll(): Promise<void> {
+    this.closed = true
     const all: Promise<void>[] = []
     for (const list of this.slots.values()) {
       for (const d of list) {
@@ -111,6 +149,7 @@ export class BridgeDriverPool {
 
     this.slots.clear()
     this.idleSlots.clear()
+    this.startingCount.clear()
     await Promise.all(all)
   }
 
@@ -121,6 +160,10 @@ export class BridgeDriverPool {
       release: () => {
         if (released) return
         released = true
+        // kimi round-1 MED — if the pool is mid-shutdown, do not
+        // push a (now-stopped) driver back into idleSlots. The
+        // closeAll path has already stopped the subprocess.
+        if (this.closed) return
         const idle = this.idleSlots.get(profileName) ?? []
         idle.push(driver)
         this.idleSlots.set(profileName, idle)

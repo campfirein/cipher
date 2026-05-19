@@ -149,8 +149,98 @@ describe('BridgeDriverPool (slice 9.4f)', () => {
     })
   })
 
+  describe('multi-profile isolation', () => {
+    it('concurrent acquires for different profiles at cap=1 do not block each other (kimi round-1 LOW)', async () => {
+      const pool = new BridgeDriverPool({maxPerProfile: 1})
+      const dA = new FakeDriver()
+      const dB = new FakeDriver()
+      const [a, b] = await Promise.all([
+        pool.acquire('profile-a', () => dA),
+        pool.acquire('profile-b', () => dB),
+      ])
+      expect(a.driver).to.equal(dA)
+      expect(b.driver).to.equal(dB)
+    })
+  })
+
+  describe('closeAll race-safety (kimi round-1 MED)', () => {
+    it('rejects acquire that starts during closeAll, stopping the half-started driver instead of leaking', async () => {
+      const pool = new BridgeDriverPool({maxPerProfile: 1})
+      const driver = new FakeDriver()
+      // Make start() observable so we can interleave closeAll.
+      let resolveStart: () => void = () => {}
+      const startGate = new Promise<void>((resolve) => {
+        resolveStart = resolve
+      })
+      driver.start = async () => {
+        driver.startCalls += 1
+        await startGate
+        driver.status = 'idle'
+      }
+
+      const acquirePromise = pool.acquire('p', () => driver)
+      // Yield to let acquire reach the await.
+      await Promise.resolve()
+      // Trigger closeAll BEFORE the start() resolves.
+      const closePromise = pool.closeAll()
+      resolveStart()
+
+      try {
+        await acquirePromise
+        expect.fail('expected acquire to reject after closeAll')
+      } catch (error) {
+        expect(error).to.be.instanceOf(ParleyResponseError)
+        expect((error as ParleyResponseError).code).to.equal('BRIDGE_DRIVER_POOL_CLOSED')
+      }
+
+      await closePromise
+      // The half-started driver was stopped during the
+      // post-start closeAll check.
+      expect(driver.stopCalls).to.be.greaterThanOrEqual(1)
+    })
+
+    it('release() after closeAll does not repopulate idleSlots with a stopped driver', async () => {
+      const pool = new BridgeDriverPool({maxPerProfile: 1})
+      const driver = new FakeDriver()
+      const acquired = await pool.acquire('p', () => driver)
+
+      // closeAll while the driver is checked out — stops it, sets closed=true.
+      await pool.closeAll()
+      expect(driver.stopCalls).to.equal(1)
+
+      // release() should be a no-op now. We can't directly assert
+      // idleSlots was untouched, but a subsequent acquire MUST reject
+      // (closed) — never return the stopped driver.
+      acquired.release()
+
+      try {
+        await pool.acquire('p', () => new FakeDriver())
+        expect.fail('expected acquire to reject after closeAll')
+      } catch (error) {
+        expect(error).to.be.instanceOf(ParleyResponseError)
+        expect((error as ParleyResponseError).code).to.equal('BRIDGE_DRIVER_POOL_CLOSED')
+      }
+    })
+  })
+
+  describe('start() failure cleanup (kimi round-1 MED)', () => {
+    it('calls driver.stop() on the half-started driver so the subprocess does not leak', async () => {
+      const pool = new BridgeDriverPool({maxPerProfile: 1})
+      const bad = new FakeDriver()
+      bad.startShouldThrow = true
+      try {
+        await pool.acquire('p', () => bad)
+        expect.fail('expected start to throw')
+      } catch {
+        // expected
+      }
+
+      expect(bad.stopCalls).to.equal(1)
+    })
+  })
+
   describe('closeAll', () => {
-    it('stops every started driver and forgets the pool', async () => {
+    it('stops every started driver and rejects further use', async () => {
       const pool = new BridgeDriverPool({maxPerProfile: 3})
       const d1 = new FakeDriver()
       const d2 = new FakeDriver()
@@ -170,11 +260,25 @@ describe('BridgeDriverPool (slice 9.4f)', () => {
       expect(d2.stopCalls).to.equal(1)
       expect(d3.stopCalls).to.equal(1)
 
-      // After closeAll, pool is empty — next acquire spawns fresh.
-      const d4 = new FakeDriver()
-      const acquired = await pool.acquire('p1', () => d4)
-      expect(acquired.driver).to.equal(d4)
-      expect(d4.startCalls).to.equal(1)
+      // After closeAll, the pool is one-shot — subsequent acquires
+      // reject so the operator must rebuild the daemon to use it.
+      try {
+        await pool.acquire('p1', () => new FakeDriver())
+        expect.fail('expected closed pool to reject acquire')
+      } catch (error) {
+        expect(error).to.be.instanceOf(ParleyResponseError)
+        expect((error as ParleyResponseError).code).to.equal('BRIDGE_DRIVER_POOL_CLOSED')
+      }
+    })
+
+    it('is idempotent (second closeAll is a no-op)', async () => {
+      const pool = new BridgeDriverPool({maxPerProfile: 1})
+      const d = new FakeDriver()
+      const a = await pool.acquire('p', () => d)
+      a.release()
+      await pool.closeAll()
+      await pool.closeAll()
+      expect(d.stopCalls).to.equal(1)
     })
   })
 })
