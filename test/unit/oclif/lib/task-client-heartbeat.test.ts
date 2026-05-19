@@ -210,6 +210,54 @@ describe('waitForTaskCompletion — heartbeat watcher', () => {
     expect(rejection).to.have.property('code', 'ERR_AGENT_DISCONNECTED')
   })
 
+  it('does NOT reject during a cold-start where the first activity-bumping event arrives after >30s', async () => {
+    // Cold-start scenario: agent fork + ESM bootstrap + auth/provider/billing
+    // init + CipherAgent.start can take 30-40s on Windows under AV. During
+    // this window the daemon DOES emit `task:created` (synchronously) and
+    // `task:ack` (after lifecycle hooks), but the watcher only bumps
+    // `lastActivityAt` on HEARTBEAT/LLM events, neither of which fire until
+    // task-router runs `handleTaskStarted` -> `heartbeatManager.register`.
+    // Daemon is alive the whole time; CLI should NOT reject.
+    const {client, emit} = makeClient()
+    let rejected = false
+    let rejection: Error | undefined
+
+    const promise = waitForTaskCompletion(
+      {
+        client,
+        command: 'curate',
+        format: 'text',
+        onCompleted() {},
+        onError() {},
+        taskId: 't1',
+      },
+      () => {},
+    ).then(
+      () => {},
+      (error) => {
+        rejected = true
+        rejection = error instanceof Error ? error : new Error(String(error))
+      },
+    )
+
+    // 35s of cold-start: daemon emits CREATED at T+0 and ACK at T+5s, but
+    // watcher does not subscribe to either. No HEARTBEAT/LLM yet.
+    emit(TaskEvents.CREATED, {taskId: 't1'})
+    await clock.tickAsync(5000)
+    emit(TaskEvents.ACK, {taskId: 't1'})
+    await clock.tickAsync(30_000) // total 35s elapsed
+
+    // Agent finally booted, first heartbeat arrives.
+    const beat: TaskHeartbeatEvent = {lastActivityAt: Date.now(), taskId: 't1'}
+    emit(TaskEvents.HEARTBEAT, beat)
+    await clock.tickAsync(0)
+
+    emit(TaskEvents.COMPLETED, {result: 'ok', taskId: 't1'})
+    await promise
+
+    expect(rejected).to.equal(false, `should not reject during cold-start; got: ${rejection?.message}`)
+  })
+
   it('disposes cleanly on TaskEvents.CANCELLED — no phantom unresponsive after cancellation', async () => {
     const {client, emit} = makeClient()
     let rejected = false

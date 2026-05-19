@@ -162,6 +162,12 @@ export class AiSdkContentGenerator implements IContentGenerator {
       const pendingToolCalls: ToolCall[] = []
 
       for await (const event of result.fullStream) {
+        // Every chunk is liveness — switch the abort timer from
+        // total-deadline (the default) to idle-deadline so a slow local
+        // model that streams steadily across minutes is not killed for
+        // exceeding `requestTimeoutMs` while chunks are still arriving.
+        abort.recordActivity()
+
         switch (event.type) {
           case 'error': {
             if (abort.didTimeout() && abort.timeoutMs !== undefined) {

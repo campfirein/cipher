@@ -225,6 +225,26 @@ export function waitForTaskCompletion(options: WaitForTaskOptions, log: (msg: st
         markActive()
       }),
 
+      // Cold-start liveness signals. The daemon emits `task:created`
+      // synchronously and `task:ack` after lifecycle hooks, both BEFORE
+      // the agent forks. `task:started` follows once the agent has
+      // booted and is the trigger for heartbeat registration. Without
+      // subscribing here, a cold start that exceeds `STALE_THRESHOLD_MS`
+      // before the first heartbeat (e.g. agent fork + provider RTTs on
+      // Windows under AV) falsely rejects as "Daemon is unresponsive".
+      client.on<{taskId: string}>(TaskEvents.CREATED, (data) => {
+        if (data.taskId !== taskId) return
+        markActive()
+      }),
+      client.on<{taskId: string}>(TaskEvents.ACK, (data) => {
+        if (data.taskId !== taskId) return
+        markActive()
+      }),
+      client.on<{taskId: string}>(TaskEvents.STARTED, (data) => {
+        if (data.taskId !== taskId) return
+        markActive()
+      }),
+
       // Tool call started (same as TUI addToolCall)
       client.on<LlmToolCall>(LlmEvents.TOOL_CALL, (data) => {
         if (data.taskId !== taskId) return

@@ -2,6 +2,7 @@ import {expect} from 'chai'
 import {restore, useFakeTimers} from 'sinon'
 
 import {
+  createAbortContext,
   LlmRequestTimeoutError,
   withRequestTimeout,
 } from '../../../../../src/agent/infra/llm/generators/ai-sdk-abort-helper.js'
@@ -78,6 +79,87 @@ describe('ai-sdk-abort-helper', () => {
       // surfacing an unhandled rejection. The clean termination of this test
       // verifies the timer was cleared.
       await clock.tickAsync(200)
+    })
+  })
+
+  describe('createAbortContext — stream-deadline semantics', () => {
+    afterEach(() => {
+      restore()
+    })
+
+    it('aborts after timeoutMs when the consumer never reports activity (total-deadline default)', async () => {
+      // Default behavior: timer is total deadline from construction.
+      // A passive consumer that never calls recordActivity gets aborted.
+      const clock = useFakeTimers()
+      const context = createAbortContext(100)
+
+      for (let i = 0; i < 5; i++) {
+        // eslint-disable-next-line no-await-in-loop
+        await clock.tickAsync(30)
+      }
+
+      expect(context.signal?.aborted).to.equal(true)
+      expect(context.didTimeout()).to.equal(true)
+      context.cleanup()
+    })
+
+    it('does NOT abort when recordActivity() is called within each timeoutMs window (idle-deadline)', async () => {
+      // Idle-deadline semantics: every recordActivity() call resets the
+      // timer. A slow local 7B model that streams steadily across minutes
+      // in 30-ms chunks is no longer killed for exceeding requestTimeoutMs
+      // while chunks are still arriving.
+      const clock = useFakeTimers()
+      const context = createAbortContext(100)
+
+      for (let i = 0; i < 5; i++) {
+        // eslint-disable-next-line no-await-in-loop
+        await clock.tickAsync(30)
+        context.recordActivity()
+      }
+
+      expect(context.signal?.aborted).to.equal(false, 'idle-deadline: 30ms gaps are below the 100ms timeout')
+      expect(context.didTimeout()).to.equal(false)
+      context.cleanup()
+    })
+
+    it('aborts after timeoutMs of silence following the last recordActivity()', async () => {
+      // The fix must still catch a genuine stall — if chunks stop
+      // arriving, the timer fires `timeoutMs` after the last activity.
+      const clock = useFakeTimers()
+      const context = createAbortContext(100)
+
+      await clock.tickAsync(30)
+      context.recordActivity()
+      // Now the stream stalls; 110ms of silence > 100ms timeout.
+      await clock.tickAsync(110)
+
+      expect(context.signal?.aborted).to.equal(true)
+      expect(context.didTimeout()).to.equal(true)
+      context.cleanup()
+    })
+
+    it('recordActivity() is a no-op after the timer has already fired', async () => {
+      // A late recordActivity() must not un-abort an already-aborted
+      // context; we cannot resurrect a fired AbortSignal.
+      const clock = useFakeTimers()
+      const context = createAbortContext(50)
+
+      await clock.tickAsync(60)
+      expect(context.signal?.aborted).to.equal(true)
+
+      context.recordActivity()
+      expect(context.signal?.aborted).to.equal(true)
+      expect(context.didTimeout()).to.equal(true)
+      context.cleanup()
+    })
+
+    it('recordActivity() is a safe no-op when timeoutMs is undefined', () => {
+      // eslint-disable-next-line unicorn/no-useless-undefined
+      const context = createAbortContext(undefined)
+      // Should not throw.
+      context.recordActivity()
+      expect(context.signal).to.equal(undefined)
+      expect(context.didTimeout()).to.equal(false)
     })
   })
 
