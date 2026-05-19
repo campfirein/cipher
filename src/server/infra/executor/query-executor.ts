@@ -14,7 +14,6 @@ import type {
   QueryToolModeResult,
 } from '../../core/interfaces/executor/i-query-executor.js'
 import type {IFormatDetector} from '../../core/interfaces/render/i-format-detector.js'
-import type {IRuntimeSignalStore} from '../../core/interfaces/storage/i-runtime-signal-store.js'
 
 import {ABSTRACT_EXTENSION, BRV_DIR, CONTEXT_FILE_EXTENSION, CONTEXT_TREE_DIR} from '../../constants.js'
 import {
@@ -27,7 +26,6 @@ import {
 import {loadSources} from '../../core/domain/source/source-schema.js'
 import {isDerivedArtifact} from '../context-tree/derived-artifact.js'
 import {FileContextTreeManifestService} from '../context-tree/file-context-tree-manifest-service.js'
-import {bumpSidecarOnQueryRead} from '../context-tree/tool-mode-sidecar-updaters.js'
 import {ExtensionAwareFormatDetector} from '../render/format/extension-aware-format-detector.js'
 import {renderHtmlTopicForLlm} from '../render/reader/html-renderer.js'
 import {
@@ -72,13 +70,6 @@ export interface QueryExecutorDeps {
    * wired as the production default.
    */
   formatDetector?: IFormatDetector
-  /**
-   * Runtime-signal sidecar — when provided, the executor bumps
-   * `accessCount` for every matched path returned by tool-mode queries.
-   * Drives the read-side signal feed that prune's candidate generator
-   * relies on. Best-effort: sidecar failure never breaks the query.
-   */
-  runtimeSignalStore?: IRuntimeSignalStore
   /** Search service for pre-fetching relevant context before calling the LLM */
   searchService?: ISearchKnowledgeService
 }
@@ -118,7 +109,6 @@ export class QueryExecutor implements IQueryExecutor {
   private cachedFingerprint?: {expiresAt: number; sourceValidityHash: string; value: string; worktreeRoot?: string}
   private readonly fileSystem?: IFileSystem
   private readonly formatDetector: IFormatDetector
-  private readonly runtimeSignalStore?: IRuntimeSignalStore
   private readonly searchService?: ISearchKnowledgeService
   /**
    * Dedicated cache for tool-mode envelopes. Separate instance from
@@ -133,7 +123,6 @@ export class QueryExecutor implements IQueryExecutor {
     this.baseDirectory = deps?.baseDirectory
     this.fileSystem = deps?.fileSystem
     this.formatDetector = deps?.formatDetector ?? new ExtensionAwareFormatDetector()
-    this.runtimeSignalStore = deps?.runtimeSignalStore
     this.searchService = deps?.searchService
     if (deps?.enableCache) {
       this.cache = new QueryResultCache()
@@ -153,20 +142,7 @@ export class QueryExecutor implements IQueryExecutor {
    * breaking for tool consumers.
    */
   public async executeToolMode(options: QueryToolModeOptions): Promise<QueryToolModeResult> {
-    const envelope = await this.executeToolModeInternal(options)
-
-    // Bump the runtime-signal sidecar for every matched path so prune
-    // (and any future signal-driven ranking) has read-side data. Empty
-    // envelopes skip the call. Best-effort: a sidecar failure must not
-    // break the query that already succeeded.
-    if (this.runtimeSignalStore && envelope.matchedDocs.length > 0) {
-      await bumpSidecarOnQueryRead({
-        relPaths: envelope.matchedDocs.map((d) => d.path),
-        store: this.runtimeSignalStore,
-      })
-    }
-
-    return envelope
+    return this.executeToolModeInternal(options)
   }
 
   public async executeWithAgent(agent: ICipherAgent, options: QueryExecuteOptions): Promise<QueryExecutorResult> {

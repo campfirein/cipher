@@ -456,10 +456,9 @@ async function start(): Promise<void> {
     baseDirectory: projectPath,
     enableCache: true,
     fileSystem: fileSystemService,
-    runtimeSignalStore: daemonRuntimeSignalStore,
     searchService,
   })
-  const searchExecutor = new SearchExecutor(searchService, daemonRuntimeSignalStore)
+  const searchExecutor = new SearchExecutor(searchService)
 
   transport.on<TaskExecute>(TransportTaskEventNames.EXECUTE, (task) => {
     agentLog(`task:execute received taskId=${task.taskId} type=${task.type} activeTaskCount=${activeTaskCount + 1}`)

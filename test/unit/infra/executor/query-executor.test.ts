@@ -30,7 +30,6 @@ import {
   TIER_OPTIMIZED_LLM,
 } from '../../../../src/server/core/domain/entities/query-log-entry.js'
 import {QueryExecutor} from '../../../../src/server/infra/executor/query-executor.js'
-import {createMockRuntimeSignalStore} from '../../../helpers/mock-factories.js'
 
 // ── Shared helpers ────────────────────────────────────────────────────────────
 
@@ -956,79 +955,6 @@ describe('QueryExecutor', () => {
       expect(result.matchedDocs).to.deep.equal([])
       expect(result.metadata.totalFound).to.equal(0)
       expect(result.metadata.skippedSharedCount).to.equal(0)
-    })
-
-    describe('runtime-signal bump on read (sidecar wiring)', () => {
-      it('bumps accessCount on every matched path when runtimeSignalStore is wired', async () => {
-        const projectRoot = tempDir
-        seedContextTree(projectRoot)
-
-        const fileSystem = createMockFileSystem()
-        const searchService = createMockSearchService(
-          [
-            makeSearchResult({path: 'auth.html', score: 0.91, title: 'Auth'}),
-            makeSearchResult({path: 'cookies.html', score: 0.71, title: 'Cookies'}),
-          ],
-          2,
-        )
-
-        const runtimeSignalStore = createMockRuntimeSignalStore()
-        const executor = new QueryExecutor({
-          baseDirectory: projectRoot,
-          fileSystem,
-          runtimeSignalStore,
-          searchService,
-        })
-
-        await executor.executeToolMode({query: 'auth', worktreeRoot: projectRoot})
-
-        const a = await runtimeSignalStore.get('auth.html')
-        const c = await runtimeSignalStore.get('cookies.html')
-        expect(a.accessCount).to.equal(1)
-        expect(c.accessCount).to.equal(1)
-      })
-
-      it('returns the envelope unchanged when no runtimeSignalStore is injected', async () => {
-        const projectRoot = tempDir
-        seedContextTree(projectRoot)
-
-        const fileSystem = createMockFileSystem()
-        const searchService = createMockSearchService(
-          [makeSearchResult({path: 'auth.html', score: 0.91, title: 'Auth'})],
-          1,
-        )
-
-        const executor = new QueryExecutor({
-          baseDirectory: projectRoot,
-          fileSystem,
-          searchService,
-        })
-
-        const result = await executor.executeToolMode({query: 'auth', worktreeRoot: projectRoot})
-        expect(result.status).to.equal('ok')
-        expect(result.matchedDocs).to.have.lengthOf(1)
-      })
-
-      it('skips the bump call entirely when there are no matches', async () => {
-        const projectRoot = tempDir
-        seedContextTree(projectRoot)
-
-        const fileSystem = createMockFileSystem()
-        const searchService = createMockSearchService([], 0)
-        const runtimeSignalStore = createMockRuntimeSignalStore()
-
-        const executor = new QueryExecutor({
-          baseDirectory: projectRoot,
-          fileSystem,
-          runtimeSignalStore,
-          searchService,
-        })
-
-        await executor.executeToolMode({query: 'nothing', worktreeRoot: projectRoot})
-
-        const signalsByPath = await runtimeSignalStore.list()
-        expect(signalsByPath.size).to.equal(0)
-      })
     })
   })
 })
