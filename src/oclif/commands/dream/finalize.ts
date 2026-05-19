@@ -2,7 +2,7 @@ import type {TaskAck} from '@campfirein/brv-transport-client'
 
 import {Command, Flags} from '@oclif/core'
 import {randomUUID} from 'node:crypto'
-import {readFile} from 'node:fs/promises'
+import {readFile, stat} from 'node:fs/promises'
 
 import {TaskEvents} from '../../../shared/transport/events/index.js'
 import {type DaemonClientOptions, formatConnectionError, withDaemonRetry} from '../../lib/daemon-client.js'
@@ -68,11 +68,29 @@ public static flags = {
       return
     }
 
+    // Pre-read size guard for --archive-file. 200 paths * ~1 KB per path
+    // gives ~200 KB of legitimate input; 256 KB covers that with headroom
+    // while bailing early on multi-GB files or fifos (without this, readFile
+    // would slurp arbitrary bytes into memory before the line-count cap fires).
+    const MAX_ARCHIVE_FILE_BYTES = 256 * 1024
+
     let archive: string[] = []
     if (raw.archive) {
       archive = raw.archive.split(',').map((s) => s.trim()).filter(Boolean)
     } else if (raw['archive-file']) {
       try {
+        const stats = await stat(raw['archive-file'])
+        if (stats.size > MAX_ARCHIVE_FILE_BYTES) {
+          const msg = `--archive-file too large: ${stats.size} bytes (max ${MAX_ARCHIVE_FILE_BYTES}). Split into multiple finalize calls.`
+          if (format === 'json') {
+            writeJsonResponse({command: 'dream-finalize', data: {error: msg, status: 'error'}, success: false})
+          } else {
+            this.log(msg)
+          }
+
+          return
+        }
+
         const fileContent = await readFile(raw['archive-file'], 'utf8')
         archive = fileContent.split('\n').map((s) => s.trim()).filter(Boolean)
       } catch (error) {

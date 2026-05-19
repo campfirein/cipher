@@ -129,7 +129,7 @@ export type DreamFinalizeInput = {
 
 export type DreamFinalizeSkipped = {
   path: string
-  reason: 'not-found' | 'rename-failed' | 'unsafe-path'
+  reason: 'already-archived' | 'not-found' | 'rename-failed' | 'unsafe-path'
 }
 
 export type DreamFinalizeResult = {
@@ -176,14 +176,28 @@ export async function finalizeDreamSession(input: DreamFinalizeInput): Promise<D
       let content: string
       try {
         content = await readFile(source, 'utf8')
-      } catch {
+      } catch (error) {
+        // ENOENT here means another finalize moved the file between our
+        // existsSync check and our readFile — same race window as below.
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+          return {path: relPath, reason: 'already-archived', result: 'skipped'}
+        }
+
         return {path: relPath, reason: 'rename-failed', result: 'skipped'}
       }
 
       try {
         await mkdir(dirname(target), {recursive: true})
         await rename(source, target)
-      } catch {
+      } catch (error) {
+        // ENOENT during rename means a concurrent finalize won the race
+        // and archived this file before us. Surface that distinctly so
+        // agents triaging skipped paths don't re-scan to figure out
+        // which 'rename-failed' entries were really benign races.
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+          return {path: relPath, reason: 'already-archived', result: 'skipped'}
+        }
+
         return {path: relPath, reason: 'rename-failed', result: 'skipped'}
       }
 

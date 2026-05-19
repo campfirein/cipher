@@ -242,6 +242,27 @@ describe('finalizeDreamSession', () => {
     expect(result.previousTexts).to.deep.equal({})
   })
 
+  it('reports reason="already-archived" when rename loses a concurrent-finalize race (ENOENT)', async () => {
+    const ctRoot = join(dir, '.brv', 'context-tree')
+    await writeFile(join(ctRoot, 'foo.html'), '<bv-topic path="foo" title="F"/>', 'utf8')
+
+    // finalizeDreamSession does Promise.all internally over the archive
+    // array. Listing the same path twice forces a real concurrent race:
+    // both callbacks pass existsSync + readFile, then both attempt
+    // rename — one wins (archived), one loses with ENOENT (should be
+    // surfaced as 'already-archived' rather than the generic 'rename-failed').
+    const result = await finalizeDreamSession({
+      archive: ['foo.html', 'foo.html'],
+      brvDir: join(dir, '.brv'),
+      contextTreeRoot: ctRoot,
+      runtimeSignalStore: createMockRuntimeSignalStore(),
+      sessionId: 'sess-test',
+    })
+
+    expect(result.archived).to.deep.equal(['foo.html'])
+    expect(result.skipped).to.deep.equal([{path: 'foo.html', reason: 'already-archived'}])
+  })
+
   it('rejects archive paths that escape the context tree with reason="unsafe-path"', async () => {
     const ctRoot = join(dir, '.brv', 'context-tree')
     // Place a sentinel file outside the context tree that an attacker would target.

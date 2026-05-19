@@ -85,6 +85,27 @@ describe('loadToolModeTopics', () => {
     ])
   })
 
+  it('parses single-quoted attribute values (hand-authored topics)', async () => {
+    // HTML5 allows both quote styles; tool-written topics use double quotes,
+    // but a human author writing a topic by hand might use singles. Without
+    // this support, `related` would silently be empty and already-linked
+    // pairs would resurface as link candidates.
+    await writeFile(
+      join(dir, 'jwt.html'),
+      "<bv-topic path='security/jwt' title='JWT' related='@security/oauth'>x</bv-topic>",
+      'utf8',
+    )
+
+    const result = await loadToolModeTopics({
+      contextTreeRoot: dir,
+      runtimeSignalStore: createMockRuntimeSignalStore(),
+    })
+
+    expect(result).to.have.length(1)
+    expect(result[0].title).to.equal('JWT')
+    expect(result[0].related).to.deep.equal(['security/oauth.html'])
+  })
+
   it('preserves explicit .html extensions when already present', async () => {
     await writeFile(
       join(dir, 'jwt.html'),

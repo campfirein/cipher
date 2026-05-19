@@ -137,16 +137,17 @@ async function loadOne(
 
 /**
  * Extract a flat attr map from the inside of an opening `<bv-topic ...>` tag.
- * Handles double-quoted values; values without quotes are not allowed in
- * the bv-topic vocabulary so we don't try to recover them.
+ * Accepts both double- and single-quoted values (HTML5 allows both, and
+ * hand-authored topics may use either). Unquoted values are not allowed
+ * in the bv-topic vocabulary so we don't try to recover them.
  */
 function parseAttributes(rawAttrs: string): Record<string, string> {
   const result: Record<string, string> = {}
-  const attrRe = /([\w-]+)\s*=\s*"([^"]*)"/g
+  const attrRe = /([\w-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g
   let match: null | RegExpExecArray
   while ((match = attrRe.exec(rawAttrs)) !== null) {
     const name = match[1]?.toLowerCase()
-    const value = match[2]
+    const value = match[2] ?? match[3]
     if (name && value !== undefined) result[name] = value
   }
 
