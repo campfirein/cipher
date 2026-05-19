@@ -284,6 +284,21 @@ describe('BridgeTranscriptService (slice 9.4e — kimi round-1 LOW-11)', () => {
       expect(channelStore.deliverySnapshots[0].errorMessage).to.equal('safe public msg')
     })
 
+    it('releases inFlight + seqByTurn entries after finaliseTurn (kimi round-2 LOW: no per-turn leak)', async () => {
+      const {service} = buildService()
+      const begin = await service.beginTurn(beginArgs())
+      if (!begin.accepted) throw new Error('precondition failed')
+      expect(service.inFlightTurnCount()).to.equal(1)
+      await service.finaliseTurn({
+        channelId: 'channel-1',
+        deliveryId: begin.deliveryId,
+        endedState: 'completed',
+        memberHandle: begin.mirrorHandle,
+        turnId: 'turn-1',
+      })
+      expect(service.inFlightTurnCount()).to.equal(0)
+    })
+
     it('still calls closeTranscriptStream when finaliseTurn runs without a prior beginTurn (defensive cleanup path)', async () => {
       const {channelStore, service} = buildService()
       // Simulate the catch-block-of-the-catch-block path: a delivery

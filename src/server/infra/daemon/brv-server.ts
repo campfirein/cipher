@@ -141,25 +141,26 @@ function log(msg: string): void {
  */
 /**
  * Slice 9.4e — parse `BRV_BRIDGE_AUTO_PROVISION` env var. Default
- * `auto` (kimi round-1 HIGH-1: `pinned-only` would block every
- * first-contact peer because they all enter as `auto-tofu` and the
- * promotion CLI ships later, so `auto` is the only default that
- * keeps the feature usable out-of-the-box — a loud startup log
- * makes the open posture visible to the operator). Unrecognised
- * values fall back to the default with a warning log line.
+ * `pinned-only` per spec §7.3 + threat-model P4 (kimi round-2 MED:
+ * the codex-cleared spec normatively states `pinned-only` as the
+ * default; runtime MUST match). Operators running multi-host demos
+ * before the `brv trust verify` promotion CLI ships must explicitly
+ * set `BRV_BRIDGE_AUTO_PROVISION=auto` to accept first-contact
+ * peers — the decline error frame surfaces the env-var hint.
+ * Unrecognised values fall back to the default with a warning log.
  */
 function parseAutoProvisionPolicy(): AutoProvisionPolicy {
   const raw = process.env.BRV_BRIDGE_AUTO_PROVISION
-  if (raw === undefined || raw.trim() === '') return 'auto'
+  if (raw === undefined || raw.trim() === '') return 'pinned-only'
   const normalised = raw.trim()
   if (normalised === 'auto' || normalised === 'pinned-only' || normalised === 'deny') {
     return normalised
   }
 
   processLog(
-    `[Daemon] invalid BRV_BRIDGE_AUTO_PROVISION="${raw}"; expected one of {auto, pinned-only, deny}; defaulting to auto`,
+    `[Daemon] invalid BRV_BRIDGE_AUTO_PROVISION="${raw}"; expected one of {auto, pinned-only, deny}; defaulting to pinned-only`,
   )
-  return 'auto'
+  return 'pinned-only'
 }
 
 /**
@@ -926,19 +927,26 @@ async function main(): Promise<void> {
             idGenerator: () => nanoid(),
             projectRoot: bridgeProjectRoot,
           })
-          // kimi round-1 HIGH-1 / NIT-12 — log the auto-provision
-          // policy at INFO so operators see the open posture, but
-          // emit the resolved path only when the operator explicitly
-          // asks (BRV_BRIDGE_DEBUG=1) so we don't routinely echo the
-          // cwd into info logs.
+          // kimi round-1 HIGH-1 / NIT-12 / round-2 MED — log the
+          // policy at INFO so operators see the resolved posture,
+          // and surface the env-var override hint when the default
+          // `pinned-only` would block first-contact peers (since the
+          // `brv trust verify` promotion CLI ships in a later slice).
+          // The resolved path is gated behind `BRV_BRIDGE_DEBUG=1`
+          // so info logs don't routinely echo cwd.
           if (autoProvisionPolicy === 'auto') {
             log(
               'Bridge auto-provision policy: OPEN (auto) — every authenticated peer can ' +
-                'auto-create a mirror channel. To restrict, set BRV_BRIDGE_AUTO_PROVISION=pinned-only ' +
-                'and promote peers via `brv trust verify` (ships in a later slice).',
+                'auto-create a mirror channel.',
+            )
+          } else if (autoProvisionPolicy === 'pinned-only') {
+            log(
+              'Bridge auto-provision policy: pinned-only (default) — only `user-confirmed` or ' +
+                '`ca-bound` senders accepted. First-contact peers will be declined until they ' +
+                'are promoted (or set BRV_BRIDGE_AUTO_PROVISION=auto for unattended hosts).',
             )
           } else {
-            log(`Bridge auto-provision policy: ${autoProvisionPolicy}`)
+            log(`Bridge auto-provision policy: ${autoProvisionPolicy} (Bob is read-only)`)
           }
 
           if (process.env.BRV_BRIDGE_DEBUG === '1') {

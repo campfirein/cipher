@@ -118,9 +118,18 @@ export class BridgeTranscriptService {
    */
   public async beginTurn(args: BeginTurnArgs): Promise<BeginTurnResult> {
     if (!this.policyPermitsSender(args.senderPinState)) {
+      // kimi round-2 MED — include the operator hint in the public
+      // decline reason so Alice's CLI surfaces a clear remediation
+      // path. The reason field travels back to the dialer via the
+      // signed `CHANNEL_AUTO_PROVISION_DECLINED` error frame, so
+      // keep it concise and free of PII.
+      const hint =
+        this.autoProvisionPolicy === 'pinned-only'
+          ? ' (operator must promote the sender to user-confirmed, or set BRV_BRIDGE_AUTO_PROVISION=auto on Bob)'
+          : ''
       return {
         accepted: false,
-        reason: `auto_provision_policy="${this.autoProvisionPolicy}" rejects senders in pin_state="${args.senderPinState}"`,
+        reason: `auto_provision_policy="${this.autoProvisionPolicy}" rejects senders in pin_state="${args.senderPinState}"${hint}`,
       }
     }
 
@@ -269,6 +278,16 @@ export class BridgeTranscriptService {
       channelId: args.channelId,
       turnId: args.turnId,
     })
+  }
+
+  /**
+   * Test-only introspection — number of turns whose `inFlight` /
+   * `seqByTurn` entries have not yet been released by `finaliseTurn`.
+   * Used by the regression suite (kimi round-2 LOW) to assert that
+   * long-running daemons don't leak per-turn map entries.
+   */
+  public inFlightTurnCount(): number {
+    return this.inFlight.size
   }
 
   /** Record one response data chunk emitted by Bob's local agent. */
