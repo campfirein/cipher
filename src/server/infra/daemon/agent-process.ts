@@ -63,6 +63,7 @@ import {DreamLockService} from '../dream/dream-lock-service.js'
 import {DreamLogStore} from '../dream/dream-log-store.js'
 import {DreamStateService} from '../dream/dream-state-service.js'
 import {DreamTrigger} from '../dream/dream-trigger.js'
+import {type DreamKind, finalizeDreamSession, scanDreamCandidates} from '../dream/tool-mode/dream-session.js'
 import {CurateExecutor} from '../executor/curate-executor.js'
 import {DreamExecutor} from '../executor/dream-executor.js'
 import {FolderPackExecutor} from '../executor/folder-pack-executor.js'
@@ -500,7 +501,13 @@ async function executeTask(
   // paths — no LLM, no provider needed. Skip provider validation so they
   // work even without a configured provider (the headline promise of
   // tool mode).
-  if (type !== 'search' && type !== 'query-tool-mode' && type !== 'curate-html-direct') {
+  if (
+    type !== 'search' &&
+    type !== 'query-tool-mode' &&
+    type !== 'curate-html-direct' &&
+    type !== 'dream-scan' &&
+    type !== 'dream-finalize'
+  ) {
     const freshProviderConfig = await transport.requestWithAck<ProviderConfigResponse>(
       TransportStateEventNames.GET_PROVIDER_CONFIG,
     )
@@ -823,6 +830,71 @@ async function executeTask(
           })
           result = dreamResult.result
           logId = dreamResult.logId
+
+          break
+        }
+
+        case 'dream-finalize': {
+          // Archive the loser topics the agent picked. Stateless on
+          // daemon side — `sessionId` is opaque; we don't track sessions
+          // in v1.
+          const brvDir = join(projectPath, BRV_DIR)
+          const contextTreeRoot = join(brvDir, CONTEXT_TREE_DIR)
+          let parsed: {archive?: string[]; sessionId?: string}
+          try {
+            parsed = content ? JSON.parse(content) : {}
+          } catch {
+            result = JSON.stringify({error: 'dream-finalize: invalid JSON content', status: 'error'})
+            break
+          }
+
+          try {
+            const finalizeResult = await finalizeDreamSession({
+              archive: parsed.archive ?? [],
+              brvDir,
+              contextTreeRoot,
+              runtimeSignalStore,
+              sessionId: parsed.sessionId ?? '',
+            })
+            result = JSON.stringify({...finalizeResult, status: 'ok'})
+          } catch (error) {
+            result = JSON.stringify({
+              error: error instanceof Error ? error.message : String(error),
+              status: 'error',
+            })
+          }
+
+          break
+        }
+
+        case 'dream-scan': {
+          // Tool-mode dream — no LLM, no provider. The daemon enumerates
+          // candidates and returns them; the calling agent does all
+          // semantic judgment via brv-curate UPDATE/MERGE/ADD writes
+          // before invoking dream-finalize to archive losers.
+          const contextTreeRoot = join(projectPath, BRV_DIR, CONTEXT_TREE_DIR)
+          let parsed: {kinds?: DreamKind[]; maxCandidates?: number; scope?: string}
+          try {
+            parsed = content ? JSON.parse(content) : {}
+          } catch {
+            result = JSON.stringify({error: 'dream-scan: invalid JSON content', status: 'error'})
+            break
+          }
+
+          try {
+            const scanResult = await scanDreamCandidates({
+              contextTreeRoot,
+              options: parsed,
+              runtimeSignalStore,
+              searchService: searchKnowledgeService,
+            })
+            result = JSON.stringify({...scanResult, status: 'ok'})
+          } catch (error) {
+            result = JSON.stringify({
+              error: error instanceof Error ? error.message : String(error),
+              status: 'error',
+            })
+          }
 
           break
         }
