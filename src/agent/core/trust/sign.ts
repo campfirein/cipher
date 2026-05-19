@@ -53,6 +53,7 @@ export const DOMAIN_TAGS = {
   'cert.peer-tree': 'brv.cert.peer-tree.v1\n',
   consent: 'brv.consent.v1\n',
   'parley.handshake': 'brv.parley.handshake.v1\n',
+  'parley.request-auth': 'brv.parley.request-auth.v1\n',
   'peer-record': 'brv.peer-record.v1\n',
   'response.error': 'brv.response.error.v1\n',
   'response.frame-digest': 'brv.response.v1\n',
@@ -181,6 +182,24 @@ export function verifyPeerRecord(
   publicKey: KeyObject,
 ): boolean {
   return verifyWithDomain(payload, signature, DOMAIN_TAGS['peer-record'], publicKey)
+}
+
+/**
+ * Sign a `RequestAuth` payload with the caller's L2 tree key. The
+ * payload is canonical-JCS bytes of `{body_hash, requester_cert}`
+ * (the request_auth object minus its own signature). See
+ * IMPLEMENTATION_PHASE_9 §5.1 step 10 + parent cross-agent-trust §5.4.
+ */
+export function signRequestAuth(payload: unknown, privateKey: KeyObject): string {
+  return signWithDomain(payload, DOMAIN_TAGS['parley.request-auth'], privateKey)
+}
+
+export function verifyRequestAuth(
+  payload: unknown,
+  signature: string,
+  publicKey: KeyObject,
+): boolean {
+  return verifyWithDomain(payload, signature, DOMAIN_TAGS['parley.request-auth'], publicKey)
 }
 
 // ─── Parley response-side signing helpers (Slice 9.3a) ─────────────────────

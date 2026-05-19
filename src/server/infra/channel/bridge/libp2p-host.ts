@@ -46,6 +46,12 @@ export interface Libp2pHostDeps {
  */
 export interface Libp2pStreamLike extends AsyncIterable<{readonly subarray: () => Uint8Array}> {
   close(): Promise<void>
+  /**
+   * The libp2p PeerID of the remote end of the connection that opened
+   * this stream, as a base58btc string. Established by the Noise
+   * handshake — cannot be spoofed by the application layer.
+   */
+  readonly remotePeerId: string
   send(chunk: Uint8Array): Promise<void>
 }
 
@@ -70,10 +76,12 @@ interface Libp2pStreamMin extends AsyncIterable<{readonly subarray: () => Uint8A
  * surfaces here at compile time rather than silently at runtime.
  */
 class Libp2pStreamAdapter implements Libp2pStreamLike {
+  public readonly remotePeerId: string
   private readonly stream: Libp2pStreamMin
 
-  public constructor(stream: Libp2pStreamMin) {
+  public constructor(stream: Libp2pStreamMin, remotePeerId: string) {
     this.stream = stream
+    this.remotePeerId = remotePeerId
   }
 
   public async close(): Promise<void> {
@@ -144,6 +152,39 @@ export class Libp2pHost {
   }
 
   /**
+   * Dial + send + consume in one call: write `payload` to the dialed
+   * stream BEFORE invoking `body` on the read side. Used by the Parley
+   * client which writes a single length-prefixed envelope frame then
+   * reads the response stream.
+   *
+   * The write goes through libp2p Stream's `send()`. The read side is
+   * the same raw async-iterable as `dialAndConsume`. Both sides share
+   * one Yamux substream; libp2p handles the duplex framing.
+   *
+   * Slice 9.3 wire helper; Slice 9.4 replaces with `parley-client.ts`'s
+   * higher-level API.
+   *
+   * @internal
+   */
+  public async dialAndSendAndConsume<T>(
+    multiaddrStr: string,
+    protocol: string,
+    payload: Uint8Array,
+    body: (stream: AsyncIterable<{readonly subarray: () => Uint8Array}>) => Promise<T>,
+  ): Promise<T> {
+    const node = this.ensureStarted()
+    const {multiaddr} = await import('@multiformats/multiaddr')
+    const ma = multiaddr(multiaddrStr)
+    const stream = await node.dialProtocol(ma, protocol)
+    try {
+      await stream.send(payload)
+      return await body(stream as unknown as AsyncIterable<{readonly subarray: () => Uint8Array}>)
+    } finally {
+      await stream.close().catch(() => {})
+    }
+  }
+
+  /**
    * Dial a remote peer's multiaddr, open an outbound stream on the
    * given protocol, write one Uint8Array frame, then close. Convenience
    * for the in-process test fixture; Slice 9.3 will replace this with
@@ -190,13 +231,21 @@ export class Libp2pHost {
    */
   public async handle(protocol: string, handler: Libp2pStreamHandler): Promise<void> {
     const node = this.ensureStarted()
-    await node.handle(protocol, async (stream) => {
+    await node.handle(protocol, async (stream, connection) => {
       // Wrap in an adapter that maps libp2p's Stream → Libp2pStreamLike
       // explicitly (opencode round-3 MEDIUM-3). Avoids `as unknown as`.
       // The libp2p Stream IS structurally compatible with Libp2pStreamMin;
       // the adapter pins each method so a libp2p API change surfaces at
       // compile time.
-      const adapted = new Libp2pStreamAdapter(stream as unknown as Libp2pStreamMin)
+      //
+      // `connection.remotePeer` is the Noise-authenticated peer_id of
+      // the dialer — pass it through so Parley verifier step 3
+      // (transport identity match) can compare against the install
+      // cert's derived peer_id.
+      const adapted = new Libp2pStreamAdapter(
+        stream as unknown as Libp2pStreamMin,
+        connection.remotePeer.toString(),
+      )
       await handler(adapted)
     })
   }
