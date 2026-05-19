@@ -58,7 +58,7 @@ public static flags = {
     // `dream finalize --session X` exits 0 with archived:[] — a silent no-op
     // that hides a typo'd flag in scripting.
     if (!raw.archive && !raw['archive-file']) {
-      const msg = 'Either --archive or --archive-file is required (use --archive "" to explicitly cancel).'
+      const msg = 'Either --archive or --archive-file is required.'
       if (format === 'json') {
         writeJsonResponse({command: 'dream-finalize', data: {error: msg, status: 'error'}, success: false})
       } else {
@@ -164,11 +164,24 @@ function renderFinalizeText(command: Command, raw: string | undefined): void {
     return
   }
 
-  let parsed: {archived?: string[]; skipped?: Array<{path: string; reason: string}>}
+  let parsed: {
+    archived?: string[]
+    error?: string
+    skipped?: Array<{path: string; reason: string}>
+    status?: string
+  }
   try {
     parsed = JSON.parse(raw)
   } catch {
     command.log(raw)
+    return
+  }
+
+  // Daemon-side failures encode as {status:'error', error:'...'}. Surface
+  // them as errors rather than printing "Archived: 0" which looks like a
+  // successful no-op finalize.
+  if (parsed.status === 'error') {
+    command.log(`dream-finalize failed: ${parsed.error ?? 'unknown error'}`)
     return
   }
 

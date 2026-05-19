@@ -593,8 +593,18 @@ async function executeTask(
     // on this project drains. `query` / `search` are intentionally NOT
     // gated — they read the manifest and tolerate a stale snapshot via
     // `readManifestIfFresh` + rebuild fallback, so blocking them would
-    // be a needless latency hit.
-    if (type === 'curate' || type === 'curate-folder' || type === 'dream') {
+    // be a needless latency hit. `dream-finalize` renames topic files
+    // and so MUST gate (otherwise an in-flight Phase 4 `_index.md`
+    // rebuild can reference files we just archived). `dream-scan` is
+    // read-only but we gate it too so a scan never observes a tree
+    // mid-rebuild and returns inconsistent candidates.
+    if (
+      type === 'curate' ||
+      type === 'curate-folder' ||
+      type === 'dream' ||
+      type === 'dream-finalize' ||
+      type === 'dream-scan'
+    ) {
       await postWorkRegistry.awaitProject(projectPath)
     }
 
@@ -887,7 +897,7 @@ async function executeTask(
                   synthesized: 0,
                 },
                 taskId,
-                trigger: 'cli',
+                trigger: trigger ?? 'cli',
               })
               await dreamStateService.update((state) => ({
                 ...state,

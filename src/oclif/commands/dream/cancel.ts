@@ -32,7 +32,10 @@ public static flags = {
       this.log('')
       this.log('(Tool-mode dream sessions are stateless on the daemon in v1;')
       this.log('cancel is a no-op. Any brv-curate writes made between scan and')
-      this.log('cancel are NOT rolled back — use `brv dream undo` for that.)')
+      this.log('cancel are NOT rolled back by `brv dream undo` — use')
+      this.log('`brv review reject <taskId>` for each curate write you want to')
+      this.log('revert. `brv dream undo` only reverts finalize archives and')
+      this.log('would otherwise undo an unrelated prior completed dream.)')
     }
   }
 }

@@ -139,6 +139,7 @@ function renderScanText(command: Command, raw: string | undefined): void {
       prune?: Array<{path: string; reason: string}>
       synthesize?: {domains: Array<{domain: string; topics: unknown[]}>}
     }
+    error?: string
     sessionId?: string
     status?: string
   }
@@ -146,6 +147,14 @@ function renderScanText(command: Command, raw: string | undefined): void {
     parsed = JSON.parse(raw)
   } catch {
     command.log(raw)
+    return
+  }
+
+  // Daemon-side failures encode as {status:'error', error:'...'}. Surface
+  // them as errors rather than printing an empty candidate summary that
+  // looks like a successful zero-candidate scan.
+  if (parsed.status === 'error') {
+    command.log(`dream-scan failed: ${parsed.error ?? 'unknown error'}`)
     return
   }
 
@@ -168,5 +177,9 @@ function renderScanText(command: Command, raw: string | undefined): void {
 
   for (const p of c.prune ?? []) {
     command.log(`    prune (${p.reason})  ${p.path}`)
+  }
+
+  for (const d of c.synthesize?.domains ?? []) {
+    command.log(`    synth (${d.topics.length} topic${d.topics.length === 1 ? '' : 's'})  ${d.domain || '<root>'}`)
   }
 }

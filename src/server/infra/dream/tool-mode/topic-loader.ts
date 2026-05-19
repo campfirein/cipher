@@ -74,7 +74,11 @@ async function walkHtmlFiles(rootDir: string, accumulator: string[], current?: s
 
   const subwalks: Array<Promise<void>> = []
   for (const entry of entries) {
-    if (entry.name.startsWith('.')) continue // skip .git, .archive, etc.
+    // Skip dot-prefixed dirs (.git, .DS_Store, etc.). Topics under dot-dirs
+    // are not supported. NOTE: archived topics live at .brv/archive/ (a
+    // sibling of context-tree/), not inside context-tree itself, so this
+    // walker would not encounter them regardless.
+    if (entry.name.startsWith('.')) continue
     const next = join(dir, entry.name)
     if (entry.isDirectory()) {
       subwalks.push(walkHtmlFiles(rootDir, accumulator, next))

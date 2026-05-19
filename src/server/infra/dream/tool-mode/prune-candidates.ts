@@ -79,7 +79,10 @@ export async function findPruneCandidates(params: {
   for (const t of inScope) {
     if (t.signals.maturity === 'core') continue
 
-    const daysSinceModified = (now - t.mtimeMs) / DAY_MS
+    // Clamp negative deltas (future-dated mtimes from clock skew or
+    // restored backups) to zero so the sort below produces a strictly
+    // stalest-first list with no surprises.
+    const daysSinceModified = Math.max(0, (now - t.mtimeMs) / DAY_MS)
     const lowImportance = t.signals.importance < importanceThreshold
     const staleMtime = isStaleForMaturity(t.signals.maturity, daysSinceModified, draftDays, validatedDays)
 
