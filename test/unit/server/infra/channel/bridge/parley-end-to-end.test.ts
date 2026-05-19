@@ -217,6 +217,38 @@ describe('Parley two-host (Slice 9.3e + 9.3f)', () => {
     })
   })
 
+  describe('negative — error-terminal authenticity (kimi round-1 BLOCKING fix)', () => {
+    it('the dialer\'s seal/error verify uses the REAL request context bound by the server', async () => {
+      // tofu_policy:'deny' produces a verifier reject AFTER step 1
+      // (envelope parse succeeded), so the server now binds the error
+      // terminal to Alice's real channel_id/turn_id/delivery_id +
+      // request_envelope_hash. The dialer's verify against the EXPECTED
+      // context succeeds → ok:false with PEER_UNPINNED is authenticated.
+      const rig = await bringUpRig({tofuPolicy: 'deny'})
+      try {
+        const result = await sendParleyQuery({
+          channel_id: 'review-2026',
+          delivery_id: 'd-bound-001',
+          host: rig.alice.host,
+          install: rig.alice.install,
+          l2Identity: rig.alice.l2,
+          multiaddr: rig.bob.host.getMultiaddrs()[0],
+          prompt: [{text: 'bound', type: 'text'}],
+          remoteL2PubKey: await bobL2PubKey(rig),
+          turn_id: 't-bound-001',
+        })
+        expect(result.ok).to.equal(false)
+        if (!result.ok) {
+          // The authenticated reject path returns PEER_UNPINNED, NOT
+          // the synthetic ERROR_TERMINAL_UNAUTHENTICATED sentinel.
+          expect(result.code).to.equal('PEER_UNPINNED')
+        }
+      } finally {
+        await disposeRig(rig)
+      }
+    })
+  })
+
   describe('negative — bad L2 public key on the dialer side', () => {
     it('a dialer who verifies against the WRONG L2 pubkey detects the mismatch on the transcript_seal', async () => {
       const rig = await bringUpRig()

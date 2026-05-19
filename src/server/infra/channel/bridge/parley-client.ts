@@ -184,6 +184,20 @@ interface VerifyResponseStreamArgs {
 }
 
 function verifyResponseStream(args: VerifyResponseStreamArgs): SendParleyQueryResult {
+  // Seq monotonicity check (kimi round-1 HIGH). All server-emitted
+  // frames carry strictly increasing seq starting at 1, INCLUDING
+  // heartbeats. A gap or regression means the stream was tampered or
+  // a frame was dropped/reordered — reject.
+  let expectedSeq = 1
+  for (const f of args.frames) {
+    const {seq} = f as {seq?: number}
+    if (seq !== expectedSeq) {
+      throw new Error(`STREAM_SEQ_INVALID: expected seq ${expectedSeq}, got ${seq}`)
+    }
+
+    expectedSeq += 1
+  }
+
   const seal = args.frames.find((f) => f.kind === 'transcript_seal')
   if (!seal || seal.kind !== 'transcript_seal') {
     throw new Error('TRANSCRIPT_TERMINAL_MISSING: no transcript_seal frame')
@@ -203,7 +217,9 @@ function verifyResponseStream(args: VerifyResponseStreamArgs): SendParleyQueryRe
 
   const endedState: 'cancelled' | 'completed' | 'errored' = terminal.kind === 'error' ? 'errored' : terminal.ended_state
 
-  // Verify the terminal frame's individual signature.
+  // Verify the terminal frame's individual signature. Both stream_end
+  // and error paths are strict-checked (kimi round-1 BLOCKING — the
+  // error path was previously a best-effort no-op).
   if (terminal.kind === 'stream_end') {
     const terminalPayload = {
       channel_id: args.expectedChannelId,
@@ -218,13 +234,17 @@ function verifyResponseStream(args: VerifyResponseStreamArgs): SendParleyQueryRe
       throw new Error('STREAM_END_SIG_INVALID')
     }
   } else {
-    // error frame — accept the error path but check signature too.
-    // We use the seal's request_envelope_hash for the bound context,
-    // which on the verify-reject server-side path is a sentinel hash.
-    // Skip the strict check here when the seal's hash differs from
-    // expected — it indicates the server rejected before seeing our
-    // envelope.
-    // Best effort verification anyway:
+    // error frame — verify against the EXPECTED request context. The
+    // server now binds error terminals to the parsed envelope's real
+    // context (kimi round-1 BLOCKING fix), so this check is meaningful
+    // for any reject that happened AFTER step 1 (envelope parse).
+    //
+    // Pre-parse rejects (ENVELOPE_MALFORMED / IMPLEMENTATION_THROW)
+    // use a sentinel hash and 'unknown' ids; the dialer cannot tell
+    // those apart from a transport drop, but a MITM cannot forge a
+    // post-parse code via the pre-parse sentinel either, because the
+    // sentinel-bound payload doesn't match the expected request
+    // context.
     const errorPayload = {
       channel_id: args.expectedChannelId,
       delivery_id: args.expectedDeliveryId,
@@ -234,9 +254,17 @@ function verifyResponseStream(args: VerifyResponseStreamArgs): SendParleyQueryRe
       terminal_payload: {code: terminal.code, kind: 'error' as const, message: terminal.message},
       turn_id: args.expectedTurnId,
     }
-    // Don't throw on verify failure for unauthenticated reject paths —
-    // surface the error code to the caller regardless.
-    verifyResponseError(errorPayload, terminal.signature, args.remoteL2PubKey)
+    if (!verifyResponseError(errorPayload, terminal.signature, args.remoteL2PubKey)) {
+      // Don't throw — surface the unauthenticated error code so the
+      // operator sees SOMETHING. Mark with a synthetic code so the
+      // caller can tell it apart from an authenticated reject.
+      return {
+        code: 'ERROR_TERMINAL_UNAUTHENTICATED',
+        frames: args.frames,
+        message: `unauthenticated server reject; raw code was ${terminal.code}: ${terminal.message}`,
+        ok: false,
+      }
+    }
   }
 
   // Recompute transcript_digest over all frames before the seal and

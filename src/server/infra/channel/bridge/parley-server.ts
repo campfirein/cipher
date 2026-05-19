@@ -90,14 +90,34 @@ export async function registerParleyServer(args: RegisterParleyServerArgs): Prom
     } catch (error) {
       rateLimiter.recordFailure(transportPeerId)
       const msg = error instanceof Error ? error.message : String(error)
-      await writeErrorTerminal({code: 'IMPLEMENTATION_THROW', l2Identity: args.l2Identity, message: msg, stream})
+      await writeErrorTerminal({
+        code: 'IMPLEMENTATION_THROW',
+        context: undefined,
+        l2Identity: args.l2Identity,
+        message: msg,
+        stream,
+      })
       return
     }
 
     if (!verifyResult.ok) {
       rateLimiter.recordFailure(transportPeerId)
+      // Bind the error terminal to the REAL request context when the
+      // envelope parsed (kimi round-1 BLOCKING). Only ENVELOPE_MALFORMED
+      // / IMPLEMENTATION_THROW pre-parse paths fall back to sentinel.
+      const context =
+        verifyResult.envelope === undefined || verifyResult.requestEnvelopeHash === undefined
+          ? undefined
+          : {
+              channel_id: verifyResult.envelope.channel_id,
+              delivery_id: verifyResult.envelope.delivery_id,
+              protocol: verifyResult.envelope.protocol,
+              request_envelope_hash: verifyResult.requestEnvelopeHash,
+              turn_id: verifyResult.envelope.turn_id,
+            }
       await writeErrorTerminal({
         code: verifyResult.reason,
+        context,
         l2Identity: args.l2Identity,
         message: `verifier rejected: ${verifyResult.reason}`,
         stream,
@@ -170,30 +190,53 @@ async function encodeLengthPrefixed(bytes: Uint8Array): Promise<Uint8Array> {
   return out
 }
 
+/**
+ * Request context the verifier was able to extract from a parsed
+ * envelope. When `undefined`, the envelope did not parse and the
+ * server falls back to a sentinel hash for the error-terminal
+ * signature (the dialer cannot authenticate these — kimi round-1
+ * documented as the irreducible "indistinguishable from transport
+ * drop" path).
+ */
+export interface ErrorTerminalContext {
+  readonly channel_id: string
+  readonly delivery_id: string
+  readonly protocol: 'delegate' | 'query'
+  readonly request_envelope_hash: string
+  readonly turn_id: string
+}
+
 interface WriteErrorTerminalArgs {
   readonly code: string
+  readonly context: ErrorTerminalContext | undefined
   readonly l2Identity: PeerTreeIdentityService
   readonly message: string
   readonly stream: Libp2pStreamLike
 }
 
-async function writeErrorTerminal({code, l2Identity, message, stream}: WriteErrorTerminalArgs): Promise<void> {
+async function writeErrorTerminal(args: WriteErrorTerminalArgs): Promise<void> {
+  const {code, context, l2Identity, message, stream} = args
   const l2 = await l2Identity.loadOrGenerate()
-  // The rate-limited / malformed-envelope path doesn't have a
-  // verified ParleyQueryEnvelope to bind the terminal signature to.
-  // We emit `error` + `transcript_seal` with placeholder request
-  // context — the dialer treats this as an unauthenticated rejection
-  // (the seal still binds to Bob's L2 key so an MITM can't forge a
-  // different code, but the request_envelope_hash is a sentinel).
+  // Bind signatures to the real request context when the envelope was
+  // parsed. Only the no-parse path falls back to a sentinel hash + the
+  // 'unknown' placeholder ids (kimi round-1 BLOCKING fix).
   const sentinelHash = createHash('sha256').update('NO_REQUEST_HASH', 'utf8').digest('hex')
-  const errorFramePayload = {
+  const bound = context ?? {
     channel_id: 'unknown',
     delivery_id: 'unknown',
     protocol: 'query' as const,
     request_envelope_hash: sentinelHash,
+    turn_id: 'unknown',
+  }
+
+  const errorFramePayload = {
+    channel_id: bound.channel_id,
+    delivery_id: bound.delivery_id,
+    protocol: bound.protocol,
+    request_envelope_hash: bound.request_envelope_hash,
     seq: 1,
     terminal_payload: {code, kind: 'error' as const, message},
-    turn_id: 'unknown',
+    turn_id: bound.turn_id,
   }
   const errorFrame: ParleyResponseFrame = {
     code,
@@ -205,13 +248,13 @@ async function writeErrorTerminal({code, l2Identity, message, stream}: WriteErro
 
   const digest = transcriptDigest([errorFrame])
   const sealPayload = {
-    channel_id: 'unknown',
-    delivery_id: 'unknown',
+    channel_id: bound.channel_id,
+    delivery_id: bound.delivery_id,
     ended_state: 'errored',
-    protocol: 'query',
-    request_envelope_hash: sentinelHash,
+    protocol: bound.protocol,
+    request_envelope_hash: bound.request_envelope_hash,
     transcript_digest: digest,
-    turn_id: 'unknown',
+    turn_id: bound.turn_id,
   }
   const seal: ParleyResponseFrame = {
     kind: 'transcript_seal',
