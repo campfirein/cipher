@@ -210,6 +210,118 @@ describe('waitForTaskCompletion — heartbeat watcher', () => {
     expect(rejection).to.have.property('code', 'ERR_AGENT_DISCONNECTED')
   })
 
+  it('foreign-task task:created / task:ack / task:started do NOT bump the watcher (cross-task isolation)', async () => {
+    // Section: regression guard for the new CREATED/ACK/STARTED subscriptions.
+    // If those handlers forgot to filter by taskId, a noisy peer task in the
+    // same project room would keep our watcher alive forever — masking real
+    // stalls. This drives the explicit foreign-task filter on lines 228-243
+    // of task-client.ts.
+    const {client, emit} = makeClient()
+    let rejection: Error | undefined
+
+    const promise = waitForTaskCompletion(
+      {
+        client,
+        command: 'curate',
+        format: 'text',
+        onCompleted() {},
+        onError() {},
+        taskId: 't1',
+      },
+      () => {},
+    ).catch((error) => {
+      rejection = error instanceof Error ? error : new Error(String(error))
+    })
+
+    // Fire all three NEW lifecycle events for a DIFFERENT task every 5s. With
+    // the filter, watcher stays at lastActivityAt = 0 and stale-check rejects
+    // around 30s. Without the filter, watcher would be kept alive forever.
+    for (let i = 0; i < 8; i++) {
+      // eslint-disable-next-line no-await-in-loop
+      await clock.tickAsync(5000)
+      emit(TaskEvents.CREATED, {taskId: 'other-task'})
+      emit(TaskEvents.ACK, {taskId: 'other-task'})
+      emit(TaskEvents.STARTED, {taskId: 'other-task'})
+    }
+
+    await clock.tickAsync(0)
+    await promise
+
+    expect(rejection?.message).to.include('Daemon is unresponsive on this task')
+  })
+
+  it('a single task:created bump still rejects 30s later when nothing follows (genuine stall after handshake)', async () => {
+    // Section: post-handshake stall. The watcher gets ONE liveness event from
+    // task:created at T+0, then the daemon dies during agent fork before any
+    // ACK/STARTED/HEARTBEAT arrives. Watcher should reject 30s after the last
+    // (and only) activity, not wait forever.
+    const {client, emit} = makeClient()
+    let rejection: Error | undefined
+
+    const promise = waitForTaskCompletion(
+      {
+        client,
+        command: 'curate',
+        format: 'text',
+        onCompleted() {},
+        onError() {},
+        taskId: 't1',
+      },
+      () => {},
+    ).catch((error) => {
+      rejection = error instanceof Error ? error : new Error(String(error))
+    })
+
+    await clock.tickAsync(1000)
+    emit(TaskEvents.CREATED, {taskId: 't1'}) // single bump
+    // Now daemon dies. No more events. Watcher should reject ~30s later.
+    await clock.tickAsync(35_000)
+    await promise
+
+    expect(rejection?.message).to.include('Daemon is unresponsive on this task')
+  })
+
+  it('two concurrent watchers for different taskIds do NOT bump each other on CREATED/ACK/STARTED', async () => {
+    // Section: parallel watchers. Each waitForTaskCompletion call creates an
+    // independent watcher. They share the same client (same socket), so every
+    // event fans out to every handler. Per-watcher taskId filter must isolate.
+    const {client, emit} = makeClient()
+    let r1: Error | undefined
+    let r2: Error | undefined
+
+    const p1 = waitForTaskCompletion(
+      {client, command: 'curate', format: 'text', onCompleted() {}, onError() {}, taskId: 't1'},
+      () => {},
+    ).catch((error) => {
+      r1 = error instanceof Error ? error : new Error(String(error))
+    })
+
+    const p2 = waitForTaskCompletion(
+      {client, command: 'curate', format: 'text', onCompleted() {}, onError() {}, taskId: 't2'},
+      () => {},
+    ).catch((error) => {
+      r2 = error instanceof Error ? error : new Error(String(error))
+    })
+
+    // t2 stays active forever via STARTED+HEARTBEAT cadence; t1 stays silent.
+    for (let i = 0; i < 6; i++) {
+      // eslint-disable-next-line no-await-in-loop
+      await clock.tickAsync(8000)
+      emit(TaskEvents.STARTED, {taskId: 't2'})
+      const beat: TaskHeartbeatEvent = {lastActivityAt: Date.now(), taskId: 't2'}
+      emit(TaskEvents.HEARTBEAT, beat)
+    }
+
+    // t1 should have rejected by now (no events for ~48s), t2 should still be alive.
+    expect(r1?.message).to.include('Daemon is unresponsive on this task')
+    expect(r2).to.equal(undefined, 'concurrent watcher for t2 must not be bumped down by t1 timeout')
+
+    // Clean up t2.
+    emit(TaskEvents.COMPLETED, {result: 'ok', taskId: 't2'})
+    await p1
+    await p2
+  })
+
   it('does NOT reject during a cold-start where the first activity-bumping event arrives after >30s', async () => {
     // Cold-start scenario: agent fork + ESM bootstrap + auth/provider/billing
     // init + CipherAgent.start can take 30-40s on Windows under AV. During

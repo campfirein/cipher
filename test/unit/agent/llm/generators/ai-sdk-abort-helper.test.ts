@@ -161,6 +161,37 @@ describe('ai-sdk-abort-helper', () => {
       expect(context.signal).to.equal(undefined)
       expect(context.didTimeout()).to.equal(false)
     })
+
+    it('many rapid recordActivity() calls do not leak setTimeout handles', async () => {
+      // Section: stress / resource hygiene. The stream loop calls
+      // recordActivity on EVERY chunk; a slow model can emit hundreds per
+      // second. recordActivity must clearTimeout the old handle before
+      // scheduling a new one, otherwise we leak one timer per chunk.
+      // sinon's clock.countTimers() exposes the live timer count, so we
+      // assert that 500 rapid bumps still leave only ONE timer outstanding.
+      const clock = useFakeTimers()
+      const baseline = clock.countTimers()
+      const context = createAbortContext(1000)
+
+      // Exactly one new timer (the abort timer) after creation.
+      expect(clock.countTimers() - baseline).to.equal(1)
+
+      for (let i = 0; i < 500; i++) {
+        // eslint-disable-next-line no-await-in-loop
+        await clock.tickAsync(1)
+        context.recordActivity()
+      }
+
+      // Still exactly ONE timer outstanding, not 500.
+      expect(clock.countTimers() - baseline).to.equal(
+        1,
+        `recordActivity leaked timers under storm; live=${clock.countTimers() - baseline}`,
+      )
+      expect(context.signal?.aborted).to.equal(false)
+
+      context.cleanup()
+      expect(clock.countTimers() - baseline).to.equal(0, 'cleanup() must clear the timer')
+    })
   })
 
   describe('LlmRequestTimeoutError', () => {
