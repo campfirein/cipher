@@ -74,6 +74,7 @@
     "ink-text-input": "^6.0.0",
     "inquirer-file-selector": "^1.0.1",
     "isomorphic-git": "^1.37.2",
+    "it-length-prefixed": "^10.0.2",
     "js-yaml": "^4.1.1",
     "libp2p": "^3.3.1",
     "lodash-es": "^4.17.22",

@@ -114,15 +114,46 @@ export class Libp2pHost {
 
   /**
    * Dial a remote peer's multiaddr, open an outbound stream on the
+   * given protocol, hand the raw libp2p Stream to the caller's
+   * `body` callback, and close the stream when the callback resolves.
+   *
+   * Used by Slice 9.2's identity-client to read a length-prefixed
+   * varint frame. The callback gets the raw stream (not the brv
+   * adapter shape) so it can use libp2p-ecosystem iterables like
+   * `it-length-prefixed`.
+   *
+   * Slice 9.3 supersedes this with proper request/response streaming
+   * in `parley-client.ts`.
+   *
+   * @internal
+   */
+  public async dialAndConsume<T>(
+    multiaddrStr: string,
+    protocol: string,
+    body: (stream: AsyncIterable<{readonly subarray: () => Uint8Array}>) => Promise<T>,
+  ): Promise<T> {
+    const node = this.ensureStarted()
+    const {multiaddr} = await import('@multiformats/multiaddr')
+    const ma = multiaddr(multiaddrStr)
+    const stream = await node.dialProtocol(ma, protocol)
+    try {
+      return await body(stream as unknown as AsyncIterable<{readonly subarray: () => Uint8Array}>)
+    } finally {
+      await stream.close().catch(() => {})
+    }
+  }
+
+  /**
+   * Dial a remote peer's multiaddr, open an outbound stream on the
    * given protocol, write one Uint8Array frame, then close. Convenience
    * for the in-process test fixture; Slice 9.3 will replace this with
    * proper request/response streaming in `parley-client.ts`.
    *
-   * @internal
-   *
    * Do NOT build production flows on this. Marked internal per opencode
    * round-3 MINOR-3 so API consumers can't bind to it accidentally
    * before Slice 9.3's proper streaming surface lands.
+   *
+   * @internal
    */
   public async dialAndWrite(multiaddrStr: string, protocol: string, payload: Uint8Array): Promise<void> {
     const node = this.ensureStarted()
@@ -240,3 +271,4 @@ export class Libp2pHost {
     return this.node
   }
 }
+
