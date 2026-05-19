@@ -2,30 +2,54 @@
 // PeerTreeCertificate fields mirror AMENDMENT_TOFU §A3.2 on-disk JSON
 // shape and are intentionally snake_case.
 
-import {generateKeyPairSync, KeyObject} from 'node:crypto'
+import {
+  createCipheriv,
+  createDecipheriv,
+  createPrivateKey,
+  createPublicKey,
+  generateKeyPairSync,
+  KeyObject,
+  randomBytes,
+} from 'node:crypto'
+import {existsSync} from 'node:fs'
+import {chmod, mkdir, readFile, rename, writeFile} from 'node:fs/promises'
+import {dirname, join} from 'node:path'
 
 import {InstallIdentityService} from './install-identity-service.js'
 import {issuePeerTreeCertificate, type PeerTreeCertificate} from './peer-tree-signer.js'
 import {generateTreeId} from './tree-id.js'
 
 /**
- * Phase 9 / Slice 9.3b — in-memory L2 peer-tree identity provider.
+ * Phase 9 / Slice 9.4b — disk-backed L2 peer-tree identity service.
  *
- * Holds a single L2 Ed25519 keypair + an L1-signed
- * `PeerTreeCertificate`. The identity is regenerated per process (no
- * disk persistence in slice 9.3) so daemons restarting will surface as
- * new tree_ids to remote peers. Persistence + per-context-tree binding
- * arrive in a later slice when L2 identities are wired into the
- * project store.
+ * Persists a single L2 Ed25519 keypair + an L1-signed
+ * `PeerTreeCertificate` to disk so the same L2 pubkey is reused across
+ * daemon restarts. Without persistence, Alice's pinned
+ * `--l2-pub-key <base64>` would stop matching Bob's regenerated key
+ * after a restart and every response-frame signature would fail.
  *
- * Design: one service instance == one tree_id. Two instances
- * constructed against the same `InstallIdentityService` produce two
- * DIFFERENT L2 identities, which is intentional — the slice 9.3
- * mock-echo only needs a fresh L2 to sign response frames; it does not
- * need a globally-stable L2 binding.
+ * Files written under `<installDir>/`:
+ *   - tree.master.key — random 32-byte AES key (rotated by `regenerate()`)
+ *   - tree.key.enc    — AES-256-GCM-encrypted L2 Ed25519 private key (PKCS8 DER)
+ *   - tree.cert.json  — plaintext PeerTreeCertificate (cert can be public)
+ *
+ * All files: mode 0600. Parent directory: mode 0700. Same pattern as
+ * `InstallIdentityService` for L1.
+ *
+ * Slice 9.4c will refactor to per-context-tree L2 identities (one L2
+ * key per `tree_id`) when project trees are wired in. 9.4b stores a
+ * SINGLE shared L2 identity per install (one daemon → one L2 key).
  */
 
 const FIVE_YEARS_MS = 5 * 365 * 24 * 60 * 60 * 1000
+
+const MASTER_KEY_FILE = 'tree.master.key'
+const ENCRYPTED_KEY_FILE = 'tree.key.enc'
+const CERT_FILE = 'tree.cert.json'
+const ALGORITHM = 'aes-256-gcm'
+const MASTER_KEY_LENGTH = 32
+const IV_LENGTH = 12
+const AUTH_TAG_LENGTH = 16
 
 export interface PeerTreeIdentity {
   readonly cert: PeerTreeCertificate
@@ -43,14 +67,77 @@ export class PeerTreeIdentityService {
   private cache: PeerTreeIdentity | undefined
   private readonly clock: () => Date
   private readonly install: InstallIdentityService
+  private readonly installDir: string
 
   public constructor(deps: PeerTreeIdentityServiceDeps) {
     this.install = deps.install
     this.clock = deps.clock ?? (() => new Date())
+    // Reuse the L1 install dir as the L2 storage location — they
+    // belong together (one L2 cert per install, bound to that L1).
+    this.installDir = deps.install.getInstallDir()
   }
 
   public async loadOrGenerate(): Promise<PeerTreeIdentity> {
     if (this.cache) return this.cache
+
+    if (this.identityExists()) {
+      const loaded = await this.loadFromDisk()
+      this.cache = loaded
+      return loaded
+    }
+
+    return this.regenerate()
+  }
+
+  private identityExists(): boolean {
+    return (
+      existsSync(join(this.installDir, MASTER_KEY_FILE)) &&
+      existsSync(join(this.installDir, ENCRYPTED_KEY_FILE)) &&
+      existsSync(join(this.installDir, CERT_FILE))
+    )
+  }
+
+  private async loadFromDisk(): Promise<PeerTreeIdentity> {
+    const masterKey = await readFile(join(this.installDir, MASTER_KEY_FILE))
+    if (masterKey.length !== MASTER_KEY_LENGTH) {
+      throw new Error(`tree.master.key has unexpected length ${masterKey.length}; expected ${MASTER_KEY_LENGTH}`)
+    }
+
+    const encrypted = await readFile(join(this.installDir, ENCRYPTED_KEY_FILE))
+    if (encrypted.length < IV_LENGTH + AUTH_TAG_LENGTH) {
+      throw new Error('tree.key.enc is too short to be a valid AES-256-GCM ciphertext')
+    }
+
+    const iv = encrypted.subarray(0, IV_LENGTH)
+    const authTag = encrypted.subarray(encrypted.length - AUTH_TAG_LENGTH)
+    const ciphertext = encrypted.subarray(IV_LENGTH, encrypted.length - AUTH_TAG_LENGTH)
+    const decipher = createDecipheriv(ALGORITHM, masterKey, iv)
+    decipher.setAuthTag(authTag)
+    const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()])
+
+    const privateKey = createPrivateKey({format: 'der', key: plaintext, type: 'pkcs8'})
+    const publicKey = createPublicKey(privateKey)
+
+    const certJson = await readFile(join(this.installDir, CERT_FILE), 'utf8')
+    const cert = JSON.parse(certJson) as PeerTreeCertificate
+    return {cert, privateKey, publicKey, treeId: cert.subject_id}
+  }
+
+  private async persist(args: {cert: PeerTreeCertificate; privateKey: KeyObject}): Promise<void> {
+    const masterKey = randomBytes(MASTER_KEY_LENGTH)
+    const iv = randomBytes(IV_LENGTH)
+    const cipher = createCipheriv(ALGORITHM, masterKey, iv)
+    const pkcs8 = args.privateKey.export({format: 'der', type: 'pkcs8'})
+    const ciphertext = Buffer.concat([cipher.update(pkcs8 as Buffer), cipher.final()])
+    const authTag = cipher.getAuthTag()
+
+    await this.writeAtomic(MASTER_KEY_FILE, masterKey)
+    await this.writeAtomic(ENCRYPTED_KEY_FILE, Buffer.concat([iv, ciphertext, authTag]))
+    await this.writeAtomic(CERT_FILE, Buffer.from(`${JSON.stringify(args.cert, null, 2)}\n`, 'utf8'))
+  }
+
+  private async regenerate(): Promise<PeerTreeIdentity> {
+    await mkdir(this.installDir, {mode: 0o700, recursive: true})
 
     const {privateKey, publicKey} = generateKeyPairSync('ed25519')
     const pubJwk = publicKey.export({format: 'jwk'}) as {x?: string}
@@ -76,8 +163,24 @@ export class PeerTreeIdentityService {
       treeId,
     })
 
+    await this.persist({cert, privateKey})
+
     const identity: PeerTreeIdentity = {cert, privateKey, publicKey, treeId}
     this.cache = identity
     return identity
+  }
+
+  private async writeAtomic(name: string, body: Buffer): Promise<void> {
+    const target = join(this.installDir, name)
+    const tmp = `${target}.tmp.${process.pid}.${randomBytes(4).toString('hex')}`
+    await writeFile(tmp, body, {mode: 0o600})
+    await rename(tmp, target)
+    if (process.platform !== 'win32') {
+      await chmod(target, 0o600)
+    }
+
+    // mkdir of parent already happens in regenerate(); guard against
+    // racy callers by ensuring the dir exists with the correct mode.
+    await mkdir(dirname(target), {mode: 0o700, recursive: true})
   }
 }

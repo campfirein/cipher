@@ -2058,11 +2058,20 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
         const meta = await this.store.readChannelMeta({channelId, projectRoot}).catch(() => null)
         if (meta === null || meta === undefined) return
         if (meta.archivedAt !== undefined) return
-        await Promise.allSettled(
-          meta.members
+        await Promise.allSettled([
+          ...meta.members
             .filter((m): m is ChannelMemberAcpAgent => m.memberKind === 'acp-agent')
             .map((m) => this.warmOneDriver(meta.channelId, projectRoot, m)),
-        )
+          // Phase 9 / Slice 9.4b — reconstitute remote-peer drivers
+          // from persisted meta. Without this, the daemon would have
+          // a `remote-peer` member in meta.json but no driver in the
+          // pool after restart, surfacing as
+          // `CHANNEL_DRIVER_NOT_REGISTERED` on the next mention
+          // (kimi round-1 HIGH).
+          ...meta.members
+            .filter((m) => m.memberKind === 'remote-peer')
+            .map((m) => this.warmRemotePeerDriver(meta.channelId, m as ChannelMember & {memberKind: 'remote-peer'})),
+        ])
       }),
     )
   }
@@ -2157,6 +2166,56 @@ export class ChannelOrchestrator implements IChannelOrchestrator {
         }
 
         // Concurrent inviteMember may have raced to register — final check.
+        if (this.pool.acquire({channelId, memberHandle: member.handle}) !== undefined) {
+          await driver.stop()
+          return
+        }
+
+        this.pool.register({channelId, driver})
+      } finally {
+        this.warmInFlight.delete(key)
+      }
+    })()
+    this.warmInFlight.set(key, promise)
+    return promise
+  }
+
+  /**
+   * Phase 9 / Slice 9.4b — restart-time reconstitution of a remote-peer
+   * driver. Re-runs the same `remotePeerDriverFactory` invoked at
+   * invite time and registers the resulting driver in the pool.
+   *
+   * Best-effort: if the factory rejects (e.g. libp2p bootstrap fails),
+   * the failure is swallowed and the channel becomes mention-unable
+   * for the remote peer until the daemon restarts again or the
+   * operator re-invites. The orchestrator's existing
+   * `CHANNEL_DRIVER_NOT_REGISTERED` error surfaces on subsequent
+   * mentions — same UX as for a missing ACP subprocess.
+   */
+  private async warmRemotePeerDriver(
+    channelId: string,
+    member: ChannelMember & {memberKind: 'remote-peer'},
+  ): Promise<void> {
+    if (this.pool.acquire({channelId, memberHandle: member.handle}) !== undefined) {
+      return
+    }
+
+    if (this.remotePeerDriverFactory === undefined) return
+
+    const key = `${channelId}\0${member.handle}`
+    const existing = this.warmInFlight.get(key)
+    if (existing !== undefined) return existing
+
+    const promise = (async () => {
+      try {
+        const driver = await this.remotePeerDriverFactory!({
+          channelId,
+          handle: member.handle,
+          multiaddr: member.multiaddr,
+          peerId: member.peerId,
+          remoteL2PubKey: member.remoteL2PubKey,
+        })
+        await driver.start()
         if (this.pool.acquire({channelId, memberHandle: member.handle}) !== undefined) {
           await driver.stop()
           return

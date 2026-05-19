@@ -103,6 +103,15 @@ export class InstallIdentityService {
   }
 
   /**
+   * Return the absolute path to the install directory used by this
+   * service. Slice 9.4b — `PeerTreeIdentityService` uses this to write
+   * its L2 keystore alongside the L1 install files.
+   */
+  public getInstallDir(): string {
+    return this.installDir
+  }
+
+  /**
    * Return the L1 install private key as a Node KeyObject. Used by
    * the peer-tree-signer to sign the L2 cert payload with the L1 key
    * (the L1→L2 binding). Callers MUST route signing through the

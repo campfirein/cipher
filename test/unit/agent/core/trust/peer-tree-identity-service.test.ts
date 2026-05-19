@@ -55,12 +55,13 @@ describe('PeerTreeIdentityService', () => {
       expect(r.ok, JSON.stringify(r)).to.equal(true)
     })
 
-    it('two independent services on the SAME install produce distinct tree_ids', async () => {
+    it('two independent services on the SAME install share the SAME persisted L2 identity (slice 9.4b)', async () => {
       const a = new PeerTreeIdentityService({install})
       const b = new PeerTreeIdentityService({install})
       const aIdentity = await a.loadOrGenerate()
       const bIdentity = await b.loadOrGenerate()
-      expect(aIdentity.cert.subject_id).not.to.equal(bIdentity.cert.subject_id)
+      expect(aIdentity.cert.subject_id).to.equal(bIdentity.cert.subject_id)
+      expect(aIdentity.cert.signature).to.equal(bIdentity.cert.signature)
     })
 
     it('exposes the L2 private key for signing response frames', async () => {
@@ -69,15 +70,22 @@ describe('PeerTreeIdentityService', () => {
       expect(identity.privateKey.asymmetricKeyType).to.equal('ed25519')
     })
 
-    it('does NOT write any files (in-memory only for slice 9.3)', async () => {
-      const l2 = new PeerTreeIdentityService({install})
-      await l2.loadOrGenerate()
-      // Reading the install dir should NOT show tree.* artifacts —
-      // L2 persistence comes in a later slice. The L1 install cert
-      // still parses successfully.
-      const installCertRaw = await readFile(join(installDir, 'install.cert.json'), 'utf8')
-      const installCert = JSON.parse(installCertRaw)
-      expect(installCert.cert_kind).to.equal('install')
+    it('persists L2 identity to disk so daemon restarts reuse the same pubkey (slice 9.4b)', async () => {
+      const first = new PeerTreeIdentityService({install})
+      const firstIdentity = await first.loadOrGenerate()
+
+      // tree.* artifacts must be on disk under the install dir.
+      const certRaw = await readFile(join(installDir, 'tree.cert.json'), 'utf8')
+      const cert = JSON.parse(certRaw)
+      expect(cert.cert_kind).to.equal('peer-tree')
+      expect(cert.subject_id).to.equal(firstIdentity.cert.subject_id)
+
+      // A fresh service constructed on the same install dir loads the
+      // SAME identity (same tree_id + same signature).
+      const second = new PeerTreeIdentityService({install})
+      const secondIdentity = await second.loadOrGenerate()
+      expect(secondIdentity.cert.subject_id).to.equal(firstIdentity.cert.subject_id)
+      expect(secondIdentity.cert.signature).to.equal(firstIdentity.cert.signature)
     })
   })
 })

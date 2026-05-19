@@ -36,6 +36,8 @@ import type {IChannelBroadcaster} from '../../core/interfaces/channel/i-channel-
 
 import {InstallIdentityService} from '../../../agent/core/trust/install-identity-service.js'
 import {PeerTreeIdentityService} from '../../../agent/core/trust/peer-tree-identity-service.js'
+import {TofuStore} from '../../../agent/core/trust/tofu-store.js'
+import {BridgeEvents, type BridgeWhoamiResponse} from '../../../shared/transport/events/bridge-events.js'
 import {ChannelEvents} from '../../../shared/transport/events/channel-events.js'
 import {ReviewEvents} from '../../../shared/transport/events/review-events.js'
 import {
@@ -59,7 +61,9 @@ import {DaemonTokenProvider} from '../auth/daemon-token-provider.js'
 import {allowlistFromEnv, makeOriginAllowlist} from '../auth/origin-allowlist.js'
 import {createBillingStateHandler} from '../billing/billing-state-endpoint.js'
 import {DEFAULT_BRIDGE_CONFIG} from '../channel/bridge/bridge-config.js'
+import {registerIdentityServer} from '../channel/bridge/identity-server.js'
 import {Libp2pHost} from '../channel/bridge/libp2p-host.js'
+import {registerParleyServer} from '../channel/bridge/parley-server.js'
 import {RemoteMemberDriver} from '../channel/bridge/remote-member-driver.js'
 import {runChannelRecovery} from '../channel/channel-recovery.js'
 import {ChannelStore} from '../channel/channel-store.js'
@@ -810,11 +814,19 @@ async function main(): Promise<void> {
 
     // Phase 9 / Slice 9.4 — lazy-instantiated bridge primitives.
     // The libp2p host + L1/L2 identity services are only created when
-    // the first remote-peer invite arrives, so installs that never use
-    // cross-host channels don't pay the libp2p startup cost.
+    // the first remote-peer invite arrives OR when the daemon detects
+    // a persisted remote-peer member on restart, so installs that
+    // never use cross-host channels don't pay the libp2p startup cost.
+    //
+    // Slice 9.4b — the daemon ALSO registers the inbound identity +
+    // parley servers on the same host, so Alice's daemon can dial
+    // Bob's daemon directly (no separate `brv bridge listen` needed
+    // for production). The `brv bridge listen` CLI remains as a
+    // debugging surface.
     const bridgeIdentityDir = join(getGlobalDataDir(), 'identity')
     const bridgeInstall = new InstallIdentityService({installDir: bridgeIdentityDir})
     const bridgeL2 = new PeerTreeIdentityService({install: bridgeInstall})
+    const bridgeTofu = new TofuStore({storePath: join(bridgeIdentityDir, 'known-peers.jsonl')})
     let bridgeHostPromise: Promise<Libp2pHost> | undefined
     const ensureBridgeHost = async (): Promise<Libp2pHost> => {
       if (bridgeHostPromise === undefined) {
@@ -823,6 +835,21 @@ async function main(): Promise<void> {
           await bridgeL2.loadOrGenerate()
           const host = new Libp2pHost({config: DEFAULT_BRIDGE_CONFIG, identity: bridgeInstall})
           await host.start()
+          // Register inbound handlers BEFORE returning so the host is
+          // dial-ready in both directions by the time any caller uses it.
+          await registerIdentityServer({host, identity: bridgeInstall})
+          await registerParleyServer({
+            acceptModes: ['peer-tree'],
+            host,
+            l2Identity: bridgeL2,
+            tofuPolicy: 'auto',
+            tofuStore: bridgeTofu,
+          })
+          log(`Bridge host started — peer_id=${bridgeInstall ? (await bridgeInstall.loadOrGenerate()).peerId : '?'}`)
+          for (const ma of host.getMultiaddrs()) {
+            log(`  bridge multiaddr: ${ma}`)
+          }
+
           return host
         })().catch((error) => {
           bridgeHostPromise = undefined
@@ -832,6 +859,22 @@ async function main(): Promise<void> {
 
       return bridgeHostPromise
     }
+
+    // Phase 9 / Slice 9.4b — bridge:whoami transport endpoint. Returns
+    // peer_id / current multiaddrs / l2_pub_key / tree_id for operators
+    // who need to paste these into a remote `brv channel invite`.
+    // Forces the bridge host to come up if it hasn't yet (lazy init).
+    transportServer.onRequest<void, BridgeWhoamiResponse>(BridgeEvents.WHOAMI, async () => {
+      const host = await ensureBridgeHost()
+      const installIdentity = await bridgeInstall.loadOrGenerate()
+      const l2Identity = await bridgeL2.loadOrGenerate()
+      return {
+        l2PubKey: l2Identity.cert.public_key.key,
+        multiaddrs: host.getMultiaddrs(),
+        peerId: installIdentity.peerId,
+        treeId: l2Identity.treeId,
+      }
+    })
 
     const remotePeerDriverFactory = async (args: {
       channelId: string
