@@ -62,9 +62,10 @@ import {crashLog, processLog} from '../../utils/process-logger.js'
 import {DaemonTokenProvider} from '../auth/daemon-token-provider.js'
 import {allowlistFromEnv, makeOriginAllowlist} from '../auth/origin-allowlist.js'
 import {createBillingStateHandler} from '../billing/billing-state-endpoint.js'
+import {BridgeConfigStore, resolveBridgeRuntimeConfig} from '../channel/bridge/bridge-config-store.js'
 import {DEFAULT_BRIDGE_CONFIG} from '../channel/bridge/bridge-config.js'
 import {BridgeDriverPool} from '../channel/bridge/bridge-driver-pool.js'
-import {type AutoProvisionPolicy, BridgeTranscriptService} from '../channel/bridge/bridge-transcript-service.js'
+import {BridgeTranscriptService} from '../channel/bridge/bridge-transcript-service.js'
 import {fetchAndPin, isL2CertExpired} from '../channel/bridge/identity-client.js'
 import {registerIdentityServer} from '../channel/bridge/identity-server.js'
 import {Libp2pHost} from '../channel/bridge/libp2p-host.js'
@@ -145,63 +146,20 @@ function log(msg: string): void {
  * the broader codebase). 0 disables the GC sweep entirely. Negative or
  * unparseable values fall back to the default with a warning log line.
  */
-/**
- * Slice 9.4e — parse `BRV_BRIDGE_AUTO_PROVISION` env var. Default
- * `pinned-only` per spec §7.3 + threat-model P4 (kimi round-2 MED:
- * the codex-cleared spec normatively states `pinned-only` as the
- * default; runtime MUST match). Operators running multi-host demos
- * before the `brv trust verify` promotion CLI ships must explicitly
- * set `BRV_BRIDGE_AUTO_PROVISION=auto` to accept first-contact
- * peers — the decline error frame surfaces the env-var hint.
- * Unrecognised values fall back to the default with a warning log.
- */
-function parseAutoProvisionPolicy(): AutoProvisionPolicy {
-  const raw = process.env.BRV_BRIDGE_AUTO_PROVISION
-  if (raw === undefined || raw.trim() === '') return 'pinned-only'
-  const normalised = raw.trim()
-  if (normalised === 'auto' || normalised === 'pinned-only' || normalised === 'deny') {
-    return normalised
-  }
-
-  processLog(
-    `[Daemon] invalid BRV_BRIDGE_AUTO_PROVISION="${raw}"; expected one of {auto, pinned-only, deny}; defaulting to pinned-only`,
-  )
-  return 'pinned-only'
-}
-
-/**
- * Slice 9.4e — resolve the bridge project root (where Bob's daemon
- * persists inbound channels). Honours `BRV_BRIDGE_PROJECT_ROOT` for
- * operators running the daemon from systemd/launchd where
- * `process.cwd()` is typically `/` (kimi round-1 MED-6); falls back
- * to `process.cwd()` for the common interactive case.
- */
-function parseBridgeProjectRoot(): string {
-  const raw = process.env.BRV_BRIDGE_PROJECT_ROOT
-  if (raw === undefined || raw.trim() === '') return process.cwd()
-  return raw.trim()
-}
-
-/**
- * Slice 9.4f — parse `BRV_BRIDGE_MAX_CONCURRENT_PER_PROFILE` env
- * var. Default 1 (one warm driver per profile, prompts serialised).
- * Operators expecting concurrent fan-in raise this; excess parley
- * queries fail-fast with `PARLEY_LOCAL_AGENT_BUSY` rather than
- * queueing.
- */
-function parseBridgeMaxConcurrent(): number {
-  const raw = process.env.BRV_BRIDGE_MAX_CONCURRENT_PER_PROFILE
-  if (raw === undefined || raw.trim() === '') return 1
-  const parsed = Number.parseInt(raw, 10)
-  if (Number.isNaN(parsed) || parsed < 1) {
-    processLog(
-      `[Daemon] invalid BRV_BRIDGE_MAX_CONCURRENT_PER_PROFILE="${raw}"; expected positive integer; defaulting to 1`,
-    )
-    return 1
-  }
-
-  return parsed
-}
+// Bridge runtime config (auto-provision policy, parley profile, project
+// root, max-concurrent-per-profile, delegate policy) used to be parsed
+// directly from `BRV_BRIDGE_*` env vars inside this file. They are now
+// resolved by `resolveBridgeRuntimeConfig()` in
+// `channel/bridge/bridge-config-store.ts`, which merges env + the
+// persisted `<dataDir>/state/bridge-config.json` file and writes
+// env-supplied values back to that file. This fixes the silent
+// degradation that hit operators when a daemon auto-respawned (without
+// the env vars in scope) and fell back to mock-echo + pinned-only.
+//
+// `resolveBridgeRuntimeConfig` is called ONCE during bridge bootstrap
+// below; the returned object replaces the legacy `parseAutoProvisionPolicy
+// / parseBridgeProjectRoot / parseBridgeMaxConcurrent` helpers that
+// previously lived here.
 
 function parseChannelRetentionDays(): number {
   const raw = process.env.BRV_CHANNEL_TRANSCRIPT_RETENTION_DAYS
@@ -958,10 +916,22 @@ async function main(): Promise<void> {
           // `--l2-pub-key` on every invite).
           await registerIdentityServer({host, identity: bridgeInstall, l2Identity: bridgeL2})
 
+          // Internal-test hardening (2026-05-20) — resolve all
+          // BRV_BRIDGE_* settings through the persistent
+          // `<dataDir>/state/bridge-config.json` store so a daemon
+          // respawn that lost the env vars (e.g. when an unrelated
+          // CLI call auto-spawned the daemon without
+          // `BRV_BRIDGE_PARLEY_PROFILE` in scope) still recovers
+          // the previously-configured posture. Resolved values are
+          // env > file > built-in default; env-supplied values are
+          // persisted back so subsequent respawns inherit them.
+          const bridgeConfigStore = new BridgeConfigStore({stateDir: join(getGlobalDataDir(), 'state')})
+          const bridgeRuntime = resolveBridgeRuntimeConfig({log, store: bridgeConfigStore})
+
           // Slice 9.4c — opt-in real ACP dispatch via the
-          // `BRV_BRIDGE_PARLEY_PROFILE` env var. When unset, the
-          // parley-server falls back to mock-echo (existing 9.4a/b
-          // behaviour).
+          // `BRV_BRIDGE_PARLEY_PROFILE` env var (now via the
+          // resolved runtime config). When unset, the parley-server
+          // falls back to mock-echo (existing 9.4a/b behaviour).
           //
           // Slice 9.4f — when a profile is set, also wire a profile-
           // keyed warm driver pool so inbound parleys reuse one ACP
@@ -969,22 +939,21 @@ async function main(): Promise<void> {
           // The cap from `BRV_BRIDGE_MAX_CONCURRENT_PER_PROFILE`
           // bounds concurrent in-flight prompts; excess queries
           // surface as signed `PARLEY_LOCAL_AGENT_BUSY` errors.
-          const parleyProfile = process.env.BRV_BRIDGE_PARLEY_PROFILE
-          const bridgeMaxConcurrent = parseBridgeMaxConcurrent()
+          const {parleyProfile} = bridgeRuntime
+          const bridgeMaxConcurrent = bridgeRuntime.maxConcurrentPerProfile
           // Assigned to the outer-scoped variable so the shutdown
           // hook can call closeAll().
           bridgeDriverPool =
-            parleyProfile === undefined || parleyProfile.trim() === ''
+            parleyProfile === undefined ? undefined : new BridgeDriverPool({maxPerProfile: bridgeMaxConcurrent})
+          const responseGenerator =
+            parleyProfile === undefined
               ? undefined
-              : new BridgeDriverPool({maxPerProfile: bridgeMaxConcurrent})
-          const responseGenerator = parleyProfile === undefined || parleyProfile.trim() === ''
-            ? undefined
-            : createLocalAgentResponseGenerator({
-                driverFactory: channelDriverFactory,
-                pool: bridgeDriverPool,
-                profileName: parleyProfile.trim(),
-                profileStore: channelProfileStore,
-              })
+              : createLocalAgentResponseGenerator({
+                  driverFactory: channelDriverFactory,
+                  pool: bridgeDriverPool,
+                  profileName: parleyProfile,
+                  profileStore: channelProfileStore,
+                })
           if (responseGenerator === undefined) {
             log('Bridge parley dispatcher: mock-echo (no BRV_BRIDGE_PARLEY_PROFILE set)')
           } else {
@@ -995,17 +964,12 @@ async function main(): Promise<void> {
           }
 
           // Slice 9.4e — Bob-side transcript persistence + auto-
-          // provision matrix. `BRV_BRIDGE_AUTO_PROVISION` env selects
-          // the policy:
-          //   - `auto` (default) — accept all authenticated peers
-          //   - `pinned-only` — only user-confirmed/ca-bound
+          // provision matrix.
+          //   - `auto` — accept all authenticated peers
+          //   - `pinned-only` (default) — only user-confirmed/ca-bound
           //   - `deny` — Bob is read-only
-          const autoProvisionPolicy = parseAutoProvisionPolicy()
-          // Bridge-inbound channels persist under
-          // `<bridgeProjectRoot>/.brv/context-tree/channel/`. Honour
-          // `BRV_BRIDGE_PROJECT_ROOT` for systemd/launchd daemons,
-          // fall back to `process.cwd()` for the common case.
-          const bridgeProjectRoot = parseBridgeProjectRoot()
+          const autoProvisionPolicy = bridgeRuntime.autoProvision
+          const bridgeProjectRoot = bridgeRuntime.projectRoot
           const transcriptService = new BridgeTranscriptService({
             autoProvisionPolicy,
             channelStore,
@@ -1051,7 +1015,7 @@ async function main(): Promise<void> {
           //     operators who set `deny` must NOT assume protection
           //     until that slice lands. The log makes the unwired
           //     state visible.
-          const delegatePolicy = (process.env.BRV_BRIDGE_DELEGATE_POLICY ?? 'prompt') as 'auto' | 'deny' | 'prompt'
+          const {delegatePolicy} = bridgeRuntime
           if (delegatePolicy === 'auto') {
             log(
               'Bridge delegate policy: AUTO — authenticated remote peers can request mutating tool ' +
