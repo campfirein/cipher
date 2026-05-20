@@ -17,6 +17,15 @@ describe('derived-artifact predicates', () => {
       expect(isDerivedArtifact('_manifest.json')).to.be.true
     })
 
+    it('should return true for _index.html (tool-mode context-tree index)', () => {
+      expect(isDerivedArtifact('_index.html')).to.be.true
+    })
+
+    it('should return false for regular .html topic files', () => {
+      expect(isDerivedArtifact('features/auth.html')).to.be.false
+      expect(isDerivedArtifact('architecture/api/rest.html')).to.be.false
+    })
+
     it('should return true for .full.md inside _archived/', () => {
       expect(isDerivedArtifact('_archived/auth/tokens.full.md')).to.be.true
       expect(isDerivedArtifact('_archived/api/endpoints/legacy.full.md')).to.be.true
