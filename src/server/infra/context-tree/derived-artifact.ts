@@ -7,7 +7,7 @@
  * - isExcludedFromSync() — union of above (excluded from snapshot/sync/merge/push)
  */
 
-import {ABSTRACT_EXTENSION, ARCHIVE_DIR, FULL_ARCHIVE_EXTENSION, MANIFEST_FILE, OVERVIEW_EXTENSION, STUB_EXTENSION, SUMMARY_INDEX_FILE} from '../../constants.js'
+import {ABSTRACT_EXTENSION, ARCHIVE_DIR, FULL_ARCHIVE_EXTENSION, INDEX_HTML_FILE, MANIFEST_FILE, OVERVIEW_EXTENSION, STUB_EXTENSION, SUMMARY_INDEX_FILE} from '../../constants.js'
 import {toUnixPath} from './path-utils.js'
 
 /**
@@ -15,7 +15,7 @@ import {toUnixPath} from './path-utils.js'
  * that should be excluded from snapshot tracking, CoGit sync,
  * and query cache fingerprinting.
  *
- * Derived artifacts: _index.md, _manifest.json, _archived/*.full.md
+ * Derived artifacts: _index.md, _index.html, _manifest.json, _archived/*.full.md
  * NOTE: _archived/*.stub.md are NOT derived — they are searchable.
  */
 export function isDerivedArtifact(relativePath: string): boolean {
@@ -24,6 +24,10 @@ export function isDerivedArtifact(relativePath: string): boolean {
   const fileName = segments.at(-1) ?? ''
 
   if (fileName === SUMMARY_INDEX_FILE) return true
+
+  // Tool-mode context-tree index. A navigation artifact, not a topic —
+  // excluded from BM25 indexing, query results, sync, and fingerprinting.
+  if (fileName === INDEX_HTML_FILE) return true
 
   if (fileName === MANIFEST_FILE) return true
 
