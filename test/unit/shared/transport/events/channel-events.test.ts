@@ -27,8 +27,12 @@ describe('ChannelEvents (Slice 1.2)', () => {
       // (lifecycle / membership / phase-3 ops / turns / broadcasts) is
       // preserved in the source file via
       // /* eslint-disable perfectionist/sort-objects */.
+      // Alphabetical to satisfy `perfectionist/sort-sets`. Groupings
+      // (Phase 1 + 2 lifecycle / membership / turns / broadcasts vs
+      // Phase 3 ops surface vs Phase 10 quorum fan-out) live in
+      // `channel-events.ts` source ordering — the Set here just
+      // mirrors the wire-name surface.
       const expected = new Set([
-        // Phase 1 + 2 lifecycle / membership / turns / broadcasts (19)
         'channel:archive',
         'channel:cancel',
         'channel:create',
@@ -42,14 +46,17 @@ describe('ChannelEvents (Slice 1.2)', () => {
         'channel:member-update',
         'channel:members',
         'channel:mention',
+        'channel:mention-quorum',
         'channel:onboard',
         'channel:permission-decision',
         'channel:post',
-        // Phase 3 ops surface (rotate-token + profile-list/show/remove)
+        'channel:profile-clear-drift',
         'channel:profile-list',
+        'channel:profile-record-drift',
         'channel:profile-remove',
         'channel:profile-show',
         'channel:rotate-token',
+        'channel:show-quorum',
         'channel:state-change',
         'channel:turn-event',
         'channel:uninvite',

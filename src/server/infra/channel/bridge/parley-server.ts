@@ -8,6 +8,7 @@ import {createHash, type KeyObject} from 'node:crypto'
 import {type PeerTreeIdentityService} from '../../../../agent/core/trust/peer-tree-identity-service.js'
 import {signResponseError, signResponseTerminal, signTranscriptSeal} from '../../../../agent/core/trust/sign.js'
 import {type TofuStore} from '../../../../agent/core/trust/tofu-store.js'
+import {BRIDGE_PARLEY_HEARTBEAT_INTERVAL_MS} from '../../../constants.js'
 import {
   type ParleyQueryEnvelope,
   type ParleyResponseFrame,
@@ -50,6 +51,13 @@ export const PARLEY_QUERY_PROTOCOL = '/brv/parley/query/v1'
 export interface RegisterParleyServerArgs {
   readonly acceptModes: ReadonlyArray<CertKind>
   readonly clockSkewMs?: number
+  /**
+   * Override the heartbeat ping cadence in milliseconds. Defaults to
+   * `BRIDGE_PARLEY_HEARTBEAT_INTERVAL_MS`. Tests use a tiny value (e.g.
+   * 50ms) to assert keep-alive behaviour without sleeping the suite
+   * for real-time intervals.
+   */
+  readonly heartbeatIntervalMs?: number
   readonly host: Libp2pHost
   readonly l2Identity: PeerTreeIdentityService
   readonly nonceLru?: NonceLru
@@ -201,6 +209,7 @@ export async function registerParleyServer(args: RegisterParleyServerArgs): Prom
     await dispatchResponseStream({
       envelope: verifyResult.envelope,
       generator,
+      heartbeatIntervalMs: args.heartbeatIntervalMs ?? BRIDGE_PARLEY_HEARTBEAT_INTERVAL_MS,
       l2PrivateKey: l2.privateKey,
       requestEnvelopeHash: verifyResult.requestEnvelopeHash,
       stream,
@@ -215,6 +224,7 @@ export async function registerParleyServer(args: RegisterParleyServerArgs): Prom
 interface DispatchResponseStreamArgs {
   readonly envelope: ParleyQueryEnvelope
   readonly generator: ParleyResponseGenerator
+  readonly heartbeatIntervalMs: number
   readonly l2PrivateKey: KeyObject
   readonly requestEnvelopeHash: string
   readonly stream: Libp2pStreamLike
@@ -229,17 +239,50 @@ interface DispatchResponseStreamArgs {
  * cleanly, OR project any thrown error as a signed `error` +
  * `transcript_seal` per §5.2 normative terminal order.
  *
- * Heartbeats are NOT emitted in 9.4c — slice 9.9 wires them as part
- * of the cancellation work.
+ * Emits `heartbeat_ping` frames at `BRIDGE_PARLEY_HEARTBEAT_INTERVAL_MS`
+ * cadence while the generator is idle so the libp2p Yamux substream
+ * does not hit its idle timeout when the responding agent is mid-LLM-
+ * call (e.g. codex waiting between bash `brv curate` invocations).
+ * The wire schema specifies heartbeats; `transcriptDigest` and
+ * `audit-parley-seal.ts` filter them so they do not perturb the seal.
+ *
+ * The heartbeat timer is CANCELLED before emitting the terminal
+ * (`stream_end` / `error`) and the `sendChain` is drained, so the
+ * pre-seal-1 frame is guaranteed to be the terminal — `parley-client.ts`
+ * picks the terminal by `sealIdx - 1`, not by kind-filter.
  */
 async function dispatchResponseStream(args: DispatchResponseStreamArgs): Promise<void> {
-  const {envelope, generator, l2PrivateKey, requestEnvelopeHash, stream, transcriptContext, transcriptService} = args
+  const {
+    envelope,
+    generator,
+    heartbeatIntervalMs,
+    l2PrivateKey,
+    requestEnvelopeHash,
+    stream,
+    transcriptContext,
+    transcriptService,
+  } = args
   const emittedFrames: ParleyResponseFrame[] = []
   let seq = 0
   const nextSeq = () => {
     seq += 1
     return seq
   }
+
+  // Sequential send queue — serializes the heartbeat-timer's writes and
+  // the chunk-loop's writes so two `stream.send()` calls cannot
+  // interleave bytes mid-frame on the Yamux substream. The seq number
+  // is assigned INSIDE the lock so monotonicity is preserved even when
+  // a heartbeat is scheduled between two chunk frames.
+  let sendChain: Promise<void> = Promise.resolve()
+  let heartbeatTimer: ReturnType<typeof setInterval> | undefined
+  // kimi-flagged race (post-merge code review) — a heartbeat callback
+  // already enqueued in `sendChain` when we call `stopHeartbeats()` MUST
+  // bail synchronously so it cannot emit between the last data chunk
+  // and the terminal frame. Microtask ordering guarantees the flag we
+  // set in `stopHeartbeats()` is visible to any heartbeat `.then()`
+  // body that has not yet started executing.
+  let terminalQueued = false
 
   // kimi round-1 HIGH-3 — assume the worst (errored) so the finally
   // path cleans up `inFlight`/`seqByTurn` even if BOTH the success
@@ -251,29 +294,77 @@ async function dispatchResponseStream(args: DispatchResponseStreamArgs): Promise
     error: {code: 'GENERATOR_ERROR', message: 'Stream terminated before terminal frame'},
   }
 
+  // Drain + cancel the heartbeat timer. Idempotent. Called before the
+  // terminal frame on both the success and error paths so the
+  // pre-seal-1 frame is guaranteed to be the terminal.
+  const stopHeartbeats = async (): Promise<void> => {
+    terminalQueued = true
+    if (heartbeatTimer !== undefined) {
+      clearInterval(heartbeatTimer)
+      heartbeatTimer = undefined
+    }
+
+    await sendChain.catch(() => {
+      /* drain — caller will surface any real send error on its own next emit */
+    })
+  }
+
   try {
+    // Emit `heartbeat_ping` frames every BRIDGE_PARLEY_HEARTBEAT_INTERVAL_MS
+    // to keep the libp2p Yamux substream alive while the generator is
+    // idle. Heartbeats are excluded from the transcript digest and from
+    // the audit-side terminal lookup, so they perturb nothing on the
+    // wire contract.
+    heartbeatTimer = setInterval(() => {
+      sendChain = sendChain
+        .then(async () => {
+          // kimi-flagged race — bail if `stopHeartbeats()` has been
+          // called between the time this callback was enqueued and the
+          // time the chain executes it, so we never emit a heartbeat
+          // after the terminal has been queued.
+          if (terminalQueued) return
+          const frame: ParleyResponseFrame = {kind: 'heartbeat_ping', seq: nextSeq()}
+          await sendFrame(stream, frame)
+        })
+        .catch(() => {
+          /* stream may have closed mid-heartbeat; next real emit surfaces it */
+        })
+    }, heartbeatIntervalMs)
+
     try {
       for await (const chunk of generator({envelope})) {
-        const frame = projectChunkToFrame(chunk, nextSeq())
-        emittedFrames.push(frame)
         // kimi round-1 MED-8 — persist BEFORE emit so a local disk
         // error aborts the turn before Alice sees a ghost chunk. A
         // slow `eventsWriter.append` does block frame emission; that
         // is the intended ordering for a transcript-of-record path
         // (we want Bob's history to be the truth, not Alice's).
-        if (transcriptService !== undefined && transcriptContext !== undefined) {
-          await transcriptService.recordChunk({
-            channelId: envelope.channel_id,
-            chunk,
-            deliveryId: transcriptContext.deliveryId,
-            memberHandle: transcriptContext.mirrorHandle,
-            turnId: envelope.turn_id,
-          })
-        }
+        //
+        // Wrapped in `sendChain` so seq assignment + send happen inside
+        // the write mutex, preventing reorder against heartbeats.
+        const chunkRef = chunk
+        const emit = sendChain.then(async () => {
+          const frame = projectChunkToFrame(chunkRef, nextSeq())
+          emittedFrames.push(frame)
+          if (transcriptService !== undefined && transcriptContext !== undefined) {
+            await transcriptService.recordChunk({
+              channelId: envelope.channel_id,
+              chunk: chunkRef,
+              deliveryId: transcriptContext.deliveryId,
+              memberHandle: transcriptContext.mirrorHandle,
+              turnId: envelope.turn_id,
+            })
+          }
 
-        await sendFrame(stream, frame)
+          await sendFrame(stream, frame)
+        })
+        sendChain = emit.catch(() => {
+          /* error is awaited below and re-thrown to the outer catch */
+        })
+        await emit
       }
     } catch (error) {
+      await stopHeartbeats()
+
       // Extract a stable code + a SAFE public message from the thrown
       // value (kimi round-1 MEDIUMs). Generators using
       // `ParleyResponseError` carry an authoritative code + a message
@@ -313,6 +404,8 @@ async function dispatchResponseStream(args: DispatchResponseStreamArgs): Promise
       return
     }
 
+    await stopHeartbeats()
+
     // Success path — emit signed stream_end + transcript_seal.
     const terminal = buildStreamEndTerminalFrame({
       bound: contextFromEnvelope(envelope, requestEnvelopeHash),
@@ -335,6 +428,11 @@ async function dispatchResponseStream(args: DispatchResponseStreamArgs): Promise
     )
     finalState = {endedState: 'completed'}
   } finally {
+    if (heartbeatTimer !== undefined) {
+      clearInterval(heartbeatTimer)
+      heartbeatTimer = undefined
+    }
+
     if (transcriptService !== undefined && transcriptContext !== undefined) {
       try {
         await transcriptService.finaliseTurn({
