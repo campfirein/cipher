@@ -20,9 +20,10 @@ You cannot fix these yourself. Show the user the exact fix instead of looping.
 | Error | Tell the user |
 |---|---|
 | `Not authenticated` | Run `brv login` (see `brv login --help` for options). |
-| `Connection failed` / `Instance crashed` | Kill the running `brv` process, then retry. |
-| `Token has expired` / `Token is invalid` | Run `brv login` again to re-authenticate. |
+| `Connection failed` / `Instance crashed` | Run `brv restart` to stop everything and start fresh, then retry. |
+| `Token has expired` / `Token is invalid` | Run `brv logout` then `brv login` to reset credentials. |
 | `Billing error` / `Rate limit exceeded` | Check account credits or wait before retrying. |
+| `command not found` / unexpected CLI mismatch | Run `brv update` to install the latest CLI, then retry. |
 
 ## Errors You Should Fix And Retry
 
@@ -45,10 +46,23 @@ Handle these yourself, then re-run the command.
 ## Quick Diagnosis
 
 ```bash
-brv status
+brv status                                       # auth state + project info + context tree
+brv connectors                                   # which agent connectors are installed
+brv vc status                                    # context-tree VC state (clean / dirty / merge in progress)
 ```
 
-Run `brv status` to check authentication and project state before deeper debugging.
+Run `brv status` first to check authentication and project state. Use `brv connectors` when the user reports the skill or MCP isn't loading in their agent. Use `brv vc status` when the user reports stuck commits, pull failures, or unresolved merges.
+
+## Recovery Commands
+
+```bash
+brv restart                                      # stop everything + start fresh (kills daemon)
+brv logout                                       # clear stored credentials
+brv login                                        # re-authenticate (after logout or token expiry)
+brv update                                       # install the latest CLI
+```
+
+Use `brv restart` when the daemon is stuck, hung, or responding strangely. Use `brv logout` + `brv login` to fully reset auth state (preferred over `brv login` alone when tokens are corrupted, not just expired). Run `brv update` when CLI behavior contradicts documented commands — likely the local install is out of date.
 
 ## Common Mistakes
 

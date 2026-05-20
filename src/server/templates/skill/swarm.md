@@ -24,8 +24,13 @@ brv swarm query "What did we decide about retry handling?" --format json
 brv swarm query "auth patterns" --explain
 brv swarm query "testing strategy" -n 5
 brv swarm status
+brv swarm onboard                                                # interactive setup wizard for new providers
 brv swarm curate "Jane Smith is the CTO of TechCorp" --provider gbrain
 ```
+
+## Setup
+
+Run `brv swarm onboard` when the user has not configured providers yet or asks to add a new one. It walks through provider selection, credentials, and writes the config — preferred over hand-editing config files.
 
 ## Parallel Query Protocol
 

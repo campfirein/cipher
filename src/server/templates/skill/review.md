@@ -1,11 +1,11 @@
 ---
 name: byterover-review
-description: "Use when brv curate reports pending review or the user asks to inspect, approve, or reject pending ByteRover context-tree operations."
+description: "Use when brv curate reports pending review, the user asks to inspect/approve/reject queued ByteRover operations, or the user asks to enable/disable the HITL review log."
 ---
 
 # ByteRover Review
 
-Some curate operations require human review before ByteRover applies them to `.brv/context-tree/`. Pending review means the knowledge is not stored yet.
+Some curate operations require human review before ByteRover applies them to `.brv/context-tree/`. Pending review means the knowledge is not stored yet. Review can also be toggled off project-wide if the user prefers auto-apply.
 
 ## When To Review
 
@@ -13,18 +13,31 @@ Some curate operations require human review before ByteRover applies them to `.b
 - The user asks to inspect pending context-tree operations.
 - The user asks to approve or reject queued ByteRover changes.
 - You need to verify whether a high-impact operation has been applied.
+- The user asks to enable or disable the project's review log.
 
-Do not approve or reject review operations without explicit user direction.
+Do not approve, reject, or toggle review state without explicit user direction.
 
 ## Quick Reference
 
 ```bash
+# Inspect / act on pending items
 brv review pending --format json
 brv review approve <taskId> --format json
 brv review reject <taskId> --format json
 brv review approve <taskId> --file architecture/auth.md --format json
 brv review reject <taskId> --file architecture/auth.md --format json
+
+# Toggle the project's HITL review log
+brv review                                       # show current state (enabled / disabled)
+brv review --disable                             # stop queueing review items + suppress prompts
+brv review --enable                              # resume queueing review items
 ```
+
+## Toggle The Review Log
+
+`brv review` with no subcommand shows whether review is on or off. `--disable` stops `brv curate` from prompting for review on high-impact ops, suppresses the per-op review marker in detached curate-log entries, and prevents `brv dream` from queueing review items. `--enable` reverses all of the above. Existing pending items are unaffected — they remain listed by `brv review pending` and can still be approved or rejected.
+
+Confirm with the user before flipping the toggle: disabling silently auto-applies future high-impact curates, which is the opposite of HITL.
 
 ## Review Protocol
 
