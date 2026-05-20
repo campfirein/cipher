@@ -6,7 +6,7 @@
  */
 
 import {mkdir, unlink, writeFile} from 'node:fs/promises'
-import {dirname, resolve} from 'node:path'
+import {dirname, join, resolve} from 'node:path'
 
 import type {CurateLogEntry, CurateLogOperation} from '../../core/domain/entities/curate-log-entry.js'
 import type {ICurateLogStore} from '../../core/interfaces/storage/i-curate-log-store.js'
@@ -378,6 +378,30 @@ async function undoPrune(
 ): Promise<void> {
   switch (op.action) {
     case 'ARCHIVE': {
+      // Tool-mode finalize writes a flat .brv/archive/<relPath> copy and
+      // captures the body inline as previousTexts; restore from the log
+      // directly so we don't depend on archive-service-managed stubs.
+      if (op.previousTexts && Object.keys(op.previousTexts).length > 0) {
+        const archiveDir = join(dirname(ctx.contextTreeDir), 'archive')
+        for (const [filePath, content] of Object.entries(op.previousTexts)) {
+          const fullPath = safePath(ctx.contextTreeDir, filePath)
+          // eslint-disable-next-line no-await-in-loop
+          await mkdir(dirname(fullPath), {recursive: true})
+          // eslint-disable-next-line no-await-in-loop
+          await writeFile(fullPath, content, 'utf8')
+          ctx.result.restoredFiles.push(filePath)
+
+          // Clean up the .brv/archive/<relPath> duplicate so we don't leave
+          // a stale copy alongside the restored original. Best-effort —
+          // ENOENT is fine, real errors get surfaced via the per-op try/catch.
+          // eslint-disable-next-line no-await-in-loop
+          await unlinkSafe(join(archiveDir, filePath))
+        }
+
+        break
+      }
+
+      // Legacy LLM-driven prune path — archive service round-trip.
       if (!ctx.deps.archiveService) {
         throw new Error(`Cannot undo PRUNE/ARCHIVE: no archive service available for ${op.file}`)
       }

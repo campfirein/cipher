@@ -86,6 +86,7 @@ digraph brv_flow {
 - `review.md` - handling pending human review after curate
 - `swarm.md` - swarm query and external-provider storage
 - `vc.md` - local context-tree version control
+- `dream.md` - context-tree cleanup via brv dream's three-phase scan / curate / finalize workflow
 - `history.md` - query and curate history inspection
 - `troubleshooting.md` - brv error handling, data-handling, and file-input limits
 
@@ -102,6 +103,7 @@ digraph brv_flow {
 | Save to an external memory provider | `brv swarm curate` | `swarm.md` |
 | Inspect past curates/queries | `brv curate view` / `brv query-log view` | `history.md` |
 | Track context-tree changes (git-style) | `brv vc` | `vc.md` |
+| Consolidate / dedupe / prune the context tree | `brv dream` | `dream.md` |
 | Find project paths | `brv locations` | `brv locations --help` |
 | Diagnose a `brv` error | `brv status` | `brv status --help` |
 
@@ -155,6 +157,7 @@ Each detail file lives in this skill directory. Read the relevant one before inv
 - `brv review <pending|approve|reject>` — HITL approval for pending operations. See `review.md`.
 - `brv swarm <query|curate|status>` — cross-source memory federation. See `swarm.md`.
 - `brv vc <init|status|add|commit|...>` — git-style version control of the context tree. See `vc.md`.
+- `brv dream <scan|finalize|undo>` — three-phase context-tree cleanup (link / merge / prune / synthesize). See `dream.md`.
 - `brv curate view` / `brv query-log view|summary` — inspect history. See `history.md`.
 - `brv locations` — list registered projects and their context tree paths. Use `-f json` for machine-readable output. Run `brv locations --help` for flags.
 - `brv status` — diagnose any `brv` error (auth + project state). Run first when a command misbehaves.

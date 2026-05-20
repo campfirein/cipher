@@ -22,7 +22,7 @@
 import {connectToTransport, type ITransportClient} from '@campfirein/brv-transport-client'
 import {randomUUID} from 'node:crypto'
 import {appendFileSync, existsSync} from 'node:fs'
-import {join, relative, sep} from 'node:path'
+import {basename, join, relative, sep} from 'node:path'
 
 import type {ISearchKnowledgeService} from '../../../agent/infra/sandbox/tools-sdk.js'
 import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
@@ -39,6 +39,7 @@ import {CipherAgent} from '../../../agent/infra/agent/index.js'
 import {FileSystemService} from '../../../agent/infra/file-system/file-system-service.js'
 import {FolderPackService} from '../../../agent/infra/folder-pack/folder-pack-service.js'
 import {SessionMetadataStore} from '../../../agent/infra/session/session-metadata-store.js'
+import {loadAgentSettingsSnapshot} from '../../../agent/infra/settings/agent-settings-snapshot.js'
 import {FileKeyStorage} from '../../../agent/infra/storage/file-key-storage.js'
 import {runWithReviewDisabled} from '../../../agent/infra/tools/implementations/curate-tool-task-context.js'
 import {createSearchKnowledgeService} from '../../../agent/infra/tools/implementations/search-knowledge-service.js'
@@ -57,11 +58,14 @@ import {
   TransportTaskEventNames,
 } from '../../core/domain/transport/schemas.js'
 import {FileContextTreeArchiveService} from '../context-tree/file-context-tree-archive-service.js'
+import {regenerateContextTreeIndex} from '../context-tree/index-generator.js'
 import {RuntimeSignalStore} from '../context-tree/runtime-signal-store.js'
+import {bumpSidecarOnCurateWrite} from '../context-tree/tool-mode-sidecar-updaters.js'
 import {DreamLockService} from '../dream/dream-lock-service.js'
 import {DreamLogStore} from '../dream/dream-log-store.js'
 import {DreamStateService} from '../dream/dream-state-service.js'
 import {DreamTrigger} from '../dream/dream-trigger.js'
+import {type DreamKind, finalizeDreamSession, scanDreamCandidates} from '../dream/tool-mode/dream-session.js'
 import {CurateExecutor} from '../executor/curate-executor.js'
 import {DreamExecutor} from '../executor/dream-executor.js'
 import {FolderPackExecutor} from '../executor/folder-pack-executor.js'
@@ -268,6 +272,7 @@ async function start(): Promise<void> {
     transport.requestWithAck<AuthResponse>(TransportStateEventNames.GET_AUTH),
     transport.requestWithAck<ProviderConfigResponse>(TransportStateEventNames.GET_PROVIDER_CONFIG),
     transport.requestWithAck<BillingStateResponse>(TransportStateEventNames.GET_BILLING_CONFIG, {projectPath}),
+    loadAgentSettingsSnapshot(transport),
   ])
 
   cachedBrvConfig = configResult.brvConfig
@@ -492,14 +497,21 @@ async function executeTask(
   storagePath: string,
   runtimeSignalStore: IRuntimeSignalStore,
 ): Promise<void> {
-  const {clientCwd, clientId, content, files, folderPath, force, reviewDisabled, taskId, trigger, type, worktreeRoot} = task
+  const {clientCwd, clientId, content, files, folderPath, force, reviewDisabled, taskId, trigger, type, worktreeRoot} =
+    task
   if (!transport || !agent) return
 
   // Search + tool-mode query + tool-mode curate are pure deterministic
   // paths — no LLM, no provider needed. Skip provider validation so they
   // work even without a configured provider (the headline promise of
   // tool mode).
-  if (type !== 'search' && type !== 'query-tool-mode' && type !== 'curate-html-direct') {
+  if (
+    type !== 'search' &&
+    type !== 'query-tool-mode' &&
+    type !== 'curate-html-direct' &&
+    type !== 'dream-scan' &&
+    type !== 'dream-finalize'
+  ) {
     const freshProviderConfig = await transport.requestWithAck<ProviderConfigResponse>(
       TransportStateEventNames.GET_PROVIDER_CONFIG,
     )
@@ -585,8 +597,18 @@ async function executeTask(
     // on this project drains. `query` / `search` are intentionally NOT
     // gated — they read the manifest and tolerate a stale snapshot via
     // `readManifestIfFresh` + rebuild fallback, so blocking them would
-    // be a needless latency hit.
-    if (type === 'curate' || type === 'curate-folder' || type === 'dream') {
+    // be a needless latency hit. `dream-finalize` renames topic files
+    // and so MUST gate (otherwise an in-flight Phase 4 `_index.md`
+    // rebuild can reference files we just archived). `dream-scan` is
+    // read-only but we gate it too so a scan never observes a tree
+    // mid-rebuild and returns inconsistent candidates.
+    if (
+      type === 'curate' ||
+      type === 'curate-folder' ||
+      type === 'dream' ||
+      type === 'dream-finalize' ||
+      type === 'dream-scan'
+    ) {
       await postWorkRegistry.awaitProject(projectPath)
     }
 
@@ -712,6 +734,24 @@ async function executeTask(
             topicPathResolved = preValidation.ok
               ? preValidation.topicPath
               : relativeFilePath.replace(/\.html$/, '')
+
+            // Mirror the curate into the runtime-signal sidecar so prune (and
+            // any future signal-driven ranking) has real data to work with.
+            // Best-effort: never blocks the write that already succeeded;
+            // pass an agentLog-backed logger so swallowed sidecar failures
+            // (corrupt key store, permission denied) leave a breadcrumb in
+            // the daemon session log instead of being silently invisible.
+            await bumpSidecarOnCurateWrite({
+              existedBefore,
+              logger: {
+                debug: (msg: string): void => agentLog(msg),
+                error: (msg: string): void => agentLog(msg),
+                info: (msg: string): void => agentLog(msg),
+                warn: (msg: string): void => agentLog(msg),
+              },
+              relPath: relativeFilePath,
+              store: runtimeSignalStore,
+            })
           } else if (preValidation.ok) {
             topicPathResolved = preValidation.topicPath
           }
@@ -745,6 +785,20 @@ async function executeTask(
             agentLog(
               `curate-html-direct: failed to persist log entry for ${taskId}: ${error instanceof Error ? error.message : String(error)}`,
             )
+          }
+
+          // Regenerate the context-tree index so the new topic appears in
+          // index.html. Deferred to postWorkRegistry (drained below): it
+          // runs after task:completed — off the user-facing latency path —
+          // and is per-project serialized, so concurrent curate-html-direct
+          // tasks cannot race on index.html.
+          if (writeResult.ok) {
+            postWork = () =>
+              regenerateContextTreeIndex({
+                contextTreeRoot,
+                log: (msg) => agentLog(`curate-html-direct ${taskId}: ${msg}`),
+                projectName: basename(projectPath),
+              })
           }
 
           // Validation failures emit task:completed (NOT task:error) so
@@ -804,6 +858,134 @@ async function executeTask(
           })
           result = dreamResult.result
           logId = dreamResult.logId
+
+          break
+        }
+
+        case 'dream-finalize': {
+          // Archive the loser topics the agent picked. Stateless on
+          // daemon side — `sessionId` is opaque; we don't track sessions
+          // in v1. Writes a DreamLogEntry so `brv dream undo` can restore.
+          const brvDir = join(projectPath, BRV_DIR)
+          const contextTreeRoot = join(brvDir, CONTEXT_TREE_DIR)
+          let parsed: {archive?: string[]; sessionId?: string}
+          try {
+            parsed = content ? JSON.parse(content) : {}
+          } catch {
+            result = JSON.stringify({error: 'dream-finalize: invalid JSON content', status: 'error'})
+            break
+          }
+
+          const startedAt = Date.now()
+          try {
+            const finalizeResult = await finalizeDreamSession({
+              archive: parsed.archive ?? [],
+              brvDir,
+              contextTreeRoot,
+              runtimeSignalStore,
+              sessionId: parsed.sessionId ?? '',
+            })
+
+            // Write a dream-log entry so `brv dream undo` can revert. Skipped
+            // when nothing was actually archived — no-op finalizes shouldn't
+            // pollute the undo history.
+            if (finalizeResult.archived.length > 0) {
+              const dreamLogStore = new DreamLogStore({baseDir: brvDir})
+              const dreamStateService = new DreamStateService({baseDir: brvDir})
+              const logId = await dreamLogStore.getNextId()
+              const completedAt = Date.now()
+              await dreamLogStore.save({
+                completedAt,
+                id: logId,
+                operations: finalizeResult.archived.map((path) => ({
+                  action: 'ARCHIVE',
+                  file: path,
+                  needsReview: false,
+                  previousTexts: {[path]: finalizeResult.previousTexts[path] ?? ''},
+                  reason: 'tool-mode dream finalize',
+                  type: 'PRUNE',
+                })),
+                startedAt,
+                status: 'completed',
+                summary: {
+                  consolidated: 0,
+                  errors: 0,
+                  flaggedForReview: 0,
+                  pruned: finalizeResult.archived.length,
+                  synthesized: 0,
+                },
+                taskId,
+                trigger: trigger ?? 'cli',
+              })
+              await dreamStateService.update((state) => ({
+                ...state,
+                lastDreamAt: new Date().toISOString(),
+                lastDreamLogId: logId,
+                totalDreams: state.totalDreams + 1,
+              }))
+
+              // Archiving removed topics — refresh index.html so they
+              // drop out of the navigation index. Deferred to
+              // postWorkRegistry (per-project serialized, runs after
+              // task:completed) — same rationale as curate-html-direct.
+              postWork = () =>
+                regenerateContextTreeIndex({
+                  contextTreeRoot,
+                  log: (msg) => agentLog(`dream-finalize ${taskId}: ${msg}`),
+                  projectName: basename(projectPath),
+                })
+
+              result = JSON.stringify({
+                archived: finalizeResult.archived,
+                logId,
+                skipped: finalizeResult.skipped,
+                status: 'ok',
+              })
+            } else {
+              result = JSON.stringify({
+                archived: finalizeResult.archived,
+                skipped: finalizeResult.skipped,
+                status: 'ok',
+              })
+            }
+          } catch (error) {
+            result = JSON.stringify({
+              error: error instanceof Error ? error.message : String(error),
+              status: 'error',
+            })
+          }
+
+          break
+        }
+
+        case 'dream-scan': {
+          // Tool-mode dream — no LLM, no provider. The daemon enumerates
+          // candidates and returns them; the calling agent does all
+          // semantic judgment via brv-curate UPDATE/MERGE/ADD writes
+          // before invoking dream-finalize to archive losers.
+          const contextTreeRoot = join(projectPath, BRV_DIR, CONTEXT_TREE_DIR)
+          let parsed: {kinds?: DreamKind[]; maxCandidates?: number; scope?: string}
+          try {
+            parsed = content ? JSON.parse(content) : {}
+          } catch {
+            result = JSON.stringify({error: 'dream-scan: invalid JSON content', status: 'error'})
+            break
+          }
+
+          try {
+            const scanResult = await scanDreamCandidates({
+              contextTreeRoot,
+              options: parsed,
+              runtimeSignalStore,
+              searchService: searchKnowledgeService,
+            })
+            result = JSON.stringify({...scanResult, status: 'ok'})
+          } catch (error) {
+            result = JSON.stringify({
+              error: error instanceof Error ? error.message : String(error),
+              status: 'error',
+            })
+          }
 
           break
         }
@@ -879,7 +1061,13 @@ async function executeTask(
       // the response as soon as the agent body finishes.
       agentLog(`task:completed taskId=${taskId}`)
       try {
-        transport.request(TransportTaskEventNames.COMPLETED, {clientId, ...(logId ? {logId} : {}), projectPath, result, taskId})
+        transport.request(TransportTaskEventNames.COMPLETED, {
+          clientId,
+          ...(logId ? {logId} : {}),
+          projectPath,
+          result,
+          taskId,
+        })
       } catch (error) {
         agentLog(
           `task:completed send failed taskId=${taskId}: ${error instanceof Error ? error.message : String(error)}`,

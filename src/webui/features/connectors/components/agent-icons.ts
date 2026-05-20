@@ -1,5 +1,3 @@
-import type {Agent} from '../../../../shared/types/agent'
-
 import amp from '../../../assets/connectors/amp-connector.svg'
 import antigravity from '../../../assets/connectors/antigravity-connector.svg'
 import auggie from '../../../assets/connectors/auggie-connector.svg'
@@ -25,8 +23,7 @@ import warp from '../../../assets/connectors/warp-connector.svg'
 import windsurf from '../../../assets/connectors/windsurf-connector.svg'
 import zed from '../../../assets/connectors/zed-connector.svg'
 
-/** Maps agent name to its icon SVG path. */
-export const agentIcons: Partial<Record<Agent, string>> = {
+export const agentIcons: Readonly<Record<string, string>> = {
   'Amp': amp,
   'Antigravity': antigravity,
   'Auggie CLI': auggie,

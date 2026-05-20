@@ -72,7 +72,9 @@ Bad:
     const {args, flags: rawFlags} = await this.parse(Query)
     const format: 'json' | 'text' = rawFlags.format === 'json' ? 'json' : 'text'
     const limit = rawFlags.limit ?? DEFAULT_QUERY_LIMIT
-    const timeoutMs = (rawFlags.timeout ?? DEFAULT_TIMEOUT_SECONDS) * 1000
+    // `--timeout` is deprecated: completion liveness is heartbeat-driven
+    // (see waitForTaskCompletion). The flag still parses for back-compat
+    // but no longer bounds the wait.
 
     if (args.query.trim().length === 0) {
       if (format === 'json') {
@@ -91,7 +93,7 @@ Bad:
 
     try {
       await withDaemonRetry(async (client) => {
-        const envelope = await runRetrieval({client, limit, query: args.query, timeoutMs})
+        const envelope = await runRetrieval({client, limit, query: args.query})
         this.emitEnvelope(envelope, format, args.query)
       }, this.getDaemonClientOptions())
     } catch (error) {
