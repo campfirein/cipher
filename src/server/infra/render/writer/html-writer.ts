@@ -321,7 +321,7 @@ function setBvTopicAttribute(html: string, name: string, value: string): string 
 // contain none of these characters, but the helper is general-purpose by
 // shape and a future caller passing user-influenced content would
 // otherwise silently corrupt the tag.
-function escapeHtmlAttributeValue(value: string): string {
+export function escapeHtmlAttributeValue(value: string): string {
   return value
     .replaceAll('&', '&amp;')
     .replaceAll('<', '&lt;')

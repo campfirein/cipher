@@ -22,7 +22,7 @@
 import {connectToTransport, type ITransportClient} from '@campfirein/brv-transport-client'
 import {randomUUID} from 'node:crypto'
 import {appendFileSync, existsSync} from 'node:fs'
-import {join, relative, sep} from 'node:path'
+import {basename, join, relative, sep} from 'node:path'
 
 import type {ISearchKnowledgeService} from '../../../agent/infra/sandbox/tools-sdk.js'
 import type {BrvConfig} from '../../core/domain/entities/brv-config.js'
@@ -57,6 +57,7 @@ import {
   TransportTaskEventNames,
 } from '../../core/domain/transport/schemas.js'
 import {FileContextTreeArchiveService} from '../context-tree/file-context-tree-archive-service.js'
+import {regenerateContextTreeIndex} from '../context-tree/index-generator.js'
 import {RuntimeSignalStore} from '../context-tree/runtime-signal-store.js'
 import {bumpSidecarOnCurateWrite} from '../context-tree/tool-mode-sidecar-updaters.js'
 import {DreamLockService} from '../dream/dream-lock-service.js'
@@ -783,6 +784,16 @@ async function executeTask(
             )
           }
 
+          // Regenerate the context-tree index so the new topic appears in
+          // _index.html. Best-effort — the topic write already succeeded.
+          if (writeResult.ok) {
+            await regenerateContextTreeIndex({
+              contextTreeRoot,
+              log: (msg) => agentLog(`curate-html-direct ${taskId}: ${msg}`),
+              projectName: basename(projectPath),
+            })
+          }
+
           // Validation failures emit task:completed (NOT task:error) so
           // the calling agent sees the structured errors via the normal
           // result payload and can retry with corrected HTML. task:error
@@ -905,6 +916,15 @@ async function executeTask(
                 lastDreamLogId: logId,
                 totalDreams: state.totalDreams + 1,
               }))
+
+              // Archiving removed topics — refresh _index.html so they
+              // drop out of the navigation index. Best-effort.
+              await regenerateContextTreeIndex({
+                contextTreeRoot,
+                log: (msg) => agentLog(`dream-finalize ${taskId}: ${msg}`),
+                projectName: basename(projectPath),
+              })
+
               result = JSON.stringify({
                 archived: finalizeResult.archived,
                 logId,
