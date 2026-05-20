@@ -391,10 +391,10 @@ brv vc clone https://byterover.dev/<team>/<space>.git
 brv dream scan --format json
 ```
 Returns a `sessionId` (uuid) and `candidates` keyed by kind:
-- `link`: BM25-similar topic pairs that aren't cross-linked yet. Act by calling `brv curate` UPDATE on both topics to add `<bv-related>` edges.
-- `merge`: BM25-near-duplicates. Pick a survivor, call `brv curate` UPDATE with the merged body, then archive the loser via `brv dream finalize`.
-- `prune`: Low-importance or stale-mtime topics. Decide per candidate: ARCHIVE (via `finalize`), KEEP (no action), or MERGE_INTO another topic.
-- `synthesize`: Per-domain topic groups plus existing synthesis topics. Decide whether to author a new cross-cutting `<bv-topic>` under `synthesis/<slug>` via `brv curate` ADD.
+- `link`: BM25-similar topic pairs that aren't cross-linked yet. To act: extend each topic's `related=` attribute on `<bv-topic>` (comma-separated `@domain/topic` refs — no `.html` extension) with the partner's path, then re-call `brv curate` at each existing path. The path-exists kickoff branch in section 3 returns the topic's `existingContent`; merge your additions in and re-emit with `--overwrite` to apply the write.
+- `merge`: BM25-near-duplicates. Pick a survivor, author HTML combining both topics' bodies, write it via the same `brv curate` path-exists / `--overwrite` flow (section 3) at the survivor's existing path, then archive the loser via `brv dream finalize`.
+- `prune`: Low-importance or stale-mtime topics. Decide per candidate: archive it via `brv dream finalize`, leave it alone, or treat it as a `merge` candidate against another topic (using the `merge` flow above).
+- `synthesize`: Per-domain topic groups plus existing synthesis topics. To act: author a new `<bv-topic>` at a fresh path under `synthesis/<slug>` and call `brv curate` to write it — no path-exists branch applies because the path is new.
 
 Filter scope or kinds:
 ```bash
