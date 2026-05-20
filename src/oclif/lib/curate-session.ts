@@ -1,7 +1,7 @@
 import {randomUUID} from 'node:crypto'
 import {existsSync} from 'node:fs'
 import {mkdir, readFile, rm, writeFile} from 'node:fs/promises'
-import {dirname, join, relative, sep} from 'node:path'
+import {basename, dirname, join, relative, sep} from 'node:path'
 import {z} from 'zod'
 
 import type {CurateMeta} from '../../shared/curate-meta.js'
@@ -11,6 +11,7 @@ import {FileKeyStorage} from '../../agent/infra/storage/file-key-storage.js'
 import {BRV_DIR, CONTEXT_TREE_DIR} from '../../server/constants.js'
 import {buildCorrectionPrompt, buildGeneratePrompt} from '../../server/core/domain/render/curate-prompt-builder.js'
 import {ProjectConfigStore} from '../../server/infra/config/file-config-store.js'
+import {regenerateContextTreeIndex} from '../../server/infra/context-tree/index-generator.js'
 import {RuntimeSignalStore} from '../../server/infra/context-tree/runtime-signal-store.js'
 import {bumpSidecarOnCurateWrite} from '../../server/infra/context-tree/tool-mode-sidecar-updaters.js'
 import {backupContextTreeFile, buildCurateHtmlLogEntry} from '../../server/infra/process/curate-html-log.js'
@@ -405,6 +406,21 @@ export async function continueSession(options: ContinueOptions): Promise<CurateS
     topicPath,
     writeResult,
   })
+
+  // Regenerate the context-tree index so the new topic appears in
+  // _index.html. Best-effort — the topic write already succeeded.
+  //
+  // Inline (not deferred like the daemon's postWorkRegistry path): a
+  // `brv curate` CLI invocation is a single in-process operation, so
+  // there is no concurrency to serialize against — the daemon's
+  // per-project postWork mutex has no analogue or need here.
+  if (writeResult.ok) {
+    await regenerateContextTreeIndex({
+      contextTreeRoot,
+      log: (msg) => new ConsoleLogger().warn(`tool-mode-curate: ${msg}`),
+      projectName: basename(projectRoot),
+    })
+  }
 
   state.attempts += 1
   state.lastResponse = response
