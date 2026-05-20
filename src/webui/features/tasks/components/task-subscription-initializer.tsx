@@ -1,27 +1,26 @@
+import {useQueryClient} from '@tanstack/react-query'
 import {useEffect, useRef} from 'react'
 
+import {TaskEvents} from '../../../../shared/transport/events/task-events'
 import {useTransportStore} from '../../../stores/transport-store'
-import {useGetTasks} from '../api/get-tasks'
 import {useTaskSubscriptions} from '../hooks/use-task-subscriptions'
 import {useTaskStore} from '../stores/task-store'
 
-/**
- * Mounts task lifecycle subscriptions and reconciles the daemon snapshot with
- * the locally-cached tasks. Mounted at the route root so the Tasks tab badge
- * stays accurate regardless of which tab is active.
- *
- * Snapshot policy: merge, don't replace. The daemon discards completed tasks
- * after a 5s grace window, so its `task:list` would otherwise clobber finished
- * tasks the user can still see. Persisted task-store is the source of truth
- * for finished history; the daemon snapshot reconciles in-flight tasks.
- *
- * Project change: clear the cache so a different project starts fresh.
- */
+const TASK_LIFECYCLE_EVENTS = [
+  TaskEvents.CREATED,
+  TaskEvents.STARTED,
+  TaskEvents.COMPLETED,
+  TaskEvents.ERROR,
+  TaskEvents.CANCELLED,
+  TaskEvents.DELETED,
+] as const
+
 export function TaskSubscriptionInitializer() {
   const projectPath = useTransportStore((s) => s.selectedProject)
+  const apiClient = useTransportStore((s) => s.apiClient)
   const reset = useTaskStore((s) => s.reset)
-  const mergeTasks = useTaskStore((s) => s.mergeTasks)
   const previousProject = useRef(projectPath)
+  const queryClient = useQueryClient()
 
   useTaskSubscriptions()
 
@@ -32,12 +31,17 @@ export function TaskSubscriptionInitializer() {
     }
   }, [projectPath, reset])
 
-  const {data} = useGetTasks({projectPath: projectPath || undefined})
-
   useEffect(() => {
-    if (!data) return
-    mergeTasks(data.tasks)
-  }, [data, mergeTasks])
+    if (!apiClient) return
+    const unsubscribers = TASK_LIFECYCLE_EVENTS.map((event) =>
+      apiClient.on(event, () => {
+        queryClient.invalidateQueries({queryKey: ['tasks', 'list']})
+      }),
+    )
+    return () => {
+      for (const unsub of unsubscribers) unsub()
+    }
+  }, [apiClient, queryClient])
 
   return null
 }

@@ -28,7 +28,36 @@ export function LoadingState() {
   return <div className="text-muted-foreground flex h-32 items-center justify-center text-sm">Loading tasks…</div>
 }
 
-export function EmptyState({onNewTask, tourCue}: {onNewTask: () => void; tourCue?: string}) {
+export function EmptyState({
+  hasActiveFilters,
+  onClearFilters,
+  onNewTask,
+  tourCue,
+}: {
+  hasActiveFilters?: boolean
+  onClearFilters?: () => void
+  onNewTask: () => void
+  tourCue?: string
+}) {
+  if (hasActiveFilters) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-4 p-8 text-center">
+        <ListTodo className="text-muted-foreground/70 size-8" />
+        <div>
+          <h2 className="text-foreground text-base font-medium">No matching tasks</h2>
+          <p className="text-muted-foreground mx-auto mt-1 max-w-sm text-sm leading-relaxed">
+            No tasks match the current filters. Try adjusting or clearing them.
+          </p>
+        </div>
+        {onClearFilters && (
+          <Button className="cursor-pointer" onClick={onClearFilters} size="sm" variant="outline">
+            Clear filters
+          </Button>
+        )}
+      </div>
+    )
+  }
+
   return (
     <div className="flex h-full flex-col items-center justify-center gap-4 p-8 text-center">
       <ListTodo className="text-muted-foreground/70 size-8" />

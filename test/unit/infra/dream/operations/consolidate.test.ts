@@ -305,6 +305,33 @@ describe('consolidate', () => {
     expect(oauth).to.include('auth/jwt.md')
   })
 
+  it('CROSS_REFERENCE drops derived-artifact paths and cleans pre-existing dangling refs', async () => {
+    // Pre-seed jwt.md with a stale reference to an .abstract.md sibling — it
+    // shouldn't be there (push filtering would strip the file) and the next
+    // CROSS_REFERENCE touch should clean it up.
+    await createMdFile(ctxDir, 'auth/jwt.md', '# JWT', {
+      keywords: [], related: ['auth/legacy.abstract.md'], tags: [], title: 'JWT',
+    })
+    await createMdFile(ctxDir, 'auth/oauth.md', '# OAuth', {keywords: [], related: [], tags: [], title: 'OAuth'})
+
+    // LLM groups jwt.md with both a real sibling AND derived artifacts that
+    // should never end up in `related:` because they don't sync to remote.
+    agent.executeOnSession.resolves(llmResponse([{
+      files: ['auth/jwt.md', 'auth/oauth.md', 'auth/intro.overview.md', 'auth/intro.abstract.md'],
+      reason: 'Cross-reference auth topics',
+      type: 'CROSS_REFERENCE',
+    }]))
+
+    await consolidate(['auth/jwt.md', 'auth/oauth.md'], deps)
+
+    const jwt = await readFile(join(ctxDir, 'auth/jwt.md'), 'utf8')
+    expect(jwt).to.include('auth/oauth.md')
+    expect(jwt).to.not.include('auth/intro.overview.md')
+    expect(jwt).to.not.include('auth/intro.abstract.md')
+    // Pre-existing dangling ref opportunistically cleaned
+    expect(jwt).to.not.include('auth/legacy.abstract.md')
+  })
+
   it('returns empty operations for SKIP actions', async () => {
     await createMdFile(ctxDir, 'auth/unrelated.md', '# Unrelated')
 
@@ -567,6 +594,46 @@ describe('consolidate', () => {
       const titleIdx = fieldNames.indexOf('title')
       const createdAtIdx = fieldNames.indexOf('createdAt')
       expect(titleIdx, 'title should appear before createdAt (canonical order)').to.be.lessThan(createdAtIdx)
+    })
+
+    it('TEMPORAL_UPDATE preserves flow-style arrays (no block-style reflow)', async () => {
+      await createCanonicalFile(ctxDir, 'auth/session.md', '# Old session info')
+
+      // Input frontmatter uses flow-style arrays (the canonical CLI format
+      // emitted by markdown-writer with flowLevel: 1). After consolidate
+      // appends consolidated_at, the rewritten file must keep the SAME
+      // flow style — block-style reflow (`- a\n  - b`) silently diverges
+      // from regular brv curate output and recreates the synthesis-vs-regular
+      // inconsistency this work eliminates.
+      const updatedWithFm = [
+        '---',
+        'title: Auth Session',
+        "summary: Updated session handling",
+        'tags: [auth, session, security]',
+        'related: []',
+        'keywords: [session, cookie, jwt]',
+        "createdAt: '2026-04-01T00:00:00.000Z'",
+        "updatedAt: '2026-04-10T00:00:00.000Z'",
+        '---',
+        '# Updated session info',
+      ].join('\n')
+
+      agent.executeOnSession.resolves(llmResponse([{
+        files: ['auth/session.md'],
+        reason: 'Outdated info',
+        type: 'TEMPORAL_UPDATE',
+        updatedContent: updatedWithFm,
+      }]))
+
+      await consolidate(['auth/session.md'], deps)
+
+      const updated = await readFile(join(ctxDir, 'auth/session.md'), 'utf8')
+      expect(updated).to.include('tags: [auth, session, security]')
+      expect(updated).to.include('keywords: [session, cookie, jwt]')
+      expect(updated).to.include('related: []')
+      // Reject block-style reflow
+      expect(updated).to.not.match(/^tags:\s*\n\s+- /m)
+      expect(updated).to.not.match(/^keywords:\s*\n\s+- /m)
     })
 
     it('CROSS_REFERENCE preserves existing frontmatter field order', async () => {

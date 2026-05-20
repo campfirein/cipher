@@ -25,9 +25,28 @@ async function createMdFile(dir: string, relativePath: string, body: string, fro
   await writeFile(fullPath, content, 'utf8')
 }
 
-/** Build a canned LLM response */
-function llmResponse(syntheses: Array<{claim: string; confidence?: number; evidence: Array<{domain: string; fact: string}>; placement: string; title: string}>): string {
-  return '```json\n' + JSON.stringify({syntheses}) + '\n```'
+/**
+ * Build a canned LLM response. Tests only need to specify what they're
+ * exercising — summary/tags/keywords default to placeholders so the zod
+ * schema parses without forcing every test to repeat them.
+ */
+function llmResponse(syntheses: Array<{
+  claim: string;
+  confidence?: number;
+  evidence: Array<{domain: string; fact: string}>;
+  keywords?: string[];
+  placement: string;
+  summary?: string;
+  tags?: string[];
+  title: string;
+}>): string {
+  const withDefaults = syntheses.map((s) => ({
+    keywords: ['test-keyword'],
+    summary: 'Test summary.',
+    tags: ['test-tag'],
+    ...s,
+  }))
+  return '```json\n' + JSON.stringify({syntheses: withDefaults}) + '\n```'
 }
 
 /** Narrow DreamOperation to SYNTHESIZE variant */
@@ -111,6 +130,12 @@ describe('synthesize', () => {
     expect(prompt).to.include('# Auth Summary')
     expect(prompt).to.include('DOMAIN: api')
     expect(prompt).to.include('# API Summary')
+    // The prompt must instruct the model to produce the semantic fields the
+    // web UI's card-mode display needs (summary/tags/keywords); without
+    // them, synthesized files render with empty preview slots.
+    expect(prompt).to.match(/"summary"/)
+    expect(prompt).to.match(/"tags"/)
+    expect(prompt).to.match(/"keywords"/)
     expect(agent.deleteTaskSession.calledOnce).to.be.true
   })
 
@@ -166,7 +191,7 @@ describe('synthesize', () => {
     expect(content).to.include('Both auth and API share token validation logic.')
   })
 
-  it('writes correct frontmatter fields', async () => {
+  it('writes the 7 semantic frontmatter fields plus synthesis markers', async () => {
     await createMdFile(ctxDir, 'auth/_index.md', '# Auth', {type: 'summary'})
     await createMdFile(ctxDir, 'api/_index.md', '# API', {type: 'summary'})
 
@@ -174,7 +199,10 @@ describe('synthesize', () => {
       claim: 'Test claim.',
       confidence: 0.7,
       evidence: [{domain: 'auth', fact: 'Fact A'}, {domain: 'api', fact: 'Fact B'}],
+      keywords: ['authentication', 'tokens'],
       placement: 'api',
+      summary: 'Both auth and API share token validation logic.',
+      tags: ['security', 'cross-cutting'],
       title: 'Test Synthesis',
     }]))
 
@@ -182,11 +210,100 @@ describe('synthesize', () => {
     expect(results).to.have.lengthOf(1)
 
     const content = await readFile(join(ctxDir, 'api/test-synthesis.md'), 'utf8')
+
+    // Semantic fields — required by the web UI's card-mode display
+    expect(content).to.include('title: Test Synthesis')
+    expect(content).to.include('summary: Both auth and API share token validation logic.')
+    // Arrays MUST render in flow style ([a, b, c]) so on-disk output matches
+    // markdown-writer.ts; reverting flowLevel to 2 would fail this assertion.
+    expect(content).to.match(/^tags: \[/m)
+    expect(content).to.match(/^keywords: \[/m)
+    expect(content).to.include('security')
+    expect(content).to.include('cross-cutting')
+    expect(content).to.include('authentication')
+    expect(content).to.include('tokens')
+    expect(content).to.include('related:')
+    expect(content).to.include('createdAt:')
+    expect(content).to.include('updatedAt:')
+
+    // Synthesis markers — kept for traceability and review gating
     expect(content).to.include('confidence:')
     expect(content).to.include('sources:')
     expect(content).to.include('synthesized_at:')
+    expect(content).to.include('type: synthesis')
     expect(content).to.include('auth/_index.md')
     expect(content).to.include('api/_index.md')
+
+    // Sidecar fields must not bleed into markdown frontmatter
+    expect(content).to.not.include('maturity:')
+    expect(content).to.not.include('importance:')
+  })
+
+  it('normalizes tags to lowercase kebab-case', async () => {
+    await createMdFile(ctxDir, 'auth/_index.md', '# Auth', {type: 'summary'})
+    await createMdFile(ctxDir, 'api/_index.md', '# API', {type: 'summary'})
+
+    agent.executeOnSession.resolves(llmResponse([{
+      claim: 'Test.',
+      confidence: 0.9,
+      evidence: [{domain: 'auth', fact: 'A'}, {domain: 'api', fact: 'B'}],
+      keywords: ['x'],
+      placement: 'auth',
+      summary: 'A summary.',
+      // Mixed-case + multi-word tags — should be normalized at write time so
+      // card chips and BM25 search see consistent labels regardless of
+      // whether the model followed the prompt's "lowercase, kebab-case" rule.
+      tags: ['Auth Service', 'JWT-Validation', '  cross-cutting  '],
+      title: 'Tag Normalization Test',
+    }]))
+
+    const results = await synthesize(deps)
+    expect(results).to.have.lengthOf(1)
+
+    const content = await readFile(join(ctxDir, 'auth/tag-normalization-test.md'), 'utf8')
+    expect(content).to.include('auth-service')
+    expect(content).to.include('jwt-validation')
+    expect(content).to.include('cross-cutting')
+    expect(content).to.not.include('Auth Service')
+    expect(content).to.not.include('JWT-Validation')
+  })
+
+  it('emits frontmatter parseable as the regular semantic shape', async () => {
+    const {load: yamlLoad} = await import('js-yaml')
+
+    await createMdFile(ctxDir, 'auth/_index.md', '# Auth', {type: 'summary'})
+    await createMdFile(ctxDir, 'api/_index.md', '# API', {type: 'summary'})
+
+    agent.executeOnSession.resolves(llmResponse([{
+      claim: 'Test.',
+      confidence: 0.9,
+      evidence: [{domain: 'auth', fact: 'A'}, {domain: 'api', fact: 'B'}],
+      keywords: ['x', 'y'],
+      placement: 'auth',
+      summary: 'A summary.',
+      tags: ['z'],
+      title: 'Strict Test',
+    }]))
+
+    const results = await synthesize(deps)
+    expect(results).to.have.lengthOf(1)
+
+    const content = await readFile(join(ctxDir, 'auth/strict-test.md'), 'utf8')
+    const yamlBlock = content.match(/^---\n([\S\s]+?)\n---/)?.[1]
+    expect(yamlBlock).to.be.a('string')
+    const parsed = yamlLoad(yamlBlock ?? '')
+    expect(parsed).to.be.an('object').and.not.null
+
+    // Cogit's Go parser populates DtoV3MemoryCardResource fields from these
+    // YAML keys (summary→short_description, related→relateds,
+    // updatedAt→last_updated_at). All seven must be present and well-typed.
+    expect(parsed).to.have.property('title').that.is.a('string')
+    expect(parsed).to.have.property('summary').that.is.a('string')
+    expect(parsed).to.have.property('tags').that.is.an('array')
+    expect(parsed).to.have.property('keywords').that.is.an('array')
+    expect(parsed).to.have.property('related').that.is.an('array')
+    expect(parsed).to.have.property('createdAt').that.is.a('string')
+    expect(parsed).to.have.property('updatedAt').that.is.a('string')
   })
 
   it('writes evidence section in body', async () => {

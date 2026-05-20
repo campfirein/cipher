@@ -1,6 +1,4 @@
-import {queryOptions, useQuery} from '@tanstack/react-query'
-
-import type {QueryConfig} from '../../../lib/react-query'
+import {useQuery} from '@tanstack/react-query'
 
 import {
   TaskEvents,
@@ -16,19 +14,10 @@ export const getTasks = (data?: TaskListRequest): Promise<TaskListResponse> => {
   return apiClient.request<TaskListResponse, TaskListRequest>(TaskEvents.LIST, data)
 }
 
-export const getTasksQueryOptions = (projectPath?: string) =>
-  queryOptions({
-    queryFn: () => getTasks(projectPath ? {projectPath} : undefined),
-    queryKey: ['tasks', 'list', projectPath ?? ''],
-  })
+export type UseGetTasksOptions = TaskListRequest
 
-type UseGetTasksOptions = {
-  projectPath?: string
-  queryConfig?: QueryConfig<typeof getTasksQueryOptions>
-}
-
-export const useGetTasks = ({projectPath, queryConfig}: UseGetTasksOptions = {}) =>
+export const useGetTasks = (options: UseGetTasksOptions = {}) =>
   useQuery({
-    ...getTasksQueryOptions(projectPath),
-    ...queryConfig,
+    queryFn: () => getTasks(options),
+    queryKey: ['tasks', 'list', options],
   })
