@@ -90,7 +90,6 @@ describe('waitForTaskCompletion — SIGINT cancel handling (T2.5)', () => {
         onCompleted() {},
         onError() {},
         taskId: 'task-1',
-        timeoutMs: 5000,
       },
       () => {},
     )
@@ -117,7 +116,6 @@ describe('waitForTaskCompletion — SIGINT cancel handling (T2.5)', () => {
         onCompleted() {},
         onError() {},
         taskId: 'task-1',
-        timeoutMs: 5000,
       },
       () => {},
     )
@@ -144,7 +142,6 @@ describe('waitForTaskCompletion — SIGINT cancel handling (T2.5)', () => {
         onCompleted() {},
         onError() {},
         taskId: 'task-1',
-        timeoutMs: 5000,
       },
       () => {},
     )
@@ -175,7 +172,6 @@ describe('waitForTaskCompletion — SIGINT cancel handling (T2.5)', () => {
         onCompleted() {},
         onError() {},
         taskId: 'task-1',
-        timeoutMs: 5000,
       },
       () => {},
     )
@@ -204,7 +200,6 @@ describe('waitForTaskCompletion — SIGINT cancel handling (T2.5)', () => {
         onCompleted() {},
         onError() {},
         taskId: 'task-1',
-        timeoutMs: 5000,
       },
       () => {},
     )
@@ -231,7 +226,6 @@ describe('waitForTaskCompletion — SIGINT cancel handling (T2.5)', () => {
         onCompleted() {},
         onError() {},
         taskId: 'task-1',
-        timeoutMs: 5000,
       },
       () => {},
     )
@@ -256,7 +250,6 @@ describe('waitForTaskCompletion — SIGINT cancel handling (T2.5)', () => {
         onCompleted() {},
         onError() {},
         taskId: 'task-1',
-        timeoutMs: 5000,
       },
       () => {},
     )
@@ -290,7 +283,6 @@ describe('waitForTaskCompletion — SIGINT cancel handling (T2.5)', () => {
         onCompleted() {},
         onError() {},
         taskId: 'task-1',
-        timeoutMs: 5000,
       },
       () => {},
     )
