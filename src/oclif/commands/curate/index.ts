@@ -21,6 +21,7 @@ import {
 import {ensureBillingFunds} from '../../lib/insufficient-credits.js'
 import {writeJsonResponse} from '../../lib/json-response.js'
 import {DEFAULT_TIMEOUT_SECONDS, MAX_TIMEOUT_SECONDS, MIN_TIMEOUT_SECONDS, type ToolCallRecord, waitForTaskCompletion} from '../../lib/task-client.js'
+import {TIMEOUT_DEPRECATION_HELP, warnIfTimeoutFlagUsed} from '../../lib/timeout-deprecation.js'
 
 /** Parsed flags type */
 type CurateFlags = {
@@ -91,7 +92,7 @@ Bad examples:
     }),
     timeout: Flags.integer({
       default: DEFAULT_TIMEOUT_SECONDS,
-      description: 'Maximum seconds to wait for task completion',
+      description: TIMEOUT_DEPRECATION_HELP,
       max: MAX_TIMEOUT_SECONDS,
       min: MIN_TIMEOUT_SECONDS,
     }),
@@ -111,6 +112,12 @@ Bad examples:
       timeout: rawFlags.timeout,
     }
     const format: 'json' | 'text' = flags.format ?? 'text'
+
+    warnIfTimeoutFlagUsed({
+      defaultValue: DEFAULT_TIMEOUT_SECONDS,
+      log: (message) => this.log(message),
+      userValue: rawFlags.timeout,
+    })
 
     if (!this.validateInput(args, flags, format)) return
 
@@ -318,10 +325,6 @@ Bad examples:
     }
 
     if (flags.detach) {
-      if (flags.timeout !== DEFAULT_TIMEOUT_SECONDS && format !== 'json') {
-        this.log('Note: --timeout has no effect with --detach')
-      }
-
       const ack = await client.requestWithAck<TaskAck>(TaskEvents.CREATE, taskPayload)
       const {logId} = ack
 
@@ -389,7 +392,6 @@ Bad examples:
             }
           },
           taskId,
-          timeoutMs: (flags.timeout ?? DEFAULT_TIMEOUT_SECONDS) * 1000,
         },
         (msg) => this.log(msg),
       )

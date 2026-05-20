@@ -39,6 +39,7 @@ import {CipherAgent} from '../../../agent/infra/agent/index.js'
 import {FileSystemService} from '../../../agent/infra/file-system/file-system-service.js'
 import {FolderPackService} from '../../../agent/infra/folder-pack/folder-pack-service.js'
 import {SessionMetadataStore} from '../../../agent/infra/session/session-metadata-store.js'
+import {loadAgentSettingsSnapshot} from '../../../agent/infra/settings/agent-settings-snapshot.js'
 import {FileKeyStorage} from '../../../agent/infra/storage/file-key-storage.js'
 import {runWithReviewDisabled} from '../../../agent/infra/tools/implementations/curate-tool-task-context.js'
 import {createSearchKnowledgeService} from '../../../agent/infra/tools/implementations/search-knowledge-service.js'
@@ -233,6 +234,7 @@ async function start(): Promise<void> {
     transport.requestWithAck<AuthResponse>(TransportStateEventNames.GET_AUTH),
     transport.requestWithAck<ProviderConfigResponse>(TransportStateEventNames.GET_PROVIDER_CONFIG),
     transport.requestWithAck<BillingStateResponse>(TransportStateEventNames.GET_BILLING_CONFIG, {projectPath}),
+    loadAgentSettingsSnapshot(transport),
   ])
 
   cachedBrvConfig = configResult.brvConfig
@@ -457,7 +459,8 @@ async function executeTask(
   storagePath: string,
   runtimeSignalStore: IRuntimeSignalStore,
 ): Promise<void> {
-  const {clientCwd, clientId, content, files, folderPath, force, reviewDisabled, taskId, trigger, type, worktreeRoot} = task
+  const {clientCwd, clientId, content, files, folderPath, force, reviewDisabled, taskId, trigger, type, worktreeRoot} =
+    task
   if (!transport || !agent) return
 
   // Search tasks are pure BM25 retrieval — no LLM, no provider needed.
@@ -668,7 +671,13 @@ async function executeTask(
       // the response as soon as the agent body finishes.
       agentLog(`task:completed taskId=${taskId}`)
       try {
-        transport.request(TransportTaskEventNames.COMPLETED, {clientId, ...(logId ? {logId} : {}), projectPath, result, taskId})
+        transport.request(TransportTaskEventNames.COMPLETED, {
+          clientId,
+          ...(logId ? {logId} : {}),
+          projectPath,
+          result,
+          taskId,
+        })
       } catch (error) {
         agentLog(
           `task:completed send failed taskId=${taskId}: ${error instanceof Error ? error.message : String(error)}`,
