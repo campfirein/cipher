@@ -23,7 +23,9 @@ const countString = z
 export const BvIndexAttributesSchema = z
   .object({
     domaincount: countString,
-    generatedat: z.string().min(1, {message: 'generatedat is required and must be non-empty'}),
+    // System-stamped at generation time — always `new Date().toISOString()`.
+    // Pinned to ISO 8601 so the FE index-viewer can parse/format/sort it.
+    generatedat: z.string().datetime({message: 'generatedat must be an ISO 8601 timestamp'}),
     project: z.string().min(1, {message: 'project is required and must be non-empty'}),
     topiccount: countString,
   })
