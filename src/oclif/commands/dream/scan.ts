@@ -105,7 +105,6 @@ public static flags = {
                 }
               },
               taskId,
-              timeoutMs: (raw.timeout ?? DEFAULT_TIMEOUT_SECONDS) * 1000,
             },
             (msg) => this.log(msg),
           )

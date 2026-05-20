@@ -58,15 +58,7 @@ type RunRetrievalOptions = {
   limit: number
   /** User question, verbatim. */
   query: string
-  /**
-   * Daemon task wait timeout in milliseconds. Defaults to 30s — BM25
-   * retrieval is sub-second on reasonable trees, so this only fires
-   * on a degenerate cold-index rebuild against a very large tree.
-   */
-  timeoutMs?: number
 }
-
-const DEFAULT_RETRIEVAL_TIMEOUT_MS = 30_000
 
 /**
  * Submit a `type: 'query-tool-mode'` task to the daemon, wait for
@@ -75,7 +67,7 @@ const DEFAULT_RETRIEVAL_TIMEOUT_MS = 30_000
  * CLI dispatcher can map to the outer `success: false` envelope.
  */
 export async function runRetrieval(options: RunRetrievalOptions): Promise<QueryToolModeResult> {
-  const {client, limit, query, timeoutMs = DEFAULT_RETRIEVAL_TIMEOUT_MS} = options
+  const {client, limit, query} = options
   const taskId = randomUUID()
   const taskPayload = {
     clientCwd: process.cwd(),
@@ -108,7 +100,6 @@ export async function runRetrieval(options: RunRetrievalOptions): Promise<QueryT
         errorMessage = error.message
       },
       taskId,
-      timeoutMs,
     },
     () => {
       // No-op log sink: tool mode emits one envelope, not progress lines.
