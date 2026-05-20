@@ -5,6 +5,7 @@ import {randomUUID} from 'node:crypto'
 
 import {type ProviderConfigResponse, TransportStateEventNames} from '../../server/core/domain/transport/schemas.js'
 import {TaskEvents} from '../../shared/transport/events/index.js'
+import {printBillingLine} from '../lib/billing-line.js'
 import {runCancelBranchWithRetry} from '../lib/cancel-task.js'
 import {
   type DaemonClientOptions,
@@ -14,8 +15,10 @@ import {
   providerMissingMessage,
   withDaemonRetry,
 } from '../lib/daemon-client.js'
+import {ensureBillingFunds} from '../lib/insufficient-credits.js'
 import {writeJsonResponse} from '../lib/json-response.js'
 import {DEFAULT_TIMEOUT_SECONDS, MAX_TIMEOUT_SECONDS, MIN_TIMEOUT_SECONDS, waitForTaskCompletion} from '../lib/task-client.js'
+import {TIMEOUT_DEPRECATION_HELP, warnIfTimeoutFlagUsed} from '../lib/timeout-deprecation.js'
 
 export default class Query extends Command {
   public static args = {
@@ -51,7 +54,7 @@ Bad:
     }),
     timeout: Flags.integer({
       default: DEFAULT_TIMEOUT_SECONDS,
-      description: 'Maximum seconds to wait for task completion',
+      description: TIMEOUT_DEPRECATION_HELP,
       max: MAX_TIMEOUT_SECONDS,
       min: MIN_TIMEOUT_SECONDS,
     }),
@@ -85,6 +88,12 @@ Bad:
       return
     }
 
+    warnIfTimeoutFlagUsed({
+      defaultValue: DEFAULT_TIMEOUT_SECONDS,
+      log: (message) => this.log(message),
+      userValue: flags.timeout,
+    })
+
     if (!this.validateInput(args.query ?? '', format)) return
 
     let providerContext: ProviderErrorContext | undefined
@@ -108,12 +117,17 @@ Bad:
             throw new Error(providerMissingMessage(active.activeProvider, active.authMethod))
           }
 
+          const billing = await printBillingLine({client, format, log: (msg) => this.log(msg)})
+
+          if (billing) {
+            await ensureBillingFunds({billing, client})
+          }
+
           const result = await this.submitTask({
             client,
             format,
             projectRoot,
             query: args.query ?? '',
-            timeoutMs: (flags.timeout ?? DEFAULT_TIMEOUT_SECONDS) * 1000,
             worktreeRoot,
           })
           if (result.wasCancelled) wasCancelled = true
@@ -171,10 +185,9 @@ Bad:
     format: 'json' | 'text'
     projectRoot?: string
     query: string
-    timeoutMs?: number
     worktreeRoot?: string
   }): Promise<{wasCancelled: boolean}> {
-    const {client, format, projectRoot, query, timeoutMs, worktreeRoot} = props
+    const {client, format, projectRoot, query, worktreeRoot} = props
     const taskId = randomUUID()
     const taskPayload = {
       clientCwd: process.cwd(),
@@ -272,7 +285,6 @@ Bad:
           }
         },
         taskId,
-        timeoutMs,
       },
       (msg) => this.log(msg),
     )
