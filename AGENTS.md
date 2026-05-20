@@ -64,9 +64,9 @@ npm run dev:ui:package               # Vite dev server resolving shared UI from 
 - `agent/` — LLM agent: `core/` (interfaces/domain), `infra/` (modules including llm, memory, map, swarm, sandbox, session, tools, document-parser), `resources/` (prompts YAML, tool `.txt` descriptions)
 - `server/` — Daemon infrastructure: `config/`, `core/` (domain/interfaces), `infra/` (modules including vc, git, hub, mcp, cogit, connectors, project, provider-oauth, session, space, dream, webui, billing, transport, executor, storage, context-tree), `templates/`, `utils/`
 - `shared/` — Cross-module: constants, types, transport events, utils
-- `tui/` — React/Ink TUI: app (router/pages), components, features (23 modules, including vc, worktree, source, hub, curate), hooks, lib, providers, stores
-- `webui/` — Browser dashboard (React/Vite). Entry `src/webui/index.tsx`; `features/` (15 panels), `pages/` (8 pages: home, changes, configuration, contexts, tasks, analytics, project-selector, not-found), `layouts/`, `stores/`. Connects to the daemon via Socket.IO; no imports from `server/`, `agent/`, or `tui/` (same boundary rule)
-- `oclif/` — Commands grouped by topic (`vc/`, `hub/`, `worktree/`, `source/`, `space/`, `review/`, `connectors/`, `curate/`, `model/`, `providers/`, `swarm/`, `query-log/`) + top-level `.ts` commands (`webui`, `dream`, `review`, `search`, `locations`, `query`, `login`, `logout`, `init`, `mcp`, `pull`, `push`, `restart`, `status`, `debug`) + hidden internals (`main` — default `brv` REPL entry; `hook-prompt-submit` — emits `brv-instructions` template for coding-agent pre-prompt hooks, e.g. Claude Code `UserPromptSubmit`); hooks, lib (daemon-client, task-client, json-response)
+- `tui/` — React/Ink TUI: app (router/pages), components, features (24 modules, including vc, worktree, source, hub, curate, settings), hooks, lib, providers, stores
+- `webui/` — Browser dashboard (React/Vite). Entry `src/webui/index.tsx`; `features/` (16 panels), `pages/` (8 pages: home, changes, configuration, contexts, tasks, analytics, project-selector, not-found — configuration sub-routes live under `pages/configuration/`: layout, general, connectors, version-control), `layouts/`, `stores/`. Connects to the daemon via Socket.IO; no imports from `server/`, `agent/`, or `tui/` (same boundary rule)
+- `oclif/` — Commands grouped by topic (`vc/`, `hub/`, `worktree/`, `source/`, `space/`, `review/`, `connectors/`, `curate/`, `model/`, `providers/`, `swarm/`, `query-log/`, `settings/`) + top-level `.ts` commands (`webui`, `dream`, `review`, `search`, `locations`, `query`, `login`, `logout`, `init`, `mcp`, `pull`, `push`, `restart`, `status`, `debug`) + hidden internals (`main` — default `brv` REPL entry; `hook-prompt-submit` — emits `brv-instructions` template for coding-agent pre-prompt hooks, e.g. Claude Code `UserPromptSubmit`); hooks, lib (daemon-client, task-client, json-response)
 
 **Import boundary** (ESLint-enforced): `tui/` must not import from `server/`, `agent/`, or `oclif/`. Use transport events or `shared/`.
 
@@ -119,6 +119,13 @@ npm run dev:ui:package               # Vite dev server resolving shared UI from 
 - CLI status line: `brv status` / `brv providers list` render credits via `oclif/lib/billing-line.ts` + `format-billing-line.ts`
 - `brv providers connect` (byterover provider) runs a team-select step that emits `BillingEvents.SET_PINNED_TEAM`
 - WebUI: credits pill (`webui/features/provider/components/credits-pill.tsx`), team-select step in `provider-flow-dialog.tsx`, billing API wrappers in `webui/features/provider/api/` (`list-billing-usage`, `list-teams`, `get-pinned-team`, `set-pinned-team`, `get-free-user-limit`)
+
+### Settings
+
+- `brv settings` (bare = list) / `brv settings get <key>` / `set <key> <value>` / `reset <key>` — user-configurable settings persisted at `<BRV_DATA_DIR>/settings.json`; changes apply after `brv restart`
+- Categories: `concurrency`, `llm`, `task-history`. Initial keys: `agentPool.maxSize`, `agentPool.maxConcurrentTasksPerProject`, `taskHistory.maxEntries`. Descriptors in `server/core/domain/entities/settings.ts` reference `src/constants.ts` so a constant change updates the setting's default automatically
+- Server: `server/infra/storage/file-settings-store.ts` + `settings-validator.ts`; `server/infra/daemon/settings-bootstrap.ts` reads settings at boot and feeds AgentPool (maxSize, maxConcurrentTasks) + task-history cache. Transport: `shared/transport/events/settings-events.ts` + `server/infra/transport/handlers/settings-handler.ts`
+- UI: TUI `tui/features/settings/`, WebUI `webui/features/settings/` (rendered under `pages/configuration/` sub-routes). Task heartbeat (`server/infra/process/task-heartbeat-manager.ts`) and task-history cache (`server/infra/process/task-history-store-cache.ts`) are tuned via these keys; oclif task-client uses heartbeats — explicit task timeouts are deprecated
 
 ### Other oclif topic groups
 
