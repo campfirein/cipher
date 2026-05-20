@@ -26,6 +26,11 @@ const PruneOperationSchema = z.object({
   file: z.string(),
   mergeTarget: z.string().optional(),
   needsReview: z.boolean(),
+  // Tool-mode finalize captures the file's content before archiving so undo
+  // can restore from the log alone (no archive-service / stub indirection).
+  // Legacy LLM-driven prune still uses stubPath; both forms are supported by
+  // dream-undo at runtime.
+  previousTexts: z.record(z.string(), z.string()).optional(),
   reason: z.string(),
   stubPath: z.string().optional(),
   type: z.literal('PRUNE'),

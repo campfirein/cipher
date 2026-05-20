@@ -63,6 +63,7 @@ import {DreamLockService} from '../dream/dream-lock-service.js'
 import {DreamLogStore} from '../dream/dream-log-store.js'
 import {DreamStateService} from '../dream/dream-state-service.js'
 import {DreamTrigger} from '../dream/dream-trigger.js'
+import {type DreamKind, finalizeDreamSession, scanDreamCandidates} from '../dream/tool-mode/dream-session.js'
 import {CurateExecutor} from '../executor/curate-executor.js'
 import {DreamExecutor} from '../executor/dream-executor.js'
 import {FolderPackExecutor} from '../executor/folder-pack-executor.js'
@@ -500,7 +501,13 @@ async function executeTask(
   // paths — no LLM, no provider needed. Skip provider validation so they
   // work even without a configured provider (the headline promise of
   // tool mode).
-  if (type !== 'search' && type !== 'query-tool-mode' && type !== 'curate-html-direct') {
+  if (
+    type !== 'search' &&
+    type !== 'query-tool-mode' &&
+    type !== 'curate-html-direct' &&
+    type !== 'dream-scan' &&
+    type !== 'dream-finalize'
+  ) {
     const freshProviderConfig = await transport.requestWithAck<ProviderConfigResponse>(
       TransportStateEventNames.GET_PROVIDER_CONFIG,
     )
@@ -586,8 +593,18 @@ async function executeTask(
     // on this project drains. `query` / `search` are intentionally NOT
     // gated — they read the manifest and tolerate a stale snapshot via
     // `readManifestIfFresh` + rebuild fallback, so blocking them would
-    // be a needless latency hit.
-    if (type === 'curate' || type === 'curate-folder' || type === 'dream') {
+    // be a needless latency hit. `dream-finalize` renames topic files
+    // and so MUST gate (otherwise an in-flight Phase 4 `_index.md`
+    // rebuild can reference files we just archived). `dream-scan` is
+    // read-only but we gate it too so a scan never observes a tree
+    // mid-rebuild and returns inconsistent candidates.
+    if (
+      type === 'curate' ||
+      type === 'curate-folder' ||
+      type === 'dream' ||
+      type === 'dream-finalize' ||
+      type === 'dream-scan'
+    ) {
       await postWorkRegistry.awaitProject(projectPath)
     }
 
@@ -823,6 +840,122 @@ async function executeTask(
           })
           result = dreamResult.result
           logId = dreamResult.logId
+
+          break
+        }
+
+        case 'dream-finalize': {
+          // Archive the loser topics the agent picked. Stateless on
+          // daemon side — `sessionId` is opaque; we don't track sessions
+          // in v1. Writes a DreamLogEntry so `brv dream undo` can restore.
+          const brvDir = join(projectPath, BRV_DIR)
+          const contextTreeRoot = join(brvDir, CONTEXT_TREE_DIR)
+          let parsed: {archive?: string[]; sessionId?: string}
+          try {
+            parsed = content ? JSON.parse(content) : {}
+          } catch {
+            result = JSON.stringify({error: 'dream-finalize: invalid JSON content', status: 'error'})
+            break
+          }
+
+          const startedAt = Date.now()
+          try {
+            const finalizeResult = await finalizeDreamSession({
+              archive: parsed.archive ?? [],
+              brvDir,
+              contextTreeRoot,
+              runtimeSignalStore,
+              sessionId: parsed.sessionId ?? '',
+            })
+
+            // Write a dream-log entry so `brv dream undo` can revert. Skipped
+            // when nothing was actually archived — no-op finalizes shouldn't
+            // pollute the undo history.
+            if (finalizeResult.archived.length > 0) {
+              const dreamLogStore = new DreamLogStore({baseDir: brvDir})
+              const dreamStateService = new DreamStateService({baseDir: brvDir})
+              const logId = await dreamLogStore.getNextId()
+              const completedAt = Date.now()
+              await dreamLogStore.save({
+                completedAt,
+                id: logId,
+                operations: finalizeResult.archived.map((path) => ({
+                  action: 'ARCHIVE',
+                  file: path,
+                  needsReview: false,
+                  previousTexts: {[path]: finalizeResult.previousTexts[path] ?? ''},
+                  reason: 'tool-mode dream finalize',
+                  type: 'PRUNE',
+                })),
+                startedAt,
+                status: 'completed',
+                summary: {
+                  consolidated: 0,
+                  errors: 0,
+                  flaggedForReview: 0,
+                  pruned: finalizeResult.archived.length,
+                  synthesized: 0,
+                },
+                taskId,
+                trigger: trigger ?? 'cli',
+              })
+              await dreamStateService.update((state) => ({
+                ...state,
+                lastDreamAt: new Date().toISOString(),
+                lastDreamLogId: logId,
+                totalDreams: state.totalDreams + 1,
+              }))
+              result = JSON.stringify({
+                archived: finalizeResult.archived,
+                logId,
+                skipped: finalizeResult.skipped,
+                status: 'ok',
+              })
+            } else {
+              result = JSON.stringify({
+                archived: finalizeResult.archived,
+                skipped: finalizeResult.skipped,
+                status: 'ok',
+              })
+            }
+          } catch (error) {
+            result = JSON.stringify({
+              error: error instanceof Error ? error.message : String(error),
+              status: 'error',
+            })
+          }
+
+          break
+        }
+
+        case 'dream-scan': {
+          // Tool-mode dream — no LLM, no provider. The daemon enumerates
+          // candidates and returns them; the calling agent does all
+          // semantic judgment via brv-curate UPDATE/MERGE/ADD writes
+          // before invoking dream-finalize to archive losers.
+          const contextTreeRoot = join(projectPath, BRV_DIR, CONTEXT_TREE_DIR)
+          let parsed: {kinds?: DreamKind[]; maxCandidates?: number; scope?: string}
+          try {
+            parsed = content ? JSON.parse(content) : {}
+          } catch {
+            result = JSON.stringify({error: 'dream-scan: invalid JSON content', status: 'error'})
+            break
+          }
+
+          try {
+            const scanResult = await scanDreamCandidates({
+              contextTreeRoot,
+              options: parsed,
+              runtimeSignalStore,
+              searchService: searchKnowledgeService,
+            })
+            result = JSON.stringify({...scanResult, status: 'ok'})
+          } catch (error) {
+            result = JSON.stringify({
+              error: error instanceof Error ? error.message : String(error),
+              status: 'error',
+            })
+          }
 
           break
         }
