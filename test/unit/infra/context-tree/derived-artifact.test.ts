@@ -17,8 +17,8 @@ describe('derived-artifact predicates', () => {
       expect(isDerivedArtifact('_manifest.json')).to.be.true
     })
 
-    it('should return true for _index.html (tool-mode context-tree index)', () => {
-      expect(isDerivedArtifact('_index.html')).to.be.true
+    it('should return true for index.html (tool-mode context-tree index)', () => {
+      expect(isDerivedArtifact('index.html')).to.be.true
     })
 
     it('should return false for regular .html topic files', () => {

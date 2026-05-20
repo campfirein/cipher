@@ -61,7 +61,7 @@ describe('generateContextTreeIndex', () => {
     expect(result.topicCount).to.equal(2)
     expect(result.domainCount).to.equal(2)
 
-    const written = await readFile(join(root, '_index.html'), 'utf8')
+    const written = await readFile(join(root, 'index.html'), 'utf8')
     expect(validateHtmlIndex(written).ok).to.equal(true)
     expect(written).to.contain('format="html"')
     expect(written).to.contain('format="markdown"')
@@ -78,7 +78,7 @@ describe('generateContextTreeIndex', () => {
     if (!result.ok) return
     expect(result.domainCount).to.equal(2)
 
-    const written = await readFile(join(root, '_index.html'), 'utf8')
+    const written = await readFile(join(root, 'index.html'), 'utf8')
     // alpha domain section before zeta
     expect(written.indexOf('name="alpha"')).to.be.lessThan(written.indexOf('name="zeta"'))
     // within alpha, one before two (sorted by path)
@@ -90,7 +90,7 @@ describe('generateContextTreeIndex', () => {
     const result = await generateContextTreeIndex({contextTreeRoot: root, projectName: 'demo'})
     expect(result.ok).to.equal(true)
 
-    const written = await readFile(join(root, '_index.html'), 'utf8')
+    const written = await readFile(join(root, 'index.html'), 'utf8')
     expect(written).to.contain('A summary line.')
     expect(written).to.contain('tags="a,b"')
   })
@@ -105,7 +105,7 @@ describe('generateContextTreeIndex', () => {
 
   it('excludes derived artifacts from the index', async () => {
     await write(root, 'features/real.html', htmlTopic('features/real', 'Real', 'real.'))
-    await write(root, '_index.html', '<bv-index project="stale" generatedat="2020-01-01T00:00:00.000Z"></bv-index>')
+    await write(root, 'index.html', '<bv-index project="stale" generatedat="2020-01-01T00:00:00.000Z"></bv-index>')
     await write(root, '_manifest.json', '{}')
     await write(root, '_index.md', '# stale legacy index')
 
@@ -132,7 +132,7 @@ describe('generateContextTreeIndex', () => {
     expect(result.topicCount).to.equal(0)
     expect(result.domainCount).to.equal(0)
 
-    const written = await readFile(join(root, '_index.html'), 'utf8')
+    const written = await readFile(join(root, 'index.html'), 'utf8')
     expect(validateHtmlIndex(written).ok).to.equal(true)
     expect(written).to.contain('topiccount="0"')
   })
@@ -140,9 +140,9 @@ describe('generateContextTreeIndex', () => {
   it('produces deterministic output (stable except generatedat)', async () => {
     await write(root, 'features/auth.html', htmlTopic('features/auth', 'Auth', 'jwt.'))
     await generateContextTreeIndex({contextTreeRoot: root, projectName: 'demo'})
-    const first = await readFile(join(root, '_index.html'), 'utf8')
+    const first = await readFile(join(root, 'index.html'), 'utf8')
     await generateContextTreeIndex({contextTreeRoot: root, projectName: 'demo'})
-    const second = await readFile(join(root, '_index.html'), 'utf8')
+    const second = await readFile(join(root, 'index.html'), 'utf8')
 
     expect(stripGeneratedAt(first)).to.equal(stripGeneratedAt(second))
   })
@@ -156,7 +156,7 @@ describe('generateContextTreeIndex', () => {
     const result = await generateContextTreeIndex({contextTreeRoot: root, projectName: 'demo'})
     expect(result.ok).to.equal(true)
 
-    const written = await readFile(join(root, '_index.html'), 'utf8')
+    const written = await readFile(join(root, 'index.html'), 'utf8')
     // The generated index is itself parseable / valid — escaping held.
     expect(validateHtmlIndex(written).ok).to.equal(true)
   })

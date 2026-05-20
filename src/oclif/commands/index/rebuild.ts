@@ -8,7 +8,7 @@ import {writeJsonResponse} from '../../lib/json-response.js'
 
 /**
  * `brv index rebuild` — manual full regeneration of the context-tree
- * index (`_index.html`).
+ * index (`index.html`).
  *
  * The index is normally regenerated automatically after each curate and
  * dream-finalize. This command exists for first-time adoption on an
@@ -17,7 +17,7 @@ import {writeJsonResponse} from '../../lib/json-response.js'
  * daemon connection required.
  */
 export default class IndexRebuild extends Command {
-  public static description = 'Rebuild the context-tree index (_index.html) from the current set of topics.'
+  public static description = 'Rebuild the context-tree index (index.html) from the current set of topics.'
   public static examples = [
     '<%= config.bin %> <%= command.id %>',
     '<%= config.bin %> <%= command.id %> --format json',
@@ -67,7 +67,7 @@ export default class IndexRebuild extends Command {
       const topicLabel = result.topicCount === 1 ? 'topic' : 'topics'
       const domainLabel = result.domainCount === 1 ? 'domain' : 'domains'
       this.log(
-        `✓ Rebuilt _index.html — ${result.topicCount} ${topicLabel} across ${result.domainCount} ${domainLabel}`,
+        `✓ Rebuilt index.html — ${result.topicCount} ${topicLabel} across ${result.domainCount} ${domainLabel}`,
       )
     }
   }

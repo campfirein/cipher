@@ -4,7 +4,9 @@
  * Three predicates with clear separation of concerns:
  * - isDerivedArtifact()  — non-searchable derived content (excluded from query fingerprint)
  * - isArchiveStub()      — searchable stubs (included in BM25 index and fingerprint)
- * - isExcludedFromSync() — union of above (excluded from snapshot/sync/merge/push)
+ * - isExcludedFromSync() — derived + stubs that should NOT participate in snapshot/sync/merge/push.
+ *                          index.html is the one derived artifact that IS synced so peers can
+ *                          consume the latest navigation index without running `brv index rebuild`.
  */
 
 import {ABSTRACT_EXTENSION, ARCHIVE_DIR, FULL_ARCHIVE_EXTENSION, INDEX_HTML_FILE, MANIFEST_FILE, OVERVIEW_EXTENSION, STUB_EXTENSION, SUMMARY_INDEX_FILE} from '../../constants.js'
@@ -15,7 +17,7 @@ import {toUnixPath} from './path-utils.js'
  * that should be excluded from snapshot tracking, CoGit sync,
  * and query cache fingerprinting.
  *
- * Derived artifacts: _index.md, _index.html, _manifest.json, _archived/*.full.md
+ * Derived artifacts: _index.md, index.html, _manifest.json, _archived/*.full.md
  * NOTE: _archived/*.stub.md are NOT derived — they are searchable.
  */
 export function isDerivedArtifact(relativePath: string): boolean {
@@ -55,8 +57,12 @@ export function isArchiveStub(relativePath: string): boolean {
 /**
  * Returns true if the path should be excluded from snapshot tracking,
  * CoGit sync (push/pull/merge), and writer operations.
- * This includes ALL derived artifacts plus searchable stubs.
+ *
+ * index.html is intentionally NOT excluded: it is derived but tracked so
+ * peers consume the latest navigation index without running rebuild.
  */
 export function isExcludedFromSync(relativePath: string): boolean {
+  const fileName = toUnixPath(relativePath).split('/').at(-1) ?? ''
+  if (fileName === INDEX_HTML_FILE) return false
   return isDerivedArtifact(relativePath) || isArchiveStub(relativePath)
 }

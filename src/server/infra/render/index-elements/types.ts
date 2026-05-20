@@ -1,7 +1,7 @@
 /**
  * Type contract for the context-tree index vocabulary.
  *
- * The index (`_index.html`) is a navigation artifact, NOT a knowledge
+ * The index (`index.html`) is a navigation artifact, NOT a knowledge
  * topic. Its element vocabulary is deliberately kept disjoint from the
  * topic vocabulary (`core/domain/render/element-types.ts`): the topic
  * validator, the BM25 indexer, and the query renderer all assume their

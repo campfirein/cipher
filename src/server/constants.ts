@@ -134,11 +134,11 @@ export const OVERVIEW_EXTENSION = '.overview.md'
 export const MANIFEST_FILE = '_manifest.json'
 /**
  * Tool-mode context-tree index. A single auto-generated HTML file at the
- * context-tree root carrying the `<bv-index>` navigation document. Like
- * `_index.md` and `_manifest.json` it is a derived artifact — see
- * `isDerivedArtifact` in `context-tree/derived-artifact.ts`.
+ * context-tree root carrying the `<bv-index>` navigation document. Excluded
+ * from BM25/query results via `isDerivedArtifact`, but tracked by CoGit so
+ * peers consume the latest index without having to run `brv index rebuild`.
  */
-export const INDEX_HTML_FILE = '_index.html'
+export const INDEX_HTML_FILE = 'index.html'
 export const ARCHIVE_IMPORTANCE_THRESHOLD = 35
 export const DEFAULT_GHOST_CUE_MAX_TOKENS = 220
 
@@ -149,7 +149,6 @@ export const CONTEXT_TREE_GITIGNORE_PATTERNS = [
   '.snapshot.json',
   '_manifest.json',
   '_index.md',
-  '_index.html',
   '*.abstract.md',
   '*.overview.md',
 
