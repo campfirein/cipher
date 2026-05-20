@@ -37,6 +37,16 @@ describe('validateHtmlIndex', () => {
     expect(result.errors[0].kind).to.equal('missing-bv-index')
   })
 
+  it('rejects a <bv-index> nested below the document root (not a true root)', () => {
+    const html = `<bv-index-domain name="x">
+      <bv-index project="p" generatedat="2026-05-20T03:30:00.000Z"></bv-index>
+    </bv-index-domain>`
+    const result = validateHtmlIndex(html)
+    expect(result.ok).to.equal(false)
+    if (result.ok) return
+    expect(result.errors[0].kind).to.equal('missing-bv-index')
+  })
+
   it('rejects a document with two <bv-index> roots', () => {
     const html = `${VALID_INDEX}\n${VALID_INDEX}`
     const result = validateHtmlIndex(html)

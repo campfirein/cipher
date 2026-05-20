@@ -149,6 +149,7 @@ export const CONTEXT_TREE_GITIGNORE_PATTERNS = [
   '.snapshot.json',
   '_manifest.json',
   '_index.md',
+  '_index.html',
   '*.abstract.md',
   '*.overview.md',
 

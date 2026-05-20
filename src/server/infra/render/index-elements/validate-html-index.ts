@@ -13,6 +13,8 @@
  * attribute validator.
  */
 
+import type {ElementNode} from '../../../core/domain/render/element-types.js'
+
 import {parseHtml, walkElements} from '../reader/html-parser.js'
 import {INDEX_ELEMENT_REGISTRY} from './registry.js'
 import {INDEX_ELEMENT_NAMES, type IndexElementName} from './types.js'
@@ -37,8 +39,15 @@ function isRegisteredIndexElement(tag: string): tag is IndexElementName {
 export function validateHtmlIndex(html: string): IndexValidationResult {
   const errors: IndexValidationError[] = []
 
-  const elements = walkElements(parseHtml(html))
-  const roots = elements.filter((e) => e.tagName === 'bv-index')
+  const document = parseHtml(html)
+  const elements = walkElements(document)
+  // `<bv-index>` must be a true document root, not merely present somewhere
+  // in the tree — a nested `<bv-index>` inside a `<bv-index-domain>` must
+  // not satisfy the guard. `parseHtml` uses `parseFragment`, so document
+  // children are the top-level nodes with no `html`/`body` wrapping.
+  const roots = document.children.filter(
+    (c): c is ElementNode => c.type === 'element' && c.tagName === 'bv-index',
+  )
 
   if (roots.length === 0) {
     return {
