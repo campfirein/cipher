@@ -40,12 +40,13 @@ import {TofuStore} from '../../../agent/core/trust/tofu-store.js'
 import {BridgeEvents, type BridgeWhoamiResponse} from '../../../shared/transport/events/bridge-events.js'
 import {ChannelEvents} from '../../../shared/transport/events/channel-events.js'
 import {ReviewEvents} from '../../../shared/transport/events/review-events.js'
+import {TaskEvents, type TaskHeartbeatEvent} from '../../../shared/transport/events/task-events.js'
 import {
   AGENT_IDLE_CHECK_INTERVAL_MS,
   AGENT_IDLE_TIMEOUT_MS,
-  AGENT_POOL_MAX_SIZE,
   BRV_DIR,
   HEARTBEAT_FILE,
+  TASK_HEARTBEAT_INTERVAL_MS,
   WEBUI_DEFAULT_PORT,
 } from '../../constants.js'
 import {
@@ -97,8 +98,9 @@ import {broadcastToProjectRoom} from '../process/broadcast-utils.js'
 import {CurateLogHandler} from '../process/curate-log-handler.js'
 import {setupFeatureHandlers} from '../process/feature-handlers.js'
 import {QueryLogHandler} from '../process/query-log-handler.js'
+import {TaskHeartbeatManager} from '../process/task-heartbeat-manager.js'
 import {TaskHistoryHook} from '../process/task-history-hook.js'
-import {getStore as getTaskHistoryStore} from '../process/task-history-store-cache.js'
+import {configureTaskHistoryStoreCache, getStore as getTaskHistoryStore} from '../process/task-history-store-cache.js'
 import {TransportHandlers} from '../process/transport-handlers.js'
 import {ProjectRegistry} from '../project/project-registry.js'
 import {createProviderOAuthTokenStore} from '../provider-oauth/provider-oauth-token-store.js'
@@ -109,6 +111,7 @@ import {AuthStateStore} from '../state/auth-state-store.js'
 import {ProjectStateLoader} from '../state/project-state-loader.js'
 import {FileBillingConfigStore} from '../storage/file-billing-config-store.js'
 import {FileProviderConfigStore} from '../storage/file-provider-config-store.js'
+import {FileSettingsStore} from '../storage/file-settings-store.js'
 import {createProviderKeychainStore} from '../storage/provider-keychain-store.js'
 import {createTokenStore} from '../storage/token-store.js'
 import {channelsEnabled, registerDisabledStubs} from '../transport/handlers/channel-disabled-handler.js'
@@ -128,6 +131,7 @@ import {DaemonResilience} from './daemon-resilience.js'
 import {HeartbeatWriter} from './heartbeat.js'
 import {IdleTimeoutPolicy} from './idle-timeout-policy.js'
 import {selectDaemonPort} from './port-selector.js'
+import {bootstrapSettings} from './settings-bootstrap.js'
 import {ShutdownHandler} from './shutdown-handler.js'
 
 function log(msg: string): void {
@@ -379,6 +383,13 @@ async function main(): Promise<void> {
     daemonResilience.install()
 
     // 7. Create services (auth, project state, agent pool, handlers)
+    // Settings bootstrap: read settings.json once, apply user overrides to
+    // AgentPool and task-history cache. Missing or invalid entries fall
+    // back to defaults; parseErrors and rejected entries are logged here.
+    const settingsStore = new FileSettingsStore()
+    const resolvedSettings = await bootstrapSettings({log, store: settingsStore})
+    configureTaskHistoryStoreCache({maxEntries: resolvedSettings.taskHistoryMaxEntries})
+
     const projectRegistry = new ProjectRegistry({log})
     const projectRouter = new ProjectRouter({transport: transportServer})
     const clientManager = new ClientManager()
@@ -497,6 +508,8 @@ async function main(): Promise<void> {
         return fork(agentProcessPath, [], forkOptions)
       },
       log,
+      maxConcurrentTasks: resolvedSettings.agentMaxConcurrentTasks,
+      maxSize: resolvedSettings.agentPoolMaxSize,
       transportServer,
     })
 
@@ -554,6 +567,18 @@ async function main(): Promise<void> {
       resolveProviderConfig({authStateStore, providerConfigStore, providerKeychainStore, tokenRefreshManager}),
     )
 
+    // Per-task liveness ticker (M6 T1). Fires `TaskEvents.HEARTBEAT` to the
+    // CLI during quiet periods so clients can distinguish "task still
+    // progressing" from "daemon is stuck". Reset by every other task-scoped
+    // emission inside the task router; cleared on the three terminal events.
+    const taskHeartbeatManager = new TaskHeartbeatManager({
+      emit(taskId, clientId, projectPath) {
+        const payload: TaskHeartbeatEvent = {lastActivityAt: Date.now(), taskId}
+        transportServer!.sendTo(clientId, TaskEvents.HEARTBEAT, payload)
+        broadcastToProjectRoom(projectRegistry, projectRouter, projectPath, TaskEvents.HEARTBEAT, payload, clientId)
+      },
+      intervalMs: TASK_HEARTBEAT_INTERVAL_MS,
+    })
     const billingConfigStoreFactory = (projectPath: string) =>
       new FileBillingConfigStore({baseDir: join(projectPath, BRV_DIR)})
     transportServer.onRequest(
@@ -610,6 +635,7 @@ async function main(): Promise<void> {
           ...(config.activeProvider ? {provider: config.activeProvider} : {}),
         }
       },
+      taskHeartbeatManager,
       transport: transportServer,
     })
     transportHandlers.setup()
@@ -761,7 +787,7 @@ async function main(): Promise<void> {
       agentIdleStatus: agentIdleTimeoutPolicy.getIdleStatus(),
       agentPool: {
         entries: agentPool!.getEntries(),
-        maxSize: AGENT_POOL_MAX_SIZE,
+        maxSize: resolvedSettings.agentPoolMaxSize,
         queue: agentPool!.getQueueState(),
         size: agentPool!.getSize(),
       },
@@ -805,6 +831,7 @@ async function main(): Promise<void> {
       providerKeychainStore,
       providerOAuthTokenStore,
       resolveProjectPath: (clientId) => clientManager.getClient(clientId)?.projectPath,
+      settingsStore,
       transport: transportServer,
       webuiPort: webuiServer?.getPort(),
     })
