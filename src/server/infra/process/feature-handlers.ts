@@ -15,6 +15,7 @@ import type {IProviderOAuthTokenStore} from '../../core/interfaces/i-provider-oa
 import type {IProjectRegistry} from '../../core/interfaces/project/i-project-registry.js'
 import type {IAuthStateStore} from '../../core/interfaces/state/i-auth-state-store.js'
 import type {IBillingConfigStore} from '../../core/interfaces/storage/i-billing-config-store.js'
+import type {ISettingsStore} from '../../core/interfaces/storage/i-settings-store.js'
 import type {ITransportServer} from '../../core/interfaces/transport/i-transport-server.js'
 import type {ProjectBroadcaster, ProjectPathResolver} from '../transport/handlers/handler-types.js'
 
@@ -67,6 +68,7 @@ import {
   PushHandler,
   ResetHandler,
   ReviewHandler,
+  SettingsHandler,
   SourceHandler,
   SpaceHandler,
   StatusHandler,
@@ -88,6 +90,7 @@ export interface FeatureHandlersOptions {
   providerKeychainStore: IProviderKeychainStore
   providerOAuthTokenStore: IProviderOAuthTokenStore
   resolveProjectPath: ProjectPathResolver
+  settingsStore: ISettingsStore
   transport: ITransportServer
   webuiPort?: number
 }
@@ -107,6 +110,7 @@ export async function setupFeatureHandlers({
   providerKeychainStore,
   providerOAuthTokenStore,
   resolveProjectPath,
+  settingsStore,
   transport,
   webuiPort,
 }: FeatureHandlersOptions): Promise<void> {
@@ -129,6 +133,7 @@ export async function setupFeatureHandlers({
 
   // Global handlers (no project context needed)
   new ConfigHandler({transport}).setup()
+  new SettingsHandler({store: settingsStore, transport}).setup()
 
   new AuthHandler({
     authService: new OAuthService(authConfig),
@@ -204,7 +209,7 @@ export async function setupFeatureHandlers({
     billingService,
     contextTreeService,
     contextTreeSnapshotService,
-    curateLogStoreFactory: (projectPath) => new FileCurateLogStore({ baseDir: getProjectDataDir(projectPath) }),
+    curateLogStoreFactory: (projectPath) => new FileCurateLogStore({baseDir: getProjectDataDir(projectPath)}),
     projectConfigStore,
     providerConfigStore,
     resolveProjectPath,
@@ -239,7 +244,7 @@ export async function setupFeatureHandlers({
     contextFileReader,
     contextTreeService,
     contextTreeSnapshotService,
-    curateLogStoreFactory: (projectPath) => new FileCurateLogStore({ baseDir: getProjectDataDir(projectPath) }),
+    curateLogStoreFactory: (projectPath) => new FileCurateLogStore({baseDir: getProjectDataDir(projectPath)}),
     projectConfigStore,
     resolveProjectPath,
     reviewBackupStoreFactory: (projectPath) => new FileReviewBackupStore(join(projectPath, BRV_DIR)),
@@ -264,16 +269,16 @@ export async function setupFeatureHandlers({
   new ResetHandler({
     contextTreeService,
     contextTreeSnapshotService,
-    curateLogStoreFactory: (projectPath) => new FileCurateLogStore({ baseDir: getProjectDataDir(projectPath) }),
+    curateLogStoreFactory: (projectPath) => new FileCurateLogStore({baseDir: getProjectDataDir(projectPath)}),
     resolveProjectPath,
     reviewBackupStoreFactory: (projectPath) => new FileReviewBackupStore(join(projectPath, BRV_DIR)),
     transport,
   }).setup()
 
   new ReviewHandler({
-    curateLogStoreFactory: (projectPath) => new FileCurateLogStore({ baseDir: getProjectDataDir(projectPath) }),
-    onResolved({ projectPath, taskId }) {
-      broadcastToProject(projectPath, ReviewEvents.NOTIFY, { pendingCount: 0, reviewUrl: '', taskId })
+    curateLogStoreFactory: (projectPath) => new FileCurateLogStore({baseDir: getProjectDataDir(projectPath)}),
+    onResolved({projectPath, taskId}) {
+      broadcastToProject(projectPath, ReviewEvents.NOTIFY, {pendingCount: 0, taskId})
     },
     projectConfigStore,
     resolveProjectPath,
@@ -302,8 +307,8 @@ export async function setupFeatureHandlers({
     transport,
   }).setup()
 
-  const skillConnectorFactory = (projectRoot: string): SkillConnector => new SkillConnector({ fileService, projectRoot })
-  const hubInstallService = new HubInstallService({ fileService, skillConnectorFactory })
+  const skillConnectorFactory = (projectRoot: string): SkillConnector => new SkillConnector({fileService, projectRoot})
+  const hubInstallService = new HubInstallService({fileService, skillConnectorFactory})
   const hubRegistryConfigStore = new HubRegistryConfigStore()
   const hubKeychainStore = createHubKeychainStore()
 
@@ -355,8 +360,8 @@ export async function setupFeatureHandlers({
   }).setup()
 
   // Worktree & source handlers
-  new WorktreeHandler({ resolveProjectPath, transport }).setup()
-  new SourceHandler({ resolveProjectPath, transport }).setup()
+  new WorktreeHandler({resolveProjectPath, transport}).setup()
+  new SourceHandler({resolveProjectPath, transport}).setup()
 
   log('Feature handlers registered')
 }
