@@ -408,7 +408,7 @@ export async function continueSession(options: ContinueOptions): Promise<CurateS
   })
 
   // Regenerate the context-tree index so the new topic appears in
-  // _index.html. Best-effort — the topic write already succeeded.
+  // index.html. Best-effort — the topic write already succeeded.
   //
   // Inline (not deferred like the daemon's postWorkRegistry path): a
   // `brv curate` CLI invocation is a single in-process operation, so

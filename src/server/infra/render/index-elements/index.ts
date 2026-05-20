@@ -1,7 +1,7 @@
 /**
  * Public surface for the context-tree index vocabulary.
  *
- * The index (`_index.html`) is a navigation artifact with its own
+ * The index (`index.html`) is a navigation artifact with its own
  * 4-element vocabulary, disjoint from the topic vocabulary. Task 2's
  * `IndexGenerator` and any future consumer import from here.
  */

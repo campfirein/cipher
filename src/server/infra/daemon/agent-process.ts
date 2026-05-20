@@ -785,10 +785,10 @@ async function executeTask(
           }
 
           // Regenerate the context-tree index so the new topic appears in
-          // _index.html. Deferred to postWorkRegistry (drained below): it
+          // index.html. Deferred to postWorkRegistry (drained below): it
           // runs after task:completed — off the user-facing latency path —
           // and is per-project serialized, so concurrent curate-html-direct
-          // tasks cannot race on _index.html.
+          // tasks cannot race on index.html.
           if (writeResult.ok) {
             postWork = () =>
               regenerateContextTreeIndex({
@@ -921,7 +921,7 @@ async function executeTask(
                 totalDreams: state.totalDreams + 1,
               }))
 
-              // Archiving removed topics — refresh _index.html so they
+              // Archiving removed topics — refresh index.html so they
               // drop out of the navigation index. Deferred to
               // postWorkRegistry (per-project serialized, runs after
               // task:completed) — same rationale as curate-html-direct.

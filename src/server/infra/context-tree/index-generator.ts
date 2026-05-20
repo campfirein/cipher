@@ -4,7 +4,7 @@
  * Deterministic, no-LLM. Walks `.brv/context-tree/`, aggregates the
  * topic metadata the agent already authored (`title`, `summary`,
  * `tags`), groups topics by domain, and writes the `<bv-index>`
- * navigation document to `_index.html` at the context-tree root.
+ * navigation document to `index.html` at the context-tree root.
  *
  * Full regeneration on every call — the index is a pure function of the
  * current tree, so a full rebuild is trivially correct. For trees up to
@@ -17,7 +17,7 @@
  * byte-stable index (clean diffs in CoGit-tracked trees).
  */
 
-import {readdir, readFile} from 'node:fs/promises'
+import {readdir, readFile, unlink} from 'node:fs/promises'
 import {join, relative, sep} from 'node:path'
 
 import {ARCHIVE_DIR, INDEX_HTML_FILE} from '../../constants.js'
@@ -51,7 +51,7 @@ export type GenerateIndexResult =
 
 /**
  * Walk the context tree, build the `<bv-index>` document, and write it
- * atomically to `_index.html`. Pure filesystem — no daemon, no LLM.
+ * atomically to `index.html`. Pure filesystem — no daemon, no LLM.
  *
  * `log` (optional) receives diagnostics for non-fatal walk problems
  * (e.g. an unreadable subdirectory) so an operator chasing "why is my
@@ -83,7 +83,7 @@ export async function generateContextTreeIndex(input: {
   const html = renderIndex(projectName, entries)
 
   // Self-check: the generator controls its output, but a generator bug
-  // should surface loudly here rather than write a malformed _index.html.
+  // should surface loudly here rather than write a malformed index.html.
   const validation = validateHtmlIndex(html)
   if (!validation.ok) {
     const messages = validation.errors.map((e) => e.message).join('; ')
@@ -95,6 +95,16 @@ export async function generateContextTreeIndex(input: {
     await DirectoryManager.writeFileAtomic(indexPath, html)
   } catch (error) {
     return {error: `index write failed: ${String(error)}`, ok: false}
+  }
+
+  // Best-effort cleanup of the legacy underscored filename. Trees touched by
+  // an earlier build of this branch may carry both files; left in place, the
+  // stale `_index.html` would still ship via CoGit because it was un-gitignored
+  // before being renamed. Silently swallow ENOENT and any other error.
+  try {
+    await unlink(join(contextTreeRoot, '_index.html'))
+  } catch {
+    // ENOENT (no legacy file) is the expected case; other errors are best-effort.
   }
 
   const domainCount = new Set(entries.map((e) => domainOf(e.path))).size
@@ -171,7 +181,7 @@ async function walkTopicFiles(
 // ── Per-topic metadata extraction ─────────────────────────────────────
 
 async function readTopicEntry(absolutePath: string, relPath: string): Promise<TopicEntry | undefined> {
-  // Derived artifacts (_index.html, _index.md, _manifest.json, …) are
+  // Derived artifacts (index.html, _index.md, _manifest.json, …) are
   // navigation/summary files, not topics — never index them.
   if (isDerivedArtifact(relPath)) return undefined
 
