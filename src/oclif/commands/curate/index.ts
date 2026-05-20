@@ -7,8 +7,8 @@ import type {CurateLogOperation} from '../../../server/core/domain/entities/cura
 
 import {BRV_DIR, CONTEXT_TREE_DIR} from '../../../server/constants.js'
 import {ProviderConfigResponse, TransportStateEventNames} from '../../../server/core/domain/transport/index.js'
-import {extractCurateOperations} from '../../../server/utils/curate-result-parser.js'
 import {formatBlockedCurationMessage, isBlockedCurationResponse} from '../../../server/utils/curate-outcome.js'
+import {extractCurateOperations} from '../../../server/utils/curate-result-parser.js'
 import {TaskEvents} from '../../../shared/transport/events/index.js'
 import {printBillingLine} from '../../lib/billing-line.js'
 import {
@@ -209,10 +209,6 @@ Bad examples:
    * Best-effort enrichment: returns per-file detail when tool results include needsReview.
    * The authoritative signal for whether review is required comes from ReviewEvents.NOTIFY.
    */
-  private collectPendingReviewOps(toolCalls: ToolCallRecord[]): CurateLogOperation[] {
-    return this.collectCurateOperations(toolCalls).filter((op) => op.needsReview === true)
-  }
-
   private collectCurateOperations(toolCalls: ToolCallRecord[]): CurateLogOperation[] {
     const pending: CurateLogOperation[] = []
 
@@ -223,6 +219,10 @@ Bad examples:
     }
 
     return pending
+  }
+
+  private collectPendingReviewOps(toolCalls: ToolCallRecord[]): CurateLogOperation[] {
+    return this.collectCurateOperations(toolCalls).filter((op) => op.needsReview === true)
   }
 
   /**
@@ -318,8 +318,8 @@ Bad examples:
     content: string
     flags: CurateFlags
     format: 'json' | 'text'
-    providerContext?: ProviderErrorContext
     projectRoot?: string
+    providerContext?: ProviderErrorContext
     taskType: string
     worktreeRoot?: string
   }): Promise<void> {

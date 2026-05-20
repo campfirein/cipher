@@ -109,8 +109,8 @@ Bad:
           await this.submitTask({
             client,
             format,
-            providerContext,
             projectRoot,
+            providerContext,
             query: args.query,
             worktreeRoot,
           })
@@ -147,12 +147,12 @@ Bad:
   private async submitTask(props: {
     client: ITransportClient
     format: 'json' | 'text'
-    providerContext?: ProviderErrorContext
     projectRoot?: string
+    providerContext?: ProviderErrorContext
     query: string
     worktreeRoot?: string
   }): Promise<void> {
-    const {client, format, projectRoot, query, worktreeRoot} = props
+    const {client, format, projectRoot, providerContext, query, worktreeRoot} = props
     const taskId = randomUUID()
     const taskPayload = {
       clientCwd: process.cwd(),

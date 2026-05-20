@@ -336,12 +336,14 @@ describe('Curate Command', () => {
    * @param pendingCount - When provided, fires review:notify before task:completed.
    *   The server broadcasts this event when curate completes with operations requiring review.
    */
+  const defaultProviderConfig = {
+    activeModel: 'openclaw/main',
+    activeProvider: 'openai-compatible',
+  }
+
   function simulateTaskError(
     error: {code?: string; message: string},
-    providerConfig: {activeModel?: string; activeProvider?: string} = {
-      activeModel: 'openclaw/main',
-      activeProvider: 'openai-compatible',
-    },
+    providerConfig: {activeModel?: string; activeProvider?: string} = defaultProviderConfig,
   ): void {
     const eventHandlers = new Map<string, (data: unknown) => void>()
 

@@ -179,6 +179,7 @@ describe('Query Command', () => {
         }
         if (event === 'billing:resolve') return {}
         if (event === 'config:getEnvironment') return {}
+
         setTimeout(() => {
           const handlers = eventHandlers.get('task:error')
           if (handlers) {
