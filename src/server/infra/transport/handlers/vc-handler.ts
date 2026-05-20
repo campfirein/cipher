@@ -235,11 +235,18 @@ export class VcHandler {
     projectPath: string
   }): Promise<{indexResolved: boolean; remainingConflicts: Array<{path: string; type: string}>}> {
     const {conflicts, directory, projectPath} = params
-    const indexConflicted = conflicts.some((c) => basename(c.path) === INDEX_HTML_FILE)
+    // Root-only match — a user-authored topic at `architecture/index.html` is a
+    // regular topic, not the navigation artifact, so it must surface as a
+    // normal conflict for the user to resolve.
+    const indexConflicted = conflicts.some((c) => c.path === INDEX_HTML_FILE)
     if (!indexConflicted) {
       return {indexResolved: false, remainingConflicts: conflicts}
     }
 
+    // Other topic files may still carry conflict markers at this point — the
+    // walker silently drops them as malformed, so the interim `index.html` may
+    // miss entries. The post-`--continue` regen (or a manual rebuild) produces
+    // the complete index once the user resolves the remaining conflicts.
     const regen = await generateContextTreeIndex({
       contextTreeRoot: directory,
       projectName: basename(projectPath),
@@ -256,7 +263,7 @@ export class VcHandler {
 
     return {
       indexResolved: true,
-      remainingConflicts: conflicts.filter((c) => basename(c.path) !== INDEX_HTML_FILE),
+      remainingConflicts: conflicts.filter((c) => c.path !== INDEX_HTML_FILE),
     }
   }
 

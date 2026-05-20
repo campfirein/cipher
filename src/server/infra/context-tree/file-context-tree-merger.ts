@@ -205,11 +205,12 @@ export class FileContextTreeMerger implements IContextTreeMerger {
       // Skip derived artifacts (_index.md, _archived/*, _manifest.json)
       if (isExcludedFromSync(normalPath)) continue
 
-      // index.html is sync-tracked but auto-resolved on merge: any divergence
-      // between local and remote is spurious because the file is derived from
-      // the topic set. The caller regenerates it after the merge settles, so
-      // letting it through the conflict path would surface a phantom conflict.
-      if (toUnixPath(normalPath).split('/').at(-1) === INDEX_HTML_FILE) continue
+      // Root index.html is sync-tracked but auto-resolved on merge: any
+      // divergence between local and remote is spurious because the file is
+      // derived from the topic set. The caller regenerates it after the merge
+      // settles. Root-only match — a user-authored `architecture/index.html`
+      // is a regular topic and must follow the normal merge path.
+      if (toUnixPath(normalPath) === INDEX_HTML_FILE) continue
 
       const targetPath = join(contextTreeDir, normalPath)
       const remoteHash = computeContentHash(file.decodedContent)

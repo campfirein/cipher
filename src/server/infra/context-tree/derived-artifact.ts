@@ -27,9 +27,12 @@ export function isDerivedArtifact(relativePath: string): boolean {
 
   if (fileName === SUMMARY_INDEX_FILE) return true
 
-  // Tool-mode context-tree index. A navigation artifact, not a topic —
-  // excluded from BM25 indexing, query results, sync, and fingerprinting.
-  if (fileName === INDEX_HTML_FILE) return true
+  // Tool-mode context-tree index. Root-only match — only the generator-written
+  // `index.html` at the tree root is a navigation artifact. A user-authored
+  // topic like `architecture/index.html` is a normal searchable topic, NOT
+  // derived. (Legacy `_index.*` / `_manifest.json` keep basename matching:
+  // the underscore prefix makes collisions effectively impossible.)
+  if (normalized === INDEX_HTML_FILE) return true
 
   if (fileName === MANIFEST_FILE) return true
 
@@ -62,7 +65,8 @@ export function isArchiveStub(relativePath: string): boolean {
  * peers consume the latest navigation index without running rebuild.
  */
 export function isExcludedFromSync(relativePath: string): boolean {
-  const fileName = toUnixPath(relativePath).split('/').at(-1) ?? ''
-  if (fileName === INDEX_HTML_FILE) return false
+  // Root-only — see `isDerivedArtifact` for the rationale on matching `index.html`
+  // exactly at the tree root rather than by basename anywhere in the tree.
+  if (toUnixPath(relativePath) === INDEX_HTML_FILE) return false
   return isDerivedArtifact(relativePath) || isArchiveStub(relativePath)
 }
