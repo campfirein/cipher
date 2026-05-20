@@ -20,21 +20,21 @@
 import {readdir, readFile} from 'node:fs/promises'
 import {join, relative, sep} from 'node:path'
 
-import {INDEX_HTML_FILE} from '../../constants.js'
+import {ARCHIVE_DIR, INDEX_HTML_FILE} from '../../constants.js'
 import {DirectoryManager} from '../../core/domain/knowledge/directory-manager.js'
 import {MarkdownWriter} from '../../core/domain/knowledge/markdown-writer.js'
 import {validateHtmlIndex} from '../render/index-elements/index.js'
+import {parseHtml, walkElements} from '../render/reader/html-parser.js'
 import {escapeHtmlAttributeValue} from '../render/writer/html-writer.js'
 import {isDerivedArtifact} from './derived-artifact.js'
 
-/** Legacy archive directory inside the context tree — its topics are excluded. */
-const ARCHIVED_DIR = '_archived'
-
-/** Domain bucket for topics that sit at the context-tree root with no domain segment. */
-const UNCATEGORIZED_DOMAIN = 'general'
-
-/** Matches the opening `<bv-topic ...>` tag — cheap metadata extraction without a full parse. */
-const BV_TOPIC_RE = /<bv-topic\b([^>]*)>/i
+/**
+ * Domain bucket for topics that sit at the context-tree root with no
+ * domain segment. Underscore-prefixed so it cannot collide with a real
+ * domain directory (topic path segments are snake_case, never
+ * underscore-leading) — mirrors the `_archived/` convention.
+ */
+const UNCATEGORIZED_DOMAIN = '_uncategorized'
 
 type TopicEntry = {
   format: 'html' | 'markdown'
@@ -52,17 +52,22 @@ export type GenerateIndexResult =
 /**
  * Walk the context tree, build the `<bv-index>` document, and write it
  * atomically to `_index.html`. Pure filesystem — no daemon, no LLM.
+ *
+ * `log` (optional) receives diagnostics for non-fatal walk problems
+ * (e.g. an unreadable subdirectory) so an operator chasing "why is my
+ * index incomplete?" gets a breadcrumb instead of a silent gap.
  */
 export async function generateContextTreeIndex(input: {
   contextTreeRoot: string
+  log?: (msg: string) => void
   projectName: string
 }): Promise<GenerateIndexResult> {
-  const {contextTreeRoot, projectName} = input
+  const {contextTreeRoot, log, projectName} = input
 
   let files: string[]
   try {
     files = []
-    await walkTopicFiles(contextTreeRoot, contextTreeRoot, files)
+    await walkTopicFiles(contextTreeRoot, files, log)
   } catch (error) {
     return {error: `index walk failed: ${String(error)}`, ok: false}
   }
@@ -101,6 +106,9 @@ export async function generateContextTreeIndex(input: {
  * finalize). The triggering operation has already succeeded; a failed
  * index refresh must never propagate. Failures are logged and swallowed
  * — `brv index rebuild` recovers a stale index.
+ *
+ * On the daemon this is submitted to `postWorkRegistry` (per-project
+ * serialized, drained on shutdown) rather than awaited inline.
  */
 export async function regenerateContextTreeIndex(input: {
   contextTreeRoot: string
@@ -110,6 +118,7 @@ export async function regenerateContextTreeIndex(input: {
   try {
     const result = await generateContextTreeIndex({
       contextTreeRoot: input.contextTreeRoot,
+      log: input.log,
       projectName: input.projectName,
     })
     if (!result.ok) input.log(`context-tree index regeneration failed: ${result.error}`)
@@ -120,11 +129,23 @@ export async function regenerateContextTreeIndex(input: {
 
 // ── Tree walk ─────────────────────────────────────────────────────────
 
-async function walkTopicFiles(rootDir: string, current: string, accumulator: string[]): Promise<void> {
+async function walkTopicFiles(
+  current: string,
+  accumulator: string[],
+  log?: (msg: string) => void,
+): Promise<void> {
   let dirEntries
   try {
     dirEntries = await readdir(current, {withFileTypes: true})
-  } catch {
+  } catch (error) {
+    // A missing directory is normal (empty / uninitialized tree); a
+    // permission or IO error is not — surface it so an incomplete index
+    // is diagnosable rather than silently truncated.
+    const {code} = error as NodeJS.ErrnoException
+    if (code && code !== 'ENOENT') {
+      log?.(`index walk: could not read ${current} (${code})`)
+    }
+
     return
   }
 
@@ -132,10 +153,10 @@ async function walkTopicFiles(rootDir: string, current: string, accumulator: str
   for (const dirEntry of dirEntries) {
     // Skip dot-dirs (.git, …) and the legacy `_archived/` subtree —
     // archived topics must not appear in the navigation index.
-    if (dirEntry.name.startsWith('.') || dirEntry.name === ARCHIVED_DIR) continue
+    if (dirEntry.name.startsWith('.') || dirEntry.name === ARCHIVE_DIR) continue
     const next = join(current, dirEntry.name)
     if (dirEntry.isDirectory()) {
-      subwalks.push(walkTopicFiles(rootDir, next, accumulator))
+      subwalks.push(walkTopicFiles(next, accumulator, log))
       continue
     }
 
@@ -168,20 +189,24 @@ async function readTopicEntry(absolutePath: string, relPath: string): Promise<To
     : readMarkdownEntry(content, relPath)
 }
 
-/** Extract entry metadata from an HTML topic's `<bv-topic>` opening tag. */
+/**
+ * Extract entry metadata from an HTML topic's `<bv-topic>` element.
+ * Uses the parse5-backed `parseHtml` (not a regex) so HTML comments,
+ * CDATA, and entity-escaped attribute values are handled correctly —
+ * topic files can be human-edited, not just writer-produced.
+ */
 function readHtmlEntry(content: string, relPath: string): TopicEntry | undefined {
-  const match = BV_TOPIC_RE.exec(content)
-  if (!match) return undefined
+  const topic = walkElements(parseHtml(content)).find((e) => e.tagName === 'bv-topic')
+  if (!topic) return undefined
 
-  const attrs = parseTagAttributes(match[1] ?? '')
-  const title = attrs.title?.trim()
+  const title = topic.attributes.title?.trim()
   if (!title) return undefined
 
   return {
     format: 'html',
     path: relPath,
-    summary: attrs.summary?.trim() ?? '',
-    tags: attrs.tags?.trim() ?? '',
+    summary: topic.attributes.summary?.trim() ?? '',
+    tags: topic.attributes.tags?.trim() ?? '',
     title,
   }
 }
@@ -198,31 +223,18 @@ function readMarkdownEntry(content: string, relPath: string): TopicEntry | undef
   const title = parsed.name?.trim()
   if (!title) return undefined
 
+  // Frontmatter `tags` is a string[]; the entry's `tags` attribute is a
+  // comma-joined string. Strip commas from individual tags first so a
+  // tag that itself contains a comma cannot corrupt the delimiter.
+  const tags = parsed.tags.map((t) => t.replaceAll(',', ' ').trim()).filter(Boolean)
+
   return {
     format: 'markdown',
     path: relPath,
     summary: parsed.summary?.trim() ?? '',
-    tags: parsed.tags.join(','),
+    tags: tags.join(','),
     title,
   }
-}
-
-/**
- * Parse attributes out of an opening tag's inner text. Accepts double-
- * and single-quoted values; attribute names are lowercased to match
- * HTML5 parsing semantics.
- */
-function parseTagAttributes(rawAttrs: string): Record<string, string> {
-  const result: Record<string, string> = {}
-  const attrRe = /([\w-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g
-  let match: null | RegExpExecArray
-  while ((match = attrRe.exec(rawAttrs)) !== null) {
-    const name = match[1]?.toLowerCase()
-    const value = match[2] ?? match[3]
-    if (name && value !== undefined) result[name] = value
-  }
-
-  return result
 }
 
 // ── Rendering ─────────────────────────────────────────────────────────
@@ -258,9 +270,7 @@ function renderIndex(projectName: string, entries: readonly TopicEntry[]): strin
 
   for (const domain of domains) {
     const domainEntries = (byDomain.get(domain) ?? []).sort((a, b) => a.path.localeCompare(b.path))
-    lines.push(
-      `  <bv-index-domain name="${escapeHtmlAttributeValue(domain)}" count="${domainEntries.length}">`,
-    )
+    lines.push(`  <bv-index-domain name="${escapeHtmlAttributeValue(domain)}" count="${domainEntries.length}">`)
     for (const entry of domainEntries) {
       const tagsAttr = entry.tags ? ` tags="${escapeHtmlAttributeValue(entry.tags)}"` : ''
       lines.push(

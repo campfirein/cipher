@@ -35,6 +35,9 @@ export default class IndexRebuild extends Command {
 
     const result = await generateContextTreeIndex({
       contextTreeRoot,
+      // Surface non-fatal walk problems (e.g. an unreadable subdirectory)
+      // so a partial rebuild is diagnosable rather than silently truncated.
+      log: (msg) => this.warn(msg),
       projectName: basename(projectRoot),
     })
 

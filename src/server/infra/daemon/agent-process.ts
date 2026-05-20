@@ -785,13 +785,17 @@ async function executeTask(
           }
 
           // Regenerate the context-tree index so the new topic appears in
-          // _index.html. Best-effort — the topic write already succeeded.
+          // _index.html. Deferred to postWorkRegistry (drained below): it
+          // runs after task:completed — off the user-facing latency path —
+          // and is per-project serialized, so concurrent curate-html-direct
+          // tasks cannot race on _index.html.
           if (writeResult.ok) {
-            await regenerateContextTreeIndex({
-              contextTreeRoot,
-              log: (msg) => agentLog(`curate-html-direct ${taskId}: ${msg}`),
-              projectName: basename(projectPath),
-            })
+            postWork = () =>
+              regenerateContextTreeIndex({
+                contextTreeRoot,
+                log: (msg) => agentLog(`curate-html-direct ${taskId}: ${msg}`),
+                projectName: basename(projectPath),
+              })
           }
 
           // Validation failures emit task:completed (NOT task:error) so
@@ -918,12 +922,15 @@ async function executeTask(
               }))
 
               // Archiving removed topics — refresh _index.html so they
-              // drop out of the navigation index. Best-effort.
-              await regenerateContextTreeIndex({
-                contextTreeRoot,
-                log: (msg) => agentLog(`dream-finalize ${taskId}: ${msg}`),
-                projectName: basename(projectPath),
-              })
+              // drop out of the navigation index. Deferred to
+              // postWorkRegistry (per-project serialized, runs after
+              // task:completed) — same rationale as curate-html-direct.
+              postWork = () =>
+                regenerateContextTreeIndex({
+                  contextTreeRoot,
+                  log: (msg) => agentLog(`dream-finalize ${taskId}: ${msg}`),
+                  projectName: basename(projectPath),
+                })
 
               result = JSON.stringify({
                 archived: finalizeResult.archived,
