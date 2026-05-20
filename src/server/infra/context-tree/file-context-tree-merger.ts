@@ -9,7 +9,7 @@ import type {
 } from '../../core/interfaces/context-tree/i-context-tree-merger.js'
 import type {IContextTreeSnapshotService} from '../../core/interfaces/context-tree/i-context-tree-snapshot-service.js'
 
-import {BRV_DIR, CONTEXT_TREE_BACKUP_DIR, CONTEXT_TREE_CONFLICT_DIR, CONTEXT_TREE_DIR} from '../../constants.js'
+import {BRV_DIR, CONTEXT_TREE_BACKUP_DIR, CONTEXT_TREE_CONFLICT_DIR, CONTEXT_TREE_DIR, INDEX_HTML_FILE} from '../../constants.js'
 import {isExcludedFromSync} from './derived-artifact.js'
 import {computeContentHash} from './hash-utils.js'
 import {toUnixPath} from './path-utils.js'
@@ -204,6 +204,12 @@ export class FileContextTreeMerger implements IContextTreeMerger {
     for (const [normalPath, file] of remoteFilesMap) {
       // Skip derived artifacts (_index.md, _archived/*, _manifest.json)
       if (isExcludedFromSync(normalPath)) continue
+
+      // index.html is sync-tracked but auto-resolved on merge: any divergence
+      // between local and remote is spurious because the file is derived from
+      // the topic set. The caller regenerates it after the merge settles, so
+      // letting it through the conflict path would surface a phantom conflict.
+      if (toUnixPath(normalPath).split('/').at(-1) === INDEX_HTML_FILE) continue
 
       const targetPath = join(contextTreeDir, normalPath)
       const remoteHash = computeContentHash(file.decodedContent)
