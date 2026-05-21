@@ -134,7 +134,6 @@ export const SKILL_FILE_NAMES = [
   MAIN_SKILL_FILE_NAME,
   'query.md',
   'curate.md',
-  'curate-judgement.md',
   'review.md',
   'swarm.md',
   'vc.md',

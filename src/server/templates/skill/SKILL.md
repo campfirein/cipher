@@ -82,7 +82,6 @@ digraph brv_flow {
 
 - `query.md` - retrieval protocol for `brv query`, `brv swarm query`, `brv search`, and `brv read`
 - `curate.md` - saving durable project knowledge, including the HTML `<bv-topic>` contract
-- `curate-judgement.md` - post-curate self-review: judge the written topic against curate.md's Quality Bar, one enhancement pass max
 - `review.md` - handling pending human review after curate
 - `swarm.md` - swarm query and external-provider storage
 - `vc.md` - local context-tree version control
@@ -153,7 +152,6 @@ Each detail file lives in this skill directory. Read the relevant one before inv
 - `brv search <text>` — ranked paths/excerpts via BM25, no rendered content. See `query.md`.
 - `brv read <path>` — fetch ONE topic by its path under `.brv/context-tree/`. Returns rendered markdown. See `query.md`.
 - `brv curate <intent>` — multi-step session: kickoff → author `<bv-topic>` HTML → continue with `--session/--response`. See `curate.md`.
-- After `brv curate` reports `done`, run the post-curate self-review on substantive topics. See `curate-judgement.md`.
 - `brv review <pending|approve|reject>` — HITL approval for pending operations. See `review.md`.
 - `brv swarm <query|curate|status>` — cross-source memory federation. See `swarm.md`.
 - `brv vc <init|status|add|commit|...>` — git-style version control of the context tree. See `vc.md`.
