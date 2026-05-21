@@ -470,5 +470,73 @@ describe('html-writer', () => {
         }
       })
     })
+
+    describe('path normalization (idempotent .html stripping)', () => {
+      // Background: dream-scan emits candidate paths with the `.html`
+      // suffix (e.g. "auth/jwt.html") and the documented dream→curate
+      // merge workflow tells the agent to write the survivor at that
+      // path. Without this normalization the writer doubled the
+      // extension into `auth/jwt.html.html`, reported `ok: true`, and
+      // silently bypassed the path-exists guard — producing a stale
+      // survivor while the agent archived the loser thinking the merge
+      // had taken effect. Both bare and `.html`-suffixed forms must
+      // resolve to the same on-disk file.
+
+      it('writes path="x/y.html" to <root>/x/y.html (not x/y.html.html)', async () => {
+        const html = '<bv-topic path="security/oauth.html" title="OAuth"><bv-rule severity="must" id="r-1">Use PKCE.</bv-rule></bv-topic>'
+        const result = await writeHtmlTopic({contextTreeRoot: tmpRoot, rawHtml: html})
+        expect(result.ok).to.equal(true)
+        if (result.ok) {
+          expect(result.filePath).to.equal(join(tmpRoot, 'security/oauth.html'))
+          expect(existsSync(result.filePath)).to.equal(true)
+          expect(
+            existsSync(join(tmpRoot, 'security/oauth.html.html')),
+            'doubled-extension file must not be created',
+          ).to.equal(false)
+        }
+      })
+
+      it('treats path="x/y" and path="x/y.html" as the same target (path-exists triggers across forms)', async () => {
+        const bare = '<bv-topic path="security/oauth" title="OAuth"><bv-rule severity="must" id="r-1">Use PKCE.</bv-rule></bv-topic>'
+        const first = await writeHtmlTopic({contextTreeRoot: tmpRoot, rawHtml: bare})
+        expect(first.ok).to.equal(true)
+
+        const suffixed = '<bv-topic path="security/oauth.html" title="OAuth v2"><bv-rule severity="must" id="r-2">Reject implicit flow.</bv-rule></bv-topic>'
+        const second = await writeHtmlTopic({contextTreeRoot: tmpRoot, rawHtml: suffixed})
+        expect(second.ok).to.equal(false)
+        if (!second.ok) {
+          const pathExists = second.errors.find((e) => e.kind === 'path-exists')
+          expect(pathExists, 'expected path-exists when .html form targets bare-form file').to.not.equal(undefined)
+        }
+      })
+
+      it('treats path="x/y.html" first then path="x/y" as the same target (reverse order)', async () => {
+        const suffixed = '<bv-topic path="security/oauth.html" title="OAuth"><bv-rule severity="must" id="r-1">Use PKCE.</bv-rule></bv-topic>'
+        const first = await writeHtmlTopic({contextTreeRoot: tmpRoot, rawHtml: suffixed})
+        expect(first.ok).to.equal(true)
+
+        const bare = '<bv-topic path="security/oauth" title="OAuth v2"><bv-rule severity="must" id="r-2">Reject implicit flow.</bv-rule></bv-topic>'
+        const second = await writeHtmlTopic({contextTreeRoot: tmpRoot, rawHtml: bare})
+        expect(second.ok).to.equal(false)
+        if (!second.ok) {
+          const pathExists = second.errors.find((e) => e.kind === 'path-exists')
+          expect(pathExists, 'expected path-exists when bare form targets .html-form file').to.not.equal(undefined)
+        }
+      })
+
+      it('confirmOverwrite works regardless of which form was used first', async () => {
+        const bare = '<bv-topic path="security/oauth" title="OAuth"><bv-rule severity="must" id="r-1">Use PKCE.</bv-rule></bv-topic>'
+        await writeHtmlTopic({contextTreeRoot: tmpRoot, rawHtml: bare})
+
+        const suffixed = '<bv-topic path="security/oauth.html" title="OAuth v2"><bv-rule severity="must" id="r-2">Reject implicit flow.</bv-rule></bv-topic>'
+        const result = await writeHtmlTopic({confirmOverwrite: true, contextTreeRoot: tmpRoot, rawHtml: suffixed})
+        expect(result.ok).to.equal(true)
+
+        const filesUnderSecurity = await readdir(join(tmpRoot, 'security'))
+        const htmlFiles = filesUnderSecurity.filter((f) => f.endsWith('.html'))
+        expect(htmlFiles, 'only one .html file should exist under security/').to.have.lengthOf(1)
+        expect(htmlFiles[0]).to.equal('oauth.html')
+      })
+    })
   })
 })

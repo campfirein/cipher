@@ -12,6 +12,7 @@ import {createMockRuntimeSignalStore} from '../../../../helpers/mock-factories.j
 
 function searchStubReturning(map: Record<string, Array<{path: string; score: number}>>): ISearchKnowledgeService {
   return {
+    refreshIndex: sinon.stub().resolves(),
     search: sinon.stub().callsFake(async (query: string): Promise<SearchKnowledgeResult> => {
       const hits = map[query] ?? []
       return {
@@ -104,6 +105,57 @@ describe('scanDreamCandidates', () => {
 
     // All four fields are present (even if empty)
     expect(result.candidates).to.have.keys('link', 'merge', 'prune', 'synthesize')
+  })
+
+  it('forces a search-service index refresh before generating candidates', async () => {
+    // Tool-mode dream operates on a freshly-loaded topic set. Without an
+    // explicit refresh, the search service can serve TTL-cached results
+    // that pre-date the just-written seed files — surfacing zero
+    // candidates on the first scan and warming up only on the second.
+    // The refresh call must come from inside scanDreamCandidates so
+    // every consumer (CLI, MCP, tests) gets fresh ranking on demand.
+    await writeFile(join(dir, 'a.html'), '<bv-topic path="a" title="A"/>', 'utf8')
+
+    const searchService = searchStubReturning({})
+    await scanDreamCandidates({
+      contextTreeRoot: dir,
+      runtimeSignalStore: createMockRuntimeSignalStore(),
+      searchService,
+    })
+
+    expect(
+      (searchService.refreshIndex as sinon.SinonStub).called,
+      'scanDreamCandidates must call searchService.refreshIndex() to bypass TTL-stale cache',
+    ).to.equal(true)
+  })
+
+  it('passes combineWith: "OR" to the search service for pair-discovery queries', async () => {
+    // Dream pair-discovery queries by source title verbatim. AND-first
+    // combine (the search-service default) collapses multi-word titles
+    // like "Redis Caching Layer" to self-only matches, hiding legitimate
+    // cross-pairs. Pair-discovery must opt into OR-combine for any-term
+    // recall — verified here at the seam between dream-session and the
+    // search service.
+    await writeFile(join(dir, 'a.html'), '<bv-topic path="a" title="Alpha"/>', 'utf8')
+    await writeFile(join(dir, 'b.html'), '<bv-topic path="b" title="Beta"/>', 'utf8')
+
+    const searchService = searchStubReturning({})
+    await scanDreamCandidates({
+      contextTreeRoot: dir,
+      options: {kinds: ['link', 'merge']},
+      runtimeSignalStore: createMockRuntimeSignalStore(),
+      searchService,
+    })
+
+    const searchStub = searchService.search as sinon.SinonStub
+    expect(searchStub.called, 'expected search() to be invoked at least once').to.equal(true)
+    for (const call of searchStub.getCalls()) {
+      const opts = call.args[1]
+      expect(
+        opts?.combineWith,
+        `every pair-discovery search call must pass combineWith: 'OR'; got ${JSON.stringify(opts)}`,
+      ).to.equal('OR')
+    }
   })
 })
 
@@ -225,6 +277,42 @@ describe('finalizeDreamSession', () => {
     expect(result.previousTexts).to.have.keys('foo.html', 'bar.html')
     expect(result.previousTexts['foo.html']).to.equal(fooHtml)
     expect(result.previousTexts['bar.html']).to.equal(barHtml)
+  })
+
+  it('captures pre-archive mtime and signals so undo can restore the observable state', async () => {
+    // Without this metadata, undo restores the file body but resets mtime
+    // to now and signals to defaults. A topic archived as low-importance
+    // (15) or stale-mtime (>60d) would silently fall out of prune-candidate
+    // range on the next scan because its observable state was lost.
+    const ctRoot = join(dir, '.brv', 'context-tree')
+    await writeFile(join(ctRoot, 'stale.html'), '<bv-topic path="stale" title="S"/>', 'utf8')
+
+    // Backdate mtime to 70 days ago to mirror a real stale-mtime prune target.
+    const seventyDaysAgoMs = Date.now() - 70 * 24 * 60 * 60 * 1000
+    const seventyDaysAgo = new Date(seventyDaysAgoMs)
+    const {utimes} = await import('node:fs/promises')
+    await utimes(join(ctRoot, 'stale.html'), seventyDaysAgo, seventyDaysAgo)
+
+    // Pre-seed the sidecar with non-default signals so we can verify capture.
+    const store = createMockRuntimeSignalStore()
+    await store.set('stale.html', {
+      accessCount: 0,
+      importance: 15,
+      maturity: 'draft',
+      recency: 1,
+      updateCount: 0,
+    })
+
+    const result = await finalizeDreamSession({
+      archive: ['stale.html'],
+      brvDir: join(dir, '.brv'),
+      contextTreeRoot: ctRoot,
+      runtimeSignalStore: store,
+      sessionId: 'sess-test',
+    })
+
+    expect(result.previousMtimes['stale.html']).to.be.closeTo(seventyDaysAgoMs, 2000)
+    expect(result.previousSignals['stale.html']).to.deep.include({importance: 15, maturity: 'draft'})
   })
 
   it('omits previousTexts entries for paths that were skipped', async () => {

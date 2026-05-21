@@ -20,6 +20,7 @@ function topic(overrides: Partial<MergeCandidateTopic>): MergeCandidateTopic {
 
 function searchStubReturning(map: Record<string, Array<{path: string; score: number}>>): ISearchKnowledgeService {
   return {
+    refreshIndex: sinon.stub().resolves(),
     search: sinon.stub().callsFake(async (query: string): Promise<SearchKnowledgeResult> => {
       const hits = map[query] ?? []
       return {

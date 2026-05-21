@@ -16,10 +16,11 @@
 
 import {randomUUID} from 'node:crypto'
 import {existsSync} from 'node:fs'
-import {mkdir, readFile, rename} from 'node:fs/promises'
+import {mkdir, readFile, rename, stat} from 'node:fs/promises'
 import {dirname, join} from 'node:path'
 
 import type {ISearchKnowledgeService} from '../../../../agent/infra/sandbox/tools-sdk.js'
+import type {RuntimeSignals} from '../../../core/domain/knowledge/runtime-signals-schema.js'
 import type {IRuntimeSignalStore} from '../../../core/interfaces/storage/i-runtime-signal-store.js'
 
 import {isDescendantOf} from '../../../utils/path-utils.js'
@@ -72,6 +73,13 @@ export async function scanDreamCandidates(input: DreamScanInput): Promise<DreamS
   const requestedKinds = new Set<DreamKind>(options?.kinds ?? ALL_DREAM_KINDS)
 
   const topics = await loadToolModeTopics({contextTreeRoot, runtimeSignalStore})
+
+  // Force the search service to rebuild its MiniSearch index before
+  // pair-discovery runs. The service's TTL fast-path (5s) would
+  // otherwise serve a cached index that pre-dates the just-loaded
+  // topics — surfacing zero candidates on the first scan and warming
+  // up only on the second invocation.
+  await searchService.refreshIndex()
 
   const empty: DreamCandidateBundle = {link: [], merge: [], prune: [], synthesize: {domains: [], existingSyntheses: []}}
 
@@ -135,6 +143,26 @@ export type DreamFinalizeSkipped = {
 export type DreamFinalizeResult = {
   archived: string[]
   /**
+   * mtime (ms since epoch) of each archived file captured before the
+   * rename. Keys are relative paths. Consumed by `undoPrune` so the
+   * restored file gets its original mtime via `utimes()` rather than
+   * the restore-time wall-clock from `writeFile`. Without this, a
+   * topic archived as `stale-mtime` (≥60d for draft / ≥120d for
+   * validated) returns with mtime=now and falls below the prune
+   * threshold on the next scan.
+   */
+  previousMtimes: Record<string, number>
+  /**
+   * Snapshot of each archived file's runtime signals (importance,
+   * maturity, accessCount, etc.) captured before the sidecar is
+   * deleted. Consumed by `undoPrune` to restore via
+   * `runtimeSignalStore.set()` so signal-driven prune candidates
+   * (e.g. `importance < 35`) re-surface after undo. Without this, a
+   * topic archived as `low-importance` returns with default
+   * `importance=50` and never re-surfaces.
+   */
+  previousSignals: Record<string, RuntimeSignals>
+  /**
    * Original file content keyed by relative path, captured before the rename.
    * Empty entries are not included (skipped files have no previous content
    * to restore). Consumed by `undoPrune` for tool-mode undo without needing
@@ -156,7 +184,13 @@ export async function finalizeDreamSession(input: DreamFinalizeInput): Promise<D
   const {archive, brvDir, contextTreeRoot, runtimeSignalStore} = input
   const archiveRoot = join(brvDir, ARCHIVE_SUBDIR)
 
-  type ArchivedOutcome = {content: string; path: string; result: 'archived'}
+  type ArchivedOutcome = {
+    content: string
+    mtimeMs: number
+    path: string
+    result: 'archived'
+    signals: RuntimeSignals
+  }
   type SkippedOutcome = {path: string; reason: DreamFinalizeSkipped['reason']; result: 'skipped'}
 
   const outcomes = await Promise.all(
@@ -171,14 +205,23 @@ export async function finalizeDreamSession(input: DreamFinalizeInput): Promise<D
 
       if (!existsSync(source)) return {path: relPath, reason: 'not-found', result: 'skipped'}
 
-      // Read content before the rename so undo can restore it from the log
-      // alone. If we read after the rename, the source path no longer exists.
+      // Read content + capture pre-archive metadata (mtime + signals)
+      // before the rename so undo can fully restore the topic — not
+      // just its bytes, but its observable state (stale mtime, low
+      // importance, etc.) that drove the prune decision in the first
+      // place. If we capture after the rename, the source is gone and
+      // the sidecar is deleted, losing the metadata forever.
       let content: string
+      let mtimeMs: number
+      let signals: RuntimeSignals
       try {
         content = await readFile(source, 'utf8')
+        const stats = await stat(source)
+        mtimeMs = stats.mtimeMs
+        signals = await runtimeSignalStore.get(relPath)
       } catch (error) {
         // ENOENT here means another finalize moved the file between our
-        // existsSync check and our readFile — same race window as below.
+        // existsSync check and our reads — same race window as below.
         if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
           return {path: relPath, reason: 'already-archived', result: 'skipped'}
         }
@@ -207,21 +250,25 @@ export async function finalizeDreamSession(input: DreamFinalizeInput): Promise<D
         // best-effort sidecar cleanup; the topic is already archived
       }
 
-      return {content, path: relPath, result: 'archived'}
+      return {content, mtimeMs, path: relPath, result: 'archived', signals}
     }),
   )
 
   const archived: string[] = []
   const previousTexts: Record<string, string> = {}
+  const previousMtimes: Record<string, number> = {}
+  const previousSignals: Record<string, RuntimeSignals> = {}
   const skipped: DreamFinalizeSkipped[] = []
   for (const outcome of outcomes) {
     if (outcome.result === 'archived') {
       archived.push(outcome.path)
       previousTexts[outcome.path] = outcome.content
+      previousMtimes[outcome.path] = outcome.mtimeMs
+      previousSignals[outcome.path] = outcome.signals
     } else {
       skipped.push({path: outcome.path, reason: outcome.reason})
     }
   }
 
-  return {archived, previousTexts, skipped}
+  return {archived, previousMtimes, previousSignals, previousTexts, skipped}
 }

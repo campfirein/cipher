@@ -30,7 +30,7 @@ function baseInput() {
     confirmOverwrite: false,
     existedBefore: false,
     // Absolute path — mirrors what writeHtmlTopic returns. Review-handler
-    // and dream-executor both treat `op.filePath` as absolute.
+    // treats `op.filePath` as absolute.
     filePath: '/project/.brv/context-tree/security/auth.html',
     id: 'cur-1700000000000',
     reviewDisabled: false,
@@ -284,10 +284,10 @@ describe('buildCurateHtmlLogEntry', () => {
 
   describe('filePath convention (regression — see review-handler contract)', () => {
     it('preserves the caller-supplied absolute filePath verbatim on the operation', () => {
-      // review-handler.ts:117 + dream-executor convention: op.filePath is
-      // absolute. The handler does `relative(contextTreeDir, op.filePath)`
-      // to derive its display key — passing a relative path produces a
-      // garbage key and `brv review approve <taskId>` silently no-ops.
+      // review-handler.ts:117 convention: op.filePath is absolute. The
+      // handler does `relative(contextTreeDir, op.filePath)` to derive its
+      // display key — passing a relative path produces a garbage key and
+      // `brv review approve <taskId>` silently no-ops.
       const entry = buildCurateHtmlLogEntry({
         ...baseInput(),
         filePath: '/abs/.brv/context-tree/x/y.html',

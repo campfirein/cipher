@@ -20,6 +20,7 @@ function makeSearchResult(count: number): SearchKnowledgeResult {
 
 function makeMockService(result: SearchKnowledgeResult): ISearchKnowledgeService {
   return {
+    refreshIndex: sinon.stub().resolves(),
     search: sinon.stub().resolves(result),
   }
 }
@@ -144,6 +145,7 @@ describe('SearchExecutor', () => {
 
   it('propagates service errors', async () => {
     const service: ISearchKnowledgeService = {
+      refreshIndex: sinon.stub().resolves(),
       search: sinon.stub().rejects(new Error('index corrupted')),
     }
     const executor = new SearchExecutor(service)

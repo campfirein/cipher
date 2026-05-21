@@ -21,6 +21,7 @@ function topic(overrides: Partial<LinkCandidateTopic>): LinkCandidateTopic {
 
 function searchStubReturning(map: Record<string, Array<{path: string; score: number}>>): ISearchKnowledgeService {
   return {
+    refreshIndex: sinon.stub().resolves(),
     search: sinon.stub().callsFake(async (query: string): Promise<SearchKnowledgeResult> => {
       const hits = map[query] ?? []
       return {
@@ -72,7 +73,7 @@ describe('findLinkCandidates', () => {
       results: [{excerpt: '', path: 'b.html', score: 0.8, title: 'b'}],
       totalFound: 1,
     }))
-    const search: ISearchKnowledgeService = {search: stub}
+    const search: ISearchKnowledgeService = {refreshIndex: sinon.stub().resolves(), search: stub}
 
     await findLinkCandidates({searchService: search, topics})
 

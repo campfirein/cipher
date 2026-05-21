@@ -55,6 +55,12 @@ export type FindPruneCandidatesOptions = {
   validatedStalenessDays?: number
 }
 
+// Note: these defaults are documented for agents in
+// `src/server/templates/skill/SKILL.md` §7 (prune kind description).
+// If any of the three threshold values below change, update §7's
+// "Low-importance (sidecar `importance < N`) or stale-mtime (draft >Nd
+// / validated >Nd)" sentence in lockstep so the agent-facing docs stay
+// honest.
 const DEFAULT_DRAFT_STALENESS_DAYS = 60
 const DEFAULT_VALIDATED_STALENESS_DAYS = 120
 const DEFAULT_IMPORTANCE_THRESHOLD = 35

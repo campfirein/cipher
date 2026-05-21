@@ -403,7 +403,6 @@ export async function continueSession(options: ContinueOptions): Promise<CurateS
     existedBefore,
     // Absolute path — review-handler treats `op.filePath` as absolute and
     // calls `relative(contextTreeDir, ...)` to derive its display key.
-    // Mirrors dream-executor's convention.
     filePath: writeResult.ok ? writeResult.filePath : undefined,
     intent: state.userIntent,
     meta,

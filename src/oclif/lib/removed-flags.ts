@@ -104,3 +104,17 @@ export const QUERY_REMOVED_FLAGS: RemovedFlag[] = [
       'Tool-mode query is a deterministic local BM25 lookup; --timeout is unnecessary.',
   },
 ]
+
+/**
+ * Flags removed from `brv dream` (see Linear ENG-2884). `--timeout`
+ * had been kept as a no-op with a deprecation warning since M6; this
+ * finalises the removal and lets us delete the dead
+ * `timeout-deprecation.ts` helper.
+ */
+export const DREAM_REMOVED_FLAGS: RemovedFlag[] = [
+  {
+    flags: ['--timeout'],
+    migration:
+      'Dream completion is heartbeat-driven; --timeout had no effect and is removed.',
+  },
+]

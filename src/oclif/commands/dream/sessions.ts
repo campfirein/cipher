@@ -9,7 +9,8 @@ import {writeJsonResponse} from '../../lib/json-response.js'
  * persistent session listing in a follow-up.
  */
 export default class DreamSessions extends Command {
-  public static description = 'List active tool-mode dream sessions.'
+  public static description =
+    '[v1 stub] List active tool-mode dream sessions. Sessions are stateless on the daemon in v1; this command always returns an empty list.'
 public static examples = [
     '# Plain text',
     '<%= config.bin %> <%= command.id %>',
@@ -26,7 +27,18 @@ public static flags = {
     const format = raw.format === 'json' ? 'json' : 'text'
 
     if (format === 'json') {
-      writeJsonResponse({command: 'dream-sessions', data: {sessions: [], status: 'ok'}, success: true})
+      writeJsonResponse({
+        command: 'dream-sessions',
+        data: {
+          // Disclosed inline so machine-readable consumers that branch on
+          // `sessions` length don't act on the empty array thinking the
+          // daemon was queried — there's nothing to query in v1.
+          note: 'v1: sessions are stateless on the daemon; this list is always empty.',
+          sessions: [],
+          status: 'ok',
+        },
+        success: true,
+      })
     } else {
       this.log(
         'No active sessions.\n\n' +
