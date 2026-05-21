@@ -15,6 +15,8 @@ import {undoLastDream} from '../../server/infra/dream/dream-undo.js'
 import {FileCurateLogStore} from '../../server/infra/storage/file-curate-log-store.js'
 import {FileReviewBackupStore} from '../../server/infra/storage/file-review-backup-store.js'
 import {getProjectDataDir} from '../../server/utils/path-utils.js'
+import {writeJsonResponse} from '../lib/json-response.js'
+import {argvRequestsJsonFormat, DREAM_REMOVED_FLAGS, findRemovedFlagMessage} from '../lib/removed-flags.js'
 
 /**
  * Build the dep bundle for `undoLastDream` on the CLI-direct path —
@@ -76,9 +78,27 @@ export default class Dream extends Command {
   ]
 
   public async run(): Promise<void> {
-    // No-op: oclif prints the topic listing (subcommands) for topic roots
-    // whose run() does not produce output. This is the migration target
-    // for the legacy LLM-driven dream command — see ENG-2884.
+    // Reject any flag carried over from the legacy LLM-driven path
+    // (`--timeout`, etc.). Matches the curate/query precedent: emit a
+    // JSON envelope when the caller asked for JSON, this.error() otherwise.
+    // `this.argv` is oclif's per-instance argv (defaults to process.argv;
+    // overridable by test wrappers).
+    const removed = findRemovedFlagMessage(this.argv, DREAM_REMOVED_FLAGS)
+    if (removed) {
+      if (argvRequestsJsonFormat(this.argv)) {
+        writeJsonResponse({command: 'dream', data: {error: removed, status: 'error'}, success: false})
+        return
+      }
+
+      this.error(removed, {exit: 1})
+    }
+
+    // No-op body: topic roots default to oclif's subcommand listing.
+    // We print a one-liner here so `brv dream` (no args, no flags) makes
+    // the migration target obvious without users digging into --help.
+    // Exits 0 — consistent with oclif's topic-root default; scripts
+    // running `brv dream && echo ok` will print "ok", which is the same
+    // behaviour any other topic root produces.
     this.log(
       'Use a subcommand: brv dream {scan|finalize|undo|sessions|cancel}. Run `brv dream --help` for details.',
     )

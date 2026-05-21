@@ -600,7 +600,6 @@ async function executeTask(
     if (
       type === 'curate' ||
       type === 'curate-folder' ||
-      type === 'dream' ||
       type === 'dream-finalize' ||
       type === 'dream-scan'
     ) {
@@ -758,10 +757,10 @@ async function executeTask(
               completedAt,
               confirmOverwrite: Boolean(confirmOverwrite),
               existedBefore,
-              // Absolute path — the review-handler (and dream-executor) treat
-              // `op.filePath` as absolute and call `relative(contextTreeDir, ...)`
-              // to derive a display key. Storing a relative path here makes
-              // the entry unmatchable in `brv review approve`.
+              // Absolute path — the review-handler treats `op.filePath` as
+              // absolute and calls `relative(contextTreeDir, ...)` to derive
+              // a display key. Storing a relative path here makes the entry
+              // unmatchable in `brv review approve`.
               filePath: writeResult.ok ? writeResult.filePath : undefined,
               id: entryId,
               meta,
