@@ -336,6 +336,42 @@ describe('undoLastDream', () => {
     expect(result.restoredArchives).to.include('auth/old-doc.md')
   })
 
+  it('undoes PRUNE/ARCHIVE: restores from previousTexts (tool-mode) when present, ignoring stubPath', async () => {
+    // Tool-mode finalize writes a PRUNE/ARCHIVE op with `previousTexts`
+    // instead of `stubPath`. Undo should write the body back to its
+    // original location and remove the .brv/archive/<path> copy.
+    const brvDir = join(tmpdir(), `brv-undo-tm-${Date.now()}-${Math.random().toString(36).slice(2)}`)
+    await mkdir(join(brvDir, 'context-tree'), {recursive: true})
+    await mkdir(join(brvDir, 'archive', 'testing'), {recursive: true})
+    const originalContent = '<bv-topic path="testing/old" title="O">restored body</bv-topic>'
+    await writeFile(join(brvDir, 'archive', 'testing', 'old.html'), originalContent, 'utf8')
+
+    dreamLogStore.getById.resolves(completedLog([{
+      action: 'ARCHIVE',
+      file: 'testing/old.html',
+      needsReview: false,
+      previousTexts: {'testing/old.html': originalContent},
+      reason: 'tool-mode finalize',
+      type: 'PRUNE',
+    }]))
+
+    const result = await undoLastDream({
+      ...deps,
+      contextTreeDir: join(brvDir, 'context-tree'),
+    })
+
+    expect(result.restoredFiles).to.include('testing/old.html')
+    const restoredBody = await readFile(join(brvDir, 'context-tree', 'testing', 'old.html'), 'utf8')
+    expect(restoredBody).to.equal(originalContent)
+    // .brv/archive/<path> copy must be removed so we don't leave a stale duplicate.
+    try {
+      await access(join(brvDir, 'archive', 'testing', 'old.html'))
+      expect.fail('archive copy should have been deleted')
+    } catch (error) {
+      expect((error as NodeJS.ErrnoException).code).to.equal('ENOENT')
+    }
+  })
+
   it('skips PRUNE/KEEP (no-op)', async () => {
     dreamLogStore.getById.resolves(completedLog([{
       action: 'KEEP',
