@@ -163,7 +163,7 @@
       ],
       "command_not_found": "./dist/oclif/hooks/command_not_found/handle-invalid-commands",
       "error": "./dist/oclif/hooks/error/clean-errors",
-      "postrun": "./dist/oclif/hooks/postrun/restart-after-update"
+      "postrun": "./dist/oclif/hooks/postrun/after-update"
     },
     "plugins": [
       "@oclif/plugin-help",
