@@ -79,6 +79,13 @@ export type FlushFinalOptions = {
 export class AnalyticsFlushScheduler {
   private readonly deps: Required<AnalyticsFlushSchedulerDeps>
   private intervalHandle: ReturnType<typeof setInterval> | undefined
+  // Snapshot of `queueSize` at the last threshold fire. Together with
+  // `thresholdCount` this gates `notifyPushed` on the DELTA since last
+  // fire (queue depths 20/40/60/...) instead of the absolute size — the
+  // queue mirror is monotonic across a session (drained only on auth
+  // transitions), so without a moving baseline every push past the
+  // first threshold crossing would re-fire.
+  private lastTriggerQueueSize: number = 0
   // Single-flight slot. Any trigger that arrives while this is set is
   // dropped; `flushFinal()` awaits it so shutdown joins rather than races.
   private pendingFlush: Promise<void> | undefined
@@ -133,17 +140,28 @@ export class AnalyticsFlushScheduler {
   }
 
   /**
-   * Called by `AnalyticsClient.track()` after enqueuing a record. Checks
-   * the threshold (fast, in-memory queue size) and, if crossed, defers
-   * the flush to `setImmediate` so the synchronous `track()` contract
-   * holds. Threshold uses queueSize (not pendingCount) because: (a) it
-   * runs on every track and must stay sync + cheap, and (b) the gate's
-   * intent is "20 records pushed since startup" — the queue mirror is
-   * exactly that.
+   * Called by `AnalyticsClient.track()` after enqueuing a record. Fires a
+   * flush via `setImmediate` once the queue has grown by `thresholdCount`
+   * since the last trigger, so `track()` stays synchronous from the
+   * consumer's view.
+   *
+   * Threshold uses `queueSize` (not `pendingCount`) because: (a) it runs
+   * on every track and must stay sync + cheap, and (b) the gate's intent
+   * is "fire every N pushes". The mirror is monotonic across a session
+   * (drained only on auth transitions), so we compare against a moving
+   * baseline `lastTriggerQueueSize` rather than the absolute size —
+   * otherwise every push past the first threshold crossing would re-fire
+   * and the batching contract would collapse for slow-emit workloads.
+   *
+   * When the queue size drops below the previous baseline (auth-transition
+   * drain), the baseline resets to 0 so the next N pushes fire again.
    */
   public notifyPushed(): void {
     if (!this.deps.isEnabled()) return
-    if (this.deps.queueSize() < this.deps.thresholdCount) return
+    const size = this.deps.queueSize()
+    if (size < this.lastTriggerQueueSize) this.lastTriggerQueueSize = 0
+    if (size - this.lastTriggerQueueSize < this.deps.thresholdCount) return
+    this.lastTriggerQueueSize = size
     setImmediate(() => {
       // eslint-disable-next-line no-void
       void this.tryFlush()

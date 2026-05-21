@@ -197,6 +197,49 @@ describe('AnalyticsFlushScheduler', () => {
 
       expect(deps.flush.called).to.equal(false)
     })
+
+    it('does NOT re-trigger between threshold multiples (regression: queue mirror is monotonic past 20 → every push would fire)', async () => {
+      // The queue mirror only decrements on auth-transition drain, NOT on a
+      // successful flush. Without a moving baseline, queueSize >= 20 stays
+      // true forever after the first crossing, so every subsequent track
+      // would schedule a fresh setImmediate→tryFlush→HTTP POST and the
+      // 20-event batching contract would collapse for slow-emit workloads.
+      const deps = buildDeps({size: 5}) // pendingCount > 0 so tryFlush proceeds past the empty-skip gate
+      deps.queueSize.onCall(0).returns(20)
+      deps.queueSize.onCall(1).returns(21)
+      deps.queueSize.onCall(2).returns(22)
+      deps.queueSize.onCall(3).returns(39)
+      deps.queueSize.onCall(4).returns(40)
+      const scheduler = new AnalyticsFlushScheduler({...deps, thresholdCount: 20})
+
+      scheduler.notifyPushed() // size=20: cross 1st threshold → fire
+      scheduler.notifyPushed() // size=21: must NOT fire
+      scheduler.notifyPushed() // size=22: must NOT fire
+      scheduler.notifyPushed() // size=39: must NOT fire
+      scheduler.notifyPushed() // size=40: cross 2nd threshold → fire
+      await flushMicrotasks()
+
+      expect(deps.flush.callCount, 'threshold must fire only at 20 and 40, not on every push past 20').to.equal(2)
+    })
+
+    it('resets baseline when queue is drained below previous trigger size (auth transition)', async () => {
+      // M4.1 onAuthTransition drains the queue mirror. After a drain, the
+      // next 20-event crossing must fire again — without baseline reset,
+      // the comparison `size - lastTrigger` would go negative and stay
+      // sub-threshold forever after a login/logout cycle.
+      const deps = buildDeps({size: 5})
+      deps.queueSize.onCall(0).returns(20) // 1st trigger
+      deps.queueSize.onCall(1).returns(0) // drain
+      deps.queueSize.onCall(2).returns(20) // re-built post-drain → must fire again
+      const scheduler = new AnalyticsFlushScheduler({...deps, thresholdCount: 20})
+
+      scheduler.notifyPushed()
+      scheduler.notifyPushed()
+      scheduler.notifyPushed()
+      await flushMicrotasks()
+
+      expect(deps.flush.callCount, 'drain must reset baseline so next 20 push fires again').to.equal(2)
+    })
   })
 
   describe('idempotency (single-flight)', () => {
@@ -242,6 +285,11 @@ describe('AnalyticsFlushScheduler', () => {
       releaseFlush()
       await clock.tickAsync(0)
 
+      // Grow the queue past the next threshold (25 → 45, delta 20). The
+      // post-fix notifyPushed gates on the DELTA since the last trigger,
+      // not the absolute size, so a follow-up call with the same size
+      // would correctly be a no-op.
+      deps.queueSize.returns(45)
       scheduler.notifyPushed()
       await clock.tickAsync(1)
       expect(deps.flush.callCount, 'new trigger after settle must run').to.equal(2)
