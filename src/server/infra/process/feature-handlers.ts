@@ -16,6 +16,7 @@ import type {IProviderOAuthTokenStore} from '../../core/interfaces/i-provider-oa
 import type {IProjectRegistry} from '../../core/interfaces/project/i-project-registry.js'
 import type {IAuthStateStore} from '../../core/interfaces/state/i-auth-state-store.js'
 import type {ITransportServer} from '../../core/interfaces/transport/i-transport-server.js'
+import type {AnalyticsFlushScheduler} from '../analytics/analytics-flush-scheduler.js'
 import type {ProjectBroadcaster, ProjectPathResolver} from '../transport/handlers/handler-types.js'
 
 import {ReviewEvents} from '../../../shared/transport/events/review-events.js'
@@ -83,6 +84,7 @@ import {
 import {HttpUserService} from '../user/http-user-service.js'
 import {FileVcGitConfigStore} from '../vc/file-vc-git-config-store.js'
 import {wireAnalyticsAuthTransition} from './wire-analytics-auth-transition.js'
+import {wireAnalyticsFlushScheduler} from './wire-analytics-flush-scheduler.js'
 import {wireAnalyticsHttpSender} from './wire-analytics-http-sender.js'
 
 export interface FeatureHandlersOptions {
@@ -108,6 +110,14 @@ export interface FeatureHandlersOptions {
  */
 export interface SetupFeatureHandlersResult {
   readonly analyticsClient: IAnalyticsClient
+  /**
+   * M4.3: scheduler that owns the 30s interval + 20-event threshold
+   * triggers. The composition root (`brv-server.ts`) starts it after
+   * auth state has loaded so the first tick has a real identity, and
+   * stops it during shutdown before invoking `flushFinal()` so no new
+   * ticks fire mid-shutdown.
+   */
+  readonly analyticsFlushScheduler: AnalyticsFlushScheduler
   /**
    * Returns the daemon's cached analytics-enabled flag. M12.3 consumers
    * (e.g. AnalyticsHook) use this to short-circuit disk I/O when analytics
@@ -183,14 +193,37 @@ export async function setupFeatureHandlers({
     globalConfigStore,
     version: readCliVersion(),
   })
+  // M4.3: scheduler is built AFTER the client but needs to be referenced
+  // by it (`onAfterTrack: () => scheduler.notifyPushed()`). Resolve the
+  // cycle with a mutable holder: the client closure reads the latest
+  // assigned value at call-time, so the scheduler is in place by the
+  // time the first track lands. Queue is hoisted to a shared instance so
+  // both client (push) and scheduler (queueSize) observe the same state.
+  const analyticsQueue = new BoundedQueue()
+  // Holder for the scheduler reference shared with `onAfterTrack`. Using
+  // a plain object instead of `let` so the lint rule sees a const binding
+  // (the closure reads `.value` on every call). The scheduler instance is
+  // assigned immediately after AnalyticsClient construction below.
+  const schedulerHolder: {value: AnalyticsFlushScheduler | undefined} = {value: undefined}
   const analyticsClient: IAnalyticsClient = new AnalyticsClient({
     identityResolver: new IdentityResolver(authStateStore, globalConfigStore),
     isEnabled: () => globalConfigHandler.getCachedAnalytics(),
     jsonlStore: jsonlAnalyticsStore,
-    queue: new BoundedQueue(),
+    onAfterTrack() {
+      schedulerHolder.value?.notifyPushed()
+    },
+    queue: analyticsQueue,
     sender: analyticsSender,
     superPropsResolver: new SuperPropertiesResolver(globalConfigStore),
   })
+
+  const analyticsFlushScheduler = wireAnalyticsFlushScheduler({
+    analyticsClient,
+    isEnabled: () => globalConfigHandler.getCachedAnalytics(),
+    jsonlStore: jsonlAnalyticsStore,
+    queue: analyticsQueue,
+  })
+  schedulerHolder.value = analyticsFlushScheduler
 
   // M4.1: subscribe the analytics client to identity-changing auth
   // transitions. See `wireAnalyticsAuthTransition` for the
@@ -413,5 +446,9 @@ export async function setupFeatureHandlers({
   // M12.3: expose the cached-analytics check so daemon-side consumers
   // (e.g. AnalyticsHook) can short-circuit disk I/O when analytics is off.
   // Same callback shape used internally by AnalyticsClient at line 171.
-  return {analyticsClient, isAnalyticsEnabled: (): boolean => globalConfigHandler.getCachedAnalytics()}
+  return {
+    analyticsClient,
+    analyticsFlushScheduler,
+    isAnalyticsEnabled: (): boolean => globalConfigHandler.getCachedAnalytics(),
+  }
 }

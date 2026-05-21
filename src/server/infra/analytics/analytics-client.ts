@@ -24,6 +24,15 @@ export interface AnalyticsClientDeps {
    * a no-op when omitted so existing callers don't have to wire it.
    */
   log?: (message: string) => void
+  /**
+   * M4.3: optional notification fired after a record has been durably
+   * appended (JSONL + queue mirror). The composition root wires this to
+   * `AnalyticsFlushScheduler.notifyPushed()` so the scheduler can check
+   * its 20-event threshold without coupling AnalyticsClient to the
+   * scheduler's concrete type. Called best-effort — throws are swallowed
+   * by the surrounding try/catch in `trackAsync`.
+   */
+  onAfterTrack?: () => void
   queue: IAnalyticsQueue
   sender: IAnalyticsSender
   superPropsResolver: ISuperPropertiesResolver
@@ -214,6 +223,13 @@ export class AnalyticsClient implements IAnalyticsClient {
       // the in-memory mirror queue without a durable on-disk row.
       await this.deps.jsonlStore.append(record)
       this.deps.queue.push(record)
+
+      // M4.3: notify the flush scheduler that a record landed so it can
+      // check its 20-event threshold. Fires only on the durable success
+      // path (jsonlStore.append resolved + queue.push completed) so a
+      // failed persist does NOT trigger a flush of a queue that did not
+      // grow. Errors are swallowed by the outer try/catch.
+      this.deps.onAfterTrack?.()
     } catch {
       // Analytics MUST NOT crash the consumer. Errors silently dropped.
     }
