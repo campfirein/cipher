@@ -23,6 +23,24 @@ export interface IAnalyticsClient {
   flush: () => Promise<AnalyticsBatch>
 
   /**
+   * Notify the client that the daemon-wide auth state transitioned
+   * (login, logout, account switch, token revoked).
+   *
+   * M4.1 contract: every pending and historical event in the JSONL queue
+   * MUST be dropped, plus the in-memory mirror queue cleared. This
+   * preserves the invariant that every event waiting to flush was
+   * tracked under the current auth state. Without this drop, a batch
+   * flushed across a transition would mix two sessions' identities and
+   * the backend (which trusts per-event identity) would attribute past
+   * events to the new session — or vice-versa.
+   *
+   * Errors are swallowed: analytics MUST NOT crash a consumer. A
+   * disk-write failure during clear is logged best-effort but never
+   * propagates.
+   */
+  onAuthTransition: () => Promise<void>
+
+  /**
    * Records an analytics event. When the analytics flag is disabled the
    * call must be a true no-op (no allocations, no resolver calls).
    *

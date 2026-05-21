@@ -407,4 +407,76 @@ describe('AuthStateStore', () => {
       expect(store.getToken()).to.equal(expiredToken)
     })
   })
+
+  describe('multiple onAuthChanged listeners (M4.1 regression)', () => {
+    it('should fire EVERY registered onAuthChanged callback when token appears', async () => {
+      const cb1 = sandbox.stub()
+      const cb2 = sandbox.stub()
+      const cb3 = sandbox.stub()
+      store.onAuthChanged(cb1)
+      store.onAuthChanged(cb2)
+      store.onAuthChanged(cb3)
+
+      const token = createValidToken()
+      loadStub.resolves(token)
+      await store.loadToken()
+
+      expect(cb1.calledOnce, 'cb1 should fire').to.be.true
+      expect(cb2.calledOnce, 'cb2 should fire').to.be.true
+      expect(cb3.calledOnce, 'cb3 should fire').to.be.true
+      expect(cb1.calledWith(token)).to.be.true
+      expect(cb2.calledWith(token)).to.be.true
+      expect(cb3.calledWith(token)).to.be.true
+    })
+
+    it('should fire listeners in registration order', async () => {
+      const order: number[] = []
+      store.onAuthChanged(() => order.push(1))
+      store.onAuthChanged(() => order.push(2))
+      store.onAuthChanged(() => order.push(3))
+
+      loadStub.resolves(createValidToken())
+      await store.loadToken()
+
+      expect(order).to.deep.equal([1, 2, 3])
+    })
+
+    it('should keep firing later listeners even if an earlier one throws', async () => {
+      const cb1 = sandbox.stub().throws(new Error('listener boom'))
+      const cb2 = sandbox.stub()
+      const cb3 = sandbox.stub()
+      store.onAuthChanged(cb1)
+      store.onAuthChanged(cb2)
+      store.onAuthChanged(cb3)
+
+      loadStub.resolves(createValidToken())
+
+      // The polling loop must not propagate the listener throw — would
+      // otherwise crash the daemon's auth poll cycle.
+      await store.loadToken()
+
+      expect(cb1.calledOnce).to.be.true
+      expect(cb2.calledOnce, 'cb2 must still fire after cb1 threw').to.be.true
+      expect(cb3.calledOnce, 'cb3 must still fire after cb1 threw').to.be.true
+    })
+
+    it('should fire EVERY onAuthExpired callback', async () => {
+      const cb1 = sandbox.stub()
+      const cb2 = sandbox.stub()
+      store.onAuthExpired(cb1)
+      store.onAuthExpired(cb2)
+
+      const validToken = createValidToken({accessToken: 'shared'})
+      loadStub.resolves(validToken)
+      await store.loadToken()
+
+      const expiredToken = createExpiredToken({accessToken: 'shared'})
+      loadStub.resolves(expiredToken)
+      store.startPolling()
+      await clock.tickAsync(POLL_INTERVAL)
+
+      expect(cb1.calledOnce).to.be.true
+      expect(cb2.calledOnce).to.be.true
+    })
+  })
 })

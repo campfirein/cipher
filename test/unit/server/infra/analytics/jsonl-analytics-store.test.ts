@@ -580,4 +580,85 @@ describe('JsonlAnalyticsStore', () => {
       expect(store.droppedSentCount()).to.be.greaterThanOrEqual(1)
     })
   })
+
+  describe('clear() — M4.1 truncate on auth transition', () => {
+    it('should remove every row regardless of status', async () => {
+      const baseDir = await freshTempDir()
+      const store = new JsonlAnalyticsStore({baseDir})
+      await store.append(makeRecord({id: 'pending'}))
+      await store.append(makeRecord({id: 'sent'}))
+      await store.append(makeRecord({id: 'failed'}))
+      await store.updateStatus(['sent'], 'sent')
+      // Push the third row to terminal 'failed' by hammering past the cap.
+      // Promise.all is safe here: writeChain serializes them in fire-order.
+      await Promise.all(
+        Array.from({length: MAX_ATTEMPTS}, () => store.updateStatus(['failed'], 'failed')),
+      )
+
+      await store.clear()
+
+      const rows = await readJsonlRows(join(baseDir, 'analytics-queue.jsonl'))
+      expect(rows).to.have.lengthOf(0)
+    })
+
+    it('should leave the file empty (zero bytes), not absent', async () => {
+      const baseDir = await freshTempDir()
+      const store = new JsonlAnalyticsStore({baseDir})
+      await store.append(makeRecord({id: 'r1'}))
+
+      await store.clear()
+
+      const stats = await stat(join(baseDir, 'analytics-queue.jsonl'))
+      expect(stats.size).to.equal(0)
+    })
+
+    it('should be a no-op when the file does not exist yet', async () => {
+      const baseDir = await freshTempDir()
+      const store = new JsonlAnalyticsStore({baseDir})
+
+      // Must not throw even when no append has happened.
+      await store.clear()
+
+      const rows = await readJsonlRows(join(baseDir, 'analytics-queue.jsonl'))
+      expect(rows).to.have.lengthOf(0)
+    })
+
+    it('should NOT reset cumulative lifetime counters (droppedFullCount, droppedSentCount)', async () => {
+      const baseDir = await freshTempDir()
+      // Force a `droppedSent` via byte-cap (mirror earlier cap test).
+      const big = 'x'.repeat(200)
+      const sampleSize = JSON.stringify(makeRecord({properties: {data: big}})).length + 1
+      const store = new JsonlAnalyticsStore({baseDir, maxBytes: sampleSize * 2 + 50, maxRows: 10_000})
+      await store.append(makeRecord({id: 'r1', properties: {data: big}}))
+      await store.append(makeRecord({id: 'r2', properties: {data: big}}))
+      await store.updateStatus(['r1'], 'sent')
+      await store.append(makeRecord({id: 'r3', properties: {data: big}})) // drops r1
+      const droppedBefore = store.droppedSentCount()
+      expect(droppedBefore).to.be.greaterThanOrEqual(1)
+
+      await store.clear()
+
+      expect(store.droppedSentCount()).to.equal(droppedBefore)
+    })
+
+    it('should serialize through the write chain (concurrent append + clear preserves the clear)', async () => {
+      const baseDir = await freshTempDir()
+      const store = new JsonlAnalyticsStore({baseDir})
+      // Seed and immediately race a clear + a new append.
+      await store.append(makeRecord({id: 'old-1'}))
+      await store.append(makeRecord({id: 'old-2'}))
+
+      // Fire concurrently — order of enqueue determines the on-disk state.
+      const clearPromise = store.clear()
+      const appendPromise = store.append(makeRecord({id: 'new-1'}))
+      await Promise.all([clearPromise, appendPromise])
+
+      const rows = await readJsonlRows(join(baseDir, 'analytics-queue.jsonl'))
+      const ids = rows.map((r) => r.id)
+      expect(ids).to.not.include('old-1')
+      expect(ids).to.not.include('old-2')
+      // The append enqueued AFTER clear must survive (queue order serializes writes).
+      expect(ids).to.include('new-1')
+    })
+  })
 })

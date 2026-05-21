@@ -88,6 +88,10 @@ export class JsonlAnalyticsStore implements IJsonlAnalyticsStore {
     return this.enqueue(async () => this.doAppend(record))
   }
 
+  public async clear(): Promise<void> {
+    return this.enqueue(async () => this.atomicRewrite([]))
+  }
+
   public droppedFullCount(): number {
     return this.droppedFullCounter
   }

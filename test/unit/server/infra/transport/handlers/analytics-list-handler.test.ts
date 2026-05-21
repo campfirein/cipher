@@ -50,6 +50,7 @@ function makeFakeJsonlStore(rows: StoredAnalyticsRecord[]): FakeJsonlStore {
   const listSpy = spy(listImpl)
   return {
     async append() {},
+    async clear() {},
     droppedFullCount: () => 0,
     droppedSentCount: () => 0,
     list: listSpy,
@@ -166,6 +167,7 @@ describe('AnalyticsListHandler (M11.2)', () => {
     const transport = createMockTransportServer()
     const throwingStore: IJsonlAnalyticsStore = {
       async append() {},
+      async clear() {},
       droppedFullCount: () => 0,
       droppedSentCount: () => 0,
       async list() {

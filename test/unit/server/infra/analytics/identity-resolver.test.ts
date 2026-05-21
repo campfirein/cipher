@@ -188,4 +188,42 @@ describe('IdentityResolver', () => {
       expect(identity).to.deep.equal({device_id: ''})
     })
   })
+
+  // M4.1 regression: identity returned by resolve() is a snapshot, not a live view.
+  // Subsequent auth-state mutations must not retroactively rewrite a previously
+  // resolved Identity. The downstream queue stores these objects by reference,
+  // so an accidental shared/mutated state would corrupt already-tracked events
+  // when a user logs out before the flush completes.
+  describe('M4.1 identity captured by value (snapshot semantics)', () => {
+    it('should not mutate a previously resolved identity when the token reader later returns undefined', async () => {
+      const {reader, setToken} = makeMutableAuthReader()
+      setToken(makeFullToken())
+      const resolver = new IdentityResolver(reader, makeStubStore())
+
+      const firstResolved = await resolver.resolve()
+      const snapshot = {...firstResolved}
+
+      setToken(undefined)
+      const second = await resolver.resolve()
+      expect(second).to.deep.equal({device_id: validDeviceId})
+
+      // First object must be byte-equivalent to the snapshot taken before the mutation.
+      expect(firstResolved).to.deep.equal(snapshot)
+      expect(firstResolved.user_id).to.equal('user-123')
+      expect(firstResolved.email).to.equal('alice@example.com')
+      expect(firstResolved.name).to.equal('Alice')
+    })
+
+    it('should not share references between two resolve() calls (each returns a fresh object)', async () => {
+      const {reader, setToken} = makeMutableAuthReader()
+      setToken(makeFullToken())
+      const resolver = new IdentityResolver(reader, makeStubStore())
+
+      const first = await resolver.resolve()
+      const second = await resolver.resolve()
+
+      expect(first).to.deep.equal(second)
+      expect(first).to.not.equal(second) // distinct object references — no shared mutable state
+    })
+  })
 })

@@ -69,6 +69,24 @@ export interface IJsonlAnalyticsStore {
   append: (record: StoredAnalyticsRecord) => Promise<void>
 
   /**
+   * Truncate the JSONL file: drop every row regardless of status.
+   *
+   * M4.1: invoked when AuthStateStore reports a login/logout transition.
+   * Pending events tracked under the prior session must NOT be flushed
+   * under the new session's identity. Clearing on transition guarantees
+   * the queue is homogeneous per session, every event in the queue at
+   * flush time was tracked under the current auth state.
+   *
+   * Concurrency: serializes through the same write chain as `append` /
+   * `updateStatus`, so an in-flight append finishes before clear runs and
+   * a clear in progress blocks subsequent appends. Atomic via tmp+rename.
+   *
+   * Counters (`droppedFullCount`, `droppedSentCount`) are NOT reset,
+   * they're cumulative lifetime stats surfaced by `brv analytics status`.
+   */
+  clear: () => Promise<void>
+
+  /**
    * Cumulative count of `append` calls dropped because the cap was full
    * with no `'sent'` rows to evict (file saturated with pending+failed).
    * Never reset; surfaced for `brv analytics status` (M4.6).

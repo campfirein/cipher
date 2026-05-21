@@ -33,8 +33,8 @@ type AuthStateStoreOptions = {
  * Uses an isPolling guard to prevent overlapping poll cycles.
  */
 export class AuthStateStore implements IAuthStateStore {
-  private authChangedCallback: AuthChangedCallback | undefined
-  private authExpiredCallback: AuthExpiredCallback | undefined
+  private readonly authChangedCallbacks: AuthChangedCallback[] = []
+  private readonly authExpiredCallbacks: AuthExpiredCallback[] = []
   private cachedToken: AuthToken | undefined
   private isPolling = false
   private readonly log: (message: string) => void
@@ -66,11 +66,11 @@ export class AuthStateStore implements IAuthStateStore {
   }
 
   onAuthChanged(callback: AuthChangedCallback): void {
-    this.authChangedCallback = callback
+    this.authChangedCallbacks.push(callback)
   }
 
   onAuthExpired(callback: AuthExpiredCallback): void {
-    this.authExpiredCallback = callback
+    this.authExpiredCallbacks.push(callback)
   }
 
   startPolling(): void {
@@ -91,6 +91,31 @@ export class AuthStateStore implements IAuthStateStore {
     }
 
     this.log('Auth state polling stopped')
+  }
+
+  /**
+   * Dispatch to every registered onAuthChanged listener. One listener
+   * throwing must NOT prevent the others from firing or break the
+   * polling loop; we log and continue.
+   */
+  private fireAuthChanged(token: AuthToken | undefined): void {
+    for (const callback of this.authChangedCallbacks) {
+      try {
+        callback(token)
+      } catch (error) {
+        this.log(`onAuthChanged callback threw: ${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
+  }
+
+  private fireAuthExpired(token: AuthToken): void {
+    for (const callback of this.authExpiredCallbacks) {
+      try {
+        callback(token)
+      } catch (error) {
+        this.log(`onAuthExpired callback threw: ${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
   }
 
   /**
@@ -123,15 +148,15 @@ export class AuthStateStore implements IAuthStateStore {
       this.cachedToken = token
       this.wasExpired = false
       this.log(`Auth state changed: ${token ? 'token present' : 'token removed'}`)
-      this.authChangedCallback?.(token)
+      this.fireAuthChanged(token)
       return
     }
 
-    // Same token — check for expiry transition
+    // Same token, check for expiry transition
     if (token && token.isExpired() && !this.wasExpired) {
       this.wasExpired = true
       this.log('Auth token expired')
-      this.authExpiredCallback?.(token)
+      this.fireAuthExpired(token)
     }
 
     // Update cached reference (same accessToken but other fields may differ)

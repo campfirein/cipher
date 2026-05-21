@@ -29,6 +29,7 @@ function makeMockAnalyticsClient(): MockAnalyticsClient {
   const trackCalls: TrackCall[] = []
   const mock: MockAnalyticsClient = {
     flush: () => Promise.resolve(AnalyticsBatch.create([])),
+    onAuthTransition: () => Promise.resolve(),
     track<E extends AnalyticsEventName>(event: E, ...rest: PropsArg<E>): void {
       if (mock.trackThrows) throw mock.trackThrows
       const [properties] = rest

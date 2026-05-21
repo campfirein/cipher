@@ -17,6 +17,13 @@ export interface AnalyticsClientDeps {
   identityResolver: IIdentityResolver
   isEnabled: () => boolean
   jsonlStore: IJsonlAnalyticsStore
+  /**
+   * Optional structured log sink for operational visibility. Used by
+   * `onAuthTransition` to surface a `clear()` failure that would
+   * otherwise silently leave prior-session events on disk. Defaults to
+   * a no-op when omitted so existing callers don't have to wire it.
+   */
+  log?: (message: string) => void
   queue: IAnalyticsQueue
   sender: IAnalyticsSender
   superPropsResolver: ISuperPropertiesResolver
@@ -55,6 +62,17 @@ export class AnalyticsClient implements IAnalyticsClient {
   // double-incrementing `attempts` per cycle and tripping the M9.2 retry cap
   // in MAX_ATTEMPTS/2 cycles instead of MAX_ATTEMPTS.
   private pendingFlush?: Promise<AnalyticsBatch>
+  // M4.1 in-flight tracking. Each `trackAsync` registers its promise here
+  // so `onAuthTransition` can await every track that started BEFORE the
+  // transition before issuing `clear()`. Without this barrier:
+  //   - a track that resolved old identity but hasn't appended yet may
+  //     enqueue its append AFTER clear → record persists with stale
+  //     identity → backend rejects on mismatch.
+  //   - a track that already enqueued append BEFORE clear is correctly
+  //     nuked by clear (intentional — pre-transition events drop).
+  // The barrier removes the first failure mode; the second is the
+  // designed behavior.
+  private readonly pendingTracks = new Set<Promise<void>>()
 
   public constructor(deps: AnalyticsClientDeps) {
     this.deps = deps
@@ -93,6 +111,41 @@ export class AnalyticsClient implements IAnalyticsClient {
     }
   }
 
+  public async onAuthTransition(): Promise<void> {
+    // Snapshot in-flight tracks then wait for them to settle. Any
+    // `trackAsync` that started before this point may still be between
+    // identity-resolve and `jsonlStore.append` / `queue.push`; awaiting
+    // it guarantees its append has either landed in the write chain (so
+    // the clear enqueued below nukes it — correct, those identities are
+    // stale) or failed (so there is nothing to nuke). New `track()`
+    // calls that arrive after this snapshot resolve identity from the
+    // post-transition cached token and are NOT included in the barrier.
+    //
+    // `Promise.allSettled` rather than `all` because individual track
+    // promises may already swallow-and-resolve on error; we just need
+    // the settled signal, not the result.
+    if (this.pendingTracks.size > 0) {
+      await Promise.allSettled(this.pendingTracks)
+    }
+
+    // Drain the in-memory mirror AFTER the barrier so any push that the
+    // completing track did is also wiped. Draining before the barrier
+    // would leave a window where the late-completing track pushes back
+    // into a fresh queue → prior-session record stays visible to webui.
+    this.deps.queue.drain()
+
+    try {
+      await this.deps.jsonlStore.clear()
+    } catch (error) {
+      // Analytics MUST NOT crash the consumer. Surface the failure
+      // through the optional log sink so operators see why a flush
+      // after transition would ship prior-session events.
+      this.deps.log?.(
+        `analytics.onAuthTransition: clear failed (${error instanceof Error ? error.message : String(error)})`,
+      )
+    }
+  }
+
   public track<E extends AnalyticsEventName>(event: E, ...rest: PropsArg<E>): void {
     if (!this.deps.isEnabled()) return
     // Capture the timestamp synchronously at call-site so it reflects WHEN the
@@ -101,8 +154,14 @@ export class AnalyticsClient implements IAnalyticsClient {
     // preserves the inter-event durations downstream consumers care about.
     const timestamp = Date.now()
     const [properties] = rest
+    const pending = this.trackAsync(event, properties, timestamp)
+    this.pendingTracks.add(pending)
+    // Remove from the in-flight set once the track settles either way.
+    // `void` keeps `track()` synchronous per the IAnalyticsClient contract.
     // eslint-disable-next-line no-void
-    void this.trackAsync(event, properties, timestamp)
+    void pending.finally(() => {
+      this.pendingTracks.delete(pending)
+    })
   }
 
   private async runFlush(): Promise<AnalyticsBatch> {
