@@ -7,15 +7,19 @@ import path from 'node:path'
  * The agent has no filesystem view of `.brv/context-tree/`, so even a
  * well-prompted agent can mistype a path or reference a topic that
  * hasn't been written yet. This walks each comma-separated ref and
- * surfaces a warning when the ref is broken — neither `<ref>.html`
- * (file form) nor `<ref>/` (folder form) exists on disk. A ref where
- * either form exists returns no warning. The warner never mutates the
- * attribute and never rejects the write — refs are advisory metadata,
- * and a "forward reference" to a topic about to be curated is legit.
+ * surfaces a warning when the form the agent wrote is broken: the
+ * suffix IS the choice (`.html` → file form, bare → folder form), and
+ * the FE routes by suffix. So a `.html` ref must point at a file that
+ * exists; a bare ref must point at a folder that exists. The other
+ * on-disk shape is irrelevant — probing both would silently accept
+ * dead-pill scenarios (e.g. `.html` ref + only folder on disk).
  *
- * Parsing is permissive: leading `@` is stripped, any trailing `.html`
- * is stripped before the existence check, surrounding whitespace is
- * trimmed, empty entries are skipped. Path segments containing `..`
+ * The warner never mutates the attribute and never rejects the write
+ * — refs are advisory metadata, and a "forward reference" to a topic
+ * about to be curated is legit.
+ *
+ * Parsing is permissive: leading `@` and surrounding whitespace are
+ * stripped, empty entries are skipped. Path segments containing `..`
  * or `.` are rejected as unsafe without touching the filesystem.
  */
 export function computeRelatedWarnings(options: {
@@ -45,7 +49,8 @@ function checkRef(options: {contextTreeRoot: string; originalRef: string}): stri
   const {contextTreeRoot, originalRef} = options
 
   const stripped = originalRef.startsWith('@') ? originalRef.slice(1) : originalRef
-  const withoutExt = stripped.endsWith('.html') ? stripped.slice(0, -'.html'.length) : stripped
+  const wantsFile = stripped.endsWith('.html')
+  const withoutExt = wantsFile ? stripped.slice(0, -'.html'.length) : stripped
 
   // Reject `.` and `..` segments before any filesystem access. The check
   // must happen on the path the user wrote, not on a normalised form,
@@ -62,14 +67,15 @@ function checkRef(options: {contextTreeRoot: string; originalRef: string}): stri
   }
 
   const relative = segments.join('/')
-  const filePath = path.resolve(contextTreeRoot, `${relative}.html`)
-  const folderPath = path.resolve(contextTreeRoot, relative)
+  const candidate = wantsFile
+    ? path.resolve(contextTreeRoot, `${relative}.html`)
+    : path.resolve(contextTreeRoot, relative)
 
-  // Defence in depth: even after segment filtering, both resolved paths
+  // Defence in depth: even after segment filtering, the resolved path
   // must remain inside the context-tree root. A symlink in `contextTreeRoot`
   // could theoretically escape; reject any resolution that does.
   const rootResolved = path.resolve(contextTreeRoot)
-  if (!isInsideRoot(filePath, rootResolved) || !isInsideRoot(folderPath, rootResolved)) {
+  if (!isInsideRoot(candidate, rootResolved)) {
     return `related ref "${originalRef}" resolves outside the context-tree root and was not checked`
   }
 
@@ -77,10 +83,17 @@ function checkRef(options: {contextTreeRoot: string; originalRef: string}): stri
   // deletion, …) is treated as "not present" so the warner stays
   // advisory after a successful write. It runs post-write — its job is
   // to surface refs, not to fail the operation — so an unprovable
-  // target is reported as broken rather than thrown.
-  if (safeStatIsFile(filePath) || safeStatIsDir(folderPath)) return undefined
+  // target is reported as broken rather than thrown. Probe only the
+  // shape the agent chose: a `.html` ref against a folder (or a bare
+  // ref against a file) is a dead pill the FE cannot route, so it
+  // must surface even when the "other" shape happens to exist.
+  if (wantsFile) {
+    if (safeStatIsFile(candidate)) return undefined
+    return `related ref "${originalRef}" was not found — no file at "${relative}.html" under the context tree`
+  }
 
-  return `related ref "${originalRef}" was not found — no "${relative}.html" file or "${relative}/" folder exists under the context tree`
+  if (safeStatIsDir(candidate)) return undefined
+  return `related ref "${originalRef}" was not found — no folder at "${relative}/" under the context tree (bare refs target folders; add ".html" if you meant a file)`
 }
 
 function isInsideRoot(candidate: string, rootResolved: string): boolean {

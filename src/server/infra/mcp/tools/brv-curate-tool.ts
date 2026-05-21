@@ -266,7 +266,9 @@ export function registerBrvCurateTool(
  * Render the `CurateHtmlDirectResult` envelope as a text block for the
  * calling agent.
  *
- * - `status: 'ok'`: a single confirmation line (`✓ Wrote` / `✓ Replaced`).
+ * - `status: 'ok'`: a confirmation line (`✓ Wrote` / `✓ Replaced`),
+ *   followed by one `  ⚠ <text>` line per advisory warning the writer
+ *   surfaced (today: broken `related` refs). Clean writes are head-only.
  * - `status: 'validation-failed'`: one `✗ <kind>: <message>` line per
  *   error. `path-exists` inlines the existing content as a fenced ```html
  *   block. The vocabulary slice is appended at the bottom so the agent

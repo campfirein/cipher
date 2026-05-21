@@ -444,8 +444,8 @@ describe('brv-curate-tool', () => {
         simulateEvent('task:completed', {
           result: JSON.stringify(okEnvelope({
             warnings: [
-              'related ref "@security/missing" was not found — no "security/missing.html" file or "security/missing/" folder exists under the context tree',
-              'related ref "@ops/typo" was not found — no "ops/typo.html" file or "ops/typo/" folder exists under the context tree',
+              'related ref "@security/missing.html" was not found — no file at "security/missing.html" under the context tree',
+              'related ref "@ops/typo" was not found — no folder at "ops/typo/" under the context tree (bare refs target folders; add ".html" if you meant a file)',
             ],
           })),
           taskId: data.taskId,
@@ -463,7 +463,7 @@ describe('brv-curate-tool', () => {
       expect(result.isError).to.be.undefined
       const {text} = result.content[0]
       expect(text).to.include('✓ Wrote topic to security/auth.html')
-      expect(text).to.include('⚠ related ref "@security/missing"')
+      expect(text).to.include('⚠ related ref "@security/missing.html"')
       expect(text).to.include('⚠ related ref "@ops/typo"')
     })
 

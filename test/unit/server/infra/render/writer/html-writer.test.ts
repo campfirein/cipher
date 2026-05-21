@@ -389,18 +389,18 @@ describe('html-writer', () => {
       })
 
       it('surfaces related-ref warnings alongside a successful write', async () => {
-        // The warner runs after validation, before the disk write.
+        // The warner runs after the atomic write, never blocks it.
         // Broken refs are reported as `warnings` on a successful write
         // so the calling agent sees them in the curate envelope. The
         // write itself is never rejected — refs are advisory.
-        // Seed `@security/oauth` so the warner has a clean reference to
-        // confirm only the broken one surfaces.
+        // Seed `security/oauth.html` so the `.html` ref resolves cleanly
+        // and only the broken one surfaces.
         await writeHtmlTopic({
           contextTreeRoot: tmpRoot,
           rawHtml: '<bv-topic path="security/oauth" title="OAuth"></bv-topic>',
         })
 
-        const html = `<bv-topic path="security/jwt" title="JWT" related="@security/oauth, @security/missing">
+        const html = `<bv-topic path="security/jwt" title="JWT" related="@security/oauth.html, @security/missing">
   <bv-reason>Document JWT.</bv-reason>
 </bv-topic>`
         const result = await writeHtmlTopic({contextTreeRoot: tmpRoot, rawHtml: html})
@@ -412,13 +412,13 @@ describe('html-writer', () => {
       })
 
       it('returns an empty warnings array when every related ref resolves', async () => {
-        // Seed the target topic so the ref resolves cleanly.
+        // Seed the target topic so the `.html` ref resolves cleanly.
         await writeHtmlTopic({
           contextTreeRoot: tmpRoot,
           rawHtml: '<bv-topic path="security/oauth" title="OAuth"></bv-topic>',
         })
 
-        const html = `<bv-topic path="security/jwt" title="JWT" related="@security/oauth">
+        const html = `<bv-topic path="security/jwt" title="JWT" related="@security/oauth.html">
   <bv-reason>Document JWT.</bv-reason>
 </bv-topic>`
         const result = await writeHtmlTopic({contextTreeRoot: tmpRoot, rawHtml: html})

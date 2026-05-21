@@ -1,16 +1,13 @@
 /**
  * related-ref warner tests.
  *
- * The warner is read-only: it resolves each comma-separated ref in a
- * `<bv-topic related="...">` attribute against the on-disk context
- * tree and returns a warning when the ref is broken — neither
- * `<ref>.html` nor `<ref>/` exists.
- *
- * Refs where either form exists return no warning. The suffix the agent
- * wrote IS the disambiguator (`.html` → file, bare → folder), so a
- * shape mismatch on disk (e.g. bare ref + file present) is not flagged
- * — the FE routes by suffix. The warner never mutates the attribute
- * and never rejects the write.
+ * The warner is read-only and probes only the form the agent's suffix
+ * picked: `.html` → file at `<ref>.html`, bare → folder at `<ref>/`.
+ * A warning surfaces when that probed shape does not exist on disk.
+ * The other on-disk shape is irrelevant — a `.html` ref pointing at a
+ * folder (or a bare ref pointing at a file) is still a dead pill the
+ * FE cannot route. The warner never mutates the attribute and never
+ * rejects the write.
  */
 
 import {expect} from 'chai'
@@ -58,19 +55,13 @@ describe('related-ref warner', () => {
       expect(result).to.deep.equal([])
     })
 
-    it('returns [] for a ref pointing at an existing file (no extension form)', async () => {
-      await seedFile(tmpRoot, 'security/oauth.html')
-      const result = computeRelatedWarnings({contextTreeRoot: tmpRoot, relatedAttr: '@security/oauth'})
-      expect(result).to.deep.equal([])
-    })
-
-    it('returns [] for a ref pointing at an existing file (explicit .html form)', async () => {
+    it('returns [] for an explicit .html ref pointing at an existing file', async () => {
       await seedFile(tmpRoot, 'security/oauth.html')
       const result = computeRelatedWarnings({contextTreeRoot: tmpRoot, relatedAttr: '@security/oauth.html'})
       expect(result).to.deep.equal([])
     })
 
-    it('returns [] for a ref pointing at an existing folder', async () => {
+    it('returns [] for a bare ref pointing at an existing folder', async () => {
       await seedFolder(tmpRoot, 'ops')
       const result = computeRelatedWarnings({contextTreeRoot: tmpRoot, relatedAttr: '@ops'})
       expect(result).to.deep.equal([])
@@ -81,22 +72,22 @@ describe('related-ref warner', () => {
       await seedFolder(tmpRoot, 'ops')
       const result = computeRelatedWarnings({
         contextTreeRoot: tmpRoot,
-        relatedAttr: '@security/oauth, @ops',
+        relatedAttr: '@security/oauth.html, @ops',
       })
       expect(result).to.deep.equal([])
     })
 
     it('accepts refs without the leading @ (permissive parsing)', async () => {
-      await seedFile(tmpRoot, 'security/oauth.html')
-      const result = computeRelatedWarnings({contextTreeRoot: tmpRoot, relatedAttr: 'security/oauth'})
+      await seedFolder(tmpRoot, 'ops')
+      const result = computeRelatedWarnings({contextTreeRoot: tmpRoot, relatedAttr: 'ops'})
       expect(result).to.deep.equal([])
     })
 
     it('trims whitespace around comma-separated refs', async () => {
-      await seedFile(tmpRoot, 'security/oauth.html')
+      await seedFolder(tmpRoot, 'ops')
       const result = computeRelatedWarnings({
         contextTreeRoot: tmpRoot,
-        relatedAttr: '  @security/oauth  ',
+        relatedAttr: '  @ops  ',
       })
       expect(result).to.deep.equal([])
     })
@@ -117,11 +108,37 @@ describe('related-ref warner', () => {
       await seedFile(tmpRoot, 'security/oauth.html')
       const result = computeRelatedWarnings({
         contextTreeRoot: tmpRoot,
-        relatedAttr: '@security/oauth, @security/missing_a, @security/missing_b',
+        relatedAttr: '@security/oauth.html, @security/missing_a, @security/missing_b',
       })
       expect(result).to.have.lengthOf(2)
       expect(result.some((w) => w.includes('@security/missing_a'))).to.equal(true)
       expect(result.some((w) => w.includes('@security/missing_b'))).to.equal(true)
+    })
+  })
+
+  describe('suffix mismatch (probe only the chosen form)', () => {
+    // The reverse of the dropped "ambiguous" case: the agent's suffix
+    // picks a form, the on-disk shape on the OTHER side is irrelevant.
+    // Probing both forms would silently accept a dead-pill scenario
+    // because the FE routes by suffix and would 404 either way.
+    it('warns when an explicit .html ref points at a folder instead of a file', async () => {
+      await seedFolder(tmpRoot, 'ops')
+      const result = computeRelatedWarnings({contextTreeRoot: tmpRoot, relatedAttr: '@ops.html'})
+      expect(result).to.have.lengthOf(1)
+      expect(result[0]).to.include('@ops.html')
+      expect(result[0].toLowerCase()).to.include('no file')
+    })
+
+    it('warns when a bare ref points at a file instead of a folder', async () => {
+      await seedFile(tmpRoot, 'security/oauth.html')
+      const result = computeRelatedWarnings({contextTreeRoot: tmpRoot, relatedAttr: '@security/oauth'})
+      expect(result).to.have.lengthOf(1)
+      expect(result[0]).to.include('@security/oauth')
+      expect(result[0].toLowerCase()).to.include('no folder')
+      // Coaching hint: a bare ref + only file present is the typical
+      // "agent forgot the .html suffix" mistake — the warning must point
+      // them at the fix.
+      expect(result[0]).to.include('.html')
     })
   })
 
