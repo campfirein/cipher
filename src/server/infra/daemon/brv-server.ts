@@ -516,9 +516,19 @@ async function main(): Promise<void> {
     })
 
     // 9. Create shutdown handler (agent pool shut down before transport)
+    //
+    // M4.3: the analytics flush scheduler is constructed inside
+    // setupFeatureHandlers (later), so the final-flush closure resolves
+    // through a mutable holder. The shutdown sequence calls this hook
+    // after the agent pool stops; if setupFeatureHandlers never ran
+    // (e.g. startup crashed early) the holder stays undefined and the
+    // hook is skipped.
+    // eslint-disable-next-line prefer-const
+    let analyticsFinalFlush: (() => Promise<void>) | undefined
     shutdownHandler = new ShutdownHandler({
       agentIdleTimeoutPolicy,
       agentPool,
+      analyticsFinalFlush: () => analyticsFinalFlush?.() ?? Promise.resolve(),
       daemonResilience,
       heartbeatWriter,
       idleTimeoutPolicy,
@@ -668,7 +678,7 @@ async function main(): Promise<void> {
     // Feature handlers (auth, init, status, push, pull, etc.) require async OIDC discovery.
     // Placed after daemon:getState so the debug endpoint is available immediately,
     // without waiting for OIDC discovery (~400ms).
-    const {analyticsClient, isAnalyticsEnabled} = await setupFeatureHandlers({
+    const {analyticsClient, analyticsFlushScheduler, isAnalyticsEnabled} = await setupFeatureHandlers({
       authStateStore,
       broadcastToProject(projectPath, event, data) {
         broadcastToProjectRoom(projectRegistry, projectRouter, projectPath, event, data)
@@ -703,12 +713,20 @@ async function main(): Promise<void> {
     // stamp every daemon_start anonymously even for logged-in users.
     analyticsClient.track(AnalyticsEventNames.DAEMON_START)
 
+    // M4.3: start the flush scheduler AFTER the first track lands so the
+    // initial 30s window aligns with real traffic, and wire the shutdown
+    // hook now that the scheduler exists. Hook stops the scheduler first
+    // (no new ticks mid-shutdown) before awaiting the best-effort final
+    // flush against a 3s budget.
+    analyticsFlushScheduler.start()
+    analyticsFinalFlush = async () => {
+      analyticsFlushScheduler.stop()
+      await analyticsFlushScheduler.flushFinal({timeoutMs: 3000})
+    }
+
     // 11. Start idle timer + register signal handlers
     idleTimeoutPolicy.start()
 
-    // TODO(M4): await analyticsClient.flush() and ship the batch before exit.
-    // Today, queued events are dropped on SIGTERM/SIGINT — acceptable per the
-    // M2 ticket scope ("in-memory only"); revisit when the network sender lands.
     process.once('SIGTERM', () => {
       log('SIGTERM received')
       shutdownHandler.shutdown().catch((error: unknown) => {

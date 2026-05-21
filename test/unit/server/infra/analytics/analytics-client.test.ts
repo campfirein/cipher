@@ -567,6 +567,81 @@ describe('AnalyticsClient', () => {
     })
   })
 
+  describe('M4.3 onAfterTrack hook (threshold notification)', () => {
+    it('fires onAfterTrack after a successful JSONL+queue persist', async () => {
+      const jsonlStore = makeFakeJsonlStore()
+      const onAfterTrack = spy()
+      const client = new AnalyticsClient({
+        identityResolver: makeStubIdentityResolver(makeAnonIdentity()),
+        isEnabled: () => true,
+        jsonlStore,
+        onAfterTrack: () => onAfterTrack(),
+        queue: new BoundedQueue(),
+        sender: makeFakeSender(),
+        superPropsResolver: makeStubSuperPropsResolver(makeSuperProps()),
+      })
+
+      client.track(AnalyticsEventNames.DAEMON_START)
+      await flushMicrotasks()
+
+      expect(onAfterTrack.calledOnce).to.equal(true)
+    })
+
+    it('does NOT fire onAfterTrack when JSONL append fails (no record landed)', async () => {
+      const jsonlStore = makeFakeJsonlStore({appendError: new Error('disk full')})
+      const onAfterTrack = spy()
+      const client = new AnalyticsClient({
+        identityResolver: makeStubIdentityResolver(makeAnonIdentity()),
+        isEnabled: () => true,
+        jsonlStore,
+        onAfterTrack: () => onAfterTrack(),
+        queue: new BoundedQueue(),
+        sender: makeFakeSender(),
+        superPropsResolver: makeStubSuperPropsResolver(makeSuperProps()),
+      })
+
+      client.track(AnalyticsEventNames.DAEMON_START)
+      await flushMicrotasks()
+
+      expect(onAfterTrack.called, 'failed persist must not signal the scheduler').to.equal(false)
+    })
+
+    it('fires onAfterTrack once per successful track', async () => {
+      const onAfterTrack = spy()
+      const client = new AnalyticsClient({
+        identityResolver: makeStubIdentityResolver(makeAnonIdentity()),
+        isEnabled: () => true,
+        jsonlStore: makeFakeJsonlStore(),
+        onAfterTrack: () => onAfterTrack(),
+        queue: new BoundedQueue(),
+        sender: makeFakeSender(),
+        superPropsResolver: makeStubSuperPropsResolver(makeSuperProps()),
+      })
+
+      for (let i = 0; i < 5; i++) client.track(AnalyticsEventNames.DAEMON_START)
+      await flushMicrotasks()
+
+      expect(onAfterTrack.callCount).to.equal(5)
+    })
+
+    it('does NOT crash when onAfterTrack throws (analytics no-crash guarantee)', async () => {
+      const client = new AnalyticsClient({
+        identityResolver: makeStubIdentityResolver(makeAnonIdentity()),
+        isEnabled: () => true,
+        jsonlStore: makeFakeJsonlStore(),
+        onAfterTrack() {
+          throw new Error('scheduler boom')
+        },
+        queue: new BoundedQueue(),
+        sender: makeFakeSender(),
+        superPropsResolver: makeStubSuperPropsResolver(makeSuperProps()),
+      })
+
+      expect(() => client.track(AnalyticsEventNames.DAEMON_START)).to.not.throw()
+      await flushMicrotasks()
+    })
+  })
+
   describe('M10.2 mirror flush: invokes sender, mirrors result back to JSONL via updateStatus', () => {
     it('should pass loadPending records to sender.send exactly once per flush', async () => {
       const jsonlStore = makeFakeJsonlStore()
