@@ -437,7 +437,7 @@ describe('QueryExecutor', () => {
     describe('search scope derivation', () => {
       it('should pass workspace scope to initial search when worktreeRoot differs from baseDirectory', async () => {
         const searchStub = stub().resolves(lowScoreSearchResult)
-        const searchService: ISearchKnowledgeService = {search: searchStub}
+        const searchService: ISearchKnowledgeService = {refreshIndex: stub().resolves(), search: searchStub}
 
         const executor = new QueryExecutor({
           baseDirectory: '/projects/monorepo',
@@ -458,7 +458,7 @@ describe('QueryExecutor', () => {
 
       it('should not pass scope when worktreeRoot equals baseDirectory', async () => {
         const searchStub = stub().resolves(lowScoreSearchResult)
-        const searchService: ISearchKnowledgeService = {search: searchStub}
+        const searchService: ISearchKnowledgeService = {refreshIndex: stub().resolves(), search: searchStub}
 
         const executor = new QueryExecutor({
           baseDirectory: '/projects/myapp',
@@ -479,7 +479,7 @@ describe('QueryExecutor', () => {
 
       it('should not pass scope when worktreeRoot is undefined', async () => {
         const searchStub = stub().resolves(lowScoreSearchResult)
-        const searchService: ISearchKnowledgeService = {search: searchStub}
+        const searchService: ISearchKnowledgeService = {refreshIndex: stub().resolves(), search: searchStub}
 
         const executor = new QueryExecutor({
           baseDirectory: '/projects/myapp',
@@ -501,7 +501,7 @@ describe('QueryExecutor', () => {
     describe('workspace scope injection for agent follow-up searches', () => {
       it('should inject scope variable into sandbox when worktreeRoot differs from baseDirectory', async () => {
         const searchStub = stub().resolves(lowScoreSearchResult)
-        const searchService: ISearchKnowledgeService = {search: searchStub}
+        const searchService: ISearchKnowledgeService = {refreshIndex: stub().resolves(), search: searchStub}
 
         const executor = new QueryExecutor({
           baseDirectory: '/projects/monorepo',
@@ -525,7 +525,7 @@ describe('QueryExecutor', () => {
 
       it('should not inject scope variable when worktreeRoot equals baseDirectory', async () => {
         const searchStub = stub().resolves(lowScoreSearchResult)
-        const searchService: ISearchKnowledgeService = {search: searchStub}
+        const searchService: ISearchKnowledgeService = {refreshIndex: stub().resolves(), search: searchStub}
 
         const executor = new QueryExecutor({
           baseDirectory: '/projects/myapp',
@@ -548,7 +548,7 @@ describe('QueryExecutor', () => {
 
       it('should include scope guidance in prompt when workspace scope is active', async () => {
         const searchStub = stub().resolves(lowScoreSearchResult)
-        const searchService: ISearchKnowledgeService = {search: searchStub}
+        const searchService: ISearchKnowledgeService = {refreshIndex: stub().resolves(), search: searchStub}
 
         const executor = new QueryExecutor({
           baseDirectory: '/projects/monorepo',
@@ -583,7 +583,7 @@ describe('QueryExecutor', () => {
           baseDirectory: '/projects/monorepo',
           enableCache: true,
           fileSystem,
-          searchService: {search: searchStub},
+          searchService: {refreshIndex: stub().resolves(), search: searchStub},
         })
 
         const agent = createMockAgent()
@@ -639,7 +639,7 @@ describe('QueryExecutor', () => {
           baseDirectory: projectRoot,
           enableCache: true,
           fileSystem,
-          searchService: {search: stub().resolves(lowScoreSearchResult)},
+          searchService: {refreshIndex: stub().resolves(), search: stub().resolves(lowScoreSearchResult)},
         })
 
         const agent = createMockAgent()
@@ -696,7 +696,7 @@ describe('QueryExecutor', () => {
           baseDirectory: projectRoot,
           enableCache: true,
           fileSystem,
-          searchService: {search: stub().resolves(lowScoreSearchResult)},
+          searchService: {refreshIndex: stub().resolves(), search: stub().resolves(lowScoreSearchResult)},
         })
 
         const agent = createMockAgent()

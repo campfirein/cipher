@@ -59,9 +59,15 @@ export async function findBM25Pairs(params: FindBM25PairsParams): Promise<BM25Pa
       // Title-only query. Appending the summary makes the query too
       // specific and BM25 ends up ranking only the source topic itself —
       // see regression test in link-candidates.test.ts.
+      //
+      // combineWith: 'OR' overrides the search service's default
+      // AND-first strategy. Multi-word distinctive titles (e.g. "Redis
+      // Caching Layer") AND-combine to terms that only the source itself
+      // contains, hiding legitimate cross-pairs whose titles share two
+      // of the three terms. Pair-discovery wants any-term recall.
       const query = source.title.trim()
       if (!query) return {hits: [], source}
-      const result = await searchService.search(query, {limit: searchLimitPerTopic})
+      const result = await searchService.search(query, {combineWith: 'OR', limit: searchLimitPerTopic})
       return {hits: result.results, source}
     }),
   )

@@ -47,6 +47,11 @@ export async function buildUndoDeps(
     manifestService: new FileContextTreeManifestService({baseDirectory: projectRoot, runtimeSignalStore}),
     projectRoot,
     reviewBackupStore: new FileReviewBackupStore(brvDir),
+    // Wired through so undoPrune can restore each archived topic's
+    // sidecar signals (importance, maturity, accessCount, ...) — the
+    // PRUNE op captures them via `previousSignals` and `previousMtimes`
+    // so signal-driven prune candidates re-qualify after undo.
+    runtimeSignalStore,
   }
 }
 

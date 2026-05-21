@@ -855,6 +855,14 @@ async function executeTask(
                   action: 'ARCHIVE',
                   file: path,
                   needsReview: false,
+                  // Pre-archive metadata captured by finalizeDreamSession so
+                  // undo can restore not just the file body but the mtime
+                  // and runtime signals that drove the prune decision (e.g.
+                  // importance < 35, stale-mtime > 60d). Without this,
+                  // undo restores the file but resets observable state and
+                  // the topic stops re-surfacing on the next prune scan.
+                  previousMtimes: {[path]: finalizeResult.previousMtimes[path]},
+                  previousSignals: {[path]: finalizeResult.previousSignals[path]},
                   previousTexts: {[path]: finalizeResult.previousTexts[path] ?? ''},
                   reason: 'tool-mode dream finalize',
                   type: 'PRUNE',
