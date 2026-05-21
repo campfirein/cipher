@@ -4,11 +4,11 @@ import {execute} from '@oclif/core'
 import {config as loadEnv} from 'dotenv'
 import {resolve} from 'node:path'
 
-process.env.BRV_ENV = 'production'
+process.env.BRV_ENV = 'development'
 
 // eslint-disable-next-line n/no-unsupported-features/node-builtins
 const root = resolve(import.meta.dirname, '..')
-loadEnv({path: resolve(root, '.env.production'), quiet: true})
+loadEnv({path: resolve(root, '.env.development'), quiet: true})
 
 
 // Inject default command 'main' (represents logic of a single 'brv' run) when no args provided
