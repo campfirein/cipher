@@ -1107,6 +1107,18 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
    * fresh disk read. Rejections from the in-flight build are
    * swallowed; callers of refreshIndex don't care about that build's
    * outcome, they just want a clean slate.
+   *
+   * Maintainer note: after `await inFlight` resolves, `acquireIndex`'s
+   * `finally` block has already nulled `state.buildingPromise`, so the
+   * explicit `= undefined` below is defensive — kept for symmetry and
+   * to guard against any future flow where the promise is stored
+   * outside that `finally`. A racing `acquireIndex()` between the
+   * await and the clear may capture a fresh `buildingPromise` that
+   * this clear then nulls the pointer to; the inner build still
+   * publishes its fresh index correctly, but the very next
+   * `acquireIndex()` after that won't see the in-flight promise and
+   * may start a parallel build. That's a benign double-build
+   * inefficiency, not a correctness issue.
    */
   async refreshIndex(): Promise<void> {
     const inFlight = this.state.buildingPromise

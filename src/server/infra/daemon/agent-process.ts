@@ -863,7 +863,7 @@ async function executeTask(
                   // the topic stops re-surfacing on the next prune scan.
                   previousMtimes: {[path]: finalizeResult.previousMtimes[path]},
                   previousSignals: {[path]: finalizeResult.previousSignals[path]},
-                  previousTexts: {[path]: finalizeResult.previousTexts[path] ?? ''},
+                  previousTexts: {[path]: finalizeResult.previousTexts[path]},
                   reason: 'tool-mode dream finalize',
                   type: 'PRUNE',
                 })),

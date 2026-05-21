@@ -416,6 +416,26 @@ export const TransportSessionEventNames = {
 // ============================================================================
 
 /**
+ * Closed set of task types. Single source of truth — request schemas
+ * (`TaskExecuteSchema`, `TaskCreateRequestSchema`) and broadcast-event
+ * schemas (`TaskCreatedSchema`) all reference this so a new task type
+ * only needs to be added in one place.
+ *
+ * Declared above `TaskExecuteSchema` so the inline `type: TaskTypeSchema`
+ * reference below resolves at module-load without a Zod TDZ.
+ */
+export const TaskTypeSchema = z.enum([
+  'curate',
+  'curate-folder',
+  'curate-html-direct',
+  'dream-finalize',
+  'dream-scan',
+  'query',
+  'query-tool-mode',
+  'search',
+])
+
+/**
  * task:execute - Transport sends task to Agent for processing
  * Internal message, not exposed to external clients
  */
@@ -442,8 +462,8 @@ export const TaskExecuteSchema = z.object({
   taskId: z.string(),
   /** Task trigger source — `cli` for user invocations, `manual` for daemon-internal. */
   trigger: z.enum(['cli', 'manual']).optional(),
-  /** Task type */
-  type: z.enum(['curate', 'curate-folder', 'curate-html-direct', 'dream-finalize', 'dream-scan', 'query', 'query-tool-mode', 'search']),
+  /** Task type — closed enum kept in sync with `TaskTypeSchema`. */
+  type: TaskTypeSchema,
   /** Workspace root for scoped query/curate */
   worktreeRoot: z.string().optional(),
 })
@@ -538,22 +558,6 @@ export const LlmUnsupportedInputEventSchema = z.object({
 // ============================================================================
 // Transport Events (Transport → Client)
 // ============================================================================
-
-/**
- * Closed set of task types. Single source of truth — broadcast-event schemas
- * (e.g. `TaskCreatedSchema`) and request schemas (e.g. `TaskExecuteSchema`)
- * both reference this so a new task type only needs to be added in one place.
- */
-export const TaskTypeSchema = z.enum([
-  'curate',
-  'curate-folder',
-  'curate-html-direct',
-  'dream-finalize',
-  'dream-scan',
-  'query',
-  'query-tool-mode',
-  'search',
-])
 
 /**
  * task:ack - Transport acknowledges task creation

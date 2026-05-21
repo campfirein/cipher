@@ -45,6 +45,61 @@ describe('Dream Command (topic root)', () => {
     expect(loggedMessages.join('\n')).to.include('undo')
   })
 
+  it('rejects --timeout with a migration message before printing the hint', async () => {
+    // Pins the findRemovedFlagMessage(this.argv, DREAM_REMOVED_FLAGS)
+    // wire-up in dream.ts's run() body. The argv-scanner check fires
+    // BEFORE the topic-root listing line, so a future refactor that
+    // accidentally drops the call would silently regress to the
+    // pre-removal state — no test would catch it without this.
+    //
+    // text mode: this.error(..., {exit: 1}) throws synchronously; the
+    // log stub must never run.
+    const command = new Dream(['--timeout', '30'], config)
+    stub(command, 'log').callsFake((msg?: string) => {
+      if (msg) loggedMessages.push(msg)
+    })
+
+    let caught: unknown
+    try {
+      await command.run()
+    } catch (error) {
+      caught = error
+    }
+
+    expect(caught, 'this.error must throw on a removed-flag match').to.be.instanceOf(Error)
+    expect((caught as Error).message).to.include('--timeout')
+    expect(
+      loggedMessages,
+      'log must not run after this.error throws (early-exit ordering)',
+    ).to.have.lengthOf(0)
+  })
+
+  it('emits a JSON envelope migration error for --timeout when --format json is set', async () => {
+    // JSON-format path takes the writeJsonResponse branch (does NOT throw),
+    // so the run() body returns and the topic-root listing is suppressed.
+    // We assert the envelope hits stdout AND the log stub stays empty.
+    const command = new Dream(['--timeout', '30', '--format', 'json'], config)
+    stub(command, 'log').callsFake((msg?: string) => {
+      if (msg) loggedMessages.push(msg)
+    })
+    let writtenJson = ''
+    stub(process.stdout, 'write').callsFake((chunk: string | Uint8Array): boolean => {
+      writtenJson += typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8')
+      return true
+    })
+
+    await command.run()
+
+    const parsed = JSON.parse(writtenJson.trim())
+    expect(parsed.success).to.equal(false)
+    expect(parsed.data.status).to.equal('error')
+    expect(parsed.data.error).to.include('--timeout')
+    expect(
+      loggedMessages,
+      'log must not run after writeJsonResponse on removed-flag match',
+    ).to.have.lengthOf(0)
+  })
+
   // Sessions and cancel are v1 stubs — the daemon has no session
   // state to list or clean up. Their surface MUST disclose that
   // honestly so machine-readable consumers don't act on success-looking
