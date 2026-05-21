@@ -80,4 +80,4 @@ export interface ICurateExecutor {
  */
 export type CurateHtmlDirectResult =
   | {errors: readonly HtmlWriteError[]; status: 'validation-failed'}
-  | {filePath: string; overwrote: boolean; status: 'ok'; topicPath: string}
+  | {filePath: string; overwrote: boolean; status: 'ok'; topicPath: string; warnings?: readonly string[]}
