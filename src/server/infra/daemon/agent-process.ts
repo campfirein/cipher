@@ -806,6 +806,10 @@ async function executeTask(
                 overwrote: existedBefore && Boolean(confirmOverwrite),
                 status: 'ok',
                 topicPath: topicPathResolved,
+                // Omit `warnings` from the wire envelope when empty so
+                // existing consumers (CI logs, MCP host renderers) do
+                // not see a noisy `"warnings": []` on every clean write.
+                ...(writeResult.warnings.length > 0 ? {warnings: writeResult.warnings} : {}),
               })
             : JSON.stringify({errors: writeResult.errors, status: 'validation-failed'})
 

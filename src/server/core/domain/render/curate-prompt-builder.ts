@@ -166,6 +166,8 @@ const OUTPUT_CONTRACT = [
   '    - Lowercase attribute names, double-quoted values.',
   '    - No elements/attributes outside the schema below.',
   '    - Do not emit `importance`, `maturity`, `recency`, `createdat`, `updatedat` (system-managed).',
+  '    - Inside `<li>`, write plain text only — no leading `-`, `*`, `•`, `1.`/`2.` markers; the renderer adds them via CSS.',
+  '    - `<bv-diagram>` body: emit directly with HTML entities for `<`, `>`, `&`. Do NOT wrap in `<![CDATA[…]]>` — HTML5 parses CDATA as a bogus comment that the first `-->` closes. Example: `<bv-diagram type="mermaid">graph LR; A --&gt;|x| B</bv-diagram>`.',
   '',
   'Optional `"meta"` (omit → curate succeeds but does NOT surface in `brv review pending`):',
   '- `type`: "ADD" | "UPDATE" | "MERGE". Defaults from file-existed-before.',
@@ -181,6 +183,8 @@ const OUTPUT_CONTRACT = [
 const PATH_FORMAT = [
   'The `path` attribute on `<bv-topic>` is `<domain>/<topic>` or `<domain>/<topic>/<subtopic>`, snake_case segments.',
   'Pick descriptive domain names (1–3 words). Reuse existing domains where they fit; avoid generic names like `misc`, `general`.',
+  '',
+  '`related` distinguishes files from folders by suffix: file targets end in `.html` (`@security/oauth.html`); folder/domain targets stay bare (`@ops`). FE routes by suffix.',
 ].join('\n')
 
 /**

@@ -13,6 +13,7 @@ import {FileReviewBackupStore} from '../../../../src/server/infra/storage/file-r
 const SUCCESS: HtmlWriteResult = {
   filePath: '/project/.brv/context-tree/security/auth.html',
   ok: true,
+  warnings: [],
   written: '<bv-topic path="security/auth"></bv-topic>',
 }
 

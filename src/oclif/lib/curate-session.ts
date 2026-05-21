@@ -134,6 +134,14 @@ export type CurateSessionEnvelope = {
   status: 'done' | 'failed' | 'needs-llm-step'
   /** Tells the calling agent what kind of completion to produce. */
   step?: 'correct-html' | 'generate-html'
+  /**
+   * Advisory warnings from the writer (today: broken `related` refs
+   * surfaced by the read-only resolver). Present on `done` envelopes
+   * whenever the write succeeded but the writer surfaced post-write
+   * warnings; omitted when the warning list is empty so consumers do
+   * not see a noisy `"warnings": []` on every clean curate.
+   */
+  warnings?: readonly string[]
 }
 
 /**
@@ -430,6 +438,7 @@ export async function continueSession(options: ContinueOptions): Promise<CurateS
       filePath: relative(contextTreeRoot, writeResult.filePath),
       ok: true,
       status: 'done',
+      ...(writeResult.warnings.length > 0 ? {warnings: writeResult.warnings} : {}),
     }
   }
 

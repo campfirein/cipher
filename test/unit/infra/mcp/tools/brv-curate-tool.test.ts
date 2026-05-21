@@ -431,6 +431,96 @@ describe('brv-curate-tool', () => {
       expect(result.content[0].text).to.include('✓ Wrote topic to security/auth.html')
     })
 
+    it('renders related-ref warnings under the ✓ head when the envelope carries them', async () => {
+      // Mirrors the CLI-side coverage in curate-session.test.ts: the wire
+      // envelope from agent-process.ts:812-820 includes `warnings` only
+      // when the post-write related-ref resolver flagged broken refs.
+      // The MCP renderer must surface each warning as a `  ⚠ <text>`
+      // line under the success head so the calling agent sees them in
+      // the tool result. Two strings to also pin the multi-line shape.
+      const {client, simulateEvent} = createMockClient()
+      const requestStub = client.requestWithAck as SinonStub
+      requestStub.callsFake((_event: string, data: {taskId: string}) => {
+        simulateEvent('task:completed', {
+          result: JSON.stringify(okEnvelope({
+            warnings: [
+              'related ref "@security/missing.html" was not found — no file at "security/missing.html" under the context tree',
+              'related ref "@ops/typo" was not found — no folder at "ops/typo/" under the context tree (bare refs target folders; add ".html" if you meant a file)',
+            ],
+          })),
+          taskId: data.taskId,
+        })
+        return Promise.resolve()
+      })
+
+      const {handler} = setupHandler({
+        getClient: () => client,
+        getWorkingDirectory: () => '/project/root',
+      })
+
+      const result = await handler({html: VALID_HTML})
+
+      expect(result.isError).to.be.undefined
+      const {text} = result.content[0]
+      expect(text).to.include('✓ Wrote topic to security/auth.html')
+      expect(text).to.include('⚠ related ref "@security/missing.html"')
+      expect(text).to.include('⚠ related ref "@ops/typo"')
+    })
+
+    it('omits the warnings section when the envelope carries an empty array (no noisy lines on a clean curate)', async () => {
+      const {client, simulateEvent} = createMockClient()
+      const requestStub = client.requestWithAck as SinonStub
+      requestStub.callsFake((_event: string, data: {taskId: string}) => {
+        simulateEvent('task:completed', {
+          result: JSON.stringify(okEnvelope({warnings: []})),
+          taskId: data.taskId,
+        })
+        return Promise.resolve()
+      })
+
+      const {handler} = setupHandler({
+        getClient: () => client,
+        getWorkingDirectory: () => '/project/root',
+      })
+
+      const result = await handler({html: VALID_HTML})
+
+      expect(result.isError).to.be.undefined
+      expect(result.content[0].text).to.equal('✓ Wrote topic to security/auth.html')
+      expect(result.content[0].text).to.not.include('⚠')
+    })
+
+    it('omits the warnings section when the envelope has no warnings key at all (defends against pre-commit daemon payloads)', async () => {
+      // Older daemon builds emit envelopes without the `warnings` field
+      // entirely (the optional field landed in this PR). The `?? []` arm
+      // in renderEnvelope must keep that wire shape working — no ⚠
+      // lines, no fallback string, no throw.
+      const {client, simulateEvent} = createMockClient()
+      const requestStub = client.requestWithAck as SinonStub
+      requestStub.callsFake((_event: string, data: {taskId: string}) => {
+        simulateEvent('task:completed', {
+          result: JSON.stringify({
+            filePath: 'security/auth.html',
+            overwrote: false,
+            status: 'ok',
+            topicPath: 'security/auth',
+          }),
+          taskId: data.taskId,
+        })
+        return Promise.resolve()
+      })
+
+      const {handler} = setupHandler({
+        getClient: () => client,
+        getWorkingDirectory: () => '/project/root',
+      })
+
+      const result = await handler({html: VALID_HTML})
+
+      expect(result.isError).to.be.undefined
+      expect(result.content[0].text).to.equal('✓ Wrote topic to security/auth.html')
+    })
+
     it('renders "✓ Replaced" when overwrote is true', async () => {
       const {client, simulateEvent} = createMockClient()
       const requestStub = client.requestWithAck as SinonStub

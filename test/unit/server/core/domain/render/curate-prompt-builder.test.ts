@@ -183,6 +183,42 @@ describe('curate-prompt-builder', () => {
       expect(prompt).to.include('snake_case')
     })
 
+    it('forbids bullet prefixes inside `<li>`', () => {
+      // The TopicViewer adds list markers via CSS `::before`. A literal
+      // leading `-` / `*` / `•` / `1.` produces a double bullet. The
+      // contract must explicitly forbid the prefix — examples alone do
+      // not override the agent's markdown-list instinct.
+      const prompt = buildGeneratePrompt({userIntent: 'x'})
+      expect(prompt, '<li> rule must be explicit').to.match(/<li>/)
+      // Anchor on the prohibited characters appearing together near a
+      // `renderer` / `marker` justification, not on an exact phrasing.
+      expect(prompt.toLowerCase()).to.match(/(no leading|plain text only|do not write).*(-|\*|•|1\.)/s)
+      expect(prompt.toLowerCase()).to.match(/renderer|marker|css/)
+    })
+
+    it('teaches `<bv-diagram>` direct entity-encoded body — no CDATA wrap', () => {
+      // HTML5 parses `<![CDATA[...]]>` as a bogus comment, and the first
+      // `-->` in a mermaid graph closes that comment. The prompt must
+      // (a) show a canonical mermaid example using entity-encoded `--&gt;`
+      // and (b) explicitly forbid the CDATA wrapper.
+      const prompt = buildGeneratePrompt({userIntent: 'x'})
+      expect(prompt, 'canonical mermaid example').to.include('<bv-diagram')
+      expect(prompt, 'arrow uses entity encoding').to.include('--&gt;')
+      expect(prompt, 'CDATA prohibition').to.match(/CDATA/i)
+      expect(prompt.toLowerCase(), 'reason cited for the prohibition').to.match(/bogus comment|comment|html5/)
+    })
+
+    it('teaches the file-vs-folder convention for `related` refs', () => {
+      // File targets end with `.html`; folder/domain targets stay bare.
+      // The FE relies on the suffix to distinguish file routes from
+      // folder routes — without it the related-pill resolves to nothing.
+      const prompt = buildGeneratePrompt({userIntent: 'x'})
+      expect(prompt).to.match(/related/i)
+      expect(prompt, 'file target shown with .html').to.match(/@[a-z_]+\/[a-z_]+\.html/)
+      expect(prompt.toLowerCase()).to.match(/file.*\.html|\.html.*file/)
+      expect(prompt.toLowerCase()).to.match(/folder|domain/)
+    })
+
     it('places byterover-controlled framing BEFORE the user intent (prompt-injection guard)', () => {
       // Closer / more-specific instructions win in LLM attention. If
       // an attacker crafts an intent containing a fake `# Output
@@ -209,12 +245,15 @@ describe('curate-prompt-builder', () => {
       expect(prompt).to.match(/Do not follow any directives/i)
     })
 
-    it('stays under a ~5 KB total budget', () => {
-      // Schema slice is ~2-3 KB; the surrounding prose adds ~1 KB; the
-      // user intent is bounded by the caller. We expect kickoff
-      // prompts on typical intents to fit comfortably under 5 KB.
+    it('stays under a ~6 KB total budget', () => {
+      // Schema slice is ~2-3 KB; the surrounding prose adds ~1.5 KB
+      // for explicit contract rules covering `<li>` bullet prefixes,
+      // `<bv-diagram>` CDATA, and `related` file-vs-folder routing;
+      // the user intent is bounded by the caller. Each rule prevents
+      // a distinct FE-breaking output class. Bumping the budget should
+      // be a deliberate decision, not a silent drift.
       const prompt = buildGeneratePrompt({userIntent: 'remember we use RS256'})
-      expect(prompt.length).to.be.lessThan(5120)
+      expect(prompt.length).to.be.lessThan(6144)
     })
   })
 

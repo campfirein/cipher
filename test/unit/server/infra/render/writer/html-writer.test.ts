@@ -388,6 +388,46 @@ describe('html-writer', () => {
         expect(result.ok).to.equal(true)
       })
 
+      it('surfaces related-ref warnings alongside a successful write', async () => {
+        // The warner runs after the atomic write, never blocks it.
+        // Broken refs are reported as `warnings` on a successful write
+        // so the calling agent sees them in the curate envelope. The
+        // write itself is never rejected — refs are advisory.
+        // Seed `security/oauth.html` so the `.html` ref resolves cleanly
+        // and only the broken one surfaces.
+        await writeHtmlTopic({
+          contextTreeRoot: tmpRoot,
+          rawHtml: '<bv-topic path="security/oauth" title="OAuth"></bv-topic>',
+        })
+
+        const html = `<bv-topic path="security/jwt" title="JWT" related="@security/oauth.html, @security/missing">
+  <bv-reason>Document JWT.</bv-reason>
+</bv-topic>`
+        const result = await writeHtmlTopic({contextTreeRoot: tmpRoot, rawHtml: html})
+        expect(result.ok).to.equal(true)
+        if (result.ok) {
+          expect(result.warnings).to.have.lengthOf(1)
+          expect(result.warnings[0]).to.include('@security/missing')
+        }
+      })
+
+      it('returns an empty warnings array when every related ref resolves', async () => {
+        // Seed the target topic so the `.html` ref resolves cleanly.
+        await writeHtmlTopic({
+          contextTreeRoot: tmpRoot,
+          rawHtml: '<bv-topic path="security/oauth" title="OAuth"></bv-topic>',
+        })
+
+        const html = `<bv-topic path="security/jwt" title="JWT" related="@security/oauth.html">
+  <bv-reason>Document JWT.</bv-reason>
+</bv-topic>`
+        const result = await writeHtmlTopic({contextTreeRoot: tmpRoot, rawHtml: html})
+        expect(result.ok).to.equal(true)
+        if (result.ok) {
+          expect(result.warnings).to.have.lengthOf(0)
+        }
+      })
+
       it('does not affect writes to a different path (collision is exact-path scoped)', async () => {
         const first = await writeHtmlTopic({contextTreeRoot: tmpRoot, rawHtml: VALID_TOPIC})
         expect(first.ok).to.equal(true)
