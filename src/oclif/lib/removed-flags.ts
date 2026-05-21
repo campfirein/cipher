@@ -5,12 +5,18 @@
  *
  * Usage in a command's `run()`:
  *
- *   assertNoRemovedFlags(process.argv.slice(2), CURATE_REMOVED_FLAGS)
- *   const {flags} = await this.parse(MyCommand)
+ *   const removedMsg = findRemovedFlagMessage(process.argv.slice(2), CURATE_REMOVED_FLAGS)
+ *   if (removedMsg) {
+ *     // Emit JSON envelope when the caller asked for --format json,
+ *     // otherwise fall through to this.error(removedMsg).
+ *   }
  *
- * The scan runs before `this.parse()` so the user sees the migration text
- * regardless of whether the command is strict-parse (oclif's default) or
- * permissive (`public static strict = false`).
+ * The scan runs before `this.parse()` so the user sees the migration
+ * text regardless of strict / permissive parse mode. `--` is honored as
+ * a hard terminator (anything after is treated as positional content,
+ * not flags). Unquoted-positional collisions on permissive-parse
+ * commands (e.g. `brv query what does --timeout do`) are an accepted
+ * limitation — quote the query or pass `--` to disambiguate.
  */
 
 export type RemovedFlag = {
@@ -24,20 +30,38 @@ const formatRejection = (token: string, migration: string): string =>
   `Flag '${token}' was removed in tool-mode. ${migration}`
 
 /**
- * Scan an argv slice for any removed flag and throw with a migration
- * message on the first match. Recognises both `--flag value` and
- * `--flag=value` forms.
+ * Scan an argv slice for any removed flag. Returns the migration
+ * message on the first hit, or `undefined` when none of the removed
+ * flags appear. Recognises `--flag value`, `--flag=value`, and short
+ * aliases. Stops scanning at the standard `--` terminator.
  */
-export function assertNoRemovedFlags(argv: string[], removed: RemovedFlag[]): void {
-  for (const {flags, migration} of removed) {
-    for (const token of flags) {
-      const equalsPrefix = `${token}=`
-      const hit = argv.find((a) => a === token || a.startsWith(equalsPrefix))
-      if (hit) {
-        throw new Error(formatRejection(token, migration))
-      }
+export function findRemovedFlagMessage(argv: string[], removed: RemovedFlag[]): string | undefined {
+  for (const token of argv) {
+    if (token === '--') return undefined
+    for (const {flags, migration} of removed) {
+      const matched = flags.find((f) => token === f || token.startsWith(`${f}=`))
+      if (matched) return formatRejection(matched, migration)
     }
   }
+
+  return undefined
+}
+
+/**
+ * Inspect argv for the `--format json` selector so the caller can
+ * choose between emitting a JSON error envelope and surfacing a plain
+ * `this.error(...)` message. Mirrors the recognised forms
+ * (`--format json` and `--format=json`).
+ */
+export function argvRequestsJsonFormat(argv: string[]): boolean {
+  for (let i = 0; i < argv.length; i++) {
+    const token = argv[i]
+    if (token === '--') return false
+    if (token === '--format' && argv[i + 1] === 'json') return true
+    if (token === '--format=json') return true
+  }
+
+  return false
 }
 
 /**

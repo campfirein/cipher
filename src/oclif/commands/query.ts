@@ -9,7 +9,7 @@ import {
 } from '../lib/daemon-client.js'
 import {writeJsonResponse} from '../lib/json-response.js'
 import {type QueryToolModeEnvelope, runRetrieval} from '../lib/query-retrieval.js'
-import {assertNoRemovedFlags, QUERY_REMOVED_FLAGS} from '../lib/removed-flags.js'
+import {argvRequestsJsonFormat, findRemovedFlagMessage, QUERY_REMOVED_FLAGS} from '../lib/removed-flags.js'
 
 /** Default match cap. Locked to 10 (matches `brv search`). */
 const DEFAULT_QUERY_LIMIT = 10
@@ -63,7 +63,21 @@ Bad:
     // retrieval + render; no LLM. ByteRover never invokes a provider
     // on this command. (The env-var `BRV_QUERY_TOOL_MODE` scaffolding
     // from M2 is removed in M3 — presence/absence is a no-op now.)
-    assertNoRemovedFlags(process.argv.slice(2), QUERY_REMOVED_FLAGS)
+    const rawArgv = process.argv.slice(2)
+    const removedFlagMessage = findRemovedFlagMessage(rawArgv, QUERY_REMOVED_FLAGS)
+    if (removedFlagMessage) {
+      if (argvRequestsJsonFormat(rawArgv)) {
+        writeJsonResponse({
+          command: 'query',
+          data: {error: removedFlagMessage, status: 'error'},
+          success: false,
+        })
+        return
+      }
+
+      this.error(removedFlagMessage, {exit: 1})
+    }
+
     const {args, flags: rawFlags} = await this.parse(Query)
     const format: 'json' | 'text' = rawFlags.format === 'json' ? 'json' : 'text'
     const limit = rawFlags.limit ?? DEFAULT_QUERY_LIMIT

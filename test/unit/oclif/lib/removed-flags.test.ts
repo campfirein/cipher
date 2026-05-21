@@ -1,46 +1,75 @@
 import {expect} from 'chai'
 
 import {
-  assertNoRemovedFlags,
+  argvRequestsJsonFormat,
   CURATE_REMOVED_FLAGS,
+  findRemovedFlagMessage,
   QUERY_REMOVED_FLAGS,
   type RemovedFlag,
 } from '../../../../src/oclif/lib/removed-flags.js'
 
 describe('removed-flags', () => {
-  describe('assertNoRemovedFlags', () => {
-    const removed: RemovedFlag[] = [
-      {flags: ['--gone', '-g'], migration: 'Use the new way.'},
-    ]
+  describe('findRemovedFlagMessage', () => {
+    const removed: RemovedFlag[] = [{flags: ['--gone', '-g'], migration: 'Use the new way.'}]
 
-    it('returns silently when none of the removed flags appear', () => {
-      expect(() => assertNoRemovedFlags(['--ok', 'value'], removed)).to.not.throw()
+    it('returns undefined when none of the removed flags appear', () => {
+      expect(findRemovedFlagMessage(['--ok', 'value'], removed)).to.equal(undefined)
     })
 
-    it('throws with the migration text when the long flag appears', () => {
-      expect(() => assertNoRemovedFlags(['--gone'], removed)).to.throw(
-        /Flag '--gone' was removed in tool-mode\. Use the new way\./,
+    it('returns the migration text when the long flag appears', () => {
+      expect(findRemovedFlagMessage(['--gone'], removed)).to.equal(
+        "Flag '--gone' was removed in tool-mode. Use the new way.",
       )
     })
 
-    it('throws when the short alias appears', () => {
-      expect(() => assertNoRemovedFlags(['-g', 'x'], removed)).to.throw(
-        /Flag '-g' was removed in tool-mode/,
+    it('returns the migration text when the short alias appears', () => {
+      expect(findRemovedFlagMessage(['-g', 'x'], removed)).to.equal(
+        "Flag '-g' was removed in tool-mode. Use the new way.",
       )
     })
 
-    it('throws when the flag is written in --flag=value form', () => {
-      expect(() => assertNoRemovedFlags(['--gone=oops'], removed)).to.throw(
-        /Flag '--gone' was removed in tool-mode/,
+    it('returns the migration text for --flag=value form', () => {
+      expect(findRemovedFlagMessage(['--gone=oops'], removed)).to.equal(
+        "Flag '--gone' was removed in tool-mode. Use the new way.",
       )
     })
 
-    it('throws on the first match and does not check the rest', () => {
+    it('reports the first match and short-circuits', () => {
       const multi: RemovedFlag[] = [
         {flags: ['--first'], migration: 'first migration'},
         {flags: ['--second'], migration: 'second migration'},
       ]
-      expect(() => assertNoRemovedFlags(['--second', '--first'], multi)).to.throw(/first migration/)
+      expect(findRemovedFlagMessage(['--second', '--first'], multi)).to.include('second migration')
+    })
+
+    it('stops scanning at the `--` terminator (positional content after the terminator is not scanned)', () => {
+      expect(findRemovedFlagMessage(['--', '--gone'], removed)).to.equal(undefined)
+    })
+
+    it('still matches flags that appear BEFORE `--`', () => {
+      expect(findRemovedFlagMessage(['--gone', '--', '--ignored'], removed)).to.include('Use the new way')
+    })
+  })
+
+  describe('argvRequestsJsonFormat', () => {
+    it('detects `--format json`', () => {
+      expect(argvRequestsJsonFormat(['--format', 'json'])).to.equal(true)
+    })
+
+    it('detects `--format=json`', () => {
+      expect(argvRequestsJsonFormat(['--format=json'])).to.equal(true)
+    })
+
+    it('returns false for `--format text`', () => {
+      expect(argvRequestsJsonFormat(['--format', 'text'])).to.equal(false)
+    })
+
+    it('returns false when --format is absent', () => {
+      expect(argvRequestsJsonFormat(['--limit', '5'])).to.equal(false)
+    })
+
+    it('stops at the `--` terminator (does not treat post-terminator tokens as flags)', () => {
+      expect(argvRequestsJsonFormat(['--', '--format', 'json'])).to.equal(false)
     })
   })
 

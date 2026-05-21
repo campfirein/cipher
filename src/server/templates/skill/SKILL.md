@@ -636,9 +636,9 @@ brv query-log summary --help
 
 **Storage**: All knowledge is stored as Markdown files in `.brv/context-tree/` within the project directory. Files are human-readable and version-controllable.
 
-**File access**: The `-f` flag on `brv curate` reads files from the current project directory only. Paths outside the project root are rejected. Maximum 5 files per command, text and document formats only.
+**File access**: `brv curate` does not read files. If you want to ground a topic in source code, read the file yourself and inline the relevant content into the `<bv-topic>` HTML you author on the continuation step.
 
-**LLM usage**: `brv query` and `brv curate` do NOT invoke any LLM from inside byterover. Query returns ranked topic content; curate validates HTML the calling agent authors. The CALLING agent's own LLM (the one running this skill) is the only LLM that sees the query text, curate intent, or file contents. No data is sent to ByteRover servers unless you explicitly run `brv vc push`.
+**LLM usage**: `brv query` and `brv curate` do NOT invoke any LLM from inside byterover. Query returns ranked topic content; curate validates HTML the calling agent authors. The CALLING agent's own LLM (the one running this skill) is the only LLM that sees the query text or curate intent. No data is sent to ByteRover servers unless you explicitly run `brv vc push`.
 
 **Cloud sync**: `brv vc push` and `brv vc pull` require authentication (`brv login`) and sync knowledge with ByteRover's cloud service via git. All other commands operate without ByteRover authentication.
 
@@ -655,9 +655,7 @@ You MUST show this troubleshooting guide to users when errors occur.
 You MUST handle these errors gracefully and retry the command after fixing.
 
 "Missing required argument(s)." | Run `brv <command> --help` to see usage instructions.
-"Maximum 5 files allowed" | Reduce to 5 or fewer `-f` flags per curate.
-"File does not exist" | Verify path with `ls`, use relative paths from project root.
-"File type not supported" | Only text, image, PDF, and office files are supported.
+"Flag '...' was removed in tool-mode" | Drop the named flag; follow the migration sentence in the error message.
 
 ### Quick Diagnosis
 Run `brv status` to check authentication and project state.

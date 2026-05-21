@@ -3,7 +3,7 @@ import {Args, Command, Flags} from '@oclif/core'
 import {continueSession, kickoffSession, resolveProjectRoot} from '../../lib/curate-session.js'
 import {type DaemonClientOptions} from '../../lib/daemon-client.js'
 import {writeJsonResponse} from '../../lib/json-response.js'
-import {assertNoRemovedFlags, CURATE_REMOVED_FLAGS} from '../../lib/removed-flags.js'
+import {argvRequestsJsonFormat, CURATE_REMOVED_FLAGS, findRemovedFlagMessage} from '../../lib/removed-flags.js'
 
 /** Parsed flags type */
 type CurateFlags = {
@@ -77,7 +77,26 @@ Bad examples:
     // provider on this command. (The env-var `BRV_CURATE_TOOL_MODE`
     // scaffolding from M1 is removed in M3 — presence/absence is a
     // no-op now.)
-    assertNoRemovedFlags(process.argv.slice(2), CURATE_REMOVED_FLAGS)
+    const rawArgv = process.argv.slice(2)
+    const removedFlagMessage = findRemovedFlagMessage(rawArgv, CURATE_REMOVED_FLAGS)
+    if (removedFlagMessage) {
+      // Surface as a JSON envelope when the caller asked for JSON — agents
+      // parsing stdout-JSON treat unexpected stderr lines as a hard crash.
+      if (argvRequestsJsonFormat(rawArgv)) {
+        this.emitToolModeEnvelope(
+          {
+            errors: [{kind: 'removed-flag', message: removedFlagMessage}],
+            ok: false,
+            status: 'failed',
+          },
+          'json',
+        )
+        return
+      }
+
+      this.error(removedFlagMessage, {exit: 1})
+    }
+
     const {args, flags: rawFlags} = await this.parse(Curate)
     const flags: CurateFlags = {
       format: rawFlags.format === 'json' ? 'json' : rawFlags.format === 'text' ? 'text' : undefined,
