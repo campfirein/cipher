@@ -2,17 +2,22 @@ import type {StoredAnalyticsRecord} from '../../../shared/analytics/stored-recor
 import type {IAnalyticsSender, SendResult} from '../../core/interfaces/analytics/i-analytics-sender.js'
 
 /**
- * Default sender used until M4.2 wires the real HTTP sender. `send()` is
- * semantically inert: it returns both arrays empty, so when M10.2's flush
- * mirrors the result back to JSONL via `updateStatus(succeeded, 'sent')`
- * and `updateStatus(failed, 'failed')`, both calls receive empty input
- * and become no-ops. Pending JSONL rows stay at `status='pending'` and
- * the next flush tick (after the real sender plugs in) ships them.
+ * Semantically inert sender. `send()` returns both arrays empty, so when
+ * M10.2's flush mirrors the result back to JSONL via
+ * `updateStatus(succeeded, 'sent')` and `updateStatus(failed, 'failed')`,
+ * both calls receive empty input and become no-ops. Pending JSONL rows
+ * stay at `status='pending'`.
  *
  * Returning empty arrays — rather than echoing every input id as
  * `failed` — eliminates the data-loss hazard that would otherwise appear
- * if M4.3 (the flush scheduler) lands before M4.2 (the HTTP sender):
- * scheduled ticks remain observable but non-destructive.
+ * if the flush scheduler runs without a working sender (M4.3 scheduler +
+ * M4.2 HTTP sender). Scheduled ticks remain observable but non-destructive.
+ *
+ * Status (post-M4.2): no longer wired into the daemon — `HttpAnalyticsSender`
+ * is the production default. Kept as a test seam: `analytics-client.test.ts`
+ * uses it to assert the "leave-JSONL-untouched" invariant against the real
+ * flush wiring, and future test harnesses (e.g. M4.3 scheduler tests) can
+ * drop it in to isolate scheduling behavior from transport.
  */
 export class NoOpAnalyticsSender implements IAnalyticsSender {
   public async send(_records: readonly StoredAnalyticsRecord[]): Promise<SendResult> {

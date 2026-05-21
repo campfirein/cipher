@@ -20,10 +20,11 @@ export type SendResult = Readonly<{
  * outcome as id arrays.
  *
  * Implementations:
- * - `NoOpAnalyticsSender` (this milestone): returns `{succeeded: [], failed: []}`
- *   — JSONL stays untouched until M4.2 wires the real HTTP sender.
- * - `HttpAnalyticsSender` (M4.2): serializes records to the wire format and
- *   POSTs the batch to the telemetry backend.
+ * - `HttpAnalyticsSender` (M4.2, production default): serializes records to
+ *   the wire format and POSTs the batch to the telemetry backend.
+ * - `NoOpAnalyticsSender`: semantically inert (`{succeeded: [], failed: []}`).
+ *   Test seam — used to assert the M10.2 "leave-JSONL-untouched" invariant
+ *   without going through the real transport.
  */
 export interface IAnalyticsSender {
   /**

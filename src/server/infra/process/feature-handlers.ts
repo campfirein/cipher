@@ -24,11 +24,11 @@ import {getCurrentConfig} from '../../config/environment.js'
 import {API_V1_PATH, BRV_DIR} from '../../constants.js'
 import {getGlobalDataDir} from '../../utils/global-data-path.js'
 import {getProjectDataDir} from '../../utils/path-utils.js'
+import {readCliVersion} from '../../utils/read-cli-version.js'
 import {AnalyticsClient} from '../analytics/analytics-client.js'
 import {BoundedQueue} from '../analytics/bounded-queue.js'
 import {IdentityResolver} from '../analytics/identity-resolver.js'
 import {JsonlAnalyticsStore} from '../analytics/jsonl-analytics-store.js'
-import {NoOpAnalyticsSender} from '../analytics/no-op-analytics-sender.js'
 import {SuperPropertiesResolver} from '../analytics/super-properties-resolver.js'
 import {OAuthService} from '../auth/oauth-service.js'
 import {OidcDiscoveryService} from '../auth/oidc-discovery-service.js'
@@ -83,6 +83,7 @@ import {
 import {HttpUserService} from '../user/http-user-service.js'
 import {FileVcGitConfigStore} from '../vc/file-vc-git-config-store.js'
 import {wireAnalyticsAuthTransition} from './wire-analytics-auth-transition.js'
+import {wireAnalyticsHttpSender} from './wire-analytics-http-sender.js'
 
 export interface FeatureHandlersOptions {
   authStateStore: IAuthStateStore
@@ -170,15 +171,24 @@ export async function setupFeatureHandlers({
   // M11.2's analytics-list-handler when it lands so both read/write the same
   // file. Storage path: `<global-data-dir>/analytics-queue.jsonl`.
   const jsonlAnalyticsStore = new JsonlAnalyticsStore({baseDir: getGlobalDataDir()})
-  // M10.2: inject the M10.1 no-op sender. M4.2 will replace this with the real HTTP sender.
-  // The no-op returns {succeeded: [], failed: []} so flush ticks are observable but
-  // non-destructive — JSONL rows stay at status='pending' until the real sender plugs in.
+  // M4.2: real HTTP sender. See `wireAnalyticsHttpSender` for the
+  // axios + sender composition. Headers are computed per send so
+  // device-id and session-id reflect the current GlobalConfig +
+  // AuthStateStore state at flush time. The per-event identity inside
+  // each record (M4.1) remains authoritative for the wire body; the
+  // request-level session header is a backwards-compat hint only.
+  const analyticsSender = wireAnalyticsHttpSender({
+    analyticsBaseUrl: envConfig.analyticsBaseUrl,
+    authStateReader: authStateStore,
+    globalConfigStore,
+    version: readCliVersion(),
+  })
   const analyticsClient: IAnalyticsClient = new AnalyticsClient({
     identityResolver: new IdentityResolver(authStateStore, globalConfigStore),
     isEnabled: () => globalConfigHandler.getCachedAnalytics(),
     jsonlStore: jsonlAnalyticsStore,
     queue: new BoundedQueue(),
-    sender: new NoOpAnalyticsSender(),
+    sender: analyticsSender,
     superPropsResolver: new SuperPropertiesResolver(globalConfigStore),
   })
 
