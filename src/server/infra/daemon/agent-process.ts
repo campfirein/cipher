@@ -57,17 +57,13 @@ import {
   TransportStateEventNames,
   TransportTaskEventNames,
 } from '../../core/domain/transport/schemas.js'
-import {FileContextTreeArchiveService} from '../context-tree/file-context-tree-archive-service.js'
 import {regenerateContextTreeIndex} from '../context-tree/index-generator.js'
 import {RuntimeSignalStore} from '../context-tree/runtime-signal-store.js'
 import {bumpSidecarOnCurateWrite} from '../context-tree/tool-mode-sidecar-updaters.js'
-import {DreamLockService} from '../dream/dream-lock-service.js'
 import {DreamLogStore} from '../dream/dream-log-store.js'
 import {DreamStateService} from '../dream/dream-state-service.js'
-import {DreamTrigger} from '../dream/dream-trigger.js'
 import {type DreamKind, finalizeDreamSession, scanDreamCandidates} from '../dream/tool-mode/dream-session.js'
 import {CurateExecutor} from '../executor/curate-executor.js'
-import {DreamExecutor} from '../executor/dream-executor.js'
 import {FolderPackExecutor} from '../executor/folder-pack-executor.js'
 import {QueryExecutor} from '../executor/query-executor.js'
 import {SearchExecutor} from '../executor/search-executor.js'
@@ -497,8 +493,7 @@ async function executeTask(
   storagePath: string,
   runtimeSignalStore: IRuntimeSignalStore,
 ): Promise<void> {
-  const {clientCwd, clientId, content, files, folderPath, force, reviewDisabled, taskId, trigger, type, worktreeRoot} =
-    task
+  const {clientCwd, clientId, content, files, folderPath, reviewDisabled, taskId, trigger, type, worktreeRoot} = task
   if (!transport || !agent) return
 
   // Search + tool-mode query + tool-mode curate are pure deterministic
@@ -613,7 +608,7 @@ async function executeTask(
     }
 
     try {
-      let result: string
+      let result: string = ''
       let logId: string | undefined
       // Captured during curate / curate-folder; submitted to the registry
       // after `task:completed` so the user does not wait on Phase 4.
@@ -814,50 +809,6 @@ async function executeTask(
                 topicPath: topicPathResolved,
               })
             : JSON.stringify({errors: writeResult.errors, status: 'validation-failed'})
-
-          break
-        }
-
-        case 'dream': {
-          const brvDir = join(projectPath, BRV_DIR)
-          const dreamLockService = new DreamLockService({baseDir: brvDir})
-          const dreamStateService = new DreamStateService({baseDir: brvDir})
-
-          // Run trigger check (acquires lock if eligible).
-          // Gate 3 (queue) is pre-checked by the daemon (TransportHandlers.preDispatchCheck
-          // for CLI dispatch, onAgentIdle for idle-trigger dispatch), so the agent treats
-          // its own queue view as empty. Gates 1 (time) and 2 (activity) are re-checked here
-          // as defense-in-depth in case state drifted between dispatch and execution.
-          const dreamTrigger = new DreamTrigger({
-            dreamLockService,
-            dreamStateService,
-            getQueueLength: () => 0,
-          })
-          const eligibility = await dreamTrigger.tryStartDream(projectPath, force)
-          if (!eligibility.eligible) {
-            result = `Dream skipped: ${eligibility.reason}`
-            break
-          }
-
-          const dreamExecutor = new DreamExecutor({
-            archiveService: new FileContextTreeArchiveService(runtimeSignalStore),
-            curateLogStore: new FileCurateLogStore({baseDir: storagePath}),
-            dreamLockService,
-            dreamLogStore: new DreamLogStore({baseDir: brvDir}),
-            dreamStateService,
-            reviewBackupStore: new FileReviewBackupStore(brvDir),
-            runtimeSignalStore,
-            searchService: searchKnowledgeService,
-          })
-          const dreamResult = await dreamExecutor.executeWithAgent(agent, {
-            priorMtime: eligibility.priorMtime,
-            projectRoot: projectPath,
-            ...(reviewDisabled === undefined ? {} : {reviewDisabled}),
-            taskId,
-            trigger: trigger ?? 'cli',
-          })
-          result = dreamResult.result
-          logId = dreamResult.logId
 
           break
         }

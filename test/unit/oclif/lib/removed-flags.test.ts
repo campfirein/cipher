@@ -3,6 +3,7 @@ import {expect} from 'chai'
 import {
   argvRequestsJsonFormat,
   CURATE_REMOVED_FLAGS,
+  DREAM_REMOVED_FLAGS,
   findRemovedFlagMessage,
   QUERY_REMOVED_FLAGS,
   type RemovedFlag,
@@ -91,6 +92,20 @@ describe('removed-flags', () => {
     it('covers --timeout', () => {
       const tokens = QUERY_REMOVED_FLAGS.flatMap((r) => r.flags)
       expect(tokens).to.include('--timeout')
+    })
+  })
+
+  describe('DREAM_REMOVED_FLAGS', () => {
+    it('covers --timeout', () => {
+      const tokens = DREAM_REMOVED_FLAGS.flatMap((r) => r.flags)
+      expect(tokens).to.include('--timeout')
+    })
+
+    it('every entry has a non-empty migration sentence', () => {
+      for (const r of DREAM_REMOVED_FLAGS) {
+        expect(r.migration.length).to.be.greaterThan(10)
+        expect(r.migration).to.match(/\.$/)
+      }
     })
   })
 })
