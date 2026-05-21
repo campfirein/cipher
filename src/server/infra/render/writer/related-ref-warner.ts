@@ -1,4 +1,4 @@
-import {existsSync, statSync} from 'node:fs'
+import {statSync} from 'node:fs'
 import path from 'node:path'
 
 /**
@@ -79,8 +79,14 @@ function checkRef(options: {contextTreeRoot: string; originalRef: string}): stri
     return `related ref "${originalRef}" resolves outside the context-tree root and was not checked`
   }
 
-  const fileExists = existsSync(filePath) && statSync(filePath).isFile()
-  const folderExists = existsSync(folderPath) && statSync(folderPath).isDirectory()
+  // Single stat call swallowed on any error: a TOCTOU race (file deleted
+  // between an existsSync and statSync) would otherwise throw and bubble
+  // out, turning a successful curate-after-write into a reported failure.
+  // The warner runs post-write — its job is to surface refs, not to fail
+  // the operation. ENOENT means "not present"; any other errno means we
+  // cannot tell, treat as "not present" to stay advisory.
+  const fileExists = safeStatIsFile(filePath)
+  const folderExists = safeStatIsDir(folderPath)
 
   if (fileExists && folderExists) {
     return `related ref "${originalRef}" is ambiguous — both "${relative}.html" (file) and "${relative}/" (folder) exist; the related-pill cannot resolve deterministically`
@@ -95,4 +101,20 @@ function checkRef(options: {contextTreeRoot: string; originalRef: string}): stri
 
 function isInsideRoot(candidate: string, rootResolved: string): boolean {
   return candidate === rootResolved || candidate.startsWith(rootResolved + path.sep)
+}
+
+function safeStatIsFile(candidate: string): boolean {
+  try {
+    return statSync(candidate).isFile()
+  } catch {
+    return false
+  }
+}
+
+function safeStatIsDir(candidate: string): boolean {
+  try {
+    return statSync(candidate).isDirectory()
+  } catch {
+    return false
+  }
 }

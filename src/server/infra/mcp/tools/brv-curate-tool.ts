@@ -275,7 +275,10 @@ export function registerBrvCurateTool(
 function renderEnvelope(envelope: CurateHtmlDirectResult): string {
   if (envelope.status === 'ok') {
     const action = envelope.overwrote ? 'Replaced' : 'Wrote'
-    return `✓ ${action} topic to ${envelope.filePath}`
+    const head = `✓ ${action} topic to ${envelope.filePath}`
+    const warnings = envelope.warnings ?? []
+    if (warnings.length === 0) return head
+    return [head, ...warnings.map((w) => `  ⚠ ${w}`)].join('\n')
   }
 
   const lines = envelope.errors.map((err) => renderError(err))

@@ -12,6 +12,7 @@
  */
 
 import {expect} from 'chai'
+import {chmodSync} from 'node:fs'
 import {mkdir, mkdtemp, rm, writeFile} from 'node:fs/promises'
 import {tmpdir} from 'node:os'
 import {join} from 'node:path'
@@ -144,6 +145,30 @@ describe('related-ref warner', () => {
       })
       expect(result).to.have.lengthOf(1)
       expect(result[0].toLowerCase()).to.include('ambiguous')
+    })
+  })
+
+  describe('race-resilient', () => {
+    it('treats stat-failures as "not present" instead of throwing (post-write must never surface as failure)', async () => {
+      // A common TOCTOU shape: file is deleted between probing and statting,
+      // or the parent directory loses read permission mid-curate. Before the
+      // safeStat guard a thrown stat would bubble out of writeHtmlTopic and
+      // turn a successful curate into a reported failure even though the
+      // topic is already on disk. The warner stays advisory: any stat error
+      // is treated as "not present" so the ref simply surfaces as broken.
+      await mkdir(join(tmpRoot, 'locked'), {recursive: true})
+      chmodSync(join(tmpRoot, 'locked'), 0)
+      try {
+        const result = computeRelatedWarnings({
+          contextTreeRoot: tmpRoot,
+          relatedAttr: '@locked/whatever',
+        })
+        expect(result).to.have.lengthOf(1)
+        expect(result[0]).to.include('@locked/whatever')
+        expect(result[0].toLowerCase()).to.match(/not found|no such|does not exist/)
+      } finally {
+        chmodSync(join(tmpRoot, 'locked'), 0o755)
+      }
     })
   })
 
