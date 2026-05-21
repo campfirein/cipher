@@ -39,10 +39,10 @@ export type HtmlWriteSuccess = {
   ok: true
   /**
    * Advisory warnings raised AFTER the write succeeded. Today these
-   * come from the `related` ref resolver (broken or ambiguous refs);
-   * the channel is open to future read-only post-write checks. Always
-   * an array — empty means a clean write. Wire formats may omit the
-   * field when empty (see `agent-process.ts` curate-html-direct case).
+   * come from the `related` ref resolver (broken refs); the channel is
+   * open to future read-only post-write checks. Always an array —
+   * empty means a clean write. Wire formats may omit the field when
+   * empty (see `agent-process.ts` curate-html-direct case).
    */
   warnings: readonly string[]
   /** The cleaned HTML actually persisted (after fence-stripping). */

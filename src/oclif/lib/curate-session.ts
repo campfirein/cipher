@@ -135,11 +135,11 @@ export type CurateSessionEnvelope = {
   /** Tells the calling agent what kind of completion to produce. */
   step?: 'correct-html' | 'generate-html'
   /**
-   * Advisory warnings from the writer (today: broken / ambiguous `related`
-   * refs surfaced by the read-only resolver). Present on `done` envelopes
+   * Advisory warnings from the writer (today: broken `related` refs
+   * surfaced by the read-only resolver). Present on `done` envelopes
    * whenever the write succeeded but the writer surfaced post-write
-   * warnings; omitted when the warning list is empty so consumers do not
-   * see a noisy `"warnings": []` on every clean curate.
+   * warnings; omitted when the warning list is empty so consumers do
+   * not see a noisy `"warnings": []` on every clean curate.
    */
   warnings?: readonly string[]
 }

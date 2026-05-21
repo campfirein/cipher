@@ -5,19 +5,13 @@ import path from 'node:path'
  * Read-only resolver for `<bv-topic related="...">` refs.
  *
  * The agent has no filesystem view of `.brv/context-tree/`, so even a
- * well-prompted agent can mistype an extension or reference a topic
- * that hasn't been written yet. This walks each comma-separated ref
- * and surfaces a warning for two failure modes:
- *
- *   - **broken**    — neither `<ref>.html` nor `<ref>/` exists on disk
- *   - **ambiguous** — both `<ref>.html` (a file topic) AND `<ref>/`
- *                     (a folder/domain index) exist; the FE cannot
- *                     pick deterministically
- *
- * Refs that resolve unambiguously to either a file or a folder return
- * no warning. The warner never mutates the attribute and never rejects
- * the write — refs are advisory metadata, and a "forward reference" to
- * a topic about to be curated is legitimate.
+ * well-prompted agent can mistype a path or reference a topic that
+ * hasn't been written yet. This walks each comma-separated ref and
+ * surfaces a warning when the ref is broken — neither `<ref>.html`
+ * (file form) nor `<ref>/` (folder form) exists on disk. A ref where
+ * either form exists returns no warning. The warner never mutates the
+ * attribute and never rejects the write — refs are advisory metadata,
+ * and a "forward reference" to a topic about to be curated is legit.
  *
  * Parsing is permissive: leading `@` is stripped, any trailing `.html`
  * is stripped before the existence check, surrounding whitespace is
@@ -79,24 +73,14 @@ function checkRef(options: {contextTreeRoot: string; originalRef: string}): stri
     return `related ref "${originalRef}" resolves outside the context-tree root and was not checked`
   }
 
-  // Single stat call swallowed on any error: a TOCTOU race (file deleted
-  // between an existsSync and statSync) would otherwise throw and bubble
-  // out, turning a successful curate-after-write into a reported failure.
-  // The warner runs post-write — its job is to surface refs, not to fail
-  // the operation. ENOENT means "not present"; any other errno means we
-  // cannot tell, treat as "not present" to stay advisory.
-  const fileExists = safeStatIsFile(filePath)
-  const folderExists = safeStatIsDir(folderPath)
+  // Stat-only probe: any error (ENOENT, EACCES, EBUSY, a mid-curate
+  // deletion, …) is treated as "not present" so the warner stays
+  // advisory after a successful write. It runs post-write — its job is
+  // to surface refs, not to fail the operation — so an unprovable
+  // target is reported as broken rather than thrown.
+  if (safeStatIsFile(filePath) || safeStatIsDir(folderPath)) return undefined
 
-  if (fileExists && folderExists) {
-    return `related ref "${originalRef}" is ambiguous — both "${relative}.html" (file) and "${relative}/" (folder) exist; the related-pill cannot resolve deterministically`
-  }
-
-  if (!fileExists && !folderExists) {
-    return `related ref "${originalRef}" was not found — no "${relative}.html" file or "${relative}/" folder exists under the context tree`
-  }
-
-  return undefined
+  return `related ref "${originalRef}" was not found — no "${relative}.html" file or "${relative}/" folder exists under the context tree`
 }
 
 function isInsideRoot(candidate: string, rootResolved: string): boolean {

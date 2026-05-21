@@ -3,12 +3,14 @@
  *
  * The warner is read-only: it resolves each comma-separated ref in a
  * `<bv-topic related="...">` attribute against the on-disk context
- * tree and returns warnings for refs that are
- *   - broken   (neither `<ref>.html` nor `<ref>/` exists), or
- *   - ambiguous (both `<ref>.html` AND `<ref>/` exist).
+ * tree and returns a warning when the ref is broken — neither
+ * `<ref>.html` nor `<ref>/` exists.
  *
- * Refs resolving unambiguously to a file or folder return no warning.
- * The warner never mutates the attribute and never rejects the write.
+ * Refs where either form exists return no warning. The suffix the agent
+ * wrote IS the disambiguator (`.html` → file, bare → folder), so a
+ * shape mismatch on disk (e.g. bare ref + file present) is not flagged
+ * — the FE routes by suffix. The warner never mutates the attribute
+ * and never rejects the write.
  */
 
 import {expect} from 'chai'
@@ -120,31 +122,6 @@ describe('related-ref warner', () => {
       expect(result).to.have.lengthOf(2)
       expect(result.some((w) => w.includes('@security/missing_a'))).to.equal(true)
       expect(result.some((w) => w.includes('@security/missing_b'))).to.equal(true)
-    })
-  })
-
-  describe('ambiguous refs', () => {
-    it('warns when both <ref>.html and <ref>/ exist', async () => {
-      await seedFile(tmpRoot, 'architecture/cua_sandbox.html')
-      await seedFolder(tmpRoot, 'architecture/cua_sandbox')
-      const result = computeRelatedWarnings({
-        contextTreeRoot: tmpRoot,
-        relatedAttr: '@architecture/cua_sandbox',
-      })
-      expect(result).to.have.lengthOf(1)
-      expect(result[0]).to.include('@architecture/cua_sandbox')
-      expect(result[0].toLowerCase()).to.include('ambiguous')
-    })
-
-    it('warns on ambiguity even when the ref carries an explicit .html', async () => {
-      await seedFile(tmpRoot, 'architecture/cua_sandbox.html')
-      await seedFolder(tmpRoot, 'architecture/cua_sandbox')
-      const result = computeRelatedWarnings({
-        contextTreeRoot: tmpRoot,
-        relatedAttr: '@architecture/cua_sandbox.html',
-      })
-      expect(result).to.have.lengthOf(1)
-      expect(result[0].toLowerCase()).to.include('ambiguous')
     })
   })
 

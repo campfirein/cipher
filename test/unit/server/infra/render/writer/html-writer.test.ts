@@ -389,10 +389,10 @@ describe('html-writer', () => {
       })
 
       it('surfaces related-ref warnings alongside a successful write', async () => {
-        // The warner runs after validation, before the disk write. Broken
-        // and ambiguous refs are reported as `warnings` on a successful
-        // write so the calling agent sees them in the curate envelope.
-        // The write itself is never rejected — refs are advisory.
+        // The warner runs after validation, before the disk write.
+        // Broken refs are reported as `warnings` on a successful write
+        // so the calling agent sees them in the curate envelope. The
+        // write itself is never rejected — refs are advisory.
         // Seed `@security/oauth` so the warner has a clean reference to
         // confirm only the broken one surfaces.
         await writeHtmlTopic({
