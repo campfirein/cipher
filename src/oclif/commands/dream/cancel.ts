@@ -10,7 +10,8 @@ import {writeJsonResponse} from '../../lib/json-response.js'
  * CLI.
  */
 export default class DreamCancel extends Command {
-  public static description = 'Discard a tool-mode dream session.'
+  public static description =
+    '[v1 stub] Discard a tool-mode dream session. Sessions are stateless on the daemon in v1; this command is a no-op that returns success for any session id.'
 public static examples = ['<%= config.bin %> <%= command.id %> --session drm-abc123']
 public static flags = {
     format: Flags.string({default: 'text', description: 'Output format (text or json)', options: ['text', 'json']}),
@@ -24,7 +25,14 @@ public static flags = {
     if (format === 'json') {
       writeJsonResponse({
         command: 'dream-cancel',
-        data: {sessionId: raw.session, status: 'cancelled'},
+        data: {
+          // Disclosed inline so machine-readable consumers don't infer
+          // that any server-side state was cleaned up — there's nothing
+          // to clean up in v1; the agent owns session state end-to-end.
+          note: 'v1: cancel is a no-op (sessions are stateless on the daemon).',
+          sessionId: raw.session,
+          status: 'cancelled',
+        },
         success: true,
       })
     } else {

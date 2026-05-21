@@ -105,7 +105,7 @@ export default class Dream extends Command {
     // running `brv dream && echo ok` will print "ok", which is the same
     // behaviour any other topic root produces.
     this.log(
-      'Use a subcommand: brv dream {scan|finalize|undo|sessions|cancel}. Run `brv dream --help` for details.',
+      'Use a subcommand: brv dream {scan|finalize|undo|sessions [v1 stub]|cancel [v1 stub]}. Run `brv dream --help` for details.',
     )
   }
 }
