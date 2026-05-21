@@ -45,7 +45,9 @@ export interface IAuthStateStore {
    * Register a callback for auth state changes.
    * Fired when: login (new token), token refresh (changed token), logout (undefined).
    *
-   * Only one callback supported — subsequent calls overwrite previous.
+   * Multiple callbacks supported. Listeners fire in registration order on
+   * each transition; one listener throwing does NOT prevent the others
+   * from running (impl catches and logs per-callback).
    *
    * @param callback - Function called with the new token (or undefined on logout)
    */
@@ -56,7 +58,8 @@ export interface IAuthStateStore {
    * Fired when a token that was valid transitions to expired.
    * Only fires once per expiry (not on every poll cycle).
    *
-   * Only one callback supported — subsequent calls overwrite previous.
+   * Multiple callbacks supported. Listeners fire in registration order;
+   * one throwing does NOT prevent the others from running.
    *
    * @param callback - Function called with the expired token
    */

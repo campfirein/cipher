@@ -31,7 +31,7 @@ type StubBundle = {
 const buildAnalyticsClient = (): StubBundle => {
   const trackStub = sinon.stub()
   const flushStub = sinon.stub().resolves(AnalyticsBatch.create([]))
-  const client: IAnalyticsClient = {flush: flushStub, track: trackStub}
+  const client: IAnalyticsClient = {flush: flushStub, onAuthTransition: sinon.stub().resolves(), track: trackStub}
   return {client, flushStub, trackStub}
 }
 

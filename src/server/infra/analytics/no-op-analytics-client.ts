@@ -15,6 +15,10 @@ export class NoOpAnalyticsClient implements IAnalyticsClient {
     return AnalyticsBatch.create([])
   }
 
+  public async onAuthTransition(): Promise<void> {
+    // intentional no-op
+  }
+
   public track<E extends AnalyticsEventName>(_event: E, ..._rest: PropsArg<E>): void {
     // intentional no-op
   }

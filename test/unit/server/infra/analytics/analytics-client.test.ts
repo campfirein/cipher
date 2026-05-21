@@ -50,6 +50,9 @@ function makeFakeJsonlStore(opts: {appendError?: Error} = {}): FakeJsonlStore {
   return {
     append: appendSpy,
     appendSpy,
+    async clear(): Promise<void> {
+      records.length = 0
+    },
     droppedFullCount: () => 0,
     droppedSentCount: () => 0,
     list: async () => ({rows: [...records], total: records.length}),
@@ -747,6 +750,251 @@ describe('AnalyticsClient', () => {
       expect(event).to.not.have.property('id')
       expect(event).to.not.have.property('attempts')
       expect(event).to.not.have.property('status')
+    })
+  })
+
+  describe('M4.1 onAuthTransition: clear pending events on login/logout', () => {
+    it('should empty the JSONL store and the in-memory queue on transition', async () => {
+      const queue = new BoundedQueue()
+      const jsonlStore = makeFakeJsonlStore()
+      const client = new AnalyticsClient({
+        identityResolver: makeStubIdentityResolver(makeAnonIdentity()),
+        isEnabled: () => true,
+        jsonlStore,
+        queue,
+        sender: makeFakeSender(),
+        superPropsResolver: makeStubSuperPropsResolver(makeSuperProps()),
+      })
+
+      await seedPending(client, 5)
+      expect(jsonlStore.records).to.have.lengthOf(5)
+      expect(queue.size()).to.equal(5)
+
+      await client.onAuthTransition()
+
+      expect(jsonlStore.records).to.have.lengthOf(0)
+      expect(queue.size()).to.equal(0)
+    })
+
+    it('should be a no-op when there is nothing to drop', async () => {
+      const queue = new BoundedQueue()
+      const jsonlStore = makeFakeJsonlStore()
+      const client = new AnalyticsClient({
+        identityResolver: makeStubIdentityResolver(makeAnonIdentity()),
+        isEnabled: () => true,
+        jsonlStore,
+        queue,
+        sender: makeFakeSender(),
+        superPropsResolver: makeStubSuperPropsResolver(makeSuperProps()),
+      })
+
+      // No throw, even when JSONL/queue are already empty.
+      await client.onAuthTransition()
+
+      expect(jsonlStore.records).to.have.lengthOf(0)
+      expect(queue.size()).to.equal(0)
+    })
+
+    it('should NOT crash the consumer when clear() throws on disk error', async () => {
+      const queue = new BoundedQueue()
+      const baseStore = makeFakeJsonlStore()
+      const erroringStore = {
+        ...baseStore,
+        async clear(): Promise<void> {
+          throw new Error('disk full')
+        },
+      }
+      const client = new AnalyticsClient({
+        identityResolver: makeStubIdentityResolver(makeAnonIdentity()),
+        isEnabled: () => true,
+        jsonlStore: erroringStore,
+        queue,
+        sender: makeFakeSender(),
+        superPropsResolver: makeStubSuperPropsResolver(makeSuperProps()),
+      })
+
+      // The await must resolve, not reject.
+      let threw = false
+      try {
+        await client.onAuthTransition()
+      } catch {
+        threw = true
+      }
+
+      expect(threw, 'onAuthTransition must swallow disk errors').to.equal(false)
+      // In-memory queue cleared regardless of JSONL error.
+      expect(queue.size()).to.equal(0)
+    })
+
+    it('should leave subsequently tracked events visible to flush (post-transition events ship under the new session)', async () => {
+      const queue = new BoundedQueue()
+      const jsonlStore = makeFakeJsonlStore()
+      let currentIdentity: Identity = makeAnonIdentity()
+      const identityResolver: IIdentityResolver = {
+        resolve: async () => currentIdentity,
+      }
+      const client = new AnalyticsClient({
+        identityResolver,
+        isEnabled: () => true,
+        jsonlStore,
+        queue,
+        sender: makeFakeSender(),
+        superPropsResolver: makeStubSuperPropsResolver(makeSuperProps()),
+      })
+
+      // Pre-transition tracks
+      client.track(AnalyticsEventNames.DAEMON_START)
+      client.track(AnalyticsEventNames.DAEMON_START)
+      await flushMicrotasks()
+
+      // Simulate a login transition: identity flips, queue is cleared.
+      currentIdentity = makeRegisteredIdentity()
+      await client.onAuthTransition()
+
+      // Post-transition tracks
+      client.track(AnalyticsEventNames.DAEMON_START)
+      await flushMicrotasks()
+
+      const batch = await client.flush()
+      // Only the post-transition event is visible to flush.
+      expect(batch.events).to.have.lengthOf(1)
+      expect(batch.events[0].identity).to.deep.equal(makeRegisteredIdentity())
+    })
+
+    it('should await in-flight tracks before clearing so no append lands after clear', async () => {
+      // Regression for the race window: a `track()` call that resolved
+      // identity before the transition but had not yet appended would,
+      // without the barrier, enqueue its append AFTER onAuthTransition's
+      // clear and persist a stale-identity record. The barrier awaits
+      // every in-flight track promise before issuing clear().
+      const queue = new BoundedQueue()
+      const jsonlStore = makeFakeJsonlStore()
+      let releaseIdentity!: (id: Identity) => void
+      const slowIdentityResolver: IIdentityResolver = {
+        resolve: () =>
+          new Promise<Identity>((resolve) => {
+            releaseIdentity = resolve
+          }),
+      }
+      const client = new AnalyticsClient({
+        identityResolver: slowIdentityResolver,
+        isEnabled: () => true,
+        jsonlStore,
+        queue,
+        sender: makeFakeSender(),
+        superPropsResolver: makeStubSuperPropsResolver(makeSuperProps()),
+      })
+
+      // Fire a track; identityResolver is pending so trackAsync is
+      // stuck pre-append.
+      client.track(AnalyticsEventNames.DAEMON_START)
+      await flushMicrotasks()
+      // Nothing on disk yet.
+      expect(jsonlStore.records).to.have.lengthOf(0)
+
+      // Kick off transition; clear MUST wait for the in-flight track.
+      const transitionPromise = client.onAuthTransition()
+      // Yield once so onAuthTransition reaches its `await
+      // Promise.allSettled([...pendingTracks])` before we release the
+      // identity. Without this yield, releaseIdentity runs before
+      // transitionPromise's body executes its first await, and the
+      // barrier snapshot may miss the race we are trying to cover.
+      await Promise.resolve()
+      // Resolve the identity AFTER the barrier is in place. Append will
+      // race with clear. The barrier guarantees clear runs LAST.
+      releaseIdentity(makeAnonIdentity())
+      await transitionPromise
+
+      // Final state: clear nuked the stale-identity append.
+      expect(jsonlStore.records, 'no record may survive a transition that ran after a track started').to.have.lengthOf(0)
+      expect(queue.size()).to.equal(0)
+    })
+
+    it('should NOT block new tracks that start AFTER onAuthTransition began', async () => {
+      // The barrier only awaits tracks already in-flight at the moment
+      // onAuthTransition starts. Tracks that arrive after the snapshot
+      // get the new identity and must persist normally.
+      const queue = new BoundedQueue()
+      const jsonlStore = makeFakeJsonlStore()
+      let currentIdentity: Identity = makeAnonIdentity()
+      const identityResolver: IIdentityResolver = {
+        resolve: async () => currentIdentity,
+      }
+      const client = new AnalyticsClient({
+        identityResolver,
+        isEnabled: () => true,
+        jsonlStore,
+        queue,
+        sender: makeFakeSender(),
+        superPropsResolver: makeStubSuperPropsResolver(makeSuperProps()),
+      })
+
+      currentIdentity = makeRegisteredIdentity()
+      await client.onAuthTransition()
+
+      // New track after transition completed; uses new identity.
+      client.track(AnalyticsEventNames.DAEMON_START)
+      await flushMicrotasks()
+
+      expect(jsonlStore.records).to.have.lengthOf(1)
+      expect(jsonlStore.records[0].identity).to.deep.equal(makeRegisteredIdentity())
+    })
+
+    it('should surface clear() failures through the optional log sink (M4.1 visibility)', async () => {
+      const queue = new BoundedQueue()
+      const baseStore = makeFakeJsonlStore()
+      const erroringStore = {
+        ...baseStore,
+        async clear(): Promise<void> {
+          throw new Error('disk full')
+        },
+      }
+      const logged: string[] = []
+      const client = new AnalyticsClient({
+        identityResolver: makeStubIdentityResolver(makeAnonIdentity()),
+        isEnabled: () => true,
+        jsonlStore: erroringStore,
+        log: (msg) => logged.push(msg),
+        queue,
+        sender: makeFakeSender(),
+        superPropsResolver: makeStubSuperPropsResolver(makeSuperProps()),
+      })
+
+      await client.onAuthTransition()
+
+      expect(logged).to.have.lengthOf(1)
+      expect(logged[0]).to.include('clear failed')
+      expect(logged[0]).to.include('disk full')
+    })
+
+    it('should remain crash-free when no log sink is wired and clear() throws', async () => {
+      // Regression: log sink is optional; absent log must not turn a
+      // disk error into an uncaught rejection.
+      const queue = new BoundedQueue()
+      const baseStore = makeFakeJsonlStore()
+      const erroringStore = {
+        ...baseStore,
+        async clear(): Promise<void> {
+          throw new Error('disk full')
+        },
+      }
+      const client = new AnalyticsClient({
+        identityResolver: makeStubIdentityResolver(makeAnonIdentity()),
+        isEnabled: () => true,
+        jsonlStore: erroringStore,
+        queue,
+        sender: makeFakeSender(),
+        superPropsResolver: makeStubSuperPropsResolver(makeSuperProps()),
+      })
+
+      let threw = false
+      try {
+        await client.onAuthTransition()
+      } catch {
+        threw = true
+      }
+
+      expect(threw).to.equal(false)
     })
   })
 

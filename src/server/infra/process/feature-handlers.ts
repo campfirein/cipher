@@ -82,6 +82,7 @@ import {
 } from '../transport/handlers/index.js'
 import {HttpUserService} from '../user/http-user-service.js'
 import {FileVcGitConfigStore} from '../vc/file-vc-git-config-store.js'
+import {wireAnalyticsAuthTransition} from './wire-analytics-auth-transition.js'
 
 export interface FeatureHandlersOptions {
   authStateStore: IAuthStateStore
@@ -180,6 +181,11 @@ export async function setupFeatureHandlers({
     sender: new NoOpAnalyticsSender(),
     superPropsResolver: new SuperPropertiesResolver(globalConfigStore),
   })
+
+  // M4.1: subscribe the analytics client to identity-changing auth
+  // transitions. See `wireAnalyticsAuthTransition` for the
+  // login/logout/refresh decision logic.
+  wireAnalyticsAuthTransition(authStateStore, analyticsClient)
 
   // M2.6: route incoming analytics:track events from non-forked clients
   // (TUI, oclif, MCP, webui) to the same singleton.
