@@ -261,12 +261,17 @@ function toAttributeError(tag: ElementName, error: ValidationError): HtmlWriteEr
  * Resolve a `<bv-topic path="...">` attribute to an absolute on-disk
  * path inside the project's context-tree directory. The topic path is
  * sanitised: backslashes normalised to forward slashes, leading slashes
- * stripped, `..` segments rejected. The current storage layout is
- * `.brv/context-tree/`; this resolver is the single point that
- * encodes that convention.
+ * stripped, `..` segments rejected. A trailing `.html` is stripped
+ * before re-appending so `path="x/y"` and `path="x/y.html"` both
+ * resolve to `x/y.html` — the dream→curate handoff emits the suffixed
+ * form, the convention elsewhere is the bare form, and both must
+ * collide on the path-exists guard to keep the merge workflow from
+ * silently producing a doubled-extension stale survivor. The current
+ * storage layout is `.brv/context-tree/`; this resolver is the single
+ * point that encodes that convention.
  */
 function topicPathToFilePath(contextTreeRoot: string, topicPath: string): string {
-  const normalized = topicPath.replaceAll('\\', '/').replace(/^\/+/, '')
+  const normalized = topicPath.replaceAll('\\', '/').replace(/^\/+/, '').replace(/\.html$/i, '')
   const segments = normalized.split('/').filter((s) => s.length > 0)
 
   for (const segment of segments) {
