@@ -365,9 +365,41 @@ brv dream scan --format json
 ```
 Returns a `sessionId` (uuid) and `candidates` keyed by kind:
 - `link`: BM25-similar topic pairs that aren't cross-linked yet. To act: extend each topic's `related=` attribute on `<bv-topic>` (comma-separated refs) with the partner's path, then re-call `brv curate` at each existing path. Distinguish file vs folder targets by suffix: file targets end in `.html` (e.g. `@security/oauth.html`); folder/domain targets stay bare (e.g. `@ops`). The path-exists kickoff branch in section 3 returns the topic's `existingContent`; merge your additions in and re-emit with `--overwrite` to apply the write.
-- `merge`: BM25-near-duplicates. Pick a survivor, author HTML combining both topics' bodies, write it via the same `brv curate` path-exists / `--overwrite` flow (section 3) at the survivor's existing path, then archive the loser via `brv dream finalize`.
-- `prune`: Low-importance or stale-mtime topics. Decide per candidate: archive it via `brv dream finalize`, leave it alone, or treat it as a `merge` candidate against another topic (using the `merge` flow above).
+- `merge`: BM25-near-duplicates. Pick a survivor, author HTML combining both topics' bodies, write it via the same `brv curate` path-exists / `--overwrite` flow (section 3) at the survivor's existing path, then archive the loser via `brv dream finalize`. **When using a scan candidate's path as the `<bv-topic path="...">` attribute, drop the trailing `.html` — the writer always appends it.** Scan emits `auth/jwt.html`; pass `path="auth/jwt"` to curate so the on-disk file stays at `auth/jwt.html` (not `auth/jwt.html.html`).
+- `prune`: Low-importance (sidecar `importance < 35`) or stale-mtime (draft >60d / validated >120d) topics. Topics with `maturity: 'core'` are never surfaced. Each candidate carries `reason: 'low-importance' | 'stale-mtime' | 'both'`, `daysSinceModified`, and the full `signals` block. Decide per candidate: archive it via `brv dream finalize`, leave it alone, or treat it as a `merge` candidate against another topic (using the `merge` flow above).
 - `synthesize`: Per-domain topic groups plus existing synthesis topics. To act: author a new `<bv-topic>` at a fresh path under `synthesis/<slug>` and call `brv curate` to write it — no path-exists branch applies because the path is new.
+
+Sample scan envelope (`data` field of the JSON response):
+```json
+{
+  "sessionId": "8c3f9e2a-...",
+  "status": "ok",
+  "candidates": {
+    "link": [
+      {"pair": ["security/jwt.html", "security/sessions.html"], "score": 0.71}
+    ],
+    "merge": [
+      {"pair": ["auth/oauth.html", "auth/oauth-flow.html"], "score": 0.93,
+       "htmlA": "<bv-topic path=\"auth/oauth\" ...>...</bv-topic>",
+       "htmlB": "<bv-topic path=\"auth/oauth-flow\" ...>...</bv-topic>"}
+    ],
+    "prune": [
+      {"path": "legacy/old-notes.html", "reason": "both",
+       "daysSinceModified": 70,
+       "signals": {"importance": 15, "maturity": "draft", "accessCount": 0, "recency": 0.1, "updateCount": 0},
+       "html": "<bv-topic path=\"legacy/old-notes\" ...>...</bv-topic>"}
+    ],
+    "synthesize": {
+      "domains": [
+        {"domain": "caching", "topics": [{"path": "caching/redis.html", "title": "Redis", "summary": "..."}]}
+      ],
+      "existingSyntheses": [
+        {"path": "synthesis/caching-overview.html", "title": "Caching overview", "summary": "..."}
+      ]
+    }
+  }
+}
+```
 
 Filter scope or kinds:
 ```bash
@@ -382,13 +414,39 @@ brv dream finalize --session <sessionId> --archive testing/old-notes.html,redis/
 ```
 Archive paths MUST match exactly what `dream scan` emitted (full relative path under `.brv/context-tree/`, with `.html` extension). Files move to `.brv/archive/<path>` and a dream-log entry is written so the operation is undoable. `--archive` and `--archive-file <path>` are mutually exclusive; exactly one is required. The archive list is capped at 200 entries per call; split into multiple finalize calls for larger batches.
 
+Sample finalize response (`data` field of the JSON response):
+```json
+{
+  "archived": ["legacy/old-notes.html", "auth/oauth-flow.html"],
+  "skipped": [],
+  "logId": "drm-1779360938860",
+  "status": "ok"
+}
+```
+`skipped` entries carry `{"path": "...", "reason": "already-archived|not-found|rename-failed|unsafe-path"}`. `logId` is the dream-log id; pass it (or use `brv dream undo` with no args, which targets the most recent) to revert.
+
 **Undo the most recent finalize:**
 ```bash
 brv dream undo --format json
 ```
-Restores archived topics to their original locations (content is byte-identical; mtime resets to current time). Curate writes from Phase 2 are NOT rolled back by undo — use `brv review reject <taskId>` for those (see Review Pending Changes section).
+Restores archived topics to their original locations bit-exact: content, original mtime, and sidecar runtime signals (importance / maturity / accessCount / etc.) are all restored. Pruned topics that re-qualify will re-surface on the next scan. Curate writes from Phase 2 are NOT rolled back by undo — use `brv review reject <taskId>` for those (see Review Pending Changes section).
 
-**Stateless v1 notes:** `brv dream sessions` returns an empty list and `brv dream cancel --session <id>` is a no-op — sessions are tracked agent-side, not daemon-side. The `sessionId` from scan is for your bookkeeping between scan and finalize; the daemon doesn't enforce it.
+**Worked example — prune the stalest topic (no curate detour):**
+```bash
+# 1. Scan only prune candidates
+brv dream scan --kinds prune --format json
+# → response carries candidates.prune[]; pick the highest daysSinceModified entry,
+#   say "legacy/old-notes.html"
+
+# 2. Archive it. sessionId from step 1 is opaque; pass any string in v1.
+brv dream finalize --session <id> --archive legacy/old-notes.html --format json
+# → archived: ["legacy/old-notes.html"], skipped: [], logId: "drm-..."
+
+# 3. If you change your mind, revert.
+brv dream undo --format json
+```
+
+**Stateless v1 notes:** `brv dream sessions` returns an empty list and `brv dream cancel --session <id>` is a no-op — both are v1 stubs (the daemon doesn't persist session state). Their descriptions and JSON envelopes carry a `note` field disclosing this. The `sessionId` from scan is for your bookkeeping between scan and finalize; the daemon doesn't enforce it.
 
 ### 8. Swarm Query
 **Overview:** Search across all active memory providers simultaneously — ByteRover context tree, Obsidian vault, Local Markdown folders, GBrain, and Memory Wiki. Results are fused via Reciprocal Rank Fusion (RRF) and ranked by provider weight and relevance. No LLM call — pure algorithmic search. When multiple memory providers are configured, run `brv swarm query` alongside `brv query` to broaden recall at near-zero token cost.
