@@ -11,6 +11,10 @@ import {AnalyticsBatch} from '../../core/domain/analytics/batch.js'
  * an empty batch.
  */
 export class NoOpAnalyticsClient implements IAnalyticsClient {
+  public abort(): void {
+    // intentional no-op — no in-flight flush to cancel.
+  }
+
   public async flush(): Promise<AnalyticsBatch> {
     return AnalyticsBatch.create([])
   }

@@ -98,6 +98,7 @@ function makeStubProjectRouter(sandbox: SinonSandbox): IProjectRouter {
 function makeAnalyticsClient(sandbox: SinonSandbox): {client: IAnalyticsClient; trackStub: SinonStub} {
   const trackStub = sandbox.stub()
   const client: IAnalyticsClient = {
+    abort: sandbox.stub(),
     flush: sandbox.stub().resolves(),
     onAuthTransition: sandbox.stub().resolves(),
     track: trackStub,

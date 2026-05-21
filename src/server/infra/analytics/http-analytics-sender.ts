@@ -1,6 +1,10 @@
 import type {StoredAnalyticsRecord} from '../../../shared/analytics/stored-record.js'
 import type {IAnalyticsHttpClient} from '../../core/interfaces/analytics/i-analytics-http-client.js'
-import type {IAnalyticsSender, SendResult} from '../../core/interfaces/analytics/i-analytics-sender.js'
+import type {
+  AnalyticsSenderOptions,
+  IAnalyticsSender,
+  SendResult,
+} from '../../core/interfaces/analytics/i-analytics-sender.js'
 import type {IAuthStateReader} from '../../core/interfaces/analytics/i-identity-resolver.js'
 import type {IGlobalConfigStore} from '../../core/interfaces/storage/i-global-config-store.js'
 
@@ -46,7 +50,10 @@ export class HttpAnalyticsSender implements IAnalyticsSender {
     this.deps = deps
   }
 
-  public async send(records: readonly StoredAnalyticsRecord[]): Promise<SendResult> {
+  public async send(
+    records: readonly StoredAnalyticsRecord[],
+    options?: AnalyticsSenderOptions,
+  ): Promise<SendResult> {
     if (records.length === 0) return {failed: [], succeeded: []}
 
     const ids = records.map((r) => r.id)
@@ -63,11 +70,19 @@ export class HttpAnalyticsSender implements IAnalyticsSender {
 
       const sessionKey = this.deps.authStateReader.getToken()?.sessionKey
       const batch = AnalyticsBatch.create(records.map((r) => toWireEvent(r)))
-      const httpResult = await this.deps.httpClient.send(batch, {
-        deviceId,
-        ...(sessionKey !== undefined && sessionKey !== '' ? {sessionId: sessionKey} : {}),
-        userAgent: this.deps.userAgent,
-      })
+      const httpResult = await this.deps.httpClient.send(
+        batch,
+        {
+          deviceId,
+          ...(sessionKey !== undefined && sessionKey !== '' ? {sessionId: sessionKey} : {}),
+          userAgent: this.deps.userAgent,
+        },
+        // M4.4: forward the cancellation signal so `brv analytics disable`
+        // (or shutdown) can abort an in-flight POST. The http client
+        // classifies aborted requests as `network`, which maps here to
+        // an all-failed result — same as any other transport failure.
+        options?.signal === undefined ? undefined : {signal: options.signal},
+      )
 
       if (httpResult.ok) return {failed: [], succeeded: [...ids]}
       return {failed: [...ids], succeeded: []}

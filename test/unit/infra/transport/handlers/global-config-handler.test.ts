@@ -18,6 +18,13 @@ function createMockGlobalConfigStore(): SinonStubbedInstance<IGlobalConfigStore>
   }
 }
 
+// M4.4: minimal analytics client double whose only relevant member for
+// the disable-side-effect tests is `abort`. Hoisted to module scope to
+// satisfy `unicorn/consistent-function-scoping`.
+function makeAnalyticsClientStub(): {abort: ReturnType<typeof stub>} {
+  return {abort: stub()}
+}
+
 describe('GlobalConfigHandler', () => {
   let store: SinonStubbedInstance<IGlobalConfigStore>
   let transport: MockTransportServer
@@ -200,6 +207,142 @@ describe('GlobalConfigHandler', () => {
       expect(writtenDeviceIds, 'exactly one deviceId persisted').to.have.lengthOf(1)
       expect(first.current).to.be.true
       expect(second.current).to.be.true
+    })
+  })
+
+  describe('M4.4 abort-on-disable side effect', () => {
+    // Disable does NOT drop the queue or clear JSONL — those stay so a
+    // future re-enable ships the backlog. The only side effect is
+    // cancelling an in-flight HTTP send so the daemon doesn't
+    // half-ship a batch across an enable/disable boundary.
+
+    it('calls analyticsClient.abort() exactly once when analytics flips true → false', async () => {
+      const analyticsClient = makeAnalyticsClientStub()
+      const handlerWithClient = new GlobalConfigHandler({
+        analyticsClient: {
+          abort: analyticsClient.abort,
+          flush: stub().resolves(),
+          onAuthTransition: stub().resolves(),
+          // Hand-rolled noop preserves the generic `track<E>` signature.
+          track(): void {
+            /* no-op */
+          },
+        },
+        globalConfigStore: store,
+        transport,
+      })
+      handlerWithClient.setup()
+
+      // Seed disk as currently enabled.
+      const enabled = GlobalConfig.create('device-x').withAnalytics(true)
+      store.read.resolves(enabled)
+
+      // Now disable.
+      const fn = transport._handlers.get(GlobalConfigEvents.SET_ANALYTICS)
+      if (!fn) throw new Error('SET_ANALYTICS handler not registered')
+      await fn({analytics: false}, 'client-1')
+
+      expect(analyticsClient.abort.calledOnce, 'abort must fire on enable→disable transition').to.be.true
+    })
+
+    it('does NOT call abort() when the disable is an idempotent no-op (already disabled)', async () => {
+      const analyticsClient = makeAnalyticsClientStub()
+      const handlerWithClient = new GlobalConfigHandler({
+        analyticsClient: {
+          abort: analyticsClient.abort,
+          flush: stub().resolves(),
+          onAuthTransition: stub().resolves(),
+          // Hand-rolled noop preserves the generic `track<E>` signature.
+          track(): void {
+            /* no-op */
+          },
+        },
+        globalConfigStore: store,
+        transport,
+      })
+      handlerWithClient.setup()
+
+      // Already disabled (or never enabled). previous === false, requested === false.
+      store.read.resolves()
+
+      const fn = transport._handlers.get(GlobalConfigEvents.SET_ANALYTICS)
+      if (!fn) throw new Error('SET_ANALYTICS handler not registered')
+      await fn({analytics: false}, 'client-1')
+
+      expect(analyticsClient.abort.called, 'no transition = no abort').to.be.false
+    })
+
+    it('does NOT call abort() when the user enables (false → true)', async () => {
+      const analyticsClient = makeAnalyticsClientStub()
+      const handlerWithClient = new GlobalConfigHandler({
+        analyticsClient: {
+          abort: analyticsClient.abort,
+          flush: stub().resolves(),
+          onAuthTransition: stub().resolves(),
+          // Hand-rolled noop preserves the generic `track<E>` signature.
+          track(): void {
+            /* no-op */
+          },
+        },
+        globalConfigStore: store,
+        transport,
+      })
+      handlerWithClient.setup()
+
+      const disabled = GlobalConfig.create('device-x').withAnalytics(false)
+      store.read.resolves(disabled)
+
+      const fn = transport._handlers.get(GlobalConfigEvents.SET_ANALYTICS)
+      if (!fn) throw new Error('SET_ANALYTICS handler not registered')
+      await fn({analytics: true}, 'client-1')
+
+      expect(analyticsClient.abort.called, 'enable is not a transition that requires abort').to.be.false
+    })
+
+    it('still completes the config write when abort() throws', async () => {
+      const handlerWithClient = new GlobalConfigHandler({
+        analyticsClient: {
+          abort() {
+            throw new Error('abort boom')
+          },
+          flush: stub().resolves(),
+          onAuthTransition: stub().resolves(),
+          // Hand-rolled noop preserves the generic `track<E>` signature.
+          track(): void {
+            /* no-op */
+          },
+        },
+        globalConfigStore: store,
+        transport,
+      })
+      handlerWithClient.setup()
+
+      const enabled = GlobalConfig.create('device-x').withAnalytics(true)
+      store.read.resolves(enabled)
+
+      const fn = transport._handlers.get(GlobalConfigEvents.SET_ANALYTICS)
+      if (!fn) throw new Error('SET_ANALYTICS handler not registered')
+      const response = await fn({analytics: false}, 'client-1')
+
+      expect(response.current, 'config write must complete even if abort threw').to.be.false
+      expect(response.previous).to.be.true
+      expect(store.write.calledOnce, 'config flush still happens').to.be.true
+    })
+
+    it('does not require analyticsClient (backwards-compat: dep is optional)', async () => {
+      // Pre-M4.4 callers (or test harnesses) don't wire analyticsClient.
+      // The handler must still work — the abort side-effect is skipped.
+      const handlerNoClient = new GlobalConfigHandler({globalConfigStore: store, transport})
+      handlerNoClient.setup()
+
+      const enabled = GlobalConfig.create('device-x').withAnalytics(true)
+      store.read.resolves(enabled)
+
+      const fn = transport._handlers.get(GlobalConfigEvents.SET_ANALYTICS)
+      if (!fn) throw new Error('SET_ANALYTICS handler not registered')
+      const response = await fn({analytics: false}, 'client-1')
+
+      expect(response.current, 'works without analyticsClient').to.be.false
     })
   })
 })

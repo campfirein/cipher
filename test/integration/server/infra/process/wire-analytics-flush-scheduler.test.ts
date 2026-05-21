@@ -24,6 +24,9 @@ type FakeClient = IAnalyticsClient & {readonly flushCalls: number; resetFlushCal
 function makeFakeClient(): FakeClient {
   let calls = 0
   const stub: FakeClient = {
+    abort() {
+      /* M4.4: not exercised in this test */
+    },
     async flush() {
       calls += 1
       return AnalyticsBatch.create([])
@@ -193,6 +196,9 @@ describe('M4.3 wireAnalyticsFlushScheduler (integration)', () => {
   it('flushFinal joins an in-flight flush rather than starting a second send', async () => {
     let releaseFlush!: () => void
     const slowClient: IAnalyticsClient = {
+      abort() {
+        /* M4.4: not exercised in this test */
+      },
       flush: () =>
         new Promise<AnalyticsBatch>((resolve) => {
           releaseFlush = () => resolve(AnalyticsBatch.create([]))
@@ -233,6 +239,9 @@ describe('M4.3 wireAnalyticsFlushScheduler (integration)', () => {
 
   it('flushFinal resolves under the timeout when flush never settles', async () => {
     const slowClient: IAnalyticsClient = {
+      abort() {
+        /* M4.4: not exercised in this test */
+      },
       flush: () =>
         new Promise<AnalyticsBatch>(() => {
           /* never resolves */

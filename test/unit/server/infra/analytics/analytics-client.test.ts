@@ -163,30 +163,41 @@ async function seedPending(client: AnalyticsClient, count: number): Promise<void
 }
 
 describe('AnalyticsClient', () => {
-  describe('disabled state (ticket scenario 1)', () => {
-    it('should be a true no-op when isEnabled returns false', async () => {
+  describe('disabled state (M4.4 semantic: track local-only)', () => {
+    // Pre-M4.4 this test asserted "no-op when disabled" (no JSONL append,
+    // no queue push, no resolver calls). Post-M4.4 the semantic is
+    // "local tracking always; remote send only when enabled" — disable
+    // gates the FLUSH layer, not the TRACK layer. `brv analytics disable`
+    // means "stop shipping to remote", not "stop collecting locally".
+    it('still tracks (JSONL + queue + resolvers) when isEnabled returns false; flush is the gate', async () => {
       const queue = new BoundedQueue()
+      const jsonlStore = makeFakeJsonlStore()
       const identityResolver = makeStubIdentityResolver(makeAnonIdentity())
       const superPropsResolver = makeStubSuperPropsResolver(makeSuperProps())
+      const sender = makeFakeSender()
 
       const client = new AnalyticsClient({
         identityResolver,
         isEnabled: () => false,
-        jsonlStore: makeFakeJsonlStore(),
+        jsonlStore,
         queue,
-        sender: makeFakeSender(),
+        sender,
         superPropsResolver,
       })
 
-      for (let i = 0; i < 1000; i++) {
+      for (let i = 0; i < 5; i++) {
         client.track(AnalyticsEventNames.DAEMON_START)
       }
 
       await flushMicrotasks()
 
-      expect(queue.size()).to.equal(0)
-      expect((identityResolver.resolve as ReturnType<typeof stub>).called, 'identityResolver.resolve must NOT be called').to.be.false
-      expect((superPropsResolver.resolve as ReturnType<typeof stub>).called, 'superPropsResolver.resolve must NOT be called').to.be.false
+      expect(queue.size(), 'queue STILL grows when disabled (local tracking unconditional)').to.equal(5)
+      expect(jsonlStore.records.length, 'JSONL STILL appended when disabled').to.equal(5)
+      expect((identityResolver.resolve as ReturnType<typeof stub>).called, 'resolvers still run').to.be.true
+
+      // Flush is the gate now: it must NOT call sender when disabled.
+      await client.flush()
+      expect(sender.calls.length, 'flush must NOT call sender when disabled').to.equal(0)
     })
   })
 
@@ -546,7 +557,7 @@ describe('AnalyticsClient', () => {
       expect(jsonlStore.records).to.have.lengthOf(N)
     })
 
-    it('should NOT call jsonlStore.append when analytics disabled', async () => {
+    it('STILL calls jsonlStore.append when analytics disabled (M4.4: local tracking unconditional)', async () => {
       const queue = new BoundedQueue()
       const jsonlStore = makeFakeJsonlStore()
       const client = new AnalyticsClient({
@@ -561,9 +572,9 @@ describe('AnalyticsClient', () => {
       client.track(AnalyticsEventNames.DAEMON_START)
       await flushMicrotasks()
 
-      expect(jsonlStore.appendSpy.called).to.equal(false)
-      expect(jsonlStore.records).to.have.lengthOf(0)
-      expect(queue.size()).to.equal(0)
+      expect(jsonlStore.appendSpy.calledOnce, 'append fires regardless of enable state').to.be.true
+      expect(jsonlStore.records).to.have.lengthOf(1)
+      expect(queue.size()).to.equal(1)
     })
   })
 
@@ -1124,6 +1135,172 @@ describe('AnalyticsClient', () => {
 
       expect(sender.calls, 'sequential flushes must each invoke sender').to.have.lengthOf(2)
       expect(second.events, 'second flush sees no pending rows after first settled').to.deep.equal([])
+    })
+  })
+
+  describe('M4.4 flush gate: disabled state skips remote send, leaves JSONL intact', () => {
+    it('flush() returns empty batch and does NOT call sender when isEnabled returns false', async () => {
+      const jsonlStore = makeFakeJsonlStore()
+      const sender = makeFakeSender()
+      // Pre-seed JSONL with a pending record (simulating an event tracked
+      // BEFORE the user disabled analytics — backlog scenario).
+      const client = new AnalyticsClient({
+        identityResolver: makeStubIdentityResolver(makeAnonIdentity()),
+        isEnabled: () => true,
+        jsonlStore,
+        queue: new BoundedQueue(),
+        sender,
+        superPropsResolver: makeStubSuperPropsResolver(makeSuperProps()),
+      })
+      await seedPending(client, 3)
+      expect(jsonlStore.records, 'precondition: 3 pending').to.have.lengthOf(3)
+
+      // Now disable and flush. Records MUST stay `pending` in JSONL;
+      // re-enable later ships them on the next scheduler tick.
+      const disabledClient = new AnalyticsClient({
+        identityResolver: makeStubIdentityResolver(makeAnonIdentity()),
+        isEnabled: () => false,
+        jsonlStore,
+        queue: new BoundedQueue(),
+        sender,
+        superPropsResolver: makeStubSuperPropsResolver(makeSuperProps()),
+      })
+
+      const batch = await disabledClient.flush()
+
+      expect(batch.events, 'disabled flush returns empty batch').to.deep.equal([])
+      expect(sender.calls, 'disabled flush must NOT call sender').to.have.lengthOf(0)
+      expect(
+        jsonlStore.records.every((r) => r.status === 'pending'),
+        'disabled flush must leave JSONL records as pending (backlog preserved)',
+      ).to.be.true
+    })
+
+    it('flush() ships the backlog after re-enable (disabled → enabled transition resumes shipping)', async () => {
+      const jsonlStore = makeFakeJsonlStore()
+      const sender = makeFakeSender()
+      let enabled = false
+      const client = new AnalyticsClient({
+        identityResolver: makeStubIdentityResolver(makeAnonIdentity()),
+        isEnabled: () => enabled,
+        jsonlStore,
+        queue: new BoundedQueue(),
+        sender,
+        superPropsResolver: makeStubSuperPropsResolver(makeSuperProps()),
+      })
+
+      // Track 5 events while disabled — JSONL still grows.
+      await seedPending(client, 5)
+      expect(jsonlStore.records).to.have.lengthOf(5)
+
+      // Flush while disabled — no-op on sender, backlog stays pending.
+      await client.flush()
+      expect(sender.calls).to.have.lengthOf(0)
+
+      // Re-enable + flush — backlog ships.
+      enabled = true
+      await client.flush()
+      expect(sender.calls, 'enabled flush ships the backlog').to.have.lengthOf(1)
+      expect(sender.calls[0]).to.have.lengthOf(5)
+    })
+  })
+
+  describe('M4.4 abort(): cancels in-flight flush via signal piped to sender', () => {
+    it('abort() during in-flight flush causes sender to receive an aborted signal', async () => {
+      let observedSignal: AbortSignal | undefined
+      let releaseSend!: () => void
+      const sender: IAnalyticsSender = {
+        async send(records, options) {
+          observedSignal = options?.signal
+          await new Promise<void>((resolve) => {
+            releaseSend = resolve
+          })
+          // Mimic HttpAnalyticsSender on abort: all-failed.
+          return {failed: records.map((r) => r.id), succeeded: []}
+        },
+      }
+      const jsonlStore = makeFakeJsonlStore()
+      const client = new AnalyticsClient({
+        identityResolver: makeStubIdentityResolver(makeAnonIdentity()),
+        isEnabled: () => true,
+        jsonlStore,
+        queue: new BoundedQueue(),
+        sender,
+        superPropsResolver: makeStubSuperPropsResolver(makeSuperProps()),
+      })
+
+      await seedPending(client, 2)
+      const flushPromise = client.flush()
+      await flushMicrotasks()
+      // Sender is now in-flight; abort the client.
+      client.abort()
+      expect(observedSignal?.aborted, 'sender must observe signal.aborted=true after abort()').to.equal(true)
+
+      // Release the sender to let flush settle. JSONL records get marked
+      // failed (not stuck pending) per the existing failure-classification
+      // path; that's M9.2's retry-cap concern, not M4.4's.
+      releaseSend()
+      await flushPromise
+    })
+
+    it('abort() is a no-op when no flush is in flight', () => {
+      const client = new AnalyticsClient({
+        identityResolver: makeStubIdentityResolver(makeAnonIdentity()),
+        isEnabled: () => true,
+        jsonlStore: makeFakeJsonlStore(),
+        queue: new BoundedQueue(),
+        sender: makeFakeSender(),
+        superPropsResolver: makeStubSuperPropsResolver(makeSuperProps()),
+      })
+
+      // Must not throw.
+      client.abort()
+    })
+
+    it('does NOT bump M9.2 attempts on aborted flush (records stay pending for next enabled flush)', async () => {
+      // Regression for N3 review finding: without this skip, every
+      // disable-during-flush would call updateStatus(failed, 'failed')
+      // which bumps `attempts` via the M9.2 retry-cap. A few
+      // disable/enable toggles during shipping could drive records to
+      // attempts >= MAX_ATTEMPTS and terminate them — silent data loss.
+      let releaseSend!: () => void
+      const sender: IAnalyticsSender = {
+        async send(records, _options) {
+          await new Promise<void>((resolve) => {
+            releaseSend = resolve
+          })
+          // Mimic the abort-classification path: all-failed.
+          return {failed: records.map((r) => r.id), succeeded: []}
+        },
+      }
+      const jsonlStore = makeFakeJsonlStore()
+      const client = new AnalyticsClient({
+        identityResolver: makeStubIdentityResolver(makeAnonIdentity()),
+        isEnabled: () => true,
+        jsonlStore,
+        queue: new BoundedQueue(),
+        sender,
+        superPropsResolver: makeStubSuperPropsResolver(makeSuperProps()),
+      })
+
+      await seedPending(client, 3)
+      expect(jsonlStore.records.every((r) => r.status === 'pending')).to.be.true
+
+      const flushPromise = client.flush()
+      await flushMicrotasks()
+      client.abort()
+      releaseSend()
+      await flushPromise
+
+      const failedUpdates = jsonlStore.updateStatusCalls.filter((c) => c.status === 'failed' && c.ids.length > 0)
+      expect(
+        failedUpdates,
+        'aborted flush must NOT call updateStatus(_, failed) with any ids — preserves M9.2 attempts',
+      ).to.have.lengthOf(0)
+      expect(
+        jsonlStore.records.every((r) => r.status === 'pending'),
+        'records remain pending so the next enabled flush ships them cleanly',
+      ).to.be.true
     })
   })
 })

@@ -51,6 +51,20 @@ export type AnalyticsHttpSendResult =
  *   - `AxiosAnalyticsHttpClient` — production transport over axios.
  *   - In-process fakes in unit tests for offline assertion.
  */
+/**
+ * Optional per-call controls. `signal` is the M4.4 cancellation hook
+ * used by `brv analytics disable` (and by the daemon shutdown path) to
+ * abort an in-flight send so the daemon doesn't half-ship a batch
+ * across an enable/disable boundary.
+ */
+export type AnalyticsHttpSendOptions = Readonly<{
+  signal?: AbortSignal
+}>
+
 export interface IAnalyticsHttpClient {
-  send: (batch: AnalyticsBatch, headers: AnalyticsHttpHeaders) => Promise<AnalyticsHttpSendResult>
+  send: (
+    batch: AnalyticsBatch,
+    headers: AnalyticsHttpHeaders,
+    options?: AnalyticsHttpSendOptions,
+  ) => Promise<AnalyticsHttpSendResult>
 }

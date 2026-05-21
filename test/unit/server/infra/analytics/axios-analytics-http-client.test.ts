@@ -210,4 +210,66 @@ describe('AxiosAnalyticsHttpClient', () => {
       expect(restored?.events).to.have.lengthOf(3)
     })
   })
+
+  describe('abort support (M4.4)', () => {
+    it('returns ok=false reason=network when the signal is aborted mid-flight', async () => {
+      // Server takes 500ms to reply; we abort after the request is in
+      // flight. Without abort plumbing the client would wait the full
+      // 5s timeout and the test would slow the suite.
+      nock(baseUrl).post('/v1/events').delay(500).reply(200, {})
+      const client = new AxiosAnalyticsHttpClient({baseUrl})
+      const controller = new AbortController()
+
+      const sendPromise = client.send(
+        makeBatch(1),
+        {deviceId: validDeviceId, userAgent: 'brv-cli/3.12.0'},
+        {signal: controller.signal},
+      )
+      // Give axios a tick to dispatch the request, then abort.
+      await new Promise((resolve) => {
+        setTimeout(resolve, 20)
+      })
+      controller.abort()
+      const result = await sendPromise
+
+      expect(result.ok).to.equal(false)
+      if (result.ok) throw new Error('unreachable')
+      // Aborted requests classify as `network` (not `timeout`) — they
+      // were terminated client-side, the server never replied.
+      expect(result.reason).to.equal('network')
+    })
+
+    it('returns ok=false reason=network when the signal is already aborted before send', async () => {
+      // No nock interceptor — if axios honored the pre-aborted signal it
+      // never hits the network. If it didn't, this would 503 with
+      // "Nock: No match" and fail the assertion below.
+      const client = new AxiosAnalyticsHttpClient({baseUrl})
+      const controller = new AbortController()
+      controller.abort()
+
+      const result = await client.send(
+        makeBatch(1),
+        {deviceId: validDeviceId, userAgent: 'brv-cli/3.12.0'},
+        {signal: controller.signal},
+      )
+
+      expect(result.ok).to.equal(false)
+      if (result.ok) throw new Error('unreachable')
+      expect(result.reason).to.equal('network')
+    })
+
+    it('completes normally when an unaborted signal is passed', async () => {
+      nock(baseUrl).post('/v1/events').reply(200, {accepted: 1})
+      const client = new AxiosAnalyticsHttpClient({baseUrl})
+      const controller = new AbortController() // never abort()
+
+      const result = await client.send(
+        makeBatch(1),
+        {deviceId: validDeviceId, userAgent: 'brv-cli/3.12.0'},
+        {signal: controller.signal},
+      )
+
+      expect(result.ok, 'unaborted signal must not block a healthy send').to.equal(true)
+    })
+  })
 })

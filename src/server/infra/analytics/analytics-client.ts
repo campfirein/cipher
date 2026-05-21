@@ -62,6 +62,10 @@ export interface AnalyticsClientDeps {
  * allocations beyond the function call frame.
  */
 export class AnalyticsClient implements IAnalyticsClient {
+  // M4.4 cancellation slot. Held only while a flush is in flight; the
+  // signal is piped through `sender.send` to the underlying HTTP client.
+  // `abort()` is a no-op when this is undefined (no in-flight to cancel).
+  private currentFlushController?: AbortController
   private readonly deps: AnalyticsClientDeps
   // Single-flight slot for an in-flight `flush()`. Concurrent callers join the
   // existing promise instead of starting a second read-then-decide cycle —
@@ -88,6 +92,21 @@ export class AnalyticsClient implements IAnalyticsClient {
   }
 
   /**
+   * M4.4 cancellation hook. Aborts the AbortController tied to the
+   * in-flight `flush()`'s HTTP request (if any). The signal propagates
+   * through `sender.send` to the underlying `IAnalyticsHttpClient`,
+   * which classifies aborted requests as `network` failures — JSONL
+   * records stay `pending` (so they ship on the next enabled flush).
+   *
+   * Called from `GlobalConfigHandler` when `brv analytics disable`
+   * flips the flag, so the daemon doesn't half-ship a batch across an
+   * enable/disable boundary. No-op when no flush is in flight.
+   */
+  public abort(): void {
+    this.currentFlushController?.abort()
+  }
+
+  /**
    * Reads pending rows from JSONL (NOT from the in-memory queue), invokes
    * the registered sender, and mirrors the per-record outcome back to JSONL
    * via `updateStatus`. The queue is intentionally bypassed: it can drop
@@ -107,6 +126,12 @@ export class AnalyticsClient implements IAnalyticsClient {
    * `flush()` is a thin caller — it does not inspect attempts.
    */
   public async flush(): Promise<AnalyticsBatch> {
+    // M4.4: `brv analytics disable` semantically means "stop shipping to
+    // remote" — local tracking (JSONL + queue) continues unconditionally.
+    // Gate here, NOT in `track()`. Records stay at `status='pending'` in
+    // JSONL; the next flush after re-enable picks them up automatically.
+    if (!this.deps.isEnabled()) return AnalyticsBatch.create([])
+
     // Single-flight: if a flush is already running, hand its promise to the
     // joining caller so both observe the same loadPending snapshot, the same
     // sender invocation, and the same mirror writes.
@@ -156,7 +181,10 @@ export class AnalyticsClient implements IAnalyticsClient {
   }
 
   public track<E extends AnalyticsEventName>(event: E, ...rest: PropsArg<E>): void {
-    if (!this.deps.isEnabled()) return
+    // M4.4 semantic: local tracking is unconditional. `isEnabled` only
+    // gates `flush()` (remote send). A disabled session still writes
+    // every track to JSONL + the in-memory queue; re-enabling picks the
+    // backlog up on the next flush.
     // Capture the timestamp synchronously at call-site so it reflects WHEN the
     // user action happened, not when the async resolver chain settled. Under
     // burst load (many tracks queued before the first resolver completes) this
@@ -176,15 +204,35 @@ export class AnalyticsClient implements IAnalyticsClient {
   private async runFlush(): Promise<AnalyticsBatch> {
     const records = await this.deps.jsonlStore.loadPending()
 
+    // M4.4: per-flush AbortController, exposed via `abort()` so the
+    // disable-handler can cancel the in-flight HTTP. Cleared in finally
+    // so a stale controller can't be aborted after settlement.
+    const controller = new AbortController()
+    this.currentFlushController = controller
+
     let result: SendResult
     try {
-      result = await this.deps.sender.send(records)
+      result = await this.deps.sender.send(records, {signal: controller.signal})
     } catch {
       result = {failed: records.map((r) => r.id), succeeded: []}
+    } finally {
+      if (this.currentFlushController === controller) {
+        this.currentFlushController = undefined
+      }
     }
 
     await this.deps.jsonlStore.updateStatus(result.succeeded, 'sent')
-    await this.deps.jsonlStore.updateStatus(result.failed, 'failed')
+    // M4.4 N3 fix: when we cancelled the send ourselves (`abort()` fired
+    // because `brv analytics disable` flipped the flag), DO NOT mark the
+    // failed records as 'failed' — that bumps the M9.2 retry-cap
+    // `attempts` counter on every cancel, and a few disable/enable
+    // toggles during shipping could terminate records as `'failed'`
+    // before they ever land. Leaving them at `status='pending'`
+    // preserves the invariant the `abort()` JSDoc claims: aborted
+    // records ship cleanly on the next enabled flush.
+    if (!controller.signal.aborted) {
+      await this.deps.jsonlStore.updateStatus(result.failed, 'failed')
+    }
 
     return AnalyticsBatch.create(records.map((r) => toWireEvent(r)))
   }

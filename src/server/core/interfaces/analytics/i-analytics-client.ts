@@ -17,6 +17,14 @@ import type {AnalyticsBatch} from '../../domain/analytics/batch.js'
  */
 export interface IAnalyticsClient {
   /**
+   * Cancel any in-flight `flush()`'s HTTP request. M4.4: invoked by
+   * `GlobalConfigHandler` when `brv analytics disable` flips the flag
+   * so the daemon doesn't half-ship a batch across an enable/disable
+   * boundary. No-op when no flush is in flight.
+   */
+  abort: () => void
+
+  /**
    * Drains the queue and returns the events as a serializable batch.
    * Used by the network sender (M4) and by tests.
    */
