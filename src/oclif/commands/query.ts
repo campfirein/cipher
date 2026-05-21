@@ -9,7 +9,7 @@ import {
 } from '../lib/daemon-client.js'
 import {writeJsonResponse} from '../lib/json-response.js'
 import {type QueryToolModeEnvelope, runRetrieval} from '../lib/query-retrieval.js'
-import {DEFAULT_TIMEOUT_SECONDS, MAX_TIMEOUT_SECONDS, MIN_TIMEOUT_SECONDS} from '../lib/task-client.js'
+import {assertNoRemovedFlags, QUERY_REMOVED_FLAGS} from '../lib/removed-flags.js'
 
 /** Default match cap. Locked to 10 (matches `brv search`). */
 const DEFAULT_QUERY_LIMIT = 10
@@ -51,12 +51,6 @@ Bad:
       max: MAX_QUERY_LIMIT,
       min: MIN_QUERY_LIMIT,
     }),
-    timeout: Flags.integer({
-      default: DEFAULT_TIMEOUT_SECONDS,
-      description: 'Maximum seconds to wait for task completion',
-      max: MAX_TIMEOUT_SECONDS,
-      min: MIN_TIMEOUT_SECONDS,
-    }),
   }
   public static strict = false
 
@@ -69,12 +63,10 @@ Bad:
     // retrieval + render; no LLM. ByteRover never invokes a provider
     // on this command. (The env-var `BRV_QUERY_TOOL_MODE` scaffolding
     // from M2 is removed in M3 — presence/absence is a no-op now.)
+    assertNoRemovedFlags(process.argv.slice(2), QUERY_REMOVED_FLAGS)
     const {args, flags: rawFlags} = await this.parse(Query)
     const format: 'json' | 'text' = rawFlags.format === 'json' ? 'json' : 'text'
     const limit = rawFlags.limit ?? DEFAULT_QUERY_LIMIT
-    // `--timeout` is deprecated: completion liveness is heartbeat-driven
-    // (see waitForTaskCompletion). The flag still parses for back-compat
-    // but no longer bounds the wait.
 
     if (args.query.trim().length === 0) {
       if (format === 'json') {

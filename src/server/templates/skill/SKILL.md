@@ -99,43 +99,16 @@ brv search "auth" --format json
 brv curate "Auth uses JWT with 24h expiry. Tokens stored in httpOnly cookies via authMiddleware.ts"
 ```
 
-**Include source files** (max 5, project-scoped only):
+To include file context, read the file yourself and inline the relevant content into the `<bv-topic>` HTML on the continuation step — see "Session protocol" below.
+
+**Execution mode**
+
+Curate runs as two cheap RPCs (kickoff + continuation) — both return promptly. Wait for each to finish before continuing. Any follow-up step (query, search, read, review, next curate that builds on this one) needs the just-curated data live in the context tree.
 
 ```bash
-brv curate "Authentication middleware details" -f src/middleware/auth.ts
+brv curate "..."                 # kickoff — returns the next prompt
+brv curate --session <id> --response "..." --format json   # continuation
 ```
-
-**Execution mode: wait by default**
-
-Default is **blocking** — call `brv curate "..."` with no flag and wait for it to finish before continuing. Any follow-up step (query, search, read, review, next curate that builds on this one) may depend on the just-curated data being live in the context tree.
-
-```bash
-brv curate "..."                 # DEFAULT — wait until done, then continue
-brv curate "..." --detach        # Only when BOTH conditions below hold
-```
-
-**Use `--detach` only when BOTH of the following are true:**
-
-1. No remaining step in this turn will query, search, read, or reference this curated data, AND no later curate in this turn builds on it.
-2. The user explicitly said not to wait — phrases addressed *to you* like "don't wait", "don't block on this", "fire and forget", "move on without waiting". The phrase must be something the user says to the agent, not something the agent would narrate about itself. This rules out "run in background" and "run async" as triggers — agents use those phrases to self-narrate at least as often as users use them to instruct, which creates a mirror-priming loop.
-
-**If the user's phrasing is ambiguous, wait.** Detach requires an unambiguous signal. "Quick one, keep moving" is not enough.
-
-If either condition is uncertain, do not `--detach`. Wait.
-
-**Size/duration is NOT a reason to `--detach`.** A slow curate whose output the next step reads must still block. **"Looks like the last step" is also NOT a reason** — that is a guess, not evidence.
-
-**Reporting:**
-- Blocking (default) → "Saved X"
-- `--detach` → "Queued X (log: `<logId>`)" — do NOT claim "saved" until verified
-
-**Cross-turn hygiene for detached curates (CRITICAL):** before any later tool call reads data a previous `--detach` submitted, run:
-
-```bash
-brv curate view <logId> --format json
-```
-
-Only proceed when `status: completed`. If `processing`, wait or tell the user. If `error`/`cancelled`, report and consider re-curate. `--detach` errors are silent — verification before trust is mandatory.
 
 **Session protocol**
 
@@ -174,7 +147,7 @@ The session protocol is request → response → request, all via `brv curate` i
        3. **Replace (data-destructive)**: re-emit with `--overwrite` carrying ONLY your new content. ONLY do this when the user has explicitly told you to replace prior content — it clobbers facts the user previously curated.
    - `failed` → surface `data.errors[].message` to the user. If `kind: "retry-cap-exceeded"`, your HTML still didn't validate after 3 corrections — ask the user to clarify intent and start a fresh kickoff.
 
-**Bounds:** at most 4 round-trips per session (1 generate + 3 corrections). Each `brv curate` invocation is short-lived — `--detach`, `-f` files, and `--folder` flags are parsed but not supported by the current session protocol (v1 is INSERT-only). Session state lives in `.brv/sessions/curate-<id>/` and is cleaned up on terminal `done` or `failed`.
+**Bounds:** at most 4 round-trips per session (1 generate + 3 corrections). Each `brv curate` invocation is short-lived. Session state lives in `.brv/sessions/curate-<id>/` and is cleaned up on terminal `done` or `failed`.
 
 ### 4. Review Pending Changes
 **Overview:** After a curate operation, some changes may require human review before being applied. Use `brv review` to list, approve, or reject pending operations.
