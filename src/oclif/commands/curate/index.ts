@@ -162,6 +162,9 @@ Bad examples:
       }
     } else if (envelope.status === 'done') {
       this.log(`✓ Curated to ${envelope.filePath}`)
+      for (const warning of envelope.warnings ?? []) {
+        this.log(`  ⚠ ${warning}`)
+      }
     } else {
       this.log('✗ Curate failed')
       for (const err of envelope.errors ?? []) {

@@ -165,6 +165,38 @@ describe('curate-session placeholder', () => {
       expect(existsSync(stateDir)).to.equal(false)
     })
 
+    it('surfaces related-ref warnings on a done envelope when the resolver flagged a broken ref', async () => {
+      // Curate a topic whose `related` points at a path that does NOT
+      // exist on disk. The write itself succeeds (refs are advisory) but
+      // the writer's read-only related-ref resolver flags the broken ref
+      // and the CLI must plumb that warning into the done envelope so the
+      // calling agent sees it.
+      const html = '<bv-topic path="security/jwt" title="JWT" related="@security/missing"><bv-reason>x</bv-reason></bv-topic>'
+      const kickoff = await kickoffSession({content: 'remember JWT', projectRoot})
+      const envelope = await continueSession({projectRoot, response: JSON.stringify({html}), sessionId: kickoff.sessionId!})
+
+      expect(envelope.status).to.equal('done')
+      expect(envelope.warnings, 'warnings must be present').to.not.equal(undefined)
+      expect(envelope.warnings).to.have.lengthOf(1)
+      expect(envelope.warnings![0]).to.include('@security/missing')
+    })
+
+    it('omits the warnings field on a clean curate (every related ref resolves)', async () => {
+      // Seed the peer topic first so the related ref resolves to an
+      // existing file. The done envelope should have no `warnings` key.
+      const seedKickoff = await kickoffSession({content: 'seed oauth', projectRoot})
+      const seedHtml = '<bv-topic path="security/oauth" title="OAuth"><bv-reason>x</bv-reason></bv-topic>'
+      const seedDone = await continueSession({projectRoot, response: JSON.stringify({html: seedHtml}), sessionId: seedKickoff.sessionId!})
+      expect(seedDone.status).to.equal('done')
+
+      const newKickoff = await kickoffSession({content: 'remember JWT', projectRoot})
+      const html = '<bv-topic path="security/jwt" title="JWT" related="@security/oauth.html"><bv-reason>x</bv-reason></bv-topic>'
+      const envelope = await continueSession({projectRoot, response: JSON.stringify({html}), sessionId: newKickoff.sessionId!})
+
+      expect(envelope.status).to.equal('done')
+      expect(envelope.warnings, 'warnings must be omitted on clean writes').to.equal(undefined)
+    })
+
     it('second continuation against a completed sessionId returns unknown-session', async () => {
       const kickoff = await kickoffSession({content: 'x', projectRoot})
       const sessionId = kickoff.sessionId!
