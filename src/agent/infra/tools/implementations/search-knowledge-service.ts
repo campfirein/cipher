@@ -1097,10 +1097,27 @@ export class SearchKnowledgeService implements ISearchKnowledgeService {
    * mutated the context tree (or know they're operating against a
    * freshly-loaded topic set, like dream-scan) use this to bypass the
    * 5-second TTL fast-path that would otherwise serve stale results.
-   * Also clears any in-flight build promise so the next caller gets a
-   * fresh build rather than awaiting an already-stale one.
+   *
+   * Awaits any in-flight build BEFORE clearing. Without this, an
+   * orphan builder started before the refresh can later resolve and
+   * write back to `state.cachedIndex` (acquireIndex publishes at the
+   * end of its build body), defeating the invalidation. Awaiting lets
+   * the in-flight build settle and publish, then the clear removes
+   * its now-stale result — so the next caller is guaranteed to do a
+   * fresh disk read. Rejections from the in-flight build are
+   * swallowed; callers of refreshIndex don't care about that build's
+   * outcome, they just want a clean slate.
    */
   async refreshIndex(): Promise<void> {
+    const inFlight = this.state.buildingPromise
+    if (inFlight) {
+      try {
+        await inFlight
+      } catch {
+        // in-flight build failure is irrelevant to the invalidation contract
+      }
+    }
+
     this.state.cachedIndex = undefined
     this.state.buildingPromise = undefined
   }
