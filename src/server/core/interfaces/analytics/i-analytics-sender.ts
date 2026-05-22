@@ -26,6 +26,15 @@ export type SendResult = Readonly<{
  *   Test seam — used to assert the M10.2 "leave-JSONL-untouched" invariant
  *   without going through the real transport.
  */
+/**
+ * Per-send options. `signal` is the M4.4 cancellation hook so the
+ * AnalyticsClient can abort an in-flight send when `brv analytics
+ * disable` fires.
+ */
+export type AnalyticsSenderOptions = Readonly<{
+  signal?: AbortSignal
+}>
+
 export interface IAnalyticsSender {
   /**
    * Attempts to ship `records`. Returns the per-record outcome as id arrays.
@@ -33,5 +42,5 @@ export interface IAnalyticsSender {
    * that hit a transient error (network failure, 5xx) should classify
    * those records as `failed` and let M9.2's retry-cap policy handle them.
    */
-  send: (records: readonly StoredAnalyticsRecord[]) => Promise<SendResult>
+  send: (records: readonly StoredAnalyticsRecord[], options?: AnalyticsSenderOptions) => Promise<SendResult>
 }

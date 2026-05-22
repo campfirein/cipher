@@ -84,6 +84,9 @@ function makeFakeAuthStateStore(initial?: AuthToken): IAuthStateStore & {
     onAuthExpired(_cb: AuthExpiredCallback): void {
       // not exercised here
     },
+    onBeforeAuthChange(): void {
+      // M4.4: pre-hook not exercised in this M4.1 test
+    },
     startPolling(): void {
       // not exercised here
     },
@@ -98,6 +101,9 @@ function makeFakeAnalyticsClient(): IAnalyticsClient & {
 } {
   const onAuthTransition = stub().resolves()
   return {
+    abort() {
+      /* M4.4: not exercised in this test */
+    },
     flush: stub().resolves(AnalyticsBatch.create([])),
     onAuthTransition,
     onAuthTransitionSpy: onAuthTransition,
@@ -259,6 +265,9 @@ describe('M4.1 wireAnalyticsAuthTransition (integration)', () => {
           callbacks.push(cb)
         },
         onAuthExpired(_cb: AuthExpiredCallback): void {},
+        onBeforeAuthChange(): void {
+          // M4.4: pre-hook not exercised in this M4.1 test
+        },
         startPolling(): void {},
         stopPolling(): void {},
       }

@@ -83,6 +83,7 @@ import {
 } from '../transport/handlers/index.js'
 import {HttpUserService} from '../user/http-user-service.js'
 import {FileVcGitConfigStore} from '../vc/file-vc-git-config-store.js'
+import {wireAnalyticsAuthPreTransition} from './wire-analytics-auth-pre-transition.js'
 import {wireAnalyticsAuthTransition} from './wire-analytics-auth-transition.js'
 import {wireAnalyticsFlushScheduler} from './wire-analytics-flush-scheduler.js'
 import {wireAnalyticsHttpSender} from './wire-analytics-http-sender.js'
@@ -229,6 +230,19 @@ export async function setupFeatureHandlers({
   // transitions. See `wireAnalyticsAuthTransition` for the
   // login/logout/refresh decision logic.
   wireAnalyticsAuthTransition(authStateStore, analyticsClient)
+
+  // M4.4: subscribe the pre-transition hook so the client flushes
+  // surviving events under the OLD session header BEFORE the new
+  // token replaces the cache. Paired with the M4.1 post-hook above
+  // (drops anything the flush couldn't deliver in time).
+  wireAnalyticsAuthPreTransition(authStateStore, analyticsClient)
+
+  // M4.4: close the global-config-handler ↔ analyticsClient cycle.
+  // The handler was constructed earlier (so its sync cache was
+  // populated before the client read it); now that the client
+  // exists, register it so `brv analytics disable` can call
+  // `abort()` to cancel any in-flight HTTP.
+  globalConfigHandler.setAnalyticsClient(analyticsClient)
 
   // M2.6: route incoming analytics:track events from non-forked clients
   // (TUI, oclif, MCP, webui) to the same singleton.

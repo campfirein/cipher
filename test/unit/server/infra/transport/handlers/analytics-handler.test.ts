@@ -28,6 +28,9 @@ type MockAnalyticsClient = IAnalyticsClient & {
 function makeMockAnalyticsClient(): MockAnalyticsClient {
   const trackCalls: TrackCall[] = []
   const mock: MockAnalyticsClient = {
+    abort() {
+      /* M4.4: not exercised in this test */
+    },
     flush: () => Promise.resolve(AnalyticsBatch.create([])),
     onAuthTransition: () => Promise.resolve(),
     track<E extends AnalyticsEventName>(event: E, ...rest: PropsArg<E>): void {

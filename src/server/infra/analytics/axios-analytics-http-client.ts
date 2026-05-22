@@ -5,6 +5,7 @@ import axios, {AxiosError} from 'axios'
 import type {AnalyticsBatch} from '../../core/domain/analytics/batch.js'
 import type {
   AnalyticsHttpHeaders,
+  AnalyticsHttpSendOptions,
   AnalyticsHttpSendResult,
   IAnalyticsHttpClient,
 } from '../../core/interfaces/analytics/i-analytics-http-client.js'
@@ -52,10 +53,17 @@ export class AxiosAnalyticsHttpClient implements IAnalyticsHttpClient {
   public async send(
     batch: AnalyticsBatch,
     headers: AnalyticsHttpHeaders,
+    options?: AnalyticsHttpSendOptions,
   ): Promise<AnalyticsHttpSendResult> {
     try {
       const response = await this.axios.post(EVENTS_PATH, batch.toJson(), {
         headers: this.composeHeaders(headers),
+        // M4.4: surface the caller's AbortSignal so `brv analytics
+        // disable` / daemon shutdown can cancel an in-flight POST.
+        // Pre-aborted signals are honored by axios (it short-circuits
+        // before dispatch). Aborted requests classify as `network`
+        // (client-side termination, not a server-side condition).
+        ...(options?.signal === undefined ? {} : {signal: options.signal}),
       })
       return classifyResponse(response)
     } catch (error: unknown) {

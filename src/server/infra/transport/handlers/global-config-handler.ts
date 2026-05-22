@@ -1,5 +1,6 @@
 import {randomUUID} from 'node:crypto'
 
+import type {IAnalyticsClient} from '../../../core/interfaces/analytics/i-analytics-client.js'
 import type {IGlobalConfigStore} from '../../../core/interfaces/storage/i-global-config-store.js'
 import type {ITransportServer} from '../../../core/interfaces/transport/i-transport-server.js'
 
@@ -13,6 +14,14 @@ import {GLOBAL_CONFIG_VERSION} from '../../../constants.js'
 import {GlobalConfig} from '../../../core/domain/entities/global-config.js'
 
 export interface GlobalConfigHandlerDeps {
+  /**
+   * M4.4: optional analytics client used to cancel any in-flight HTTP
+   * send when `brv analytics disable` flips the flag from true → false.
+   * Disable does NOT drop the queue or clear JSONL — those stay so a
+   * future re-enable ships the backlog. Optional for back-compat with
+   * test harnesses that don't construct a real analytics client.
+   */
+  analyticsClient?: IAnalyticsClient
   globalConfigStore: IGlobalConfigStore
   transport: ITransportServer
 }
@@ -40,6 +49,7 @@ export interface GlobalConfigHandlerDeps {
  * disk — the cache is purely an in-process bridge for sync consumers.
  */
 export class GlobalConfigHandler {
+  private analyticsClient: IAnalyticsClient | undefined
   private cachedAnalytics: boolean | undefined
   private readonly globalConfigStore: IGlobalConfigStore
   private readonly transport: ITransportServer
@@ -51,6 +61,7 @@ export class GlobalConfigHandler {
   private writeChain: Promise<void> = Promise.resolve()
 
   constructor(deps: GlobalConfigHandlerDeps) {
+    this.analyticsClient = deps.analyticsClient
     this.globalConfigStore = deps.globalConfigStore
     this.transport = deps.transport
   }
@@ -98,6 +109,19 @@ export class GlobalConfigHandler {
     }
   }
 
+  /**
+   * M4.4: late-bound analytics client setter. The composition root
+   * constructs `GlobalConfigHandler` BEFORE `AnalyticsClient` exists
+   * (the cached-analytics flag must be populated before the client
+   * reads it). This setter closes that loop: once the client is built,
+   * the daemon wires it in so disable-time `abort()` works.
+   *
+   * Calling this more than once silently replaces the reference. Idempotent.
+   */
+  setAnalyticsClient(client: IAnalyticsClient): void {
+    this.analyticsClient = client
+  }
+
   setup(): void {
     this.transport.onRequest<void, GlobalConfigGetResponse>(GlobalConfigEvents.GET, async () => this.read())
     this.transport.onRequest<GlobalConfigSetAnalyticsRequest, GlobalConfigSetAnalyticsResponse>(
@@ -126,6 +150,20 @@ export class GlobalConfigHandler {
     // edits) are NOT observable until the next daemon restart. The
     // single-daemon model makes this safe today.
     this.cachedAnalytics = updated.analytics
+
+    // M4.4: on enable → disable, abort any in-flight analytics HTTP so
+    // the daemon doesn't half-ship a batch across the boundary. Disable
+    // does NOT drop the queue or clear JSONL — the backlog persists and
+    // ships on re-enable. abort() errors are swallowed: a failed cancel
+    // MUST NOT block the config write the user explicitly requested.
+    if (previous && !analytics) {
+      try {
+        this.analyticsClient?.abort()
+      } catch {
+        /* swallow — analytics MUST NOT block config writes */
+      }
+    }
+
     return {current: updated.analytics, previous}
   }
 

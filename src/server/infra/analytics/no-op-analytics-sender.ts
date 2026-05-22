@@ -21,6 +21,11 @@ import type {IAnalyticsSender, SendResult} from '../../core/interfaces/analytics
  */
 export class NoOpAnalyticsSender implements IAnalyticsSender {
   public async send(_records: readonly StoredAnalyticsRecord[]): Promise<SendResult> {
+    // M4.4 `AnalyticsSenderOptions` (signal) intentionally accepted by
+    // the interface but ignored here — the no-op sender never reaches a
+    // transport that could be cancelled. Omitting the parameter keeps
+    // the structural-type assignment to `IAnalyticsSender` valid (optional
+    // parameter).
     return {failed: [], succeeded: []}
   }
 }

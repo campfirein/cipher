@@ -3,12 +3,22 @@ import type {ITokenStore} from '../../core/interfaces/auth/i-token-store.js'
 import type {
   AuthChangedCallback,
   AuthExpiredCallback,
+  BeforeAuthChangedCallback,
   IAuthStateStore,
 } from '../../core/interfaces/state/i-auth-state-store.js'
 
 import {AUTH_STATE_POLL_INTERVAL_MS} from '../../constants.js'
 
+const DEFAULT_BEFORE_AUTH_CHANGE_TIMEOUT_MS = 6000
+
 type AuthStateStoreOptions = {
+  /**
+   * Hang-guard for `onBeforeAuthChange` listeners. Each pre-listener is
+   * raced against this timeout so a wedged subsystem (e.g. analytics
+   * flush stuck on a slow backend) cannot deadlock auth transitions.
+   * Default 6000ms = HTTP-client 5s timeout + 1s slack.
+   */
+  beforeAuthChangeTimeoutMs?: number
   /** Logging function (optional, defaults to no-op) */
   log?: (message: string) => void
   /** Polling interval in milliseconds (optional, defaults to AUTH_STATE_POLL_INTERVAL_MS) */
@@ -35,6 +45,8 @@ type AuthStateStoreOptions = {
 export class AuthStateStore implements IAuthStateStore {
   private readonly authChangedCallbacks: AuthChangedCallback[] = []
   private readonly authExpiredCallbacks: AuthExpiredCallback[] = []
+  private readonly beforeAuthChangeCallbacks: BeforeAuthChangedCallback[] = []
+  private readonly beforeAuthChangeTimeoutMs: number
   private cachedToken: AuthToken | undefined
   private isPolling = false
   private readonly log: (message: string) => void
@@ -47,6 +59,7 @@ export class AuthStateStore implements IAuthStateStore {
   constructor(options: AuthStateStoreOptions) {
     this.tokenStore = options.tokenStore
     this.pollIntervalMs = options.pollIntervalMs ?? AUTH_STATE_POLL_INTERVAL_MS
+    this.beforeAuthChangeTimeoutMs = options.beforeAuthChangeTimeoutMs ?? DEFAULT_BEFORE_AUTH_CHANGE_TIMEOUT_MS
     this.log = options.log ?? (() => {})
   }
 
@@ -57,7 +70,7 @@ export class AuthStateStore implements IAuthStateStore {
   async loadToken(): Promise<AuthToken | undefined> {
     try {
       const token = await this.tokenStore.load()
-      this.updateCachedToken(token)
+      await this.updateCachedToken(token)
       return this.cachedToken
     } catch (error) {
       this.log(`Failed to load token: ${error instanceof Error ? error.message : String(error)}`)
@@ -71,6 +84,10 @@ export class AuthStateStore implements IAuthStateStore {
 
   onAuthExpired(callback: AuthExpiredCallback): void {
     this.authExpiredCallbacks.push(callback)
+  }
+
+  onBeforeAuthChange(callback: BeforeAuthChangedCallback): void {
+    this.beforeAuthChangeCallbacks.push(callback)
   }
 
   startPolling(): void {
@@ -119,6 +136,45 @@ export class AuthStateStore implements IAuthStateStore {
   }
 
   /**
+   * Fire pre-transition listeners in registration order, each bounded by
+   * `beforeAuthChangeTimeoutMs`. A listener that rejects or hangs is
+   * logged best-effort and does NOT block subsequent listeners or the
+   * transition itself — this is the contract the analytics force-flush
+   * relies on (must not deadlock auth on a wedged backend).
+   *
+   * The cached token is NOT mutated yet — `getToken()` still returns the
+   * old token throughout this call. That guarantee is what lets the
+   * analytics flush carry the OLD session header.
+   */
+  private async fireBeforeAuthChange(
+    oldToken: AuthToken | undefined,
+    newToken: AuthToken | undefined,
+  ): Promise<void> {
+    for (const callback of this.beforeAuthChangeCallbacks) {
+      let timer: ReturnType<typeof setTimeout> | undefined
+      try {
+        // eslint-disable-next-line no-await-in-loop
+        await Promise.race([
+          Promise.resolve(callback(oldToken, newToken)),
+          new Promise<void>((resolve) => {
+            timer = setTimeout(resolve, this.beforeAuthChangeTimeoutMs)
+          }),
+        ])
+      } catch (error) {
+        this.log(`onBeforeAuthChange callback rejected: ${error instanceof Error ? error.message : String(error)}`)
+      } finally {
+        // Always clear the hang-guard timer when the callback wins the
+        // race (the common fast path). Without this clear, every
+        // transition leaks a pending Node timer that keeps the event
+        // loop alive for `beforeAuthChangeTimeoutMs` after the callback
+        // settled — a shutdown triggered shortly after a transition
+        // would block up to that budget waiting for the phantom timer.
+        if (timer !== undefined) clearTimeout(timer)
+      }
+    }
+  }
+
+  /**
    * Single poll cycle. Loads token from store and compares with cached.
    * Skips if a poll is already in-flight.
    */
@@ -128,7 +184,7 @@ export class AuthStateStore implements IAuthStateStore {
     this.isPolling = true
     try {
       const token = await this.tokenStore.load()
-      this.updateCachedToken(token)
+      await this.updateCachedToken(token)
     } catch (error) {
       this.log(`Auth poll error: ${error instanceof Error ? error.message : String(error)}`)
     } finally {
@@ -137,14 +193,24 @@ export class AuthStateStore implements IAuthStateStore {
   }
 
   /**
-   * Compare loaded token with cached and fire appropriate callbacks.
+   * Compare loaded token with cached, fire pre-transition listeners
+   * (M4.4), then mutate the cache and fire post-transition listeners.
+   *
+   * Ordering is load-bearing: the pre-listeners observe the OLD token
+   * via `getToken()` because `this.cachedToken` only mutates AFTER they
+   * resolve. Without that ordering, M4.4's flush-then-drop hybrid would
+   * ship events with the NEW session header but OLD per-event identity,
+   * tripping the backend's identity-mismatch path and downgrading those
+   * events to anonymous.
    */
-  private updateCachedToken(token: AuthToken | undefined): void {
+  private async updateCachedToken(token: AuthToken | undefined): Promise<void> {
     const previousAccessToken = this.cachedToken?.accessToken
     const newAccessToken = token?.accessToken
 
     // Detect change: different accessToken (including undefined <-> defined)
     if (previousAccessToken !== newAccessToken) {
+      const oldToken = this.cachedToken
+      await this.fireBeforeAuthChange(oldToken, token)
       this.cachedToken = token
       this.wasExpired = false
       this.log(`Auth state changed: ${token ? 'token present' : 'token removed'}`)
