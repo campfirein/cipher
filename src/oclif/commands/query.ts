@@ -110,6 +110,7 @@ Bad:
             client,
             format,
             projectRoot,
+            providerContext,
             query: args.query,
             worktreeRoot,
           })
@@ -129,12 +130,12 @@ Bad:
   }
 
   private reportError(error: unknown, format: 'json' | 'text', providerContext?: ProviderErrorContext): void {
-    const errorMessage = error instanceof Error ? error.message : 'Query failed'
+    const errorMessage = formatConnectionError(error, providerContext)
 
     if (format === 'json') {
       writeJsonResponse({command: 'query', data: {error: errorMessage, status: 'error'}, success: false})
     } else {
-      this.log(formatConnectionError(error, providerContext))
+      this.log(errorMessage)
     }
 
     if (hasLeakedHandles(error)) {
@@ -147,10 +148,11 @@ Bad:
     client: ITransportClient
     format: 'json' | 'text'
     projectRoot?: string
+    providerContext?: ProviderErrorContext
     query: string
     worktreeRoot?: string
   }): Promise<void> {
-    const {client, format, projectRoot, query, worktreeRoot} = props
+    const {client, format, projectRoot, providerContext, query, worktreeRoot} = props
     const taskId = randomUUID()
     const taskPayload = {
       clientCwd: process.cwd(),
@@ -213,9 +215,13 @@ Bad:
         },
         onError({error}) {
           if (format === 'json') {
+            const message = formatConnectionError(
+              Object.assign(new Error(error.message), error.code ? {code: error.code} : {}),
+              providerContext,
+            )
             writeJsonResponse({
               command: 'query',
-              data: {event: 'error', message: error.message, status: 'error'},
+              data: {event: 'error', message, status: 'error'},
               success: false,
             })
           }

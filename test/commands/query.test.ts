@@ -165,6 +165,46 @@ describe('Query Command', () => {
     })
   })
 
+  describe('json error sanitization', () => {
+    it('should sanitize provider auth failures from task:error events', async () => {
+      const eventHandlers: Map<string, Array<(data: unknown) => void>> = new Map()
+      ;(mockClient.on as sinon.SinonStub).callsFake((event: string, handler: (data: unknown) => void) => {
+        if (!eventHandlers.has(event)) eventHandlers.set(event, [])
+        eventHandlers.get(event)!.push(handler)
+        return () => {}
+      })
+      ;(mockClient.requestWithAck as sinon.SinonStub).callsFake(async (event: string, payload: {taskId: string}) => {
+        if (event === 'state:getProviderConfig') {
+          return {activeModel: 'openclaw/main', activeProvider: 'openai-compatible'}
+        }
+        if (event === 'billing:resolve') return {}
+        if (event === 'config:getEnvironment') return {}
+
+        setTimeout(() => {
+          const handlers = eventHandlers.get('task:error')
+          if (handlers) {
+            for (const handler of handlers) {
+              handler({
+                error: {message: 'Unauthorized: bearer SECRET_VALUE_SHOULD_NOT_LEAK'},
+                taskId: payload.taskId,
+              })
+            }
+          }
+        }, 10)
+        return {taskId: payload.taskId}
+      })
+
+      await createJsonCommand('How does auth work?').run()
+
+      const json = parseJsonOutput().at(-1)!
+      expect(json.success).to.be.false
+      expect(json.data).to.have.property('message').that.includes('LLM provider request was unauthorized')
+      expect(json.data.message).to.include('openai-compatible')
+      expect(json.data.message).to.not.include('SECRET_VALUE_SHOULD_NOT_LEAK')
+      expect(json.data.message).to.not.include('brv login')
+    })
+  })
+
   // ==================== Task Submission ====================
 
   describe('task submission', () => {

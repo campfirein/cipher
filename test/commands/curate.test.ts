@@ -336,7 +336,35 @@ describe('Curate Command', () => {
    * @param pendingCount - When provided, fires review:notify before task:completed.
    *   The server broadcasts this event when curate completes with operations requiring review.
    */
-  function simulateTaskCompletion(toolResults: unknown[], pendingCount?: number): void {
+  const defaultProviderConfig = {
+    activeModel: 'openclaw/main',
+    activeProvider: 'openai-compatible',
+  }
+
+  function simulateTaskError(
+    error: {code?: string; message: string},
+    providerConfig: {activeModel?: string; activeProvider?: string} = defaultProviderConfig,
+  ): void {
+    const eventHandlers = new Map<string, (data: unknown) => void>()
+
+    ;(mockClient.on as sinon.SinonStub).callsFake((event: string, handler: (data: unknown) => void) => {
+      eventHandlers.set(event, handler)
+      return () => {}
+    })
+
+    ;(mockClient.requestWithAck as sinon.SinonStub).callsFake(async (event: string, data: unknown) => {
+      if (event === 'state:getProviderConfig') return providerConfig
+
+      const {taskId} = data as {taskId: string}
+      setImmediate(() => {
+        eventHandlers.get('task:error')?.({error, logId: 'log-1', taskId})
+      })
+
+      return {logId: 'log-1'}
+    })
+  }
+
+  function simulateTaskCompletion(toolResults: unknown[], pendingCount?: number, result = 'done'): void {
     const eventHandlers = new Map<string, (data: unknown) => void>()
 
     ;(mockClient.on as sinon.SinonStub).callsFake((event: string, handler: (data: unknown) => void) => {
@@ -372,7 +400,7 @@ describe('Curate Command', () => {
           })
         }
 
-        const completedPayload: Record<string, unknown> = {logId: 'log-1', taskId}
+        const completedPayload: Record<string, unknown> = {logId: 'log-1', result, taskId}
         if (pendingCount !== undefined && pendingCount > 0) {
           completedPayload.pendingReviewCount = pendingCount
         }
@@ -385,6 +413,55 @@ describe('Curate Command', () => {
   }
 
   describe('pending review output', () => {
+    it('should sanitize provider auth failures in JSON task:error output', async () => {
+      simulateTaskError({message: 'Unauthorized: bearer SECRET_VALUE_SHOULD_NOT_LEAK'})
+
+      await createJsonCommand('test context').run()
+
+      const json = parseLastJsonLine()
+      expect(json.success).to.be.false
+      expect(json.data).to.include({event: 'error', status: 'error'})
+      expect(json.data).to.have.property('message').that.includes('LLM provider request was unauthorized')
+      expect(json.data.message).to.not.include('SECRET_VALUE_SHOULD_NOT_LEAK')
+      expect(json.data.message).to.not.include('brv login')
+    })
+
+    it('should not print success when completed task result says curation was blocked', async () => {
+      simulateTaskCompletion(
+        [],
+        undefined,
+        'I am blocked from doing the RLM curation properly because the required ByteRover `code_exec` tool is not exposed in this session.',
+      )
+
+      await createCommand('test context').run()
+
+      expect(loggedMessages.some((m) => m.includes('Context curated successfully'))).to.be.false
+      expect(loggedMessages.some((m) => m.includes('Context curation blocked'))).to.be.true
+    })
+
+    it('should output JSON failure when completed task result says zero-op curation was blocked', async () => {
+      simulateTaskCompletion(
+        [],
+        undefined,
+        'The curation agent could not complete proper RLM curation because required code_exec tooling was not exposed.',
+      )
+
+      await createJsonCommand('test context').run()
+
+      const json = parseLastJsonLine()
+      expect(json.success).to.be.false
+      expect(json.data).to.include({event: 'completed', status: 'error'})
+      expect(json.data).to.have.property('message').that.includes('Context curation blocked')
+    })
+
+    it('should report a genuine zero-op completion truthfully', async () => {
+      simulateTaskCompletion([], undefined, 'No durable project context changes were needed.')
+
+      await createCommand('test context').run()
+
+      expect(loggedMessages.some((m) => m.includes('Context curated successfully'))).to.be.false
+      expect(loggedMessages.some((m) => m.includes('No context changes applied'))).to.be.true
+    })
 
     it('should print review summary for high-impact pending ops', async () => {
       simulateTaskCompletion(
